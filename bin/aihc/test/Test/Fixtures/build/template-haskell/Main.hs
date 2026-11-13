@@ -96,6 +96,19 @@ answer = 42
 data Shape = Circle Int | Square Int Int
   deriving (Show)
 
+-- | A value of this module that the module does not export.
+secret :: Int
+secret = 41
+
+-- | A quote in a splice names the argument, which has the name of a
+-- top-level value. The name keeps the meaning that it has at the splice.
+localSecret :: Int -> Int
+localSecret secret = $([|secret|])
+
+-- | The same for an argument with the name of an imported function.
+localId :: Int -> Int
+localId id = $([|id|])
+
 -- A declaration splice reads the facts of a type of its own module with
 -- reify, and makes declarations that use the type and its constructors.
 $( do
@@ -177,7 +190,8 @@ main = do
   -- The quote lifts the value of a variable from outside the quote.
   print ($(let n = 5 :: Int in [|n * 2|]) :: Int)
   print ($([|\x -> x + 1|]) (41 :: Int))
-  -- The name in the quote keeps its meaning where a local name hides it.
+  -- A local binder around the splice binds the name of the quote, as in
+  -- GHC.
   let length = const (0 :: Int) in print ($([|length "abcd"|]) :: Int)
   print $([|(if True then 'a' else 'b', [length "x", 2])|])
   print (twice 21)
@@ -226,3 +240,15 @@ main = do
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
   runQ promotedQuote >>= print . promotedQuoteForm
+  -- A quote in a splice body names a value and a constructor of this
+  -- module that the module does not export, and a constructor in a
+  -- pattern.
+  print ($([|secret + 1|]) :: Int)
+  print $([|Circle 7|])
+  print ($([|\(Circle radius) -> radius|]) (Circle 9))
+  -- A variable that the splice body binds stays local in the quote: the
+  -- quote lifts its value, and the top-level value with the same name is
+  -- not used.
+  print ($(let secret = 1 :: Int in [|secret|]) :: Int)
+  print (localSecret 1)
+  print (localId 2)
