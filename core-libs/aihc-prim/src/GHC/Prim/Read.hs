@@ -6,6 +6,7 @@
 {- HLINT ignore "Avoid lambda" -}
 {- HLINT ignore "Use foldr" -}
 {- HLINT ignore "Use foldl" -}
+{- HLINT ignore "Use map" -}
 
 -- | The reader that a derived @Read@ instance is built from.
 --
