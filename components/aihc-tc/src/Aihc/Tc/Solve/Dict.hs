@@ -1241,12 +1241,12 @@ solveHasField ct className args =
       case field of
         Just (fieldType, constructors, _)
           | visible -> do
-          deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) fieldTy fieldType
-          if null deferred
-            then do
-              bindEvidence (ctEvVar ct) (EvHasField className args recordTy' fieldType label constructors)
-              pure True
-            else pure False
+              deferred <- unifyDeferring (ctLoc ct) (ctOrigin ct) fieldTy fieldType
+              if null deferred
+                then do
+                  bindEvidence (ctEvVar ct) (EvHasField className args recordTy' fieldType label constructors)
+                  pure True
+                else pure False
         _ -> pure False
     _ -> pure False
 
