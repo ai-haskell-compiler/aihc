@@ -1,0 +1,69 @@
+program: |
+  $entry (flag%1 :: BoxedRep Lifted) -> SumRep [TupleRep [],BoxedRep Lifted] =
+    constant (1 :: IntRep) (0 :: BoxedRep Lifted)
+expected: |
+  extern func @aihc_stack_enter_chunk(ptr, ptr) cc c
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %flag_3: ptr, %$cps_return_4: ptr) {
+  entry:
+    %header_word_5 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_6 = and i64 %header_word_5, -4
+    %header_7 = ptr.from_int %info_word_6
+    %entry_8 = load.invariant code [%header_7 + 24] align 1 word
+    %forward_11 = eq code %entry_8, null
+    br %forward_11, continue_slow_9, continue_enter_10
+
+  cold continue_slow_9:
+    tailcall @aihc_lir_continue_ip(%hp_0, %sp_1, %base_2, %$cps_return_4, 1, null)
+
+  continue_enter_10:
+    tailcall.indirect %entry_8(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 1, null) : (ptr, ptr, ptr, ptr, i64, ptr)
+  }
+
+  func @aihc_lir_continue_ip(%hp_12: ptr, %sp_13: ptr, %base_14: ptr, %continuation_15: ptr, %value_16: i64, %value_17: ptr) {
+  entry:
+    jump loop(%continuation_15)
+
+  loop(%current_18: ptr):
+    %header_word_19 = load i64 [%current_18] align 8 region stack
+    %info_word_20 = and i64 %header_word_19, -4
+    %header_21 = ptr.from_int %info_word_20
+    %entry_22 = load.invariant code [%header_21 + 24] align 1 word
+    %forward_23 = eq code %entry_22, null
+    br %forward_23, forward, enter
+
+  cold forward:
+    %frame_24 = load.invariant i8 [%header_21 + 42] align 1
+    %forward_frame_26 = eq i8 %frame_24, 7
+    br %forward_frame_26, parent, invalid
+
+  cold parent:
+    %parent_27 = load ptr [%current_18 + 8] align 8 region stack
+    jump loop(%parent_27)
+
+  cold invalid:
+    trap "continuation has no entry"
+
+  enter:
+    %sp_28 = ptr.add %current_18, 0
+    %chunk_word_29 = ptr.to_int %current_18
+    %chunk_last_30 = or i64 %chunk_word_29, 4095
+    %chunk_end_31 = add i64 %chunk_last_30, 1
+    %sp_limit_32 = ptr.from_int %chunk_end_31
+    %sp_limit_33 = load ptr [%base_14 + 88] align 1 word
+    %same_chunk_34 = eq ptr %sp_limit_32, %sp_limit_33
+    br %same_chunk_34, enter_frame_35, enter_chunk_36
+
+  cold enter_chunk_36:
+    call @aihc_stack_enter_chunk(%base_14, %current_18)
+    jump enter_frame_35
+
+  enter_frame_35:
+    tailcall.indirect %entry_22(%hp_12, %sp_28, %base_14, %current_18, %value_16, %value_17) : (ptr, ptr, ptr, ptr, i64, ptr)
+  }
+status: pass
+reason: |
+  The first alternative of the sum has no field, so the pointer slot of the
+  sum gets a filler. The filler has the pointer type, the same type as the
+  slot in the other alternative. On wasm32 a pointer is narrower than an
+  integer, and a continuation with a different type traps.
