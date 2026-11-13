@@ -153,8 +153,27 @@ givenRewrites givens = do
   -- needs the rewrite of @bool@ to bind @t0@.
   reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) equalities
   outside <- tyVarOccursOutsideFamilies
-  concat <$> mapM (orient outside) reduced
+  parts <- concat <$> mapM (\(left, right, _) -> decompose left right) reduced
+  concat <$> mapM (orient outside) parts
   where
+    -- A given between two applications of one constructor gives the
+    -- equalities of its arguments, as in GHC. A GADT match gives @(r ': rs)
+    -- ~ ('(s, t) ': ts)@, and the parts @r ~ '(s, t)@ and @rs ~ ts@ rewrite
+    -- the wanted @'(t0, t) ~ r@ to @'(t0, t) ~ '(s, t)@.
+    decompose left right = do
+      leftIsFamily <- isTypeFamilyApplication left
+      rightIsFamily <- isTypeFamilyApplication right
+      children <-
+        if leftIsFamily || rightIsFamily || isVariable left || isVariable right
+          then pure Nothing
+          else decomposeNominalEquality left right
+      case children of
+        Just pairs@(_ : _) -> concat <$> mapM (uncurry decompose) pairs
+        _ -> pure [(left, right, ())]
+    isVariable ty = case ty of
+      TcTyVar _ -> True
+      TcMetaTv _ -> True
+      _ -> False
     -- A rigid variable equal to a family application names that
     -- application: with the given @Sub n m ~ d@ the wanted @Proxy t0 ~
     -- Proxy d@ must bind @t0@ to @d@, not to @Sub n m@, so that the given

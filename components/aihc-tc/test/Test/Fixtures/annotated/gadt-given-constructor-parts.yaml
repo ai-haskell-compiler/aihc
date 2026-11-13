@@ -1,0 +1,47 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module A where
+  data P a b = P a b
+       │       └─ type: ∀ a b. a → b → P a b
+       └─ type: Type → Type → Type
+  data L a = L a
+       │     └─ type: ∀ a. a → L a
+       └─ type: Type → Type
+  type family Snd a where Snd (P x y) = y
+              └─ type: Type → Type
+  newtype E t = E (Snd t)
+          │     └─ type: ∀ t. Snd t → E t
+          └─ type: Type → Type
+  getE :: E (P s t) -> t
+  getE (E x) = x
+  │     │ └─ type: Snd (P s t)
+  │     └─ type: E (P s t)
+  └─ type: ∀ s t. E (P s t) → t
+  data R r where
+       └─ type: Type → Type
+    C :: E r -> R (L r)
+    └─ type: ∀ r r. (r ~ (L r)) ⇒ E r → R r
+  g :: R (L (P s t)) -> t
+  g (C x) = getE x
+  │  │ │    └─ type: E (P s t) → t; type-args: s, t
+  │  │ └─ type: E r
+  │  └─ type: E r → R (L (P s t)); type-args: L (P s t), r; evidence: given L (P s t) ~ L r
+  └─ type: ∀ s t. R (L (P s t)) → t
+extensions: [GADTs, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module A where
+  data P a b = P a b
+  data L a = L a
+  type family Snd a where Snd (P x y) = y
+  newtype E t = E (Snd t)
+  getE :: E (P s t) -> t
+  getE (E x) = x
+  data R r where
+    C :: E r -> R (L r)
+  g :: R (L (P s t)) -> t
+  g (C x) = getE x
+reason: "the GADT match gives L r ~ L (P s t); its part r ~ P s t rewrites the wanted P t0 t1 ~ r, thus the call of getE binds t0 to s"
+status: pass

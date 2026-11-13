@@ -94,7 +94,22 @@ proveFromEqualitiesDirect equalities left right
       case findProof closed left right of
         Just proof -> pure (Just proof)
         Nothing -> do
-          reductions <- concat <$> traverse (reduceRewritten equalities) vertices
+          -- The closure can find an equality of a variable that no given
+          -- states as written. A GADT match gives @L r ~ L (M t)@, and the
+          -- closure takes it apart to @r ~ M t@. Such an equality also
+          -- rewrites a family argument: @Snd r@ becomes @Snd (M t)@, which
+          -- reduces to @t@.
+          let derived =
+                [ (variable, other, proof)
+                | variable@(TcTyVar _) <- vertices,
+                  other <- vertices,
+                  not (isVariable other),
+                  Just proof <- [findProof closed variable other]
+                ]
+              isVariable ty = case ty of
+                TcTyVar _ -> True
+                _ -> False
+          reductions <- concat <$> traverse (reduceRewritten (equalities <> derived)) vertices
           let expanded = List.foldl' addGiven closed reductions
               expandedVertices = Map.elems (Map.unions (map subterms (vertices <> concat [[a, b] | (a, b, _) <- reductions])))
               expandedPairs = [(a, b) | a : rest <- List.tails expandedVertices, b <- rest]

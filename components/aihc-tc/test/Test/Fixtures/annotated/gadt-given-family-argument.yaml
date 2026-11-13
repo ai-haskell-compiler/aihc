@@ -1,0 +1,40 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module A where
+  data M a = M a
+       │     └─ type: ∀ a. a → M a
+       └─ type: Type → Type
+  data L a = L a
+       │     └─ type: ∀ a. a → L a
+       └─ type: Type → Type
+  type family Snd a where Snd (M y) = y
+              └─ type: Type → Type
+  data R r where
+       └─ type: Type → Type
+    C :: Snd r -> R (L r)
+    └─ type: ∀ r r. (r ~ (L r)) ⇒ Snd r → R r
+  newtype I a = I a
+          │     └─ type: ∀ a. a → I a
+          └─ type: Type → Type
+  g :: R (L (M t)) -> I t
+  g (C x) = I x
+  │  │ │    └─ type: Snd r → I (Snd r); type-args: Snd r
+  │  │ └─ type: Snd r
+  │  └─ type: Snd r → R (L (M t)); type-args: L (M t), r; evidence: given L (M t) ~ L r
+  └─ type: ∀ t. R (L (M t)) → I t
+extensions: [GADTs, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeFamilies #-}
+  module A where
+  data M a = M a
+  data L a = L a
+  type family Snd a where Snd (M y) = y
+  data R r where
+    C :: Snd r -> R (L r)
+  newtype I a = I a
+  g :: R (L (M t)) -> I t
+  g (C x) = I x
+reason: "the GADT match gives L r ~ L (M t); the closure takes it apart to r ~ M t, which rewrites the family argument of Snd r, thus Snd r reduces to t"
+status: pass
