@@ -1,7 +1,11 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
+import qualified Data.Kind as Kind
+import Data.Proxy (Proxy)
 import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
 import Lower (Mode (..))
@@ -27,6 +31,36 @@ showTriple =
 -- outer quote binds.
 nested :: Q Exp
 nested = [|\y -> $([|y|])|]
+
+-- | A type quote with a forall, a context, and a type variable that the
+-- forall binds. The names of the tree are the names of the program.
+forallQuote :: Q Type
+forallQuote = [t|forall a. Show a => Maybe a -> [a]|]
+
+-- | A type quote with a kind signature. The program does not run it, but
+-- the module must compile.
+kindQuote :: Q Type
+kindQuote = [t|Maybe (Int :: Kind.Type)|]
+
+-- | A type quote with a data constructor with no tick. With DataKinds, the
+-- constructor is promoted.
+promotedQuote :: Q Type
+promotedQuote = [t|Proxy True|]
+
+-- | Whether the tree of 'promotedQuote' has the expected form.
+promotedQuoteForm :: Type -> Bool
+promotedQuoteForm ty =
+  case ty of
+    AppT (ConT proxy) (PromotedT true) -> proxy == ''Proxy && true == 'True
+    _ -> False
+
+-- | Whether the tree of 'forallQuote' has the expected form.
+forallQuoteForm :: Type -> Bool
+forallQuoteForm ty =
+  case ty of
+    ForallT [PlainTV binder SpecifiedSpec] [AppT (ConT showClass) (VarT inContext)] (AppT (AppT ArrowT (AppT (ConT maybeType) (VarT argument))) (AppT ListT (VarT element))) ->
+      showClass == ''Show && maybeType == ''Maybe && all (== binder) [inContext, argument, element]
+    _ -> False
 
 -- A declaration splice gives a signature and a function. The function has
 -- a local declaration.
@@ -124,6 +158,14 @@ $(deriveDescribe ''Shape)
 
 $(deriveDescribe ''Mode)
 
+$( do
+     signature <- [t|Int -> (Int, String)|]
+     pure
+       [ SigD (mkName "pairWithText") signature,
+         FunD (mkName "pairWithText") [Clause [VarP (mkName "n")] (NormalB (TupE [Just (VarE (mkName "n")), Just (AppE (VarE 'show) (VarE (mkName "n")))])) []]
+       ]
+ )
+
 main :: IO ()
 main = do
   -- Splices that build the syntax tree with functions.
@@ -180,3 +222,7 @@ main = do
   -- A splice reads the roles of a type of this module and of an
   -- imported type.
   putStrLn $(do local <- reifyRoles ''Tagged; imported <- reifyRoles ''Maybe; litE (stringL (show (local, imported))))
+  -- A type quote in a splice gives the type of a signature.
+  print (pairWithText 4)
+  runQ forallQuote >>= print . forallQuoteForm
+  runQ promotedQuote >>= print . promotedQuoteForm
