@@ -47,9 +47,9 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
-import Aihc.Th.Reify (reifyInfo)
+import Aihc.Th.Reify (reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
+import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
@@ -112,7 +112,7 @@ runSplices request action =
         loadSharedModule engine shared
         action $ \index localFacts -> do
           splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
-          let reify global = localFacts global >>= maybe (storeFacts global) pure
+          let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
           requests <- newIORef []
           outcome <- try (runClosure engine (answerRequest packageIds reify requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
@@ -199,26 +199,36 @@ describeFailure failure
 -- | The names that a splice asked @reify@ for, for a failure message.
 describeRequests :: [Request] -> String
 describeRequests made =
-  case [name | RequestReify name _ <- made] of
+  case [name | request <- made, Just name <- [reifiedName request]] of
     [] -> ""
     names -> " (after reify of " <> intercalate ", " (map T.unpack names) <> ")"
+  where
+    reifiedName request =
+      case request of
+        RequestReify name _ -> Just name
+        RequestReifyRoles name _ -> Just name
+        RequestReport {} -> Nothing
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
--- to @reify@ is an @Either String Info@ value.
-answerRequest :: (Text, Text) -> (GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
+-- to @reify@ is an @Either String Info@ value, and the reply to
+-- @reifyRoles@ is an @Either String [Role]@ value.
+answerRequest :: (Text, Text) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
 answerRequest packageIds reify requests bytes =
   case decodeTree bytes >>= requestFromTree . fromSplice packageIds of
     Right made -> do
       modifyIORef' requests (made :)
       case made of
         RequestReport {} -> pure BS.empty
-        RequestReify name global -> do
-          answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) reify global
-          pure . encodeTree . toSplice packageIds $ case answer of
-            Right info -> TreeNode "Right" [info]
-            Left message -> TreeNode "Left" [TreeString message]
+        RequestReify name global -> facts reifyInfo name global
+        RequestReifyRoles name global -> facts reifyRoles name global
     Left message -> ioError (userError (T.unpack message))
+  where
+    facts question name global = do
+      answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) (reify question) global
+      pure . encodeTree . toSplice packageIds $ case answer of
+        Right value -> TreeNode "Right" [value]
+        Left message -> TreeNode "Left" [TreeString message]
 
 -- | The store directory of each package below a package, by the package
 -- id that names of the package have. The manifest of a package names the
@@ -247,7 +257,7 @@ packageDirectories storeRoot root = do
 
 -- | Give the facts of a name from the type artifact of its module. The
 -- reifier reads each artifact one time.
-newReifier :: Map PackageId FilePath -> IO (GlobalName -> IO (Either Text Tree))
+newReifier :: Map PackageId FilePath -> IO (FactsAnswer -> GlobalName -> IO (Either Text Tree))
 newReifier packages = do
   artifacts <- newIORef Map.empty
   let artifactOf directory home = do
@@ -260,14 +270,14 @@ newReifier packages = do
             artifact <- if exists then Just <$> readTypeArtifactFile path else pure Nothing
             atomicModifyIORef' artifacts (\known -> (Map.insert (directory, home) artifact known, ()))
             pure artifact
-  pure $ \global ->
+  pure $ \answer global ->
     case Map.lookup (globalNamePackage global) packages of
       Nothing -> pure (Left ("The splice cannot use the package " <> packageIdText (globalNamePackage global) <> " of " <> globalNameText global <> "."))
       Just directory -> do
         artifact <- artifactOf directory (globalNameModule global)
         pure $ case artifact of
           Nothing -> Left ("The package " <> packageIdText (globalNamePackage global) <> " has no type facts of the module " <> globalNameModule global <> ".")
-          Just found -> reifyInfo (typeArtifactInterface found) global
+          Just found -> answer (typeArtifactInterface found) global
 
 -- | Build the image of a request and give its path.
 buildImage :: SpliceRequest -> IO FilePath

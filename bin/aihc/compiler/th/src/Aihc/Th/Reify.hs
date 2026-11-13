@@ -27,6 +27,7 @@
 -- A type family and a data family give an error.
 module Aihc.Th.Reify
   ( reifyInfo,
+    reifyRoles,
   )
 where
 
@@ -44,6 +45,7 @@ import Aihc.Tc.Env
     TypeSynonymInfo (..),
   )
 import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataTypes)
+import Aihc.Tc.Roles (Role (..), RoleFacts (..), tyConRoles)
 import Aihc.Tc.Types
   ( Pred (..),
     TcType (..),
@@ -58,7 +60,9 @@ import Aihc.Tc.Types
     pattern KConstraint,
     pattern KType,
   )
+import Aihc.Tc.Types qualified as TcTypes
 import Aihc.Th.Wire (Tree (..))
+import Data.Functor.Identity (Identity (..))
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -75,6 +79,33 @@ reifyInfo interface global =
     ResolutionNamespaceType -> typeInfo interface global
     ResolutionNamespaceTerm -> termInfo interface global
     ResolutionNamespaceModule -> Left ("The compiler cannot give the facts of the module " <> globalNameText global <> ".")
+
+-- | The roles of the parameters of a type constructor, as a list of
+-- @Role@ trees. The roles of a data type come from the role rules of the
+-- type checker, with the data types of the interface. A class and a
+-- primitive type have only nominal parameters.
+reifyRoles :: TcInterface -> GlobalName -> Either Text Tree
+reifyRoles interface global
+  | globalNameNamespace global /= ResolutionNamespaceType = Left ("The name " <> globalNameText global <> " is not the name of a type constructor, so it has no roles.")
+  | Just dataType <- Map.lookup global (tcInterfaceDataTypeMap interface) =
+      Right (list (map roleTree (runIdentity (tyConRoles facts dataType))))
+  | Just classInfo <- Map.lookup global (tcInterfaceClassMap interface) = Right (list (map (const (roleTree NominalRole)) (ciTyVars classInfo)))
+  | Just tyCon <- Map.lookup global (tcInterfaceTyConMap interface) = Right (list (replicate (tciArity tyCon) (roleTree NominalRole)))
+  | otherwise = Left (notDeclared global)
+  where
+    dataTypes = Map.fromList [(dtiTyCon dataType, dataType) | dataType <- tcInterfaceDataTypes interface]
+    -- A data type that is not in the interface gives no facts, and the
+    -- rules then make the parameter nominal.
+    facts =
+      RoleFacts
+        { roleFactsDataType = \constructor -> Identity (Map.lookup constructor dataTypes),
+          roleFactsIsCoercible = \constructor -> Identity (TcTypes.tyConName constructor == "Coercible")
+        }
+    roleTree role =
+      case role of
+        NominalRole -> node "NominalR" []
+        RepresentationalRole -> node "RepresentationalR" []
+        PhantomRole -> node "PhantomR" []
 
 typeInfo :: TcInterface -> GlobalName -> Either Text Tree
 typeInfo interface global

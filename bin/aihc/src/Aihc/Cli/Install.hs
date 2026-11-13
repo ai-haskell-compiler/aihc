@@ -253,7 +253,6 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
-import Aihc.Th.Reify (reifyInfo)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
@@ -2986,7 +2985,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     spliceRequestDependencies = nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]])
                   }
           prefixFacts <- newIORef Map.empty
-          let facts prefix global
+          let facts prefix answer global
                 | globalNamePackage global == ownPackage && globalNameModule global == sourceModuleName source = do
                     known <- Map.lookup (length prefix) <$> readIORef prefixFacts
                     checked <- case known of
@@ -2997,9 +2996,9 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                         result <- evaluate (checkPrefix types moduleUnit bound prefix)
                         modifyIORef' prefixFacts (Map.insert (length prefix) result)
                         pure result
-                    pure (Just (checked >>= \interface -> reifyInfo interface global))
+                    pure (Just (checked >>= \interface -> answer interface global))
                 | otherwise =
-                    pure $ case reifyInfo importedTypes global of
+                    pure $ case answer importedTypes global of
                       Right info -> Just (Right info)
                       Left message
                         | globalNamePackage global == ownPackage -> Just (Left message)
