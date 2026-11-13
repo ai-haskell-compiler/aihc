@@ -48,6 +48,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT (..), evalState, evalStateT, execState, modify', state)
 import Data.Data (Data, gmapM, gmapQ)
 import Data.Functor.Identity (Identity (..))
+import Data.Maybe (isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -453,7 +454,7 @@ globalNameParts global =
 -- binder around a splice can bind such a variable.
 isDynamicName :: Set Text -> Name -> Bool
 isDynamicName dynamic name =
-  nameQualifier name == Nothing && not (isConstructor name) && nameText name `Set.member` dynamic
+  isNothing (nameQualifier name) && not (isConstructor name) && nameText name `Set.member` dynamic
 
 -- | The Template Haskell name of a variable that the quote binds.
 dynamicName :: Text -> Expr
