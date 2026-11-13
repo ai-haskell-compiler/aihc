@@ -1,5 +1,6 @@
 module Text.Read.Lex
   ( Lexeme (..),
+    Number,
     expect,
     hsLex,
     lexChar,
@@ -16,7 +17,7 @@ module Text.Read.Lex
 where
 
 import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isDigit, isHexDigit, isOctDigit)
-import GHC.Read.Lex (Lexeme (..), expectP, lexP, numberToFixed, numberToInteger, numberToRational, readLitChar)
+import GHC.Read.Lex (Lexeme (..), Number, expectP, lexP, numberToFixed, numberToInteger, numberToRational, readLitChar)
 import Text.ParserCombinators.ReadP (ReadP, gather, look, munch1, readS_to_P, skipSpaces, string)
 import Text.ParserCombinators.ReadPrec (minPrec, readPrec_to_P)
 import Prelude

@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Exception.Base (FixIOException, catch)
+    import System.IO (fixIO)
+    import Prelude
+
+    -- The function reads its argument before it gives its result.
+    main :: IO ()
+    main = do
+      values <- fixIO (\xs -> pure (1 : take 2 xs))
+      print (values :: [Int])
+      strict <- fixIO (\x -> x `seq` pure (x :: Int)) `catch` \exception -> do
+        putStrLn (show (exception :: FixIOException))
+        pure 0
+      print strict
+stdout: |
+  [1,1,1]
+  cyclic evaluation in fixIO
+  0
+output: |
+  ()
+expression: main
+status: pass
+reason: fixIO throws FixIOException with the GHC message when the function reads its argument too early

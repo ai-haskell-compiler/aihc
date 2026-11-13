@@ -13,7 +13,7 @@ module Control.Exception
   )
 where
 
-import Control.Exception.Base
+import Control.Exception.Base hiding (FixIOException (..))
 import GHC.IO (catchException)
 import GHC.Internal.Base (Applicative (..), Functor (..), (.))
 import GHC.Internal.Exception.Type (ExceptionWithContext (..), someExceptionContext)

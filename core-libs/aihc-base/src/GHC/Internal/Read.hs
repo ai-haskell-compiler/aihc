@@ -26,7 +26,7 @@ import GHC.Internal.Integer (Integer)
 import GHC.Num (Num (..))
 import GHC.Prim.Read
   ( Lexeme (..),
-    NumberToken (..),
+    Number (..),
     Read (..),
     ReadPrec,
     ReadS,
@@ -107,7 +107,7 @@ convertIntegralResults ((value, rest) : results) =
 -- | The exact value of a literal. A decimal literal keeps its digits until
 -- here, so that it only loses precision once, when it is converted to the
 -- type that is read.
-numberToRational :: NumberToken -> Rational
+numberToRational :: Number -> Rational
 numberToRational (NumberToken value) = fromInteger value
 numberToRational (DecimalToken whole fraction exponentValue) =
   scaled * (10 ^^ exponentValue)
