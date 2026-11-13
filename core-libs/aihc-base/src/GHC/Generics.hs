@@ -71,6 +71,7 @@ where
 
 import Control.Applicative (Const (..), WrappedMonad (..), ZipList (..))
 import Data.Complex (Complex (..))
+import Data.Functor.Compose (Compose (..))
 import Data.Functor.Identity (Identity (..))
 import Data.Functor.Product qualified as Functor
 import Data.Functor.Sum qualified as Functor
@@ -1045,6 +1046,26 @@ instance Generic1 (Functor.Product f g) where
   from1 (Functor.Pair x y) = M1 (M1 (M1 (Rec1 x) :*: M1 (Rec1 y)))
   to1 r = case unM1 (unM1 r) of
     x :*: y -> Functor.Pair (unRec1 (unM1 x)) (unRec1 (unM1 y))
+
+instance Generic (Compose f g a) where
+  type
+    Rep (Compose f g a) =
+      D1
+        ('MetaData "Compose" "Data.Functor.Compose" "base" 'True :: Meta)
+        (C1 ('MetaCons "Compose" 'PrefixI 'True :: Meta) (S1 (MetaField "getCompose") (Rec0 (f (g a)))))
+  from (Compose x) = M1 (M1 (M1 (K1 x)))
+  to r = Compose (unK1 (unM1 (unM1 (unM1 r))))
+
+-- | As in GHC, the outer functor has the kind @Type -> Type@, because the
+-- representation maps 'Rec1' over it.
+instance (Functor f) => Generic1 (Compose (f :: Type -> Type) g) where
+  type
+    Rep1 (Compose f g) =
+      D1
+        ('MetaData "Compose" "Data.Functor.Compose" "base" 'True :: Meta)
+        (C1 ('MetaCons "Compose" 'PrefixI 'True :: Meta) (S1 (MetaField "getCompose") (f :.: Rec1 g)))
+  from1 (Compose x) = M1 (M1 (M1 (Comp1 (fmap Rec1 x))))
+  to1 r = Compose (fmap unRec1 (unComp1 (unM1 (unM1 (unM1 r)))))
 
 instance Generic ExitCode where
   type Rep ExitCode = D1 (MetaD "ExitCode" "GHC.Internal.IO.Exception" "ghc-internal") (C1 (MetaC "ExitSuccess") U1 :+: C1 (MetaC "ExitFailure") (S1 MetaS (Rec0 Int)))

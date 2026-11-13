@@ -1,0 +1,39 @@
+extensions:
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE PolyKinds #-}
+    module Test where
+    class Ty r where
+      spr :: r
+    f x = spr x
+status: pass
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cAddrRep, 2.cBoxedRep, 2.cDoubleRep, 2.cFloatRep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cInt8Rep, 2.cIntRep, 2.cSumRep, 2.cTupleRep, 2.cVecRep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cWord8Rep, 2.cWordRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$Ty (r : sType) :: sType {
+    pub 1.c$Dict$Ty :: ∀(r : sType). r → t$Dict$Ty r
+  }
+
+  pub val 1.vspr :: ∀(r : sType). t$Dict$Ty r → r
+    = Λ(r : sType). λ($dTy : t$Dict$Ty r).
+      let! c$Dict$Ty ($cspr : r) = $dTy;
+      $cspr
+
+  pub val 1.vf :: ∀(a : sType) (b : sType). t$Dict$Ty (a → b) → a → b
+    = Λ(a : sType) (b : sType). λ($dTy : t$Dict$Ty (a → b)) (x : a).
+      vspr @(a → b) $dTy x

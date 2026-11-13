@@ -207,7 +207,11 @@ instance Quasi Splice where
   qReifyConStrictness _ = unsupported "reifyConStrictness"
   qLocation = unsupported "location"
   qGetPackageRoot = unsupported "getPackageRoot"
-  qAddDependentFile _ = unsupported "addDependentFile"
+
+  -- The build does not record the file as a dependency of the module. A
+  -- splice cannot read the files of the build machine, so its result does
+  -- not depend on the file.
+  qAddDependentFile _ = pure ()
   qAddTempFile _ = unsupported "addTempFile"
   qAddTopDecls _ = unsupported "addTopDecls"
   qAddForeignFilePath _ _ = unsupported "addForeignFilePath"

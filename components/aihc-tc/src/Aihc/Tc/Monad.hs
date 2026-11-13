@@ -131,6 +131,7 @@ module Aihc.Tc.Monad
     addDataFamilyInstance,
     getDataFamilyInstances,
     addTypeFamilyInstance,
+    sameTypeFamilyEquation,
     getTypeFamilyInstances,
     getTypeFamilyEquations,
     setTypeFamilyInstances,

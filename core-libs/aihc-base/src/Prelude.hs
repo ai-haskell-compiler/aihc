@@ -1,3 +1,4 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -22,7 +23,7 @@ module Prelude
   ( Applicative (..),
     Bounded (..),
     Bool (..),
-    Char (..),
+    Char,
     Either (..),
     Enum (..),
     Eq (..),
@@ -42,7 +43,6 @@ module Prelude
     Ord (..),
     Ordering (..),
     Rational,
-    Ratio,
     Real (..),
     RealFrac (..),
     RealFloat (..),
@@ -52,6 +52,7 @@ module Prelude
     ShowS,
     String,
     FilePath,
+    type (~),
     (&&),
     ($),
     ($!),
@@ -102,8 +103,6 @@ module Prelude
     lcm,
     not,
     odd,
-    numerator,
-    denominator,
     otherwise,
     print,
     putChar,
@@ -128,7 +127,6 @@ module Prelude
     lex,
     seq,
     realToFrac,
-    (%),
     (^),
     (^^),
     (||),
@@ -220,7 +218,7 @@ import GHC.ST (ST (..))
 import GHC.Show (Show (..), ShowS, showChar, showLitChar, showLitString, showParen, showString, shows)
 import GHC.Stack.Types (CallStack, SrcLoc (..), getCallStack)
 import GHC.Tuple (Solo (..))
-import GHC.Types (RuntimeRep, TYPE, Type)
+import GHC.Types (RuntimeRep, TYPE, Type, type (~))
 import GHC.Word (Word (..), Word8 (..))
 
 (<$>) :: (Functor f) => (a -> b) -> f a -> f b
