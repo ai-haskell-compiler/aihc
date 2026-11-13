@@ -1252,6 +1252,17 @@ lowerArguments env = go []
 specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("raiseIO#", 2), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
 
+-- | The primitive that converts a word of one representation into a word
+-- of another one without a change of its bits.
+wordConversion :: GrinRep -> GrinRep -> Maybe Text
+wordConversion source target =
+  case (source, target) of
+    (IntRep, AddrRep) -> Just "int2Addr#"
+    (AddrRep, IntRep) -> Just "addr2Int#"
+    (IntRep, WordRep) -> Just "int2Word#"
+    (WordRep, IntRep) -> Just "word2Int#"
+    _ -> Nothing
+
 lowerSpecialApplication :: LowerEnv -> GrinResultRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
   case (name, arguments) of
@@ -1263,6 +1274,15 @@ lowerSpecialApplication env resultRep name arguments =
       lowerArgument env value $ \values ->
         case values of
           [result] | resultRep == liftedResultRep -> pure (GrinEval EvalUpdate liftedGrinRep result)
+          -- A coercion between two word-sized representations keeps the
+          -- bits of the word, as in GHC: @unsafeCoerce# n@ from @Int#@ to
+          -- @Addr#@ in @flatparse@. The value then needs the layout of
+          -- the result, thus a conversion primitive gives it.
+          [result]
+            | Just [targetRep] <- resultRepComponents resultRep,
+              Just primitive <- wordConversion (grinValueRuntimeRep result) targetRep -> do
+                declarePrimitive (GrinVar primitive (-2000000000 + 1) targetRep, 1)
+                pure (GrinPrimitiveCall targetRep primitive [result])
           _ -> pure (GrinConstant values)
     ("raise#", exception : _) ->
       lowerLazy env "exception" exception (pure . GrinThrow)

@@ -1,0 +1,31 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Int (Int(..))
+    import GHC.Prim
+    import System.IO.Unsafe (unsafePerformIO)
+
+    -- The position of an address before the end of a buffer, as in
+    -- FlatParse.Common.Position of flatparse.
+    posToAddr :: Addr# -> Int -> Addr#
+    posToAddr eob (I# n) = unsafeCoerce# (minusAddr# eob (unsafeCoerce# n))
+
+    addrToPos :: Addr# -> Addr# -> Int
+    addrToPos eob s = I# (minusAddr# eob s)
+
+    test :: IO Int
+    test = IO (\state -> case newPinnedByteArray# 16# state of
+      (# state1, buffer #) -> case mutableByteArrayContents# buffer of
+        base -> case plusAddr# base 11# of
+          end -> (# state1, addrToPos end (posToAddr end (I# 6#)) #))
+output: |
+  I# 6
+expression: |
+  unsafePerformIO test
+status: pass
+reason: unsafeCoerce# between Int# and Addr# keeps the bits of the word, and the GRIN value gets the layout of the result
