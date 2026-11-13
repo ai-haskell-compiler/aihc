@@ -1,0 +1,13 @@
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  import GHC.Types (Int)
+  data T a where
+    A :: { f :: x, h :: m x } -> T (x -> Int, m x, [x])
+  g2 :: T (x -> Int, m x, [x]) -> m x
+  g2 = h
+status: pass
+reason: The existential m is the function of the application m x in the result type. The cast of the field projects it with nth-co and left-co, outermost first.

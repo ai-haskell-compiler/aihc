@@ -821,7 +821,7 @@ recordSelectorAlternative label scrutineeType fieldType constructor =
             -- variable@ from the projection of that equality.
             projections =
               Map.fromList
-                [ (tvUnique variable, foldr Ev.NthCo (Ev.GivenCo predicate) path)
+                [ (tvUnique variable, List.foldl' (\proof project -> project proof) (Ev.GivenCo predicate) path)
                 | predicate@(EqPred left right) <- theta,
                   variable <- existentials,
                   Just path <- [argumentPath variable left right]
@@ -840,20 +840,28 @@ recordSelectorAlternative label scrutineeType fieldType constructor =
             unless (null bindings) (failValue ("record selector cast needs evidence bindings: " <> T.unpack label))
             pure [Alt (AltData constructorNameOf) typeBinders (dictionaries <> leaves) (ExCast selected proof)]
 
--- | The projections from the last argument that lead from two equal type
--- constructor applications to the place where the right one has a
--- variable. 'Ev.NthCo' counts the arguments from the last one.
-argumentPath :: TyVarId -> TcType -> TcType -> Maybe [Int]
+-- | The projections that lead from two equal types to the place where the
+-- right one has a variable, outermost first. A projection goes into an
+-- argument of a type constructor ('Ev.NthCo', which counts the arguments
+-- from the last one) or into a side of a type application ('Ev.LeftCo',
+-- 'Ev.RightCo'). The type checker gives a selector only when such a path
+-- reaches the variable and no type family application holds it.
+argumentPath :: TyVarId -> TcType -> TcType -> Maybe [Ev.Coercion -> Ev.Coercion]
 argumentPath variable left right =
   case (left, right) of
     (_, TcTyVar other) | Tc.sameTyVar variable other -> Just []
     (TcTyCon leftCon leftArguments, TcTyCon rightCon rightArguments)
       | leftCon == rightCon && length leftArguments == length rightArguments ->
           listToMaybe
-            [ index : path
+            [ Ev.NthCo index : path
             | (index, (leftArgument, rightArgument)) <- zip [0 ..] (reverse (zip leftArguments rightArguments)),
               Just path <- [argumentPath variable leftArgument rightArgument]
             ]
+    (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+      listToMaybe
+        ( [Ev.LeftCo : path | Just path <- [argumentPath variable leftFunction rightFunction]]
+            <> [Ev.RightCo : path | Just path <- [argumentPath variable leftArgument rightArgument]]
+        )
     _ -> Nothing
 
 -- | A proof that a type with each variable of the map replaced by the left

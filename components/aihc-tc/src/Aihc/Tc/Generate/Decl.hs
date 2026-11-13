@@ -105,7 +105,6 @@ import Aihc.Tc.Annotations
     TcClassMethodAnnotation (..),
     TcCoercedDeriving (..),
     TcDerivedInstance (..),
-    TcSelectorType (..),
     TcDerivingClauseInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
@@ -122,6 +121,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
     TcPatSynAnnotation (..),
+    TcSelectorType (..),
     annotateDecl,
     annotateRhsCast,
     renderTcType,
@@ -149,7 +149,7 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
 import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
-import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reclassifyIrreduciblePred)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
@@ -5939,8 +5939,17 @@ registerTypeLevelDataCon constructor = do
 -- selector name of a duplicate record field, and any other label is its
 -- own selector name.
 registerRecordSelectors :: (Text, Text) -> Map.Map Text Text -> [DataConInfo] -> TcM [TcBindingResult]
-registerRecordSelectors origin selectorNames constructors =
-  mapM registerSelector (Map.toList selectors)
+registerRecordSelectors origin selectorNames constructors = do
+  family <- isTypeFamilyTyCon
+  let -- The existential variables that the result type fixes after the
+      -- equalities of the context are applied. A variable is fixed when a
+      -- constructor argument or a type application reaches it, and no
+      -- occurrence of it is under a type family application: @F x@ does
+      -- not fix @x@, as in GHC. The System FC desugarer projects each
+      -- fixed variable out of the context equality along such a path.
+      determinedExistentials constructor =
+        filter (fixedBy family (selectorResultType constructor)) (dciExTyVars constructor)
+  mapM (registerSelector determinedExistentials) (Map.toList (selectors determinedExistentials))
   where
     -- A field whose type mentions an existential variable has no selector.
     -- The constructor context does not reach the selector type. An
@@ -5950,7 +5959,7 @@ registerRecordSelectors origin selectorNames constructors =
     -- WithSetup x@. The result type @Program (WithSetup x) n a@ then
     -- names @x@, and the selector has the type @Program (WithSetup x) n a
     -- -> ModelConc n x@.
-    selectors =
+    selectors determinedExistentials =
       Map.fromListWith
         (++)
         [ (label, [(constructor, field)])
@@ -5968,11 +5977,7 @@ registerRecordSelectors origin selectorNames constructors =
           any (sameTyVar variable) (dciUnivTyVars constructor)
         ]
     selectorResultType constructor = applySubst (universalValues constructor) (dciResTy constructor)
-    -- The existential variables that the result type names after the
-    -- equalities of the context are applied.
-    determinedExistentials constructor =
-      filter (\tyVar -> typeMentionsTyVar tyVar (selectorResultType constructor)) (dciExTyVars constructor)
-    registerSelector (label, (constructor, field) : _) = do
+    registerSelector determinedExistentials (label, (constructor, field) : _) = do
       let values = universalValues constructor
       -- The selector quantifies its own variable for each existential
       -- variable that the result type names. The variable of the
@@ -5991,8 +5996,29 @@ registerRecordSelectors origin selectorNames constructors =
       extendTermKeyEnvPermanent selectorKey binder
       zonkedType <- zonkType (schemeToType scheme)
       pure (TcBindingResult selectorKey selector zonkedType)
-    registerSelector (label, []) =
+    registerSelector _ (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
+
+-- | Whether a type fixes a variable: a constructor argument or a type
+-- application reaches it, and no occurrence of it is under a type family
+-- application. See 'registerRecordSelectors'.
+fixedBy :: (TyCon -> Bool) -> TcType -> TyVarId -> Bool
+fixedBy family ty variable = reached ty && not (underFamily ty)
+  where
+    reached current =
+      case current of
+        TcTyVar other -> sameTyVar variable other
+        TcTyCon tyCon arguments -> not (family tyCon) && any reached arguments
+        TcAppTy function argument -> reached function || reached argument
+        _ -> False
+    underFamily current =
+      case current of
+        TcTyCon tyCon arguments
+          | family tyCon -> typeMentionsTyVar variable current
+          | otherwise -> any underFamily arguments
+        TcAppTy function argument -> underFamily function || underFamily argument
+        TcFunTy argument result -> underFamily argument || underFamily result
+        _ -> False
 
 registerTypeSynonymHeader :: Maybe TypeScheme -> TypeSynDecl -> TcM ()
 registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
