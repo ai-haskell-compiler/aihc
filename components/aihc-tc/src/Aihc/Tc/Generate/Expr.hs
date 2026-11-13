@@ -41,7 +41,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     peelExprAnn,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
+import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -72,6 +72,7 @@ import Data.IntSet qualified as IntSet
 import Data.List (partition)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -2176,25 +2177,39 @@ inferDoStmt end expected ambient stmt rest =
       pure (stmt : rest', resultTy, cts)
 
 -- | The parts of a @rec@ statement that the resolver gives: the @mfix@,
--- @return@, and @>>=@ methods of its desugaring, and its statements.
+-- @return@, and @>>=@ methods of its desugaring, the knot variables of a
+-- segment of an @mdo@ block, and its statements.
 data RecStmtParts = RecStmtParts
   { recMfix :: !(Annotation, ResolutionAnnotation),
     recReturn :: !(Annotation, ResolutionAnnotation),
     recBind :: !(Annotation, ResolutionAnnotation),
+    recKnot :: !(Maybe (Annotation, Set.Set Entity)),
     recStmts :: ![DoStmt Expr]
   }
 
 recStmtParts :: DoStmt Expr -> Maybe RecStmtParts
 recStmtParts stmt =
   case stmt of
-    DoAnn mfixAnn (DoAnn returnAnn (DoAnn bindAnn (DoRecStmt stmts))) ->
+    DoAnn mfixAnn (DoAnn returnAnn (DoAnn bindAnn inner)) ->
       RecStmtParts
         <$> method "mfix" mfixAnn
         <*> method "return" returnAnn
         <*> method ">>=" bindAnn
-        <*> pure stmts
+        <*> pure (knot inner)
+        <*> body inner
     _ -> Nothing
   where
+    knot inner =
+      case inner of
+        DoAnn knotAnn _
+          | Just (RecKnotVariables variables) <- fromAnnotation knotAnn -> Just (knotAnn, variables)
+        _ -> Nothing
+    body inner =
+      case inner of
+        DoAnn knotAnn (DoRecStmt stmts)
+          | Just RecKnotVariables {} <- fromAnnotation @RecKnotVariables knotAnn -> Just stmts
+        DoRecStmt stmts -> Just stmts
+        _ -> Nothing
     method name ann = do
       resolution <- fromAnnotation @ResolutionAnnotation ann
       if isSyntaxTermResolution name resolution then Just (ann, resolution) else Nothing
@@ -2203,9 +2218,12 @@ recStmtParts stmt =
 --
 -- > vs <- mfix (\ ~vs -> do { stmts; return vs })
 --
--- where @vs@ is the tuple of the group variables in the order of
+-- where @vs@ is the tuple of the knot variables in the order of
 -- 'recStmtBinderNames'. A group with one variable uses the variable and not
--- a tuple. The variables have monomorphic types in the group and after it.
+-- a tuple. The knot variables are all the group variables, but a segment
+-- of an @mdo@ block has a 'RecKnotVariables' annotation that can give
+-- fewer. The knot variables have monomorphic types in the group and after
+-- it.
 -- A let statement of the group can generalize a variable. Then the
 -- statements after the let statement can use it at more than one type,
 -- and the knot takes one instance of it, as in GHC.
@@ -2216,11 +2234,14 @@ recStmtParts stmt =
 -- the variables as type arguments, and the type of the statement block as
 -- its only term argument type. Last, each generalized variable has a
 -- 'TcRecKnotOccurrence' marker, and after it the occurrence annotation of
--- the variable at the knot.
+-- the variable at the knot. The 'RecKnotVariables' annotation stays next
+-- to the statements.
 inferRecStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> RecStmtParts -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferRecStmt end expected ambient parts rest = do
-  let names = recStmtBinderNames (recStmts parts)
-  keys <- mapM resolvedUnqualifiedTermKey names
+  let groupNames = recStmtBinderNames (recStmts parts)
+  groupKeys <- mapM resolvedUnqualifiedTermKey groupNames
+  let inKnot key = maybe True (Set.member key . snd) (recKnot parts)
+      (names, keys) = unzip (filter (inKnot . snd) (zip groupNames groupKeys))
   binderTys <- mapM (const freshMetaTv) keys
   monadTy <- freshMetaTv
   tupleTy <- recTupleType binderTys
@@ -2253,7 +2274,7 @@ inferRecStmt end expected ambient parts rest = do
           methodAnns knotTy returnEv returnPending returnAnn $
             methodAnns bindTy bindEv bindPending bindAnn $
               DoAnn (mkAnnotation tuplePending) $
-                foldr knotOccurrence (DoRecStmt stmts') knotOccurrences
+                foldr knotOccurrence (maybe id (DoAnn . fst) (recKnot parts) (DoRecStmt stmts')) knotOccurrences
   pure
     ( stmt' : rest',
       blockTy,

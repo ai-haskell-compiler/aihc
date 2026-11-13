@@ -1,0 +1,24 @@
+extensions:
+  - RecursiveDo
+modules:
+  - |
+    {-# LANGUAGE RecursiveDo #-}
+    module Test where
+
+    import Prelude
+
+    -- The segment of the mdo block has all three statements. No statement
+    -- after the segment uses h, so h is not in the knot, as in GHC. Thus
+    -- the knot does not take an instance of h with an open Show constraint.
+    knot :: Maybe [Int]
+    knot = mdo
+      xs <- Just (1 : take 2 ys)
+      let h x = show x
+      ys <- Just [length (h 'c'), 7]
+      return xs
+output: |
+  True
+expression: |
+  knot == Just [1, 3, 7]
+status: pass
+reason: a variable of an mdo segment that no later statement uses is not in the knot

@@ -21,6 +21,7 @@ import Aihc.Resolve
     GlobalName (..),
     Identifier (..),
     PackageId (..),
+    RecKnotVariables (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     displayIdentifier,
@@ -5267,7 +5268,9 @@ renderSourceSpan span' =
 --
 -- > mfix (\knot -> let vs = knot in do { stmts; return vs }) >>= \result -> let vs = result in rest
 --
--- where @vs@ are the group variables in the order of 'recStmtBinderNames'.
+-- where @vs@ are the knot variables in the order of 'recStmtBinderNames'.
+-- The knot variables are all the group variables, but a
+-- 'RecKnotVariables' annotation can give fewer.
 -- The type checker gives the checked methods and a tuple annotation, see
 -- 'inferRecStmt'. The variables come out of the tuple through lazy
 -- bindings, so the knot is not forced before a variable is used. A let
@@ -5286,7 +5289,8 @@ desugarRecStmt statement inner rest = do
       _ -> failValue "rec statement tuple annotation has no block type"
   let tupleType = tcAnnType tupleAnnotation
       binderTypes = tcAnnTypeArgs tupleAnnotation
-  keys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  groupKeys <- mapM requiredBinderKey (recStmtBinderNames inner)
+  let keys = maybe groupKeys (\knotKeys -> filter (`Set.member` knotKeys) groupKeys) (recStmtKnotVariables statement)
   unless (length keys == length binderTypes) $
     failValue ("rec statement has " <> show (length keys) <> " variables and " <> show (length binderTypes) <> " types")
   let variables = zip keys binderTypes
@@ -5340,6 +5344,16 @@ recStmtAnnotations = go Nothing Nothing
           | Just checked <- Syn.fromAnnotation ann -> go cast (Just checked) inner
           | otherwise -> go cast annotation inner
         _ -> ([], annotation, [])
+
+-- | The knot variables that a 'RecKnotVariables' annotation of a @rec@
+-- statement gives.
+recStmtKnotVariables :: Syn.DoStmt Syn.Expr -> Maybe (Set.Set Entity)
+recStmtKnotVariables statement =
+  case statement of
+    Syn.DoAnn ann inner
+      | Just (RecKnotVariables variables) <- Syn.fromAnnotation ann -> Just variables
+      | otherwise -> recStmtKnotVariables inner
+    _ -> Nothing
 
 -- | The checked methods of a statement.
 recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)]
