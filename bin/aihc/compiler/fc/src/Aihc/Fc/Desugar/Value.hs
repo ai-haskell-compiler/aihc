@@ -798,19 +798,87 @@ recordSelectorAlternative label scrutineeType fieldType constructor =
     Nothing -> pure []
     Just index -> do
       let (package, moduleName') = dciOrigin constructor
+          constructorNameOf = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
           existentials = dciExTyVars constructor
           substitution = fromMaybe Map.empty (matchTypes [dciResTy constructor] [scrutineeType])
           reps = [applySubstRep substitution (dcfiRep field) | field <- dciFields constructor]
       typeBinders <- convertTypeBinders existentials
       withTypeVariables existentials $ do
-        dictionaries <- mapM freshDictionaryBinder (dciTheta constructor)
+        -- The match of the result type gives each universal variable its
+        -- type in the selector, also one that an equality of the context
+        -- fixes: the selector of @wsSetup@ in @dejafu@ selects from
+        -- @Program (WithSetup x) n a@, and the context @pty ~ WithSetup x@
+        -- of the constructor becomes @WithSetup x ~ WithSetup x@.
+        let theta = map (applySubstPred substitution) (dciTheta constructor)
+        dictionaries <- mapM freshDictionaryBinder theta
         leafGroups <- freshLeafBinders "$field" (zip (map dcfiLabel (dciFields constructor)) reps)
         let leaves = concat leafGroups
             before = sum (map length (take index leafGroups))
             selectedLeaves = take (length (leafGroups !! index)) (drop before leaves)
-        selected <- rebuildField fieldType (reps !! index) (map (ExVar . binderName) selectedLeaves)
-        let constructorName = Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')
-        pure [Alt (AltData constructorName) typeBinders (dictionaries <> leaves) selected]
+            -- An existential variable that an equality of the context
+            -- fixes is a variable of the selector type too, under another
+            -- name. Each one gets a proof @selector variable ~ existential
+            -- variable@ from the projection of that equality.
+            projections =
+              Map.fromList
+                [ (tvUnique variable, foldr Ev.NthCo (Ev.GivenCo predicate) path)
+                | predicate@(EqPred left right) <- theta,
+                  variable <- existentials,
+                  Just path <- [argumentPath variable left right]
+                ]
+            ownFieldType = applySubst substitution (dcfiType (dciFields constructor !! index))
+        if Map.null projections
+          then do
+            selected <- rebuildField fieldType (reps !! index) (map (ExVar . binderName) selectedLeaves)
+            pure [Alt (AltData constructorNameOf) typeBinders (dictionaries <> leaves) selected]
+          else do
+            selected <- rebuildField ownFieldType (reps !! index) (map (ExVar . binderName) selectedLeaves)
+            saved <- gets vsDictionaries
+            modify' (\state -> state {vsDictionaries = foldr (\(predicate, binder) -> Map.insert (predicateKey predicate) binder) (vsDictionaries state) (zip theta dictionaries)})
+            (proof, bindings) <- convertCoercion (Ev.Sym (liftThrough projections ownFieldType))
+            modify' (\state -> state {vsDictionaries = saved})
+            unless (null bindings) (failValue ("record selector cast needs evidence bindings: " <> T.unpack label))
+            pure [Alt (AltData constructorNameOf) typeBinders (dictionaries <> leaves) (ExCast selected proof)]
+
+
+-- | The projections from the last argument that lead from two equal type
+-- constructor applications to the place where the right one has a
+-- variable. 'Ev.NthCo' counts the arguments from the last one.
+argumentPath :: TyVarId -> TcType -> TcType -> Maybe [Int]
+argumentPath variable left right =
+  case (left, right) of
+    (_, TcTyVar other) | Tc.sameTyVar variable other -> Just []
+    (TcTyCon leftCon leftArguments, TcTyCon rightCon rightArguments)
+      | leftCon == rightCon && length leftArguments == length rightArguments ->
+          listToMaybe
+            [ index : path
+            | (index, (leftArgument, rightArgument)) <- zip [0 ..] (reverse (zip leftArguments rightArguments)),
+              Just path <- [argumentPath variable leftArgument rightArgument]
+            ]
+    _ -> Nothing
+
+-- | A proof that a type with each variable of the map replaced by the left
+-- side of its proof equals the type itself.
+liftThrough :: Map.Map Unique Ev.Coercion -> TcType -> Ev.Coercion
+liftThrough proofs ty
+  | not (mentions ty) = Ev.Refl ty
+  | otherwise =
+      case ty of
+        TcTyVar variable -> Map.findWithDefault (Ev.Refl ty) (tvUnique variable) proofs
+        TcTyCon tyCon arguments -> Ev.TyConAppCo tyCon arguments (map (liftThrough proofs) arguments) []
+        TcFunTy argument result -> Ev.FunCo (liftThrough proofs argument) (liftThrough proofs result)
+        TcAppTy function argument -> Ev.AppCo (liftThrough proofs function) (liftThrough proofs argument)
+        _ -> Ev.Refl ty
+  where
+    mentions current =
+      case current of
+        TcTyVar variable -> Map.member (tvUnique variable) proofs
+        TcTyCon _ arguments -> any mentions arguments
+        TcFunTy argument result -> mentions argument || mentions result
+        TcAppTy function argument -> mentions function || mentions argument
+        TcForAllTy _ body -> mentions body
+        TcQualTy _ body -> mentions body
+        _ -> False
 
 annotatedForeignDecl :: Syn.Decl -> Maybe (TcAnnotation, Maybe TcForeignImportAnnotation, Syn.ForeignDecl)
 annotatedForeignDecl = go Nothing Nothing

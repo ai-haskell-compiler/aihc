@@ -5895,22 +5895,48 @@ registerRecordSelectors origin selectorNames constructors =
   mapM registerSelector (Map.toList selectors)
   where
     -- A field whose type mentions an existential variable has no selector.
-    -- The constructor context does not reach the selector type.
+    -- The constructor context does not reach the selector type. An
+    -- equality of the context that gives a universal variable its value
+    -- does reach it, as in GHC: @WithSetup :: { wsSetup :: ModelConc n x }
+    -- -> Program (WithSetup x) n a@ of @dejafu@ has the context @pty ~
+    -- WithSetup x@. The result type @Program (WithSetup x) n a@ then
+    -- names @x@, and the selector has the type @Program (WithSetup x) n a
+    -- -> ModelConc n x@.
     selectors =
       Map.fromListWith
         (++)
         [ (label, [(constructor, field)])
         | constructor <- constructors,
           field <- dciFields constructor,
-          not (any (`typeMentionsTyVar` dcfiType field) (dciExTyVars constructor)),
+          let determined = determinedExistentials constructor,
+          not (any (\tyVar -> typeMentionsTyVar tyVar (dcfiType field) && not (any (sameTyVar tyVar) determined)) (dciExTyVars constructor)),
           Just label <- [dcfiLabel field]
         ]
+    -- The value that an equality of the context gives a universal variable.
+    universalValues constructor =
+      Map.fromList
+        [ (tvUnique variable, value)
+        | EqPred (TcTyVar variable) value <- dciTheta constructor,
+          any (sameTyVar variable) (dciUnivTyVars constructor)
+        ]
+    selectorResultType constructor = applySubst (universalValues constructor) (dciResTy constructor)
+    -- The existential variables that the result type names after the
+    -- equalities of the context are applied.
+    determinedExistentials constructor =
+      filter (\tyVar -> typeMentionsTyVar tyVar (selectorResultType constructor)) (dciExTyVars constructor)
     registerSelector (label, (constructor, field) : _) = do
-      let scheme =
+      let values = universalValues constructor
+      -- The selector quantifies its own variable for each existential
+      -- variable that the result type names. The variable of the
+      -- constructor belongs to a match on it, and the desugared selector
+      -- relates the two by the equality of the context.
+      renamed <- forM (determinedExistentials constructor) $ \tyVar -> freshSkolemTvOfKind (tvName tyVar) (tvKind tyVar)
+      let renaming = Map.fromList (zip (map tvUnique (determinedExistentials constructor)) (map TcTyVar renamed))
+          scheme =
             specifiedScheme
-              (dciUnivTyVars constructor)
+              (filter (\tyVar -> Map.notMember (tvUnique tyVar) values) (dciUnivTyVars constructor) <> renamed)
               []
-              (TcFunTy (dciResTy constructor) (dcfiType field))
+              (applySubst renaming (TcFunTy (selectorResultType constructor) (dcfiType field)))
       let binder = TcIdBinder scheme Closed
           selector = Map.findWithDefault label label selectorNames
           selectorKey = originTermKey origin selector
