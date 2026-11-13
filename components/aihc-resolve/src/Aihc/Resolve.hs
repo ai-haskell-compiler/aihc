@@ -1414,6 +1414,7 @@ builtinSyntaxTerm info name =
         "fromRational",
         "fromString",
         "fromListN",
+        "toList",
         "negate",
         "==",
         ">=",
@@ -1728,6 +1729,20 @@ applicativeExpr actions result = do
       ann <- syntaxTermAnnotation sp name
       pure (EVar (Name Nothing kind name [ann]))
 
+-- | Under OverloadedLists, a list pattern @[p1, ..., pn]@ matches through
+-- @toList@, as in GHC. The resolver only records the syntax terms: @toList@
+-- for a match, and @fromListN@ for the expression of a bidirectional
+-- pattern synonym. The type checker and the desugarer do the conversion.
+overloadedListPattern :: Pattern -> ResolveM Pattern
+overloadedListPattern pat = do
+  info <- currentModuleInfo
+  if OverloadedLists `elem` moduleInfoExtensions info
+    then do
+      sp <- currentSpan
+      methodAnns <- mapM (syntaxTermAnnotation sp) ["toList", "fromListN"]
+      pure (foldr PAnn pat methodAnns)
+    else pure pat
+
 -- | Resolve the statements of an @mdo@ block.
 --
 -- Each variable that a statement binds is in scope in all statements of the
@@ -2034,7 +2049,8 @@ bindPattern pat =
       pure (scope, PUnboxedSum alt arity inner')
     PList pats -> do
       (scope, pats') <- bindPatterns pats
-      pure (scope, PList pats')
+      pat' <- overloadedListPattern (PList pats')
+      pure (scope, pat')
     PCon name typeArgs pats -> do
       name' <- resolveTermUseAtName name
       typeArgs' <- mapM resolveType typeArgs
@@ -2152,7 +2168,7 @@ resolvePatternDefinition termDefinition pat =
     PUnboxedSum alt arity inner ->
       PUnboxedSum alt arity <$> resolvePatternDefinition termDefinition inner
     PList pats ->
-      PList <$> mapM (resolvePatternDefinition termDefinition) pats
+      overloadedListPattern . PList =<< mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PBuiltinCon builtin typeArgs pats ->

@@ -688,6 +688,9 @@ plainLiteralPatternType literal =
 literalPatternCheck :: Maybe SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
 literalPatternCheck sp pat scrutTy
   | PNPlusK name _ <- peelPatternAnn pat = Just (checkNPlusKPattern sp pat name scrutTy)
+  | PList items <- peelPatternAnn pat,
+    hasPatternSyntaxTerm "toList" pat =
+      Just (checkOverloadedListPattern sp pat items scrutTy)
   | otherwise =
       case patternLiteral pat of
         Just (isNegative, lit)
@@ -829,6 +832,24 @@ checkOverloadedLiteralPattern sp pat conversion literalTy isNegative scrutTy = d
         pcTyVars = [],
         pcPatterns = [pat']
       }
+
+-- | Check a list pattern under OverloadedLists. As in GHC, the pattern
+-- @[p1, ..., pn]@ applies @toList@ to the scrutinee and matches the list
+-- pattern against the result. The method annotation has the scrutinee
+-- type, and the list pattern has the type of the result.
+checkOverloadedListPattern :: Maybe SourceSpan -> Pattern -> [Pattern] -> TcType -> TcM PatternCheck
+checkOverloadedListPattern sp pat items scrutTy = do
+  listTy <- freshMetaTv
+  (pending, methodCts) <- checkPatternMethod sp pat "toList" scrutTy (TcFunTy scrutTy listTy)
+  listCheck <- checkListPattern sp items listTy
+  let listPattern = checkedPatternType sp listTy (checkedPattern listCheck)
+      pat' = attachPendingPatternAnnotation "toList" pending (replaceAnnotatedPattern listPattern pat)
+  pure listCheck {pcWantedCts = methodCts <> pcWantedCts listCheck, pcPatterns = [pat']}
+  where
+    replaceAnnotatedPattern new pattern' =
+      case pattern' of
+        PAnn ann inner -> PAnn ann (replaceAnnotatedPattern new inner)
+        _ -> new
 
 -- | Check an n+k pattern.
 --

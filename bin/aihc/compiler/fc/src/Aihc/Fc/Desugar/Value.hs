@@ -3227,6 +3227,8 @@ peelPattern pattern' = go pattern'
   where
     go inner =
       case inner of
+        _
+          | Just view <- overloadedListView inner -> view
         Syn.PAnn _ next -> go next
         Syn.PParen next -> go next
         Syn.PStrict next -> go next
@@ -3236,6 +3238,25 @@ peelPattern pattern' = go pattern'
         Syn.PLit literal
           | Just expanded <- stringLiteralListPattern (patternType pattern') literal -> expanded
         _ -> inner
+
+-- | Under OverloadedLists, the type checker gives a list pattern the
+-- checked @toList@ method, just outside the resolver annotation of the
+-- method. The pattern is then the view pattern @(toList -> [p1, ..., pn])@,
+-- as in GHC. The view function is the method occurrence. Its type goes
+-- from the scrutinee type to the checked type of the list pattern.
+overloadedListView :: Syn.Pattern -> Maybe Syn.Pattern
+overloadedListView pattern' =
+  case pattern' of
+    Syn.PAnn methodAnnotation (Syn.PAnn resolutionAnnotation inner)
+      | Just checked <- Syn.fromAnnotation methodAnnotation :: Maybe TcAnnotation,
+        Just resolution <- Syn.fromAnnotation resolutionAnnotation :: Maybe ResolutionAnnotation,
+        resolutionNamespace resolution == ResolutionNamespaceTerm,
+        resolutionIdentifier resolution == IdentifierNamed "toList",
+        Just listType <- patternType inner ->
+          let method = Syn.EVar (Syn.Name Nothing Syn.NameVarId "toList" [resolutionAnnotation])
+              methodType = TcFunTy (tcAnnType checked) listType
+           in Just (Syn.PView (Syn.EAnn (Syn.mkAnnotation checked {tcAnnType = methodType}) method) inner)
+    _ -> Nothing
 
 -- | A string literal pattern as the list pattern of its characters. The
 -- element type comes from the checked list type of the pattern, so every
@@ -5506,6 +5527,9 @@ desugarPatternWithFailure resultType binder ty pattern' success failure = do
 desugarExpandedPatternWithFailure :: TcType -> Binder -> TcType -> Syn.Pattern -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarExpandedPatternWithFailure resultType binder ty pattern' success failure =
   case pattern' of
+    _
+      | Just view <- overloadedListView pattern' ->
+          desugarExpandedPatternWithFailure resultType binder ty view success failure
     _
       | Just name <- nPlusKPatternBinder pattern' -> do
           resultType' <- convertCheckedType resultType

@@ -3965,7 +3965,9 @@ patternToExpr pat
   | Just expr <- negatedLiteralPatternToExpr pat = Just expr
 patternToExpr pat =
   case pat of
-    PAnn ann inner -> EAnn ann <$> patternToExpr inner
+    PAnn ann inner
+      | isMatchOnlyAnnotation ann -> patternToExpr inner
+      | otherwise -> EAnn ann <$> patternToExpr inner
     PVar name -> Just (localVar name)
     PLit literal -> Just (literalToExpr literal)
     PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
@@ -4032,15 +4034,16 @@ isNegateAnnotation ann =
         && resolutionIdentifier resolution == IdentifierNamed "negate"
     Nothing -> False
 
--- | Whether a resolver annotation serves matching alone. Only a literal
--- pattern carries the @==@ that compares it to the scrutinee, and a
--- builder rebuilds the literal instead of matching it.
+-- | Whether a resolver annotation serves matching alone. A literal
+-- pattern carries the @==@ that compares it to the scrutinee, and an
+-- overloaded list pattern carries the @toList@ that converts the
+-- scrutinee. A builder rebuilds the value instead of matching it.
 isMatchOnlyAnnotation :: Annotation -> Bool
 isMatchOnlyAnnotation ann =
   case fromAnnotation @ResolutionAnnotation ann of
     Just resolution ->
       resolutionNamespace resolution == ResolutionNamespaceTerm
-        && resolutionIdentifier resolution == IdentifierNamed "=="
+        && resolutionIdentifier resolution `elem` [IdentifierNamed "==", IdentifierNamed "toList"]
     Nothing -> False
 
 -- | The annotations of a literal, outermost last, and the literal itself.

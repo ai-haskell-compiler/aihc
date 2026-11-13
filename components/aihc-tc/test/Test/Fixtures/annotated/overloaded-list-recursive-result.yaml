@@ -9,6 +9,11 @@ modules:
   class IsList l where
     type Item l
     fromListN :: Int -> [Item l] -> l
+    toList :: l -> [Item l]
+  instance IsList [a] where
+    type Item [a] = a
+    fromListN _ xs = xs
+    toList xs = xs
 - |
   {-# LANGUAGE OverloadedLists, TypeFamilies #-}
   module Test where
@@ -18,6 +23,7 @@ modules:
   instance IsList Domain where
     type Item Domain = Bool
     fromListN _ xs = Domain xs
+    toList (Domain xs) = xs
   data Maybe a = Nothing | Just a
   pure :: a -> Maybe a
   pure = Just

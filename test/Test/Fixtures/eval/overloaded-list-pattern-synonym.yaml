@@ -1,0 +1,27 @@
+extensions:
+  - OverloadedLists
+  - PatternSynonyms
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists, PatternSynonyms #-}
+    module Test where
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Prelude
+    pattern Two :: a -> a -> [a]
+    pattern Two x y = [x, y]
+    pattern Pair :: a -> a -> NonEmpty a
+    pattern Pair x y = [x, y]
+    sumTwo :: [Int] -> Int
+    sumTwo (Two x y) = x + y
+    sumTwo _ = 0
+    first :: NonEmpty Int -> Int
+    first (Pair x _) = x
+    first _ = 0
+    result :: Bool
+    result = sumTwo (Two 1 2) == 3 && sumTwo [1] == 0 && first (Pair 7 8) == 7 && first (1 :| [2, 3]) == 0
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: Under OverloadedLists, a bidirectional pattern synonym with a list pattern matches through toList and builds through fromListN, also at the type NonEmpty.
