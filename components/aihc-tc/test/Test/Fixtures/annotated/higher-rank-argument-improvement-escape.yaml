@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, FunctionalDependencies, FlexibleContexts #-}
+  module Test where
+  newtype Const a b = Const a
+          │           └─ type: ∀ a b. a → Const a b
+          └─ type: Type → Type → Type
+  data Proxy s = Proxy
+       │         └─ type: ∀ s. Proxy s
+       └─ type: Type → Type
+  class Reifies s a | s -> a where reflect :: Const a s
+  └─ class methods: reflect ∷ ∀ s a. (Reifies s a) ⇒ Const a s; fundeps: s → a
+  data Skolem
+       └─ type: Type
+  data I = I
+       │   └─ type: I
+       └─ type: Type
+  data MagicS a r = MagicS (forall s. Reifies Skolem a => Proxy s -> r)
+       │            └─ type: ∀ a r. (∀ s. (Reifies Skolem a) ⇒ Proxy s → r) → MagicS a r
+       └─ type: Type → Type → Type
+  h :: Reifies Skolem (Proxy s) => Proxy s -> I
+  h _ = I
+  │ └─ type: Proxy s
+  └─ type: ∀ s. (Reifies Skolem (Proxy s)) ⇒ Proxy s → I
+  esc = MagicS h
+        └─ error: higher-rank type variable escapes its argument
+extensions: [RankNTypes, FunctionalDependencies, FlexibleContexts]
+modules:
+- |
+  {-# LANGUAGE RankNTypes, FunctionalDependencies, FlexibleContexts #-}
+  module Test where
+  newtype Const a b = Const a
+  data Proxy s = Proxy
+  class Reifies s a | s -> a where reflect :: Const a s
+  data Skolem
+  data I = I
+  data MagicS a r = MagicS (forall s. Reifies Skolem a => Proxy s -> r)
+  h :: Reifies Skolem (Proxy s) => Proxy s -> I
+  h _ = I
+  esc = MagicS h
+reason: "the improvement from the given Reifies Skolem a0 would give a0 := Proxy s, but s is a skolem of the polytype argument, thus it must not escape, and the type checker reports the escape, as GHC rejects the program"
+status: pass
