@@ -405,8 +405,8 @@ recordSelectorBindings origin declaration =
        in [ TcBindingResult (originTermKey origin selector) selector selectorType
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             Just label <- [maybeLabel],
-            Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType],
-            let selector = Map.findWithDefault label label selectorNames
+            let selector = Map.findWithDefault label label selectorNames,
+            Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType]
           ]
 
 -- | The field names of a record constructor declaration.
