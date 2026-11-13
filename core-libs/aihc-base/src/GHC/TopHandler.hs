@@ -17,6 +17,7 @@ where
 
 import Control.Exception (SomeException (..), catch, displayException, fromException, someExceptionContext)
 import Control.Exception.Context (displayExceptionContext)
+import Data.Char (isDigit)
 import Data.Maybe (Maybe (..))
 import Data.Typeable (tyConModule, tyConName, tyConPackage, typeOf, typeRepTyCon)
 import GHC.IO (IO (..))
@@ -96,7 +97,7 @@ packageWithoutVersion package =
       | all isVersionCharacter version -> reverse name
     _ -> package
   where
-    isVersionCharacter character = character == '.' || (character >= '0' && character <= '9')
+    isVersionCharacter character = character == '.' || isDigit character
 
 -- | Flush the standard output handles. An error during the flush is
 -- dropped, because the program is about to exit.
