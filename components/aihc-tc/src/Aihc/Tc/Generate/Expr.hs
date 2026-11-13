@@ -1441,6 +1441,12 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- @Reifies Skolem a0@ of the field of @Magic@ and the wanted @Reifies
   -- Skolem a@ of @k@ give @a0 := a@ by the dependency @s -> a@.
   _ <- improveFunDeps predicates dictionaryCts
+  -- The improvement can give a meta variable of the enclosing scope a type
+  -- with a skolem of the polytype: the given @Reifies Skolem a0@ and the
+  -- wanted @Reifies Skolem (Proxy s)@ give @a0 := Proxy s@. The skolem
+  -- then escapes, as GHC reports. Thus the escape check runs again, also
+  -- over the givens, where such a meta variable can be.
+  rejectEscapingHigherRankMetas sp boundary skolems (TcQualTy predicates actualTy)
   residualDictionaries <- concat <$> mapM (solveDictionary predicates) dictionaryCts
   -- A wanted that the local givens do not solve can need them and the
   -- givens of the enclosing scope together, as an instance context does.
