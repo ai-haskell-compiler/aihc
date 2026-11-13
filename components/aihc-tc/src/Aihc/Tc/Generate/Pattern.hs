@@ -557,18 +557,54 @@ withPatternTyVars tyVars action =
 
 checkTuplePattern :: Maybe SourceSpan -> TupleFlavor -> [Pattern] -> TcType -> TcM PatternCheck
 checkTuplePattern sp flavor items scrutTy = do
-  elemTys <- mapM (const freshMetaTv) items
   let arity = length items
   wired <- wiredTupleTyCon flavor arity
   -- The wiring gives the full identity of the tuple type constructor.
   -- A bare name lookup can find a different constructor with the same name.
   tupleTyCon <- registeredWiredTyCon wired
+  -- A constructor pattern of a GADT reads the type indices from its
+  -- scrutinee type. With a fresh meta variable, an index is a new meta
+  -- variable that nothing solves. Thus, when an item contains a
+  -- constructor pattern, a known tuple type gives its element types to
+  -- all items. The tuple equality is then reflexive. If another item got
+  -- a fresh meta variable, the tuple equality could need a given of the
+  -- constructor pattern, but the cast of the tuple pattern is outside the
+  -- scope of that given. A tuple without a constructor pattern keeps
+  -- fresh meta variables.
+  knownScrutTy <- zonkType scrutTy
+  elemTys <- case knownScrutTy of
+    TcTyCon scrutTyCon arguments
+      | scrutTyCon == tupleTyCon,
+        length arguments == arity,
+        any containsConstructorPattern items ->
+          pure arguments
+    _ -> mapM (const freshMetaTv) items
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
   let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
       castPattern = PAnn (mkAnnotation (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
+
+-- | Whether a pattern contains a constructor pattern.
+containsConstructorPattern :: Pattern -> Bool
+containsConstructorPattern pat =
+  case pat of
+    PCon {} -> True
+    PBuiltinCon {} -> True
+    PInfix {} -> True
+    PRecord {} -> True
+    PAnn _ inner -> containsConstructorPattern inner
+    PParen inner -> containsConstructorPattern inner
+    PAs _ inner -> containsConstructorPattern inner
+    PStrict inner -> containsConstructorPattern inner
+    PIrrefutable inner -> containsConstructorPattern inner
+    PView _ inner -> containsConstructorPattern inner
+    PTypeSig inner _ -> containsConstructorPattern inner
+    PUnboxedSum _ _ inner -> containsConstructorPattern inner
+    PTuple _ inner -> any containsConstructorPattern inner
+    PList inner -> any containsConstructorPattern inner
+    _ -> False
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}

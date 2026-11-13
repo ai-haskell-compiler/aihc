@@ -1,0 +1,23 @@
+extensions:
+- GADTs
+modules:
+- |
+  {-# LANGUAGE GADTs #-}
+  module Test where
+  data N = Z | S N
+  data Flag = Off | On
+  data G a where
+    GN :: N -> G N
+    GF :: Flag -> G Flag
+  plus :: N -> N -> N
+  plus Z m = m
+  plus (S n) m = S (plus n m)
+  f :: (G a, a) -> a
+  f (GN n, m) = n
+  f (GF b, _) = b
+  g :: G a -> a -> a
+  g x y = case (x, y) of
+    (GN n, m) -> plus n m
+    (GF b, _) -> b
+status: pass
+reason: The given a ~ N of the GADT pattern GN is in scope for the other tuple element and for the body.
