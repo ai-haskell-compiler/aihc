@@ -19,7 +19,7 @@ annotated:
   └─ $fPureM1fM1g ∷ ∀ f g. (Pure f g) ⇒ Pure (M1 f) (M1 g)
     pure' _ (M1 x) = M1 (pure' (Proxy @f) x)
     │     │  │  │    │   │      └─ type: Proxy f; type-args: f
-    │     │  │  │    │   └─ type: Proxy f → f x → f x; type-args: f, f, x; evidence: cast(cast(given Pure f g, Pure nth[0](given M1 f ~ M1 g) refl g), sym (Pure nth[0](given M1 f ~ M1 g) nth[0](given M1 f ~ M1 g))), refl f
+    │     │  │  │    │   └─ type: Proxy f → f x → f x; type-args: f, g, x; evidence: given Pure f g, nth[0](given M1 f ~ M1 g)
     │     │  │  │    └─ type: f x → M1 f x; type-args: f, x
     │     │  │  └─ type: f x
     │     │  └─ type: M1 f x
