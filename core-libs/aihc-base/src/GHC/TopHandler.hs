@@ -15,12 +15,14 @@ module GHC.TopHandler
   )
 where
 
-import Control.Exception (SomeException, catch, displayException, fromException, someExceptionContext)
+import Control.Exception (SomeException (..), catch, displayException, fromException, someExceptionContext)
 import Control.Exception.Context (displayExceptionContext)
 import Data.Maybe (Maybe (..))
+import Data.Typeable (tyConModule, tyConName, tyConPackage, typeOf, typeRepTyCon)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Prim (Int#, RealWorld, State#)
+import System.Environment (getProgName)
 import System.Exit (ExitCode (..))
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
 import Prelude
@@ -62,15 +64,28 @@ handleException exit exception = do
 reportStackOverflow :: IO ()
 reportStackOverflow = writeStderrLine "stack overflow"
 
--- | Write the exception and its context, as the GHC top handler does. The
--- context holds, for example, the call stack of an 'error' call.
+-- | Write the exception as the GHC 9.12 top handler does: the program name,
+-- the type of the exception, the message, and then the context. The context
+-- holds, for example, the call stack of an 'error' call.
 reportError :: SomeException -> IO ()
-reportError exception =
+reportError exception = do
+  programName <- getProgName
   writeStderrLine
-    ( case displayExceptionContext (someExceptionContext exception) of
-        [] -> displayException exception
-        context -> displayException exception ++ "\n" ++ context
+    ( programName
+        ++ ": Uncaught exception "
+        ++ exceptionTypeName exception
+        ++ ":\n\n"
+        ++ displayException exception
+        ++ case displayExceptionContext (someExceptionContext exception) of
+          [] -> []
+          context -> "\n\n" ++ context ++ "\n"
     )
+
+-- | The package, the module, and the name of the type of the exception.
+exceptionTypeName :: SomeException -> String
+exceptionTypeName (SomeException inner) =
+  let tyCon = typeRepTyCon (typeOf inner)
+   in tyConPackage tyCon ++ ":" ++ tyConModule tyCon ++ "." ++ tyConName tyCon
 
 -- | Flush the standard output handles. An error during the flush is
 -- dropped, because the program is about to exit.

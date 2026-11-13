@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | The helpers of the 'Read' class and the instances of the types that the
 -- primitive package and this module define.
 --
@@ -13,12 +15,14 @@ module GHC.Internal.Read
     readNumber,
     readFieldHash,
     numberToRational,
+    numberToRangedRational,
   )
 where
 
 import Data.Either (Either (..))
 import Data.Proxy (Proxy (..))
-import GHC.Float (Double, Float)
+import GHC.Err (undefined)
+import GHC.Float (Double, Float, RealFloat (..))
 import GHC.Int (Int, Int16, Int32, Int64, Int8)
 import GHC.Internal.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String, otherwise)
 import GHC.Internal.Classes (Ord (..))
@@ -129,11 +133,16 @@ fracExp exponentValue mantissa []
 fracExp exponentValue mantissa (digit : digits) =
   fracExp (exponentValue - 1) (mantissa * 10 + toInteger digit) digits
 
-readFractionalPrec :: (Fractional a) => ReadPrec a
+readFractionalPrec :: (RealFloat a) => ReadPrec a
 readFractionalPrec = readNumber convertFractional
 
-convertFractional :: (Fractional a) => Lexeme -> ReadPrec a
-convertFractional (Number token) = return (fromRational (numberToRational token))
+-- | The value of a literal, as in GHC. A literal with an exponent beyond the
+-- range of the type gives infinity at once, and does not compute the power.
+convertFractional :: forall a. (RealFloat a) => Lexeme -> ReadPrec a
+convertFractional (Number token) =
+  case numberToRangedRational (floatRange (undefined :: a)) token of
+    Nothing -> return (1 / 0)
+    Just rational -> return (fromRational rational)
 convertFractional (Ident name) =
   case stringEqual name "NaN" of
     True -> return (0 / 0)
@@ -142,6 +151,39 @@ convertFractional (Ident name) =
         True -> return (1 / 0)
         False -> pfail
 convertFractional _ = pfail
+
+-- | The value of a literal, or 'Nothing' if the literal is too large for the
+-- range of exponents, as in GHC. A literal that is too small gives zero.
+numberToRangedRational :: (Int, Int) -> Number -> Maybe Rational
+numberToRangedRational (neg, pos) n@(MkDecimal iPart mFPart (Just exponentValue)) =
+  let mFirstDigit = case dropZeroDigits iPart of
+        iPart'@(_ : _) -> Just (digitCount iPart')
+        [] -> case mFPart of
+          Nothing -> Nothing
+          Just fPart ->
+            case dropZeroDigits fPart of
+              [] -> Nothing
+              rest -> Just (negate (digitCount fPart - digitCount rest))
+   in case mFirstDigit of
+        Nothing -> Just 0
+        Just firstDigit ->
+          let firstDigit' = toInteger firstDigit + exponentValue
+           in case firstDigit' > toInteger (pos + 3) of
+                True -> Nothing
+                False ->
+                  case firstDigit' < toInteger (neg - 3) of
+                    True -> Just 0
+                    False -> Just (numberToRational n)
+numberToRangedRational _ n = Just (numberToRational n)
+
+-- | The digits after the leading zeros.
+dropZeroDigits :: Digits -> Digits
+dropZeroDigits (0 : rest) = dropZeroDigits rest
+dropZeroDigits digits = digits
+
+digitCount :: Digits -> Int
+digitCount [] = 0
+digitCount (_ : rest) = 1 + digitCount rest
 
 instance Read Double where
   readPrec = readFractionalPrec
