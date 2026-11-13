@@ -504,7 +504,19 @@ derivingDataType :: DataTypeInfo -> TcM DataTypeInfo
 derivingDataType dataType = do
   let signatureKinds = takeVisibleArgumentKinds maxBound (dtiResultKind dataType)
   signatureTyVars <- zipWithM signatureTyVar [length (dtiTyVars dataType) + 1 ..] signatureKinds
-  let tyVars = dtiTyVars dataType <> signatureTyVars
+  let tyVars = zipWith nameParameter [0 ..] (dtiTyVars dataType <> signatureTyVars)
+      -- A parameter that only the kind signature gives has no source name.
+      -- It takes the name of the variable of the first constructor at its
+      -- position, so that a diagnostic names @b@ and not @$parameter@.
+      sourceNames =
+        case [variables | constructor <- dtiConstructors dataType, Just variables <- [resultVariables (dciResTy constructor)]] of
+          variables : _ -> map tvName variables
+          [] -> []
+      nameParameter index tyVar
+        | "$" `T.isPrefixOf` tvName tyVar || tyVar `elem` signatureTyVars,
+          Just sourceName <- listToMaybe (drop index sourceNames) =
+            mkTyVarId sourceName (tvUnique tyVar) (tvKind tyVar)
+        | otherwise = tyVar
       resultKind = dropVisibleArguments (length signatureKinds) (dtiResultKind dataType)
   pure
     dataType

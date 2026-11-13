@@ -1,0 +1,49 @@
+modules:
+  - |
+    {-# LANGUAGE GADTs, KindSignatures, DeriveFunctor, DeriveFoldable, DeriveTraversable, StandaloneDeriving #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import Prelude
+
+    -- The constructor names its own variable, not the head parameter.
+    data Named a where
+      Named :: b -> b -> Named b
+      deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+
+    -- The kind signature gives the parameter. The head binds none.
+    data V :: Type -> Type where
+      V :: a -> a -> V a
+      deriving (Show, Eq, Ord, Functor, Foldable)
+
+    -- Two parameters from the kind signature, and the fields use the last.
+    data V2 :: Type -> Type -> Type where
+      V2 :: x -> b -> b -> V2 x b
+      deriving (Show, Functor, Foldable)
+
+    -- A standalone declaration reads the constructor the same way.
+    data S :: Type -> Type where
+      S :: c -> [c] -> S c
+
+    deriving instance Show c => Show (S c)
+    deriving instance Functor S
+    deriving instance Foldable S
+
+    result :: Bool
+    result =
+      (length (Named 1 2), sum (Named 1 (2 :: Int))) == (2, 3)
+        && show (fmap (+ 1) (Named 1 (2 :: Int))) == "Named 2 3"
+        && fmap (fmap sum) (traverse (\x -> Just [x]) (Named 1 (2 :: Int))) == Just (Named 1 2)
+        && Named 1 2 < Named 1 (3 :: Int)
+        && (length (V 1 2), sum (V 1 (2 :: Int))) == (2, 3)
+        && show (fmap (* 10) (V 1 (2 :: Int))) == "V 10 20"
+        && V 1 2 == V 1 (2 :: Int)
+        && (length (V2 'x' 1 2), sum (V2 'x' 1 (2 :: Int))) == (2, 3)
+        && show (fmap (+ 1) (V2 'x' 1 (2 :: Int))) == "V2 'x' 2 3"
+        && (length (S 1 [2, 3]), sum (S 1 [2, 3 :: Int])) == (3, 6)
+        && show (fmap (+ 1) (S 1 [2 :: Int])) == "S 2 [3]"
+output: |
+  True
+expression: |
+  result
+status: pass
