@@ -72,6 +72,7 @@ module Aihc.Resolve
 
     -- * Names in the scope of a module
     moduleTopLevelName,
+    resolveSpliceBodies,
   )
 where
 
@@ -241,6 +242,28 @@ moduleTopLevelName (Builtins builtinScope) exports unit =
       case namespace of
         ResolutionNamespaceType -> resolveTypeName
         _ -> resolveTermName
+
+-- | Resolve the body of each splice of a module as an expression in the
+-- scope of the module. A quote in a splice body names the declarations of
+-- the module, also when the module does not export them. The compiler runs
+-- the splices before it resolves the module, so it resolves the bodies
+-- here, and changes their quotes with these resolutions. A name that does
+-- not resolve has no resolution: the errors are not reported here, because
+-- the splice module reports them.
+resolveSpliceBodies :: Builtins -> ModuleExports -> ModuleUnit -> [Expr] -> [Expr]
+resolveSpliceBodies (Builtins builtinScope) exports unit bodies =
+  let (_, _, resolved) =
+        runResolveM
+          scope
+          (moduleInfo builtinScope (moduleUnitExtensions unit) modu {moduleImports = imports})
+          0
+          (mapM (withResetLocalSupply . resolveExpr) bodies)
+   in resolved
+  where
+    package = moduleUnitPackage unit
+    modu = moduleUnitAst unit
+    (imports, _) = resolveModuleImports package exports (moduleImports modu)
+    scope = moduleScope builtinScope package exports (moduleUnitExtensions unit) modu {moduleImports = imports}
 
 resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], Module))
 resolveModule builtinScope package exports extensions nextLocal modu =

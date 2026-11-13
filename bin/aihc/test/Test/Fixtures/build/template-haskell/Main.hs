@@ -62,6 +62,10 @@ answer = 42
 data Shape = Circle Int | Square Int Int
   deriving (Show)
 
+-- | A value of this module that the module does not export.
+secret :: Int
+secret = 41
+
 -- A declaration splice reads the facts of a type of its own module with
 -- reify, and makes declarations that use the type and its constructors.
 $( do
@@ -174,3 +178,13 @@ main = do
   -- splice of this module and in a function of a different module.
   print $(do TyConI (DataD _ name _ _ _ _) <- reify ''Shape; if name == ''Shape then [|True|] else [|False|])
   print $(isMode ''Mode)
+  -- A quote in a splice body names a value and a constructor of this
+  -- module that the module does not export, and a constructor in a
+  -- pattern.
+  print ($([|secret + 1|]) :: Int)
+  print $([|Circle 7|])
+  print ($([|\(Circle radius) -> radius|]) (Circle 9))
+  -- A variable that the splice body binds stays local in the quote: the
+  -- quote lifts its value, and the top-level value with the same name is
+  -- not used.
+  print ($(let secret = 1 :: Int in [|secret|]) :: Int)

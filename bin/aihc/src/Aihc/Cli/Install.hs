@@ -217,6 +217,7 @@ import Aihc.Resolve
     moduleExportsWithOrigins,
     moduleTopLevelName,
     modulesInPackage,
+    resolveSpliceBodies,
     resolveUnit,
   )
 import Aihc.Resolve.Types (exactTerm, exactType)
@@ -252,9 +253,9 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, moduleHasQuote, quoteImports)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, moduleHasQuote, quoteImports, renameQuotedPackage)
 import Aihc.Th.Reify (reifyInfo)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -2977,9 +2978,30 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                 | otherwise = global
               bound = bindSpliceNameQuotes (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
               splices = moduleSplices bound
+              -- A quote in a splice body names what it names at the splice:
+              -- the compiler resolves the bodies in the scope of this module,
+              -- and changes their quotes before the splice module gets them.
+              -- A name of this package gets the package id of the splice
+              -- package.
+              spliceBody splice =
+                case splice of
+                  ExpressionSplice body -> body
+                  DeclarationSplice body -> body
+                  TypeSplice body -> body
+              withBody splice body =
+                case splice of
+                  ExpressionSplice _ -> ExpressionSplice body
+                  DeclarationSplice _ -> DeclarationSplice body
+                  TypeSplice _ -> TypeSplice body
+              resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
+              desugaredSplices =
+                zipWith
+                  (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody (spliceBody splice) resolved)))
+                  splices
+                  resolvedBodies
               request =
                 template
-                  { spliceRequestSplices = splices,
+                  { spliceRequestSplices = desugaredSplices,
                     spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
                     spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],

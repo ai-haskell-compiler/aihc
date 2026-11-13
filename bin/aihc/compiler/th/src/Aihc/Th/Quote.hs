@@ -33,6 +33,8 @@ module Aihc.Th.Quote
   ( moduleHasQuote,
     quoteImports,
     desugarModuleQuotes,
+    desugarSpliceBody,
+    renameQuotedPackage,
     bindSpliceNameQuotes,
   )
 where
@@ -91,6 +93,32 @@ data Quote
 -- quote in an expression quote stays, with the quote that contains it.
 desugarModuleQuotes :: Module -> Module -> Module
 desugarModuleQuotes = desugarQuotes Set.empty
+
+-- | Change each quote of a splice body that is in the subset. The first
+-- body is the parsed form, and the second body is the same body that the
+-- compiler resolved in the scope of the module of the splice. Thus, a name
+-- in a quote of the body has the meaning that it has at the splice.
+desugarSpliceBody :: Expr -> Expr -> Expr
+desugarSpliceBody = desugarQuotes Set.empty
+
+-- | Change the package of each bound name that a changed quote makes, from
+-- the first package id to the second package id.
+renameQuotedPackage :: Text -> Text -> Expr -> Expr
+renameQuotedPackage from to = runIdentity . go
+  where
+    go :: forall value. (Data value) => value -> Identity value
+    go value =
+      case eqT @value @Expr of
+        Just Refl ->
+          case value of
+            EApp function (EString identity _)
+              | isBoundNameFunction function,
+                identity == from ->
+                  pure (EApp function (stringLiteral to))
+            _ -> gmapM go value
+        Nothing -> gmapM go value
+    isBoundNameFunction function =
+      function `elem` [library "mkNameG_v", library "mkNameG_d", library "mkNameG_tc"]
 
 -- | Change each quote of a syntax tree that is in the subset, as
 -- 'desugarModuleQuotes' does. The set has the binders of the quotes that
@@ -301,8 +329,13 @@ quoted binders = go
     quotedPattern pattern' =
       case pattern' of
         PAnn _ inner -> quotedPattern inner
+        PParen inner -> quotedPattern inner
         PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
         PWildcard -> Just (library "wildP")
+        -- A constructor pattern with no type arguments.
+        PCon name [] arguments
+          | Just (EntityGlobal global) <- nameEntity name ->
+              (\arguments' -> call "conP" [globalName name global, EList arguments']) <$> mapM quotedPattern arguments
         _ -> Nothing
 
 -- | The Template Haskell name of a top-level term.
