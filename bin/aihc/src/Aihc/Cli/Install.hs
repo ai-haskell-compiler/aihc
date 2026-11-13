@@ -253,7 +253,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, moduleHasQuote, quoteImports, renameQuotedPackage)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, renameQuotedPackage)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
@@ -2975,7 +2975,8 @@ expandUnitSplices context runtimes unit availableExports sources modules =
               inSplicePackage global
                 | globalNamePackage global == ownPackage = global {globalNamePackage = PackageId (splicePackageId template)}
                 | otherwise = global
-              bound = bindSpliceNameQuotes (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
+              localNames = localBinderNames original
+              bound = bindSpliceNameQuotes localNames (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
               splices = moduleSplices bound
               -- A quote in a splice body names what it names at the splice:
               -- the compiler resolves the bodies in the scope of this module,
@@ -2995,7 +2996,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
               resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
               desugaredSplices =
                 zipWith
-                  (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody (spliceBody splice) resolved)))
+                  (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
                   splices
                   resolvedBodies
               request =
