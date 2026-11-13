@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, takeReductionOverflow, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, lookupClass, lookupClassByName, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, forgetReductionOverflow, reductionOverflowed, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -78,7 +78,13 @@ solveDict = solveDictWithGivens []
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
 solveDictWithGivens givens ct = do
   outerGivens <- getGivenPredicates
-  solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
+  result <- solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
+  -- A wanted that an instance candidate overflowed and another candidate
+  -- solved keeps no record of the overflow.
+  case result of
+    DictSolved -> zonkPred (ctPred ct) >>= forgetReductionOverflow
+    DictStuck _ -> pure ()
+  pure result
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveDictWithGivensVisited visited givens ct0 = do
@@ -107,7 +113,9 @@ solveNormalizedDict visited givens ct
   -- it at its reduction depth limit, 200 by default, and so does the solver
   -- here. The wanted then stays unsolved.
   | length visited >= reductionDepthLimit = do
-      recordReductionOverflow (ctPred ct)
+      -- The record names the wanted that started the reduction: the
+      -- oldest entry of 'visited'.
+      recordReductionOverflow =<< zonkPred (last (ctPred ct : visited))
       pure (DictStuck ct)
   | ctPred ct `elem` visited = do
       -- A wanted that comes back to a dictionary that an instance is
@@ -1223,10 +1231,10 @@ reportUnsolvedDict :: Ct -> TcM ()
 reportUnsolvedDict ct = do
   predicate <- zonkPred (ctPred ct)
   wiring <- getWiring
-  overflow <- takeReductionOverflow
+  overflowed <- reductionOverflowed predicate
   case predicate of
     _
-      | Just _ <- overflow ->
+      | overflowed ->
           emitError
             (ctLoc ct)
             ( OtherError

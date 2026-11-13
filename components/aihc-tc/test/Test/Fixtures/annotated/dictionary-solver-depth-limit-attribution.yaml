@@ -1,0 +1,83 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances, UndecidableInstances, MultiParamTypeClasses #-}
+  module Test where
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  data Flag = On
+       │      └─ type: Flag
+       └─ type: Type
+  class Loop a where
+  └─ class methods: loop ∷ ∀ a. (Loop a) ⇒ a → Flag
+    loop :: a -> Flag
+  instance Loop [a] => Loop a where
+  └─ $fLoopa ∷ ∀ a. (Loop [a]) ⇒ Loop a
+    loop _ = On
+    │    └─ type: a
+    └─ loop ∷ a → Flag
+  class Missing a where
+  └─ class methods: missing ∷ ∀ a. (Missing a) ⇒ a → Flag
+    missing :: a -> Flag
+  class C a b where
+  └─ class methods: c ∷ ∀ a b. (C a b) ⇒ a → b → Flag
+    c :: a -> b -> Flag
+  instance {-# INCOHERENT #-} C T b where
+  └─ $fCTb ∷ ∀ b. () ⇒ C T b
+    c _ _ = On
+    │ │ └─ type: b
+    │ └─ type: T
+    └─ c ∷ T → b → Flag
+  instance {-# INCOHERENT #-} Loop a => C a T where
+  └─ $fCaT ∷ ∀ a. (Loop a) ⇒ C a T
+    c _ _ = On
+    │ │ └─ type: T
+    │ └─ type: a
+    └─ c ∷ a → T → Flag
+  mixed :: (Flag, Flag, Flag)
+  mixed = (missing T, loop T, missing T)
+           │          │       └─ error: unsolved constraint Missing T
+           │          └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+           └─ error: unsolved constraint Missing T
+  twice :: (Flag, Flag)
+  twice = (loop T, loop T)
+           │       └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+           └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+  both :: (Flag, Flag)
+  both = (c T T, missing T)
+                 └─ error: unsolved constraint Missing T
+  local :: Flag
+  local = let g x = loop [x] in missing T
+                                └─ error: unsolved constraint Missing T
+  nosig = loop T
+          └─ error: Reduction stack overflow; size = 200 when simplifying the constraint Loop T
+extensions: [FlexibleInstances, UndecidableInstances, MultiParamTypeClasses]
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances, UndecidableInstances, MultiParamTypeClasses #-}
+  module Test where
+  data T = T
+  data Flag = On
+  class Loop a where
+    loop :: a -> Flag
+  instance Loop [a] => Loop a where
+    loop _ = On
+  class Missing a where
+    missing :: a -> Flag
+  class C a b where
+    c :: a -> b -> Flag
+  instance {-# INCOHERENT #-} C T b where
+    c _ _ = On
+  instance {-# INCOHERENT #-} Loop a => C a T where
+    c _ _ = On
+  mixed :: (Flag, Flag, Flag)
+  mixed = (missing T, loop T, missing T)
+  twice :: (Flag, Flag)
+  twice = (loop T, loop T)
+  both :: (Flag, Flag)
+  both = (c T T, missing T)
+  local :: Flag
+  local = let g x = loop [x] in missing T
+  nosig = loop T
+reason: "each wanted that reaches the reduction depth limit gets the overflow diagnostic, each time it occurs; another unsolved wanted gets a plain unsolved constraint; a failed instance candidate that another candidate replaces leaves no record"
+status: pass

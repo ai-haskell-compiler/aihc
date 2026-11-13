@@ -4199,8 +4199,7 @@ generalizableResidualPreds inferredType solveResult = do
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
-  forM_ (nubBy sameCtPred concreteCts) $ \ct ->
-    emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
+  forM_ (nubBy sameCtPred concreteCts) reportUnsolvedDict
   pure (map ctPred (nubBy sameCtPred polymorphicCts))
   where
     zonkCtPred ct = do
