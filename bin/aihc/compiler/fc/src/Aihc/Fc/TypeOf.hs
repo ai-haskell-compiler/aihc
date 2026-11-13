@@ -691,8 +691,11 @@ applyNominalAxiom env declaration source
 coercionEndpoints :: TypeEnv -> Coercion -> Maybe (Type, Type)
 coercionEndpoints env coercion =
   case coercion of
+    -- The type of the variable reduces first, as in the lint. A match on a
+    -- GADT constructor binds @co : F a ~ (x ': xs)@ with a family on one
+    -- side, and a projection of its arguments needs the reduct of @F a@.
     CoVar name ->
-      case Map.lookup name (teBinders env) of
+      case reduceType env <$> Map.lookup name (teBinders env) of
         Just (TyEq left right) -> Just (left, right)
         _ -> Nothing
     CoRefl ty -> Just (ty, ty)
