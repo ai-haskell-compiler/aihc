@@ -1,0 +1,80 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data P a = P a
+       │     └─ type: ∀ a. a → P a
+       └─ type: Type → Type
+  data Ii = Ii
+       │    └─ type: Ii
+       └─ type: Type
+  data Val = Val
+       │     └─ type: Val
+       └─ type: Type
+  pureP :: a -> P a
+  pureP = P
+  │       └─ type: a → P a; type-args: a
+  └─ type: ∀ a. a → P a
+  apP :: P (a -> b) -> P a -> P b
+  apP (P f) (P x) = P (f x)
+  │    │ │   │ │    └─ type: b → P b; type-args: b
+  │    │ │   │ └─ type: a
+  │    │ │   └─ type: P a
+  │    │ └─ type: a → b
+  │    └─ type: P (a → b)
+  └─ type: ∀ a b. P (a → b) → P a → P b
+  class Idiomatic f g | g -> f where
+  └─ class methods: idiomatic ∷ ∀ f g. (Idiomatic f g) ⇒ P f → g; fundeps: g → f
+    idiomatic :: P f -> g
+  instance Idiomatic x (Ii -> P x) where
+  └─ $fIdiomaticx(->)IiPx ∷ ∀ x. () ⇒ Idiomatic x (Ii → P x)
+    idiomatic ix Ii = ix
+    │         │  └─ type: Ii
+    │         └─ type: P x
+    └─ idiomatic ∷ P x → Ii → P x
+  instance Idiomatic f g => Idiomatic ((a -> b) -> f) ((a -> b) -> g) where
+  └─ $fIdiomatic(->)(->)abf(->)(->)abg ∷ ∀ f g a b. (Idiomatic f g) ⇒ Idiomatic ((a → b) → f) ((a → b) → g)
+    idiomatic isf f = idiomatic (apP isf (pureP f))
+    │         │   │   │          │        └─ type: (a → b) → P (a → b); type-args: a → b
+    │         │   │   │          └─ type: P ((a → b) → f) → P (a → b) → P f; type-args: a → b, f
+    │         │   │   └─ type: P f → g; type-args: f, g; evidence: given Idiomatic f g
+    │         │   └─ type: a → b
+    │         └─ type: P ((a → b) → f)
+    └─ idiomatic ∷ P ((a → b) → f) → (a → b) → g
+  iI :: Idiomatic (a -> a) g => g
+  iI = idiomatic (pureP (\x -> x))
+  │    │          │      │└─ type: a
+  │    │          │      └─ type: a → a
+  │    │          └─ type: (a → a) → P (a → a); type-args: a → a
+  │    └─ type: P (a → a) → g; type-args: a → a, g; evidence: given Idiomatic a → a g
+  └─ type: ∀ a g. (Idiomatic (a → a) g) ⇒ g
+  use :: P (Val -> Val)
+  use = iI (\u -> u) Ii
+  │     │   │└─ type: Val
+  │     │   └─ type: Val → Val
+  │     └─ type: (Val → Val) → Ii → P (Val → Val); type-args: Val → Val, (Val → Val) → Ii → P (Val → Val); evidence: $fIdiomatic(->)(->)abf(->)(->)abg @Val → Val @Ii → P (Val → Val) @Val @Val ($fIdiomaticx(->)IiPx @Val → Val)
+  └─ type: P (Val → Val)
+extensions: [MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data P a = P a
+  data Ii = Ii
+  data Val = Val
+  pureP :: a -> P a
+  pureP = P
+  apP :: P (a -> b) -> P a -> P b
+  apP (P f) (P x) = P (f x)
+  class Idiomatic f g | g -> f where
+    idiomatic :: P f -> g
+  instance Idiomatic x (Ii -> P x) where
+    idiomatic ix Ii = ix
+  instance Idiomatic f g => Idiomatic ((a -> b) -> f) ((a -> b) -> g) where
+    idiomatic isf f = idiomatic (apP isf (pureP f))
+  iI :: Idiomatic (a -> a) g => g
+  iI = idiomatic (pureP (\x -> x))
+  use :: P (Val -> Val)
+  use = iI (\u -> u) Ii
+reason: "the instance head gives the shape (a -> b) -> f of the dependent parameter, and f gets a fresh variable, thus the wanted Idiomatic (t0 -> t0) ((t1 -> t1) -> Ii -> P (Val -> Val)) improves and the instances solve it; reduced from uu-parsinglib Text.ParserCombinators.UU.Idioms"
+status: pass

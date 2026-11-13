@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data U = U
+       │   └─ type: U
+       └─ type: Type
+  class C a b | a -> b where
+  └─ class methods: m ∷ ∀ a b. (C a b) ⇒ a → b; fundeps: a → b
+    m :: a -> b
+  instance C a b => C a [b] where
+  └─ $fCaList ∷ ∀ a b. (C a b) ⇒ C a [b]
+    m x = [m x]
+    │ │   │└─ type: a → b; type-args: a, b; evidence: given C a b
+    │ │   └─ type: [b]; type-args: b
+    │ └─ type: a
+    └─ m ∷ a → [b]
+  use :: U -> ()
+  use u = case m u of _ -> ()
+               └─ error: unsolved constraint C U t0
+extensions: [MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  data U = U
+  class C a b | a -> b where
+    m :: a -> b
+  instance C a b => C a [b] where
+    m x = [m x]
+  use :: U -> ()
+  use u = case m u of _ -> ()
+reason: "the instance C a b => C a [b] keeps the determining parameter a, thus an improvement from its head would make the wanted C U t0 larger at each step; the improvement skips it, the type check ends, and the wanted gets a diagnostic"
+status: pass

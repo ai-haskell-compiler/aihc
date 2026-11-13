@@ -545,7 +545,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
 atDecl :: (Decl -> TcM a) -> Decl -> TcM a
-atDecl check declaration = withAmbientSpan (peelDeclSpan declaration) (check declaration)
+atDecl check declaration = resetFunDepFuel >> withAmbientSpan (peelDeclSpan declaration) (check declaration)
 
 -- | Move the associated data families of a module to the top level. The
 -- data family a class declares and the instance a class instance gives it
