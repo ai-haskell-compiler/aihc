@@ -1211,6 +1211,29 @@ evalPrimitive "plusWord2#" [left, right] = do
 evalPrimitive "plusWord64#" [left, right] = evalSizedWordArithmetic "plusWord64#" Word64Rep 64 (+) left right
 evalPrimitive "subWord64#" [left, right] = evalSizedWordArithmetic "subWord64#" Word64Rep 64 (-) left right
 evalPrimitive "timesWord64#" [left, right] = evalSizedWordArithmetic "timesWord64#" Word64Rep 64 (*) left right
+evalPrimitive "quotWord64#" [left, right] = evalSizedWordArithmetic "quotWord64#" Word64Rep 64 quot left right
+evalPrimitive "remWord64#" [left, right] = evalSizedWordArithmetic "remWord64#" Word64Rep 64 rem left right
+evalPrimitive "plusInt64#" [left, right] = evalSizedIntArithmetic "plusInt64#" Int64Rep 64 (+) left right
+evalPrimitive "subInt64#" [left, right] = evalSizedIntArithmetic "subInt64#" Int64Rep 64 (-) left right
+evalPrimitive "timesInt64#" [left, right] = evalSizedIntArithmetic "timesInt64#" Int64Rep 64 (*) left right
+evalPrimitive "quotInt64#" [left, right] = evalSizedIntArithmetic "quotInt64#" Int64Rep 64 quot left right
+evalPrimitive "remInt64#" [left, right] = evalSizedIntArithmetic "remInt64#" Int64Rep 64 rem left right
+evalPrimitive "negateInt64#" [value] = do
+  int <- expectRuntimeRepPrimitiveArgument "negateInt64#" Int64Rep value
+  pure [RuntimeLit (GrinLitInt Int64Rep (normalizeInt (negate int)))]
+evalPrimitive "uncheckedIShiftL64#" [value, amount] = evalInt64Shift "uncheckedIShiftL64#" shiftL value amount
+evalPrimitive "uncheckedIShiftRA64#" [value, amount] = evalInt64Shift "uncheckedIShiftRA64#" shiftR value amount
+evalPrimitive "uncheckedIShiftRL64#" [value, amount] =
+  evalInt64Shift "uncheckedIShiftRL64#" (\int count -> normalizeWord int `shiftR` count) value amount
+evalPrimitive "eqInt64#" [left, right] = evalInt64Comparison "eqInt64#" (==) left right
+evalPrimitive "neInt64#" [left, right] = evalInt64Comparison "neInt64#" (/=) left right
+evalPrimitive "ltInt64#" [left, right] = evalInt64Comparison "ltInt64#" (<) left right
+evalPrimitive "leInt64#" [left, right] = evalInt64Comparison "leInt64#" (<=) left right
+evalPrimitive "gtInt64#" [left, right] = evalInt64Comparison "gtInt64#" (>) left right
+evalPrimitive "geInt64#" [left, right] = evalInt64Comparison "geInt64#" (>=) left right
+evalPrimitive "bitReverse64#" [value] = do
+  word <- expectRuntimeRepPrimitiveArgument "bitReverse64#" Word64Rep value
+  pure [RuntimeLit (GrinLitInt Word64Rep (reverseBits word))]
 evalPrimitive "and64#" [left, right] = evalSizedWordPrimitive "and64#" Word64Rep (.&.) left right
 evalPrimitive "or64#" [left, right] = evalSizedWordPrimitive "or64#" Word64Rep (.|.) left right
 evalPrimitive "xor64#" [left, right] = evalSizedWordPrimitive "xor64#" Word64Rep xor left right
@@ -1910,6 +1933,10 @@ evalPrimitive "indexWord8OffAddrAsWord32#" [address, offset] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readAddressPrimitive "indexWord8OffAddrAsWord32#" 1 4 readAddressWord32 address offset
 evalPrimitive "indexWord8OffAddrAsWord64#" [address, offset] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readAddressPrimitive "indexWord8OffAddrAsWord64#" 1 8 readAddressWord64 address offset
+evalPrimitive "indexWord8OffAddrAsInt64#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> readAddressPrimitive "indexWord8OffAddrAsInt64#" 1 8 readAddressInt64 address offset
+evalPrimitive "readWord8OffAddrAsInt64#" [address, offset] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> readAddressPrimitive "readWord8OffAddrAsInt64#" 1 8 readAddressInt64 address offset
 evalPrimitive "readWord8OffAddrAsWord16#" [address, offset] =
   (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readAddressPrimitive "readWord8OffAddrAsWord16#" 1 2 readAddressWord16 address offset
 evalPrimitive "readWord8OffAddrAsWord32#" [address, offset] =
@@ -1938,6 +1965,8 @@ evalPrimitive "writeWord8OffAddrAsWord32#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsWord32#" 1 Word32Rep writeAddressWord32 address offset value
 evalPrimitive "writeWord8OffAddrAsWord64#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsWord64#" 1 Word64Rep writeAddressWord64 address offset value
+evalPrimitive "writeWord8OffAddrAsInt64#" [address, offset, value] =
+  writeAddressPrimitive "writeWord8OffAddrAsInt64#" 1 Int64Rep writeAddressWord64 address offset value
 evalPrimitive "writeWord8OffAddrAsFloat#" [address, offset, value] =
   writeAddressPrimitive "writeWord8OffAddrAsFloat#" 1 FloatRep writeAddressWord32 address offset value
 evalPrimitive "writeWord8OffAddrAsDouble#" [address, offset, value] =
@@ -2024,6 +2053,10 @@ evalPrimitive "indexWord8ArrayAsWord32#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word32Rep <$> readByteArrayElement "indexWord8ArrayAsWord32#" 1 4 readAddressWord32 value offset
 evalPrimitive "indexWord8ArrayAsWord64#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word64Rep <$> readByteArrayElement "indexWord8ArrayAsWord64#" 1 8 readAddressWord64 value offset
+evalPrimitive "indexWord8ArrayAsInt64#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> readByteArrayElement "indexWord8ArrayAsInt64#" 1 8 readAddressInt64 value offset
+evalPrimitive "readWord8ArrayAsInt64#" [value, offset] =
+  (: []) . RuntimeLit . GrinLitInt Int64Rep <$> readByteArrayElement "readWord8ArrayAsInt64#" 1 8 readAddressInt64 value offset
 evalPrimitive "readWord8ArrayAsWord16#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "readWord8ArrayAsWord16#" 1 2 readAddressWord16 value offset
 evalPrimitive "readWord8ArrayAsWord32#" [value, offset] =
@@ -2036,6 +2069,8 @@ evalPrimitive "writeWord8ArrayAsWord32#" [value, offset, element] =
   writeByteArrayElement "writeWord8ArrayAsWord32#" 1 4 Word32Rep writeAddressWord32 value offset element
 evalPrimitive "writeWord8ArrayAsWord64#" [value, offset, element] =
   writeByteArrayElement "writeWord8ArrayAsWord64#" 1 8 Word64Rep writeAddressWord64 value offset element
+evalPrimitive "writeWord8ArrayAsInt64#" [value, offset, element] =
+  writeByteArrayElement "writeWord8ArrayAsInt64#" 1 8 Int64Rep writeAddressWord64 value offset element
 evalPrimitive "indexWord8Array#" [value, index] =
   (: []) . RuntimeLit . GrinLitInt Word8Rep <$> readByteArrayElement "indexWord8Array#" 1 1 readAddressWord8 value index
 evalPrimitive "indexWord16Array#" [value, index] =
@@ -2983,6 +3018,20 @@ evalSizedWordNot :: Text -> GrinRep -> Int -> RuntimeValue -> EvalM [RuntimeValu
 evalSizedWordNot name rep bits value = do
   word <- expectRuntimeRepPrimitiveArgument name rep value
   pure [RuntimeLit (GrinLitInt rep (word `xor` (shiftL 1 bits - 1)))]
+
+-- | A comparison of two 'Int64#' values. The result is an 'Int#'.
+evalInt64Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalInt64Comparison name comparison left right = do
+  leftInt <- expectRuntimeRepPrimitiveArgument name Int64Rep left
+  rightInt <- expectRuntimeRepPrimitiveArgument name Int64Rep right
+  pure [intRuntimeValue (if comparison leftInt rightInt then 1 else 0)]
+
+-- | A shift of an 'Int64#' by an 'Int#'. The result wraps to 64 bits.
+evalInt64Shift :: Text -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalInt64Shift name operation value amount = do
+  int <- expectRuntimeRepPrimitiveArgument name Int64Rep value
+  shiftAmount <- expectIntPrimitiveArgument name amount
+  pure [RuntimeLit (GrinLitInt Int64Rep (normalizeInt (operation int (fromInteger shiftAmount))))]
 
 evalWord64Comparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalWord64Comparison name comparison left right = do

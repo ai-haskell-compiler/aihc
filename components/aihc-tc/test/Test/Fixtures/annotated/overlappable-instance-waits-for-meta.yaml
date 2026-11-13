@@ -1,0 +1,19 @@
+extensions: [MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, FlexibleContexts, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE MultiParamTypeClasses, FunctionalDependencies, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+  module Test where
+  data A = A
+  data B = B
+  class Step a b | a -> b where
+    step :: a -> b
+  instance Step B A where
+    step _ = A
+  class Wrap a b where
+    wrap :: a -> b
+  instance {-# OVERLAPPABLE #-} (Step a b, Wrap b A) => Wrap a A where
+    wrap x = wrap (step x)
+  instance Wrap A A where
+    wrap x = x
+status: pass
+reason: The wanted Wrap b0 A can also match the instance Wrap A A, so it waits until the given Step a b gives b0 ~ b, as in GHC.

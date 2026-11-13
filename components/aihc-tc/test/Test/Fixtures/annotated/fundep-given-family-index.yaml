@@ -1,0 +1,63 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, UndecidableInstances, AllowAmbiguousTypes, PolyKinds, KindSignatures, TypeOperators, ScopedTypeVariables, FunctionalDependencies, TypeApplications #-}
+  module A where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  data P (a :: k) = P
+       │            └─ type: ∀ k a. P a
+       └─ type: k → Type
+  type family Idx (r :: k) (rs :: [k]) :: Nat where
+              └─ type: k → [k] → Nat
+    Idx r (r ': rs) = 'Z
+    Idx r (s ': rs) = 'S (Idx r rs)
+  class (i ~ Idx r rs) => Elem (r :: k) (rs :: [k]) (rs' :: [k]) (i :: Nat) | r rs i -> rs' where
+  └─ class methods: put ∷ ∀ k r rs rs' i. (Elem r rs rs' i) ⇒ P rs → P rs', get ∷ ∀ k r rs rs' i. (Elem r rs rs' i) ⇒ P rs → (); fundeps: r rs i → rs'
+    put :: P rs -> P rs'
+    get :: P rs -> ()
+  instance Elem r (r ': rs) (r ': rs) 'Z where
+  └─ $fElemr:rrs:rrsZ ∷ ∀ k0 r rs. () ⇒ Elem r (': r rs) (': r rs) 'Z [superclasses: refl 'Z]
+    put _ = P
+    │   │   └─ type: P ('GHC.Types.: r rs); type-args: [k0], ': r rs
+    │   └─ type: P ('GHC.Types.: r rs)
+    └─ put ∷ P (': r rs) → P (': r rs)
+    get _ = ()
+    │   │   └─ type: ()
+    │   └─ type: P ('GHC.Types.: r rs)
+    └─ get ∷ P (': r rs) → ()
+  instance (Idx r (s ': rs) ~ 'S i, Elem r rs rs' i) => Elem r (s ': rs) (s ': rs') ('S i) where
+  └─ $fElemr:srs:srs'Si ∷ ∀ k0 i r s rs rs'. ((Idx r (': s rs)) ~ ('S i), Elem r rs rs' i) ⇒ Elem r (': s rs) (': s rs') ('S i) [superclasses: sym (given Idx r (': s rs) ~ 'S i)]
+    put _ = P
+    │   │   └─ type: P ('GHC.Types.: s rs'); type-args: [k0], ': s rs'
+    │   └─ type: P ('GHC.Types.: s rs)
+    └─ put ∷ P (': s rs) → P (': s rs')
+    get p = case put @_ @r p of P -> ()
+    │   │   │    │              │    └─ type: ()
+    │   │   │    │              └─ type: P ('GHC.Types.: s rs')
+    │   │   │    └─ type: P ('GHC.Types.: s rs) → P ('GHC.Types.: s rs'); type-args: k0, r, ': s rs, ': s rs', Idx r (': s rs); evidence: cast($fElemr:srs:srs'Si @k0 @i @r @s @rs @rs' (given Idx r (': s rs) ~ 'S i, given Elem r rs rs' i), sym (Elem refl r refl ': s rs refl ': s rs' given Idx r (': s rs) ~ 'S i))
+    │   │   └─ type: ()
+    │   └─ type: P ('GHC.Types.: s rs)
+    └─ get ∷ P (': s rs) → ()
+extensions: []
+modules:
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, UndecidableInstances, AllowAmbiguousTypes, PolyKinds, KindSignatures, TypeOperators, ScopedTypeVariables, FunctionalDependencies, TypeApplications #-}
+  module A where
+  data Nat = Z | S Nat
+  data P (a :: k) = P
+  type family Idx (r :: k) (rs :: [k]) :: Nat where
+    Idx r (r ': rs) = 'Z
+    Idx r (s ': rs) = 'S (Idx r rs)
+  class (i ~ Idx r rs) => Elem (r :: k) (rs :: [k]) (rs' :: [k]) (i :: Nat) | r rs i -> rs' where
+    put :: P rs -> P rs'
+    get :: P rs -> ()
+  instance Elem r (r ': rs) (r ': rs) 'Z where
+    put _ = P
+    get _ = ()
+  instance (Idx r (s ': rs) ~ 'S i, Elem r rs rs' i) => Elem r (s ': rs) (s ': rs') ('S i) where
+    put _ = P
+    get p = case put @_ @r p of P -> ()
+reason: A given equality rewrites the family index of a wanted before the functional dependency of an instance reads it, as in GHC.
+status: pass

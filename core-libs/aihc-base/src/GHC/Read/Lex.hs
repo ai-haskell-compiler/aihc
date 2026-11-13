@@ -22,7 +22,7 @@ module GHC.Read.Lex
   )
 where
 
-import GHC.Internal.Read (numberToRational)
+import GHC.Internal.Read (numberToRangedRational, numberToRational)
 import GHC.Prim.Read
   ( Lexeme (..),
     Number (..),
@@ -68,27 +68,3 @@ integerTake :: Integer -> [a] -> [a]
 integerTake n _ | n <= 0 = []
 integerTake _ [] = []
 integerTake n (x : xs) = x : integerTake (n - 1) xs
-
--- | The value of a literal, or 'Nothing' if the literal is too large for the
--- range of exponents, as in GHC. A literal that is too small gives zero.
-numberToRangedRational :: (Int, Int) -> Number -> Maybe Rational
-numberToRangedRational (neg, pos) n@(MkDecimal iPart mFPart (Just exponentValue)) =
-  let mFirstDigit = case dropWhile (0 ==) iPart of
-        iPart'@(_ : _) -> Just (length iPart')
-        [] -> case mFPart of
-          Nothing -> Nothing
-          Just fPart ->
-            case span (0 ==) fPart of
-              (_, []) -> Nothing
-              (zeroes, _) -> Just (negate (length zeroes))
-   in case mFirstDigit of
-        Nothing -> Just 0
-        Just firstDigit ->
-          let firstDigit' = toInteger firstDigit + exponentValue
-           in if firstDigit' > toInteger (pos + 3)
-                then Nothing
-                else
-                  if firstDigit' < toInteger (neg - 3)
-                    then Just 0
-                    else Just (numberToRational n)
-numberToRangedRational _ n = Just (numberToRational n)
