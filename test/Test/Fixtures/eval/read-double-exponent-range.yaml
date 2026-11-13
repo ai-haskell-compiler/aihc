@@ -1,0 +1,20 @@
+modules:
+  - |
+    module Test where
+
+    import Prelude
+
+    main :: IO ()
+    main = do
+      -- An exponent beyond the range of the type gives infinity or zero at
+      -- once, without the power of ten.
+      print (read "1e5000" :: Double, read "1e-5000" :: Double, read "1e5000" :: Float)
+      print (read "1.5e3" :: Double, read "-2.5e-3" :: Float)
+stdout: |
+  (Infinity,0.0,Infinity)
+  (1500.0,-2.5e-3)
+output: |
+  ()
+expression: main
+status: pass
+reason: reading a Double or a Float checks the exponent against floatRange with numberToRangedRational, as in GHC
