@@ -433,6 +433,7 @@ quoted dynamic binders = go
         PParen inner -> quotedPattern inner
         PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
         PWildcard -> Just (library "wildP")
+        PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
         -- A constructor pattern with no type arguments.
         PCon name [] arguments
           | Just (EntityGlobal global) <- nameEntity name ->

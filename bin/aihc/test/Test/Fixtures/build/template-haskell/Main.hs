@@ -250,5 +250,7 @@ main = do
   -- quote lifts its value, and the top-level value with the same name is
   -- not used.
   print ($(let secret = 1 :: Int in [|secret|]) :: Int)
+  -- A quote with a tuple pattern.
+  print ($([|\(left, right) -> left + right|]) (2, 3 :: Int))
   print (localSecret 1)
   print (localId 2)
