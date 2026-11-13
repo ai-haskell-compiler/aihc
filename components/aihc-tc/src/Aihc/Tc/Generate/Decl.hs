@@ -2468,7 +2468,7 @@ solveInstanceDefaultSignature className givens predicates = do
               reported <-
                 mapM
                   ( \(index, _, (constraint, evidenceVariable)) -> do
-                      emitError (ctLoc constraint) (UnsolvedWanted (ctPred constraint) (ctOrigin constraint))
+                      reportUnsolvedDict constraint
                       pure (index, EvVarTerm evidenceVariable)
                   )
                   stuck
@@ -2480,7 +2480,7 @@ solveInstanceSuperClass className givens predicate = do
   case result of
     Right term -> pure term
     Left (stuck, evidenceVariable) -> do
-      emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+      reportUnsolvedDict stuck
       pure (EvVarTerm evidenceVariable)
 
 -- | Try to solve one instance constraint. A stuck constraint gives no error.
@@ -4204,8 +4204,7 @@ generalizableResidualPreds inferredType solveResult = do
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
-  forM_ (nubBy sameCtPred concreteCts) $ \ct ->
-    emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
+  forM_ (nubBy sameCtPred concreteCts) reportUnsolvedDict
   pure (map ctPred (nubBy sameCtPred polymorphicCts))
   where
     zonkCtPred ct = do

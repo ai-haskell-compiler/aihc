@@ -111,6 +111,9 @@ module Aihc.Tc.Monad
     getUndecidableInstances,
     useFunDepFuel,
     resetFunDepFuel,
+    recordReductionOverflow,
+    forgetReductionOverflow,
+    reductionOverflowed,
     withUndecidableInstances,
     deferKindMeta,
     takeDeferredKindMetas,
@@ -516,6 +519,11 @@ data TcState = TcState
     -- | The functional dependency improvements with fresh variables that
     -- the current declaration can still make. See 'useFunDepFuel'.
     tcsFunDepFuel :: !Int,
+    -- | The wanteds of the current declaration whose reduction reached the
+    -- depth limit of the dictionary solver, by predicate. A failed instance
+    -- candidate restores the state, but keeps this field. A wanted that the
+    -- solver then solves loses its record.
+    tcsReductionOverflow :: ![Pred],
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(IntMap TcType),
     -- | Meta-variables that can default to 'Type' at a kind boundary.
@@ -592,6 +600,7 @@ initTcState =
   TcState
     { tcsNextUnique = 0,
       tcsFunDepFuel = funDepFuel,
+      tcsReductionOverflow = [],
       tcsMetaSolutions = IntMap.empty,
       tcsTrackedKindMetas = IntSet.empty,
       tcsMetaKinds = IntMap.empty,
@@ -689,10 +698,30 @@ useFunDepFuel = lift $ do
       modify' (\s -> s {tcsFunDepFuel = fuel - 1})
       pure True
 
+-- | Record that the reduction of a wanted reached the depth limit of the
+-- dictionary solver.
+recordReductionOverflow :: Pred -> TcM ()
+recordReductionOverflow predicate =
+  lift $ modify' $ \s ->
+    if predicate `elem` tcsReductionOverflow s
+      then s
+      else s {tcsReductionOverflow = predicate : tcsReductionOverflow s}
+
+-- | Forget the overflow of a wanted that the solver solved after all.
+forgetReductionOverflow :: Pred -> TcM ()
+forgetReductionOverflow predicate =
+  lift $ modify' $ \s -> s {tcsReductionOverflow = filter (/= predicate) (tcsReductionOverflow s)}
+
+-- | Whether the reduction of a wanted with this predicate reached the
+-- depth limit.
+reductionOverflowed :: Pred -> TcM Bool
+reductionOverflowed predicate = lift $ gets ((predicate `elem`) . tcsReductionOverflow)
+
 -- | Give the next declaration the full fuel of functional dependency
--- improvements.
+-- improvements, and forget a reduction overflow of an earlier
+-- declaration.
 resetFunDepFuel :: TcM ()
-resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel})
+resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel, tcsReductionOverflow = []})
 
 -- | Look up the current solution for a meta-variable.
 readMetaTv :: Unique -> TcM (Maybe TcType)

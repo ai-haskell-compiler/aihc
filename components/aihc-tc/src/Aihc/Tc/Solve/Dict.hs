@@ -22,7 +22,7 @@ where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldSelectorName)
-import Aihc.Tc.Annotations (renderTcType)
+import Aihc.Tc.Annotations (renderPred, renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, abortTc, bindEvidence, emitError, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -47,7 +47,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
-import Control.Monad.Trans.State.Strict (get, put)
+import Control.Monad.Trans.State.Strict (get, modify')
 import Data.List (elemIndex, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -78,7 +78,13 @@ solveDict = solveDictWithGivens []
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
 solveDictWithGivens givens ct = do
   outerGivens <- getGivenPredicates
-  solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
+  result <- solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
+  -- A wanted that an instance candidate overflowed and another candidate
+  -- solved keeps no record of the overflow.
+  case result of
+    DictSolved -> zonkPred (ctPred ct) >>= forgetReductionOverflow
+    DictStuck _ -> pure ()
+  pure result
 
 solveDictWithGivensVisited :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveDictWithGivensVisited visited givens ct0 = do
@@ -88,8 +94,29 @@ solveDictWithGivensVisited visited givens ct0 = do
   predicate <- normalizeFamilyPred (ctPred ct0)
   solveNormalizedDict visited givens' ct0 {ctPred = predicate}
 
+-- | Restore the state from before a failed attempt, but keep a recorded
+-- reduction overflow, so that the report of the wanted can name it.
+restoreKeepingOverflow :: TcState -> TcM ()
+restoreKeepingOverflow saved =
+  lift (modify' (\state -> saved {tcsReductionOverflow = tcsReductionOverflow state}))
+
+-- | The maximum number of nested reduction steps of one wanted, as the
+-- default of GHC's @-freduction-depth@.
+reductionDepthLimit :: Int
+reductionDepthLimit = 200
+
 solveNormalizedDict :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveNormalizedDict visited givens ct
+  -- Each level of 'visited' is one step of instance or superclass
+  -- reduction. An instance such as @instance Loop [a] => Loop a@ makes a
+  -- larger wanted at each step, and the reduction does not end. GHC stops
+  -- it at its reduction depth limit, 200 by default, and so does the solver
+  -- here. The wanted then stays unsolved.
+  | length visited >= reductionDepthLimit = do
+      -- The record names the wanted that started the reduction: the
+      -- oldest entry of 'visited'.
+      recordReductionOverflow =<< zonkPred (last (ctPred ct : visited))
+      pure (DictStuck ct)
   | ctPred ct `elem` visited = do
       -- A wanted that comes back to a dictionary that an instance is
       -- building names that dictionary. The loop goes through the
@@ -301,7 +328,7 @@ solveNormalizedDict visited givens ct
           result <- solveDictWithGivensVisited visited' localGivens ct {ctPred = IrredPred rewritten, ctEvVar = variable}
           case result of
             DictStuck _ -> do
-              lift (put saved)
+              restoreKeepingOverflow saved
               tryIrreducibleRules visited' localGivens reduced rest
             DictSolved -> do
               evidence <- lookupEvidence variable
@@ -447,7 +474,7 @@ solveNormalizedDict visited givens ct
       case result of
         DictStuck _ -> do
           -- A failed alternative must not change another alternative's types or evidence.
-          lift (put saved)
+          restoreKeepingOverflow saved
           tryRuleSets visited' zonkedGivens allGivens className args rest
         DictSolved -> do
           inner <- lookupEvidence rewrittenEvidence
@@ -569,8 +596,10 @@ solveNormalizedDict visited givens ct
                 else bindEvidence (ctEvVar ct) dictionary
               pure DictSolved
             _ -> do
-              -- A failed candidate must not change another candidate's types or evidence.
-              lift (put saved)
+              -- A failed candidate must not change another candidate's
+              -- types or evidence. A reduction overflow stays recorded, so
+              -- that the report of the wanted can name it.
+              restoreKeepingOverflow saved
               tryInstances visited' className args rest
 
     -- A kind variable of an instance can occur only in the kind arguments
@@ -755,7 +784,7 @@ solveNormalizedDict visited givens ct
       result <- solveDictWithGivensVisited (ctPred ct : visited) givens' ct {ctPred = predicate, ctEvVar = proof}
       case result of
         DictSolved -> pure True
-        DictStuck _ -> False <$ lift (put saved)
+        DictStuck _ -> False <$ restoreKeepingOverflow saved
 
     solveQuantifiedWanted visited' localGivens (QuantifiedPred variables antecedents consequent) = do
       (freshVariables, substitution) <- freshQuantifiedVariables variables
@@ -1350,7 +1379,19 @@ reportUnsolvedDict :: Ct -> TcM ()
 reportUnsolvedDict ct = do
   predicate <- zonkPred (ctPred ct)
   wiring <- getWiring
+  overflowed <- reductionOverflowed predicate
   case predicate of
+    _
+      | overflowed ->
+          emitError
+            (ctLoc ct)
+            ( OtherError
+                ( "Reduction stack overflow; size = "
+                    <> show reductionDepthLimit
+                    <> " when simplifying the constraint "
+                    <> renderPred predicate
+                )
+            )
     IParamPred name payload
       | Just origin <- callStackOrigin name payload ->
           bindEvidence (ctEvVar ct) (implicitParamEvidence ct name payload (EvCallStackEmpty origin))
