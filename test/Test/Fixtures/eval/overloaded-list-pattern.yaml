@@ -1,0 +1,36 @@
+extensions:
+  - OverloadedLists
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists #-}
+    module Test where
+
+    import Data.List.NonEmpty (NonEmpty (..))
+    import Prelude
+
+    -- Under OverloadedLists, a list pattern matches through toList.
+    describe :: NonEmpty Int -> String
+    describe [x] = "one " ++ show x
+    describe [x, y] = "two " ++ show (x + y)
+    describe _ = "many"
+
+    isEmpty :: [Int] -> Bool
+    isEmpty [] = True
+    isEmpty _ = False
+
+    main :: IO ()
+    main = do
+      putStrLn (describe (1 :| []))
+      putStrLn (describe (1 :| [2]))
+      putStrLn (describe (1 :| [2, 3]))
+      print (isEmpty [], isEmpty [1])
+expression: main
+stdout: |
+  one 1
+  two 3
+  many
+  (True,False)
+output: |
+  ()
+status: pass
+reason: Under OverloadedLists, a list pattern is the view pattern (toList -> [...]), thus it matches a NonEmpty value.

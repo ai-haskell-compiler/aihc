@@ -1412,6 +1412,7 @@ builtinSyntaxTerm info name =
         "fromRational",
         "fromString",
         "fromListN",
+        "toList",
         "negate",
         "==",
         ">=",
@@ -1721,10 +1722,25 @@ applicativeExpr actions result = do
     first : rest ->
       pure (foldl (EApp . EApp apVar) (EApp (EApp fmapVar lambda) first) rest)
     [] -> pure result
-  where
-    syntaxTermVar sp kind name = do
-      ann <- syntaxTermAnnotation sp name
-      pure (EVar (Name Nothing kind name [ann]))
+
+-- | A variable that names a syntax term.
+syntaxTermVar :: Maybe SourceSpan -> NameType -> Text -> ResolveM Expr
+syntaxTermVar sp kind name = do
+  ann <- syntaxTermAnnotation sp name
+  pure (EVar (Name Nothing kind name [ann]))
+
+-- | Under OverloadedLists, a list pattern @[p1, ..., pn]@ is the view
+-- pattern @(toList -> [p1, ..., pn])@, as in GHC. The scrutinee can then
+-- have any type with an IsList instance.
+overloadedListPattern :: Pattern -> ResolveM Pattern
+overloadedListPattern pat = do
+  info <- currentModuleInfo
+  if OverloadedLists `elem` moduleInfoExtensions info
+    then do
+      sp <- currentSpan
+      toListVar <- syntaxTermVar sp NameVarId "toList"
+      pure (PView toListVar pat)
+    else pure pat
 
 -- | Resolve the statements of an @mdo@ block.
 --
@@ -2009,7 +2025,8 @@ bindPattern pat =
       pure (scope, PUnboxedSum alt arity inner')
     PList pats -> do
       (scope, pats') <- bindPatterns pats
-      pure (scope, PList pats')
+      pat' <- overloadedListPattern (PList pats')
+      pure (scope, pat')
     PCon name typeArgs pats -> do
       name' <- resolveTermUseAtName name
       typeArgs' <- mapM resolveType typeArgs
@@ -2127,7 +2144,7 @@ resolvePatternDefinition termDefinition pat =
     PUnboxedSum alt arity inner ->
       PUnboxedSum alt arity <$> resolvePatternDefinition termDefinition inner
     PList pats ->
-      PList <$> mapM (resolvePatternDefinition termDefinition) pats
+      overloadedListPattern . PList =<< mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
       PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PBuiltinCon builtin typeArgs pats ->
