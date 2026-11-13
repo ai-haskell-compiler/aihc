@@ -1,0 +1,39 @@
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, TypeFamilies, QuantifiedConstraints, PolyKinds, ConstraintKinds, KindSignatures, RankNTypes, UndecidableInstances, TypeOperators, FlexibleInstances, FlexibleContexts #-}
+    module Test where
+
+    import Data.Kind (Constraint, Type)
+    import Data.Type.Bool (If)
+    import Data.Type.Equality (type (==))
+    import Prelude
+
+    data Scope = User | System
+
+    newtype Command (scope :: Scope) arg res = Command [arg]
+
+    instance Eq arg => Eq (Command scope arg res) where
+      Command xs == Command ys = xs == ys
+
+    -- In the System scope, the constraint of the constructor reduces to
+    -- an equality. The instance needs that equality to use its context.
+    data Rule (scope :: Scope) (cmd :: Scope -> Type -> Type -> Type) where
+      Rule ::
+        forall arg cmd scope.
+        If (scope == System) (arg ~ Char) (() :: Constraint) =>
+        cmd scope arg () ->
+        Rule scope cmd
+
+    instance (forall res. Eq (cmd System Char res)) => Eq (Rule System cmd) where
+      Rule a == Rule b = a == b
+
+    system :: String -> Rule System Command
+    system text = Rule (Command text)
+
+    result :: Bool
+    result = system "ab" == system "ab" && not (system "ab" == system "ac")
+output: |
+  True
+expression: |
+  result
+status: pass
