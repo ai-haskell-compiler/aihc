@@ -1,0 +1,42 @@
+modules:
+  - |
+    {-# LANGUAGE GADTs, DataKinds, PolyKinds, KindSignatures, TypeFamilies, TypeOperators, RankNTypes, ScopedTypeVariables #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import GHC.Generics (K1 (..), M1 (..), S, Meta (..), SourceUnpackedness (..), SourceStrictness (..), DecidedStrictness (..))
+    import Prelude
+
+    data NP (f :: k -> Type) (xs :: [k]) where
+      Nil :: NP f '[]
+      (:*) :: f x -> NP f xs -> NP f (x ': xs)
+    infixr 5 :*
+
+    newtype I a = I a
+
+    type family ToProductCode (a :: Type -> Type) (xs :: [Type]) :: [Type]
+    type instance ToProductCode (M1 S c a) xs = Field a ': xs
+
+    type family Field (a :: Type -> Type) :: Type
+    type instance Field (K1 i c) = c
+
+    class Single a where
+      single :: Field a -> a x
+
+    instance Single (K1 i c) where
+      single = K1
+
+    class ProductTo (a :: Type -> Type) where
+      productTo :: NP I (ToProductCode a xs) -> (a x -> NP I xs -> r) -> r
+
+    -- The match on (:*) binds a coercion with a family on one side.
+    instance Single a => ProductTo (M1 S c a) where
+      productTo (I a :* xs) k = k (M1 (single a)) xs
+
+    result :: Bool
+    result = productTo (I True :* Nil :: NP I '[Bool]) (\(M1 (K1 b) :: M1 S ('MetaSel 'Nothing 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (K1 () Bool) ()) _ -> b)
+output: |
+  True
+expression: |
+  result
+status: pass
