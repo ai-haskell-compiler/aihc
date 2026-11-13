@@ -133,7 +133,9 @@ import Aihc.Hackage.PathsModule (generatePathsModule, pathsModuleName)
 import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorForExtension)
 import Aihc.Hackage.Release (GhcRelease (..), emulatedGhc)
 import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFilePath, sourceDirs)
+import Control.Exception (bracket)
 import Control.Monad (when)
+import Data.ByteString qualified as BS
 import Data.List (isPrefixOf, nub)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -141,8 +143,10 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
+import Data.Text.Encoding qualified as TE
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
+import System.FilePath (takeDirectory, takeExtension, takeFileName, (<.>), (</>))
+import System.IO (hClose, openBinaryTempFileWithDefaultPermissions)
 
 -- | Information about a Haskell source file discovered via a @.cabal@ file.
 data FileInfo = FileInfo
@@ -672,7 +676,7 @@ generatedPathsFiles packageRoot package componentSuffix moduleNames
           packageId = unPackageName (packageNameOf package) <> "-" <> showPackageVersion
           showPackageVersion = T.unpack (Cabal.renderVersion version)
       createDirectoryIfMissing True (takeDirectory path)
-      writeFile
+      writeGeneratedFile
         path
         ( generatePathsModule
             (buildOS, buildArch)
@@ -689,6 +693,26 @@ generatedPathsFiles packageRoot package componentSuffix moduleNames
         major : minor : _ -> (major, minor)
         major : _ -> (major, 0)
         [] -> (0, 0)
+
+-- | Write a generated source file. Two builds of one process can generate
+-- the same file at the same time, for example the nested builds of two
+-- splices, and a build can read the file while a different build writes
+-- it. Thus a file with the same contents stays, and a new file goes to a
+-- temporary file in the same directory that a rename puts in place.
+writeGeneratedFile :: FilePath -> String -> IO ()
+writeGeneratedFile path contents = do
+  let bytes = TE.encodeUtf8 (T.pack contents)
+  exists <- doesFileExist path
+  current <- if exists then Just <$> BS.readFile path else pure Nothing
+  when (current /= Just bytes) $
+    bracket (openBinaryTempFileWithDefaultPermissions (takeDirectory path) (takeFileName path <> ".tmp")) (\(temporary, handle) -> hClose handle >> removeIfPresent temporary) $ \(temporary, handle) -> do
+      BS.hPut handle bytes
+      hClose handle
+      renameFile temporary path
+  where
+    removeIfPresent temporary = do
+      present <- doesFileExist temporary
+      when present (removeFile temporary)
 
 -- | What closes the conditions of a Cabal file: the platform the package is
 -- built for and the flags the plan decided. Flags the plan did not decide
