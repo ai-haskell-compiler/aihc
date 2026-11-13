@@ -19,6 +19,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (unless)
+import Data.Map.Strict qualified as Map
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (nub)
@@ -146,10 +147,19 @@ escapingSkolems skolems outerType = do
   zonked <- zonkType outerType
   pure (filter (`typeMentionsTyVar` zonked) skolems)
 
+-- | Reject a skolem of the branch that leaves the branch. It can leave
+-- through the result type of the branch, and through each meta variable
+-- of the enclosing scope that the branch fixed: in @\k -> case b of MkBox
+-- v -> k v@, the branch gives the lambda binder @k@ the type @a -> r@ with
+-- the existential @a@. The binders in scope whose types still had a meta
+-- variable hold each such meta variable.
 rejectEscapingPatternType :: Maybe SourceSpan -> [TyVarId] -> TcType -> TcM ()
 rejectEscapingPatternType sourceSpan skolems outerType = do
   zonkedOuterType <- zonkType outerType
-  let escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems
+  environment <- getMetaTermEnv
+  environmentTypes <-
+    mapM zonkType [ty | TcMonoIdBinder ty <- Map.elems environment, typeMentionsMeta ty]
+  let escaping = filter (\skolem -> any (typeMentionsTyVar skolem) (zonkedOuterType : environmentTypes)) skolems
   unless (null escaping) $
     emitError
       sourceSpan
