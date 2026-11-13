@@ -65,6 +65,13 @@ declaration tree =
       items <- list members >>= fmap concat . mapM instanceItem
       pure (DeclInstance (InstanceDecl [] Nothing [] context' instanceHead' items))
     TreeNode "InstanceD" [overlap, _, _, _] -> unsupported "overlap pragma" overlap
+    TreeNode "ClassD" [context, name, binders, dependencies, members] -> do
+      context' <- list context >>= mapM typeFromTree
+      className <- binderFromTree name
+      binders' <- list binders >>= mapM typeVariableBinder
+      dependencies' <- list dependencies >>= mapM functionalDependency
+      items <- list members >>= fmap concat . mapM classItem
+      pure (DeclClass (ClassDecl (if null context' then Nothing else Just context') (PrefixBinderHead className binders') dependencies' items))
     _ -> unsupported "declaration" tree
   where
     -- A pragma in an instance, such as @INLINE@, does not change the
@@ -78,6 +85,26 @@ declaration tree =
           case member of
             DeclValue binding -> Right [InstanceItemBind binding]
             _ -> unsupported "instance member" item
+    -- A pragma in a class, such as @MINIMAL@, does not change the meaning
+    -- of the class. The conversion leaves it out.
+    classItem item =
+      case item of
+        TreeNode "SigD" [name, signature] -> (\binder signature' -> [ClassItemTypeSig [binder] signature']) <$> binderFromTree name <*> typeFromTree signature
+        TreeNode "DefaultSigD" [name, signature] -> (\binder signature' -> [ClassItemDefaultSig binder signature']) <$> binderFromTree name <*> typeFromTree signature
+        TreeNode "PragmaD" _ -> Right []
+        _ -> do
+          member <- declaration item
+          case member of
+            DeclValue binding -> Right [ClassItemDefault binding]
+            _ -> unsupported "class member" item
+    functionalDependency dependency =
+      case dependency of
+        TreeNode "FunDep" [determiners, determined] -> do
+          determiners' <- list determiners >>= mapM variableText
+          determined' <- list determined >>= mapM variableText
+          pure (FunctionalDependency [] determiners' determined')
+        _ -> unsupported "functional dependency" dependency
+    variableText = fmap unqualifiedNameText . binderFromTree
     clause clauseTree =
       case clauseTree of
         TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
