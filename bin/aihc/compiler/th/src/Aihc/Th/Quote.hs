@@ -2,8 +2,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Change an expression quote into an expression that builds the syntax
--- tree of its body, and a name quote into the Template Haskell name.
+-- | Change an expression quote or a type quote into an expression that
+-- builds the syntax tree of its body, and a name quote into the Template
+-- Haskell name.
 --
 -- The change needs the result of name resolution, because the form of a
 -- variable in a quote depends on its binder:
@@ -86,6 +87,8 @@ data Quote
     NameQuote Expr
   | -- | @''T@, with the type of the name.
     TypeNameQuote Type
+  | -- | @[t| t |]@, with its body.
+    TypeQuote Type
 
 -- | Change each quote of a module that is in the subset. The first module
 -- is the parsed form, and the second module is the resolved form of the
@@ -140,6 +143,7 @@ desugarQuotes outerBinders parsed resolved
             evalStateT (quoted (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           (_, NameQuote expr) -> quotedName expr
           (_, TypeNameQuote ty) -> quotedTypeName ty
+          (_, TypeQuote ty) -> quotedType ty
           _ -> Nothing
     replace original _ =
       state $ \case
@@ -224,9 +228,9 @@ traverseQuotes onQuote = go
         ETHExpQuote body -> onQuote expr (ExpressionQuote body)
         ETHNameQuote name -> onQuote expr (NameQuote name)
         ETHTypeNameQuote name -> onQuote expr (TypeNameQuote name)
+        ETHTypeQuote body -> onQuote expr (TypeQuote body)
         ETHTypedQuote {} -> pure expr
         ETHDeclQuote {} -> pure expr
-        ETHTypeQuote {} -> pure expr
         ETHPatQuote {} -> pure expr
         _ -> gmapM go expr
 
@@ -256,6 +260,61 @@ quotedTypeName ty =
         Just (EntityGlobal global) -> Just (call "mkNameG_tc" (globalNameParts global))
         _ -> Nothing
     _ -> Nothing
+
+-- | The expression that builds the syntax tree of a resolved type quote
+-- body. A type constructor becomes a name that is bound to its package and
+-- its module, and a data constructor becomes a promoted name. A type
+-- variable becomes a name with no module. A kind signature, a binder of a
+-- forall with a kind, a splice, and other constructs are outside the
+-- subset: the quote stays as it is. The library function @sigT@ takes the
+-- kind as a value and not as a computation, so a kind signature needs a
+-- different form of the result.
+quotedType :: Type -> Maybe Expr
+quotedType = go
+  where
+    go ty =
+      case ty of
+        TAnn _ inner -> go inner
+        TParen inner -> go inner
+        -- The namespace of the resolution decides the form, not the tick: with
+        -- DataKinds, a data constructor with no tick is also promoted.
+        TCon name _ ->
+          case nameEntity name of
+            Just (EntityGlobal global)
+              | globalNameNamespace global == ResolutionNamespaceTerm -> Just (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
+              | globalNameNamespace global == ResolutionNamespaceType -> Just (call "conT" [call "mkNameG_tc" (globalNameParts global)])
+            _ -> Nothing
+        TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
+        TApp function argument -> applied <$> go function <*> go argument
+        TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
+        TList Unpromoted [element] -> applied (library "listT") <$> go element
+        TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
+        TTypeLit (TypeLitInteger number _) -> Just (call "litT" [call "numTyLit" [integer number]])
+        TTypeLit (TypeLitSymbol string _) -> Just (call "litT" [call "strTyLit" [stringLiteral string]])
+        TContext constraints inner -> quantified [] constraints inner
+        TForall (ForallTelescope ForallInvisible binders) inner ->
+          case withoutTypeAnnotations inner of
+            TContext constraints body -> quantified binders constraints body
+            body -> quantified binders [] body
+        _ -> Nothing
+    applied function argument = call "appT" [function, argument]
+    quantified binders constraints body = do
+      binders' <- mapM binder binders
+      constraints' <- mapM go constraints
+      body' <- go body
+      Just (call "forallT" [EList binders', call "cxt" [EList constraints'], body'])
+    binder tyVarBinder =
+      case tyVarBinderKind tyVarBinder of
+        Nothing -> Just (foldl EApp (libraryConstructor "PlainTV") [dynamicName (tyVarBinderName tyVarBinder), libraryConstructor (specificity (tyVarBinderSpecificity tyVarBinder))])
+        Just _ -> Nothing
+    specificity flag =
+      case flag of
+        TyVarBInferred -> "InferredSpec"
+        TyVarBSpecified -> "SpecifiedSpec"
+    withoutTypeAnnotations ty =
+      case ty of
+        TAnn _ inner -> withoutTypeAnnotations inner
+        _ -> ty
 
 -- | The body of each splice of a quote body, in source order. A splice in
 -- the body of a splice is not in the result.
@@ -378,6 +437,10 @@ call function = foldl EApp (library function)
 
 library :: Text -> Expr
 library function = EVar (mkName (Just quoteAlias) NameVarId function)
+
+-- | A data constructor of the Template Haskell library.
+libraryConstructor :: Text -> Expr
+libraryConstructor name = EVar (mkName (Just quoteAlias) NameConId name)
 
 withoutAnnotations :: Expr -> Expr
 withoutAnnotations expr =

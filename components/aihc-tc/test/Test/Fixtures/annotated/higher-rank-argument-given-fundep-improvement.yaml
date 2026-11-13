@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, FunctionalDependencies, FlexibleContexts #-}
+  module Test where
+  newtype Const a b = Const a
+          │           └─ type: ∀ a b. a → Const a b
+          └─ type: Type → Type → Type
+  class Reifies s a | s -> a where
+  └─ class methods: reflect ∷ ∀ s a. (Reifies s a) ⇒ Const a s; fundeps: s → a
+    reflect :: Const a s
+  data Skolem
+       └─ type: Type
+  newtype Magic a r = Magic (Reifies Skolem a => Const r Skolem)
+          │           └─ type: ∀ a r. ((Reifies Skolem a) ⇒ Const r Skolem) → Magic a r
+          └─ type: Type → Type → Type
+  coerce :: a -> b
+  coerce = coerce
+  │        └─ type: a → b; type-args: a, b
+  └─ type: ∀ a b. a → b
+  reify :: a -> (forall s . Reifies s a => Const r s) -> r
+  reify a k = coerce (Magic k) a
+  │     │ │   │       └─ type: ((Reifies Skolem a) ⇒ Const r Skolem) → Magic a r; type-args: a, r
+  │     │ │   │       └─ type: Const r Skolem; type-args: Skolem; evidence: given Reifies Skolem a
+  │     │ │   │       └─ type: (Reifies Skolem a) ⇒ Const r Skolem
+  │     │ │   └─ type: Magic a r → a → r; type-args: Magic a r, a → r
+  │     │ └─ type: ∀ s. (Reifies s a) ⇒ Const r s
+  │     └─ type: a
+  └─ type: ∀ a r. a → (∀ s. (Reifies s a) ⇒ Const r s) → r
+extensions: [RankNTypes, FunctionalDependencies, FlexibleContexts]
+modules:
+- |
+  {-# LANGUAGE RankNTypes, FunctionalDependencies, FlexibleContexts #-}
+  module Test where
+  newtype Const a b = Const a
+  class Reifies s a | s -> a where
+    reflect :: Const a s
+  data Skolem
+  newtype Magic a r = Magic (Reifies Skolem a => Const r Skolem)
+  coerce :: a -> b
+  coerce = coerce
+  reify :: a -> (forall s . Reifies s a => Const r s) -> r
+  reify a k = coerce (Magic k) a
+reason: "the field of Magic gives the given Reifies Skolem a0 with an open a0, and the dependency s -> a of the wanted Reifies Skolem a of k fixes a0 := a; reduced from fused-effects Control.Carrier.Interpret"
+status: pass

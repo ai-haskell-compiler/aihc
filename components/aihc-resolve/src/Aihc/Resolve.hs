@@ -1172,13 +1172,15 @@ resolveExpr expr =
     ETHExpQuote inner ->
       ETHExpQuote <$> resolveExpr inner
     ETHTypedQuote {} -> pure expr
-    -- The body of a declaration, type, or pattern quote stays unresolved.
-    -- But each splice in the body is an expression at the level of the
-    -- quote, and the type checker examines it.
+    -- The body of a declaration or pattern quote stays unresolved. But
+    -- each splice in the body is an expression at the level of the quote,
+    -- and the type checker examines it.
     ETHDeclQuote decls ->
       ETHDeclQuote <$> mapM resolveQuoteSplices decls
+    -- The names of a type quote have the scope of the quote, as the names
+    -- of an expression quote. The change of the quote reads them.
     ETHTypeQuote ty ->
-      ETHTypeQuote <$> resolveQuoteSplices ty
+      ETHTypeQuote <$> resolveType ty
     ETHPatQuote pat ->
       ETHPatQuote <$> resolveQuoteSplices pat
     -- A name quote gives the name of a term or of a type. The change of
