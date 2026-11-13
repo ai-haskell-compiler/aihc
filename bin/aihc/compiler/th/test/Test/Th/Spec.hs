@@ -33,6 +33,7 @@ tests =
       testCase "converts declarations to the surface syntax" declarationsTest,
       testCase "converts an instance declaration to the surface syntax" instanceTest,
       testCase "converts a forall type and leaves out a pragma" forallTest,
+      testCase "converts a class declaration to the surface syntax" classTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -329,6 +330,32 @@ forallTest = do
   assertEqual
     "a signature with a forall and a context"
     (Right "f :: forall a (m :: Type -> Type). Show a => a -> m String")
+    (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | A class as makeClassy of lens gives it: a superclass context, a
+-- functional dependency, a method signature, a default method, and a
+-- pragma that the conversion leaves out.
+classTest :: IO ()
+classTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      tree =
+        list
+          [ TreeNode
+              "ClassD"
+              [ list [apply (TreeNode "ConT" [name "Show"]) (TreeNode "VarT" [name "c"])],
+                name "HasBox",
+                list [TreeNode "PlainTV" [name "c", TreeNode "()" []], TreeNode "PlainTV" [name "e", TreeNode "()" []]],
+                list [TreeNode "FunDep" [list [name "c"], list [name "e"]]],
+                list
+                  [ TreeNode "SigD" [name "box", apply (apply (TreeNode "ArrowT" []) (TreeNode "VarT" [name "c"])) (TreeNode "VarT" [name "e"])],
+                    TreeNode "PragmaD" [TreeNode "InlineP" [name "box", TreeNode "Inline" [], TreeNode "FunLike" [], TreeNode "AllPhases" []]],
+                    TreeNode "ValD" [TreeNode "VarP" [name "label"], TreeNode "NormalB" [TreeNode "LitE" [TreeNode "StringL" [TreeString "box"]]], list []]
+                  ]
+              ]
+          ]
+  assertEqual
+    "a class with a context, a dependency, a signature, and a default"
+    (Right "class Show c => HasBox c e | c -> e where box :: c -> e label = \"box\"")
     (T.unwords . map render <$> declarationsFromTree tree)
 
 unsupportedTest :: IO ()
