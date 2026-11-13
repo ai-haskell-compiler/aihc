@@ -1,0 +1,20 @@
+modules:
+  - |
+    {-# LANGUAGE GADTs, KindSignatures, DeriveFunctor #-}
+    module Test where
+
+    import Data.Kind (Type)
+    import Prelude
+
+    -- The kind signature gives the parameter. The head binds none.
+    data FieldInfo :: Type -> Type where
+      FieldInfo :: String -> FieldInfo a
+      deriving (Show, Eq, Ord, Functor)
+
+    result :: Bool
+    result = show (fmap not (FieldInfo "x")) == "FieldInfo \"x\"" && FieldInfo "a" < FieldInfo "b"
+output: |
+  True
+expression: |
+  result
+status: pass
