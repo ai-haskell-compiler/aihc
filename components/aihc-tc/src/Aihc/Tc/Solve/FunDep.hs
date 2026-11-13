@@ -232,13 +232,23 @@ improveFromInstances givens siblings depth info dependency constraint = do
     ClassPred _ arguments -> do
       arguments' <- classDependencyArguments info arguments
       determinerPositions <- dependencyDeterminers info dependency
+      -- A given equality can name a family application of a determining
+      -- parameter. The instance head then matches the other side of the
+      -- given, as in GHC. In @instance (RIndex r (s ': rs) ~ 'S i, ...) =>
+      -- RecElem Rec r r' (s ': rs) (s ': rs') ('S i)@ of @vinyl@, the
+      -- wanted @RecElem Rec r r' (s ': rs) t0 (RIndex r (s ': rs))@ selects
+      -- the instance through @'S i@. Its context then gives @t0 := s ':
+      -- rs'@, thus the context sees the rewritten parameters too.
+      rewrites <- givenRewrites givens
+      familyRewrites <- filterM (isTypeFamilyApplication . fst) rewrites
       let determiners = atPositions determinerPositions
+          rewrittenDeterminers = map (applyGivenSubst familyRewrites) (determiners arguments')
       candidates <- fmap catMaybes . forM instances $ \instanceInfo -> do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
         pure $ do
-          substitution <- matchTypes (determiners instanceHead) (determiners arguments')
-          pure (instanceInfo, map (applySubst substitution) (determined dependency instanceHead))
-      forM_ candidates $ \(instanceInfo, instanceDetermined) -> do
+          substitution <- matchTypes (determiners instanceHead) rewrittenDeterminers
+          pure (instanceInfo, substitution, map (applySubst substitution) (determined dependency instanceHead))
+      forM_ candidates $ \(instanceInfo, substitution, instanceDetermined) -> do
         let open = filter (\tyVar -> any (typeMentionsTyVar tyVar) instanceDetermined) (iiTyVars instanceInfo)
         recursive <- recursesOnDeterminers info dependency instanceInfo
         if null open
@@ -268,11 +278,15 @@ improveFromInstances givens siblings depth info dependency constraint = do
             fuel <- if recursive then pure False else useFunDepFuel
             when fuel $ do
               fresh <- forM open $ \tyVar -> do
-                meta <- freshMetaTvOfKind (tvKind tyVar)
+                meta <- freshMetaTvOfKind (applySubst substitution (tvKind tyVar))
                 pure (tvUnique tyVar, meta)
               improveEqualities givens (map (applySubst (Map.fromList fresh)) instanceDetermined) (determined dependency arguments')
             case candidates of
-              [_] -> improveThroughContext givens siblings depth instanceInfo arguments
+              [_] -> do
+                -- The context sees the parameters through the same family
+                -- rewrites as the head match.
+                improved <- mapM zonkType arguments
+                improveThroughContext givens siblings depth instanceInfo (map (applyGivenSubst familyRewrites) improved)
               _ -> pure ()
     _ -> pure ()
 
