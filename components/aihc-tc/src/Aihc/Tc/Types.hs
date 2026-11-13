@@ -21,7 +21,7 @@ module Aihc.Tc.Types
     sameType,
     samePred,
     setTyVarKind,
-    TcType (..),
+    TcType (.., TcTyCon),
     isPolyType,
     GlobalName (..),
     LocalId (..),
@@ -302,7 +302,11 @@ mkTyConWithNamespace namespace packageId moduleName name =
 data TcType
   = TcTyVar !TyVarId
   | TcMetaTv !Unique
-  | TcTyCon !TyCon ![TcType]
+  | -- | A type constructor applied to its kind arguments and its visible
+    -- arguments, in this order. The kind arguments are in the order of the
+    -- variables of the kind scheme of the constructor. See
+    -- @docs/design/tc-kind-arguments.md@.
+    TcTyConApp !TyCon ![TcType] ![TcType]
   | -- | The function arrow @(->)@ itself, unapplied. It is a form of its
     -- own rather than a type constructor so that the module can recognise
     -- an arrow without being told which type constructor the arrow is: a
@@ -329,11 +333,21 @@ data TcType
     TcKindedTyCon !TyCon ![TcType]
   deriving (Eq, Ord, Show, Read, Generic)
 
+-- | A type constructor applied to its visible arguments. The pattern
+-- matches each list of kind arguments. The constructor gives no kind
+-- argument.
+pattern TcTyCon :: TyCon -> [TcType] -> TcType
+pattern TcTyCon tyCon arguments <- TcTyConApp tyCon _ arguments
+  where
+    TcTyCon tyCon arguments = TcTyConApp tyCon [] arguments
+
+{-# COMPLETE TcTyVar, TcMetaTv, TcTyCon, TcArrowTy, TcFunTy, TcForAllTy, TcQualTy, TcAppTy, TcTyLit, TcKindedTyCon #-}
+
 instance NFData TcType where
   rnf ty = case ty of
     TcTyVar tyVar -> rnf tyVar
     TcMetaTv {} -> ()
-    TcTyCon _ arguments -> rnf arguments
+    TcTyConApp _ kindArguments arguments -> rnf kindArguments `seq` rnf arguments
     TcArrowTy -> ()
     TcFunTy argument result -> rnf argument `seq` rnf result
     TcForAllTy tyVar body -> rnf tyVar `seq` rnf body
