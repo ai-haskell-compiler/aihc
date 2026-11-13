@@ -43,7 +43,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, isAutomaticTypeableClass)
-import Aihc.Tc.Env (ClassInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TyConFlavor (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Monad
@@ -51,7 +51,7 @@ import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, zipWithM, zipWithM_)
+import Control.Monad (filterM, zipWithM, zipWithM_, (<=<))
 import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe, maybeToList)
@@ -89,7 +89,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
         rawParams
         (takeVisibleArgumentKinds (length rawParams) (typeSchemeBody (tciKindScheme info)))
       params <- mapM defaultParam rawParams
-      dataType <- lookupDataType (tciTyCon info)
+      dataType <- traverse derivingDataType =<< lookupDataType (tciTyCon info)
       concat <$> mapM (checkClause info dataType params) clauses
   where
     defaultParam param = do
@@ -472,8 +472,67 @@ standaloneTargetFlavor headTypes =
 standaloneTargetDataType :: [TcType] -> TcM (Maybe DataTypeInfo)
 standaloneTargetDataType headTypes =
   case reverse headTypes of
-    targetType : _ -> maybe (pure Nothing) lookupDataType (tcTypeConstructor targetType)
+    targetType : _ -> maybe (pure Nothing) (traverse derivingDataType <=< lookupDataType) (tcTypeConstructor targetType)
     _ -> pure Nothing
+
+-- | The datatype record that a deriving plan reads, with one parameter for
+-- each visible argument and with each constructor in terms of these
+-- parameters.
+--
+-- A declaration with a kind signature, as @data V :: Type -> Type where@,
+-- binds fewer parameters than the type has visible arguments. Each other
+-- argument gets a parameter here.
+--
+-- A constructor in GADT syntax has its own type variables, as @b@ in
+-- @V :: b -> b -> V b@. The field analysis substitutes the instance head
+-- for the datatype parameters, so a field type that names @b@ would not be
+-- a use of the last parameter. When the result type of a constructor is the
+-- type applied to distinct variables, these variables become the datatype
+-- parameters. A constructor with another result type, as @IntV :: Int -> V
+-- Int@, does not change.
+derivingDataType :: DataTypeInfo -> TcM DataTypeInfo
+derivingDataType dataType = do
+  let signatureKinds = takeVisibleArgumentKinds maxBound (dtiResultKind dataType)
+  signatureTyVars <- zipWithM signatureTyVar [length (dtiTyVars dataType) + 1 ..] signatureKinds
+  let tyVars = dtiTyVars dataType <> signatureTyVars
+      resultKind = dropVisibleArguments (length signatureKinds) (dtiResultKind dataType)
+  pure
+    dataType
+      { dtiTyVars = tyVars,
+        dtiResultKind = resultKind,
+        dtiConstructors = map (renameConstructor tyVars) (dtiConstructors dataType)
+      }
+  where
+    signatureTyVar :: Int -> TcType -> TcM TyVarId
+    signatureTyVar index = freshSkolemTvOfKind (T.pack ("p" <> show index))
+    dropVisibleArguments count kind =
+      case kind of
+        TcFunTy _ result | count > 0 -> dropVisibleArguments (count - 1) result
+        _ -> kind
+    renameConstructor tyVars constructor =
+      case resultVariables (dciResTy constructor) of
+        Just variables
+          | length variables == length tyVars,
+            length (nub variables) == length variables,
+            all (`elem` (dciUnivTyVars constructor <> dciExTyVars constructor)) variables ->
+              let substitution = Map.fromList (zip (map tvUnique variables) (map TcTyVar tyVars))
+               in constructor
+                    { dciUnivTyVars = tyVars,
+                      dciExTyVars = filter (`notElem` variables) (dciExTyVars constructor),
+                      dciTheta = map (applySubstPred substitution) (dciTheta constructor),
+                      dciFields = [field {dcfiType = applySubst substitution (dcfiType field)} | field <- dciFields constructor],
+                      dciResTy = applySubst substitution (dciResTy constructor)
+                    }
+        _ -> constructor
+    resultVariables resultType =
+      case collectTypeApplications resultType of
+        (TcTyCon _ arguments, applied) -> traverse variable (arguments <> applied)
+        (TcKindedTyCon _ _, applied) -> traverse variable applied
+        _ -> Nothing
+    variable ty =
+      case ty of
+        TcTyVar tyVar -> Just tyVar
+        _ -> Nothing
 
 tcTypeConstructor :: TcType -> Maybe TyCon
 tcTypeConstructor ty =
