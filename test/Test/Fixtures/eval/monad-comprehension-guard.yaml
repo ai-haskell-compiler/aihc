@@ -1,0 +1,28 @@
+extensions:
+  - MonadComprehensions
+modules:
+  - |
+    {-# LANGUAGE MonadComprehensions #-}
+    module Test where
+
+    import Prelude
+
+    -- Under MonadComprehensions, a comprehension can have each monad.
+    half :: Int -> Maybe Int
+    half n = [m | m <- Just (n `div` 2), even n]
+
+    pairs :: [(Int, Char)]
+    pairs = [(x, c) | x <- [1, 2], let y = x + 1, c <- "ab", y > 2]
+
+    main :: IO ()
+    main = do
+      print (half 4, half 3)
+      print pairs
+expression: main
+stdout: |
+  (Just 2,Nothing)
+  [(2,'a'),(2,'b')]
+output: |
+  ()
+status: pass
+reason: Under MonadComprehensions, a comprehension is a do block with guard and return, thus it can have the type Maybe.

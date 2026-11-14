@@ -1157,9 +1157,15 @@ resolveExpr expr =
     -- and the quoted text stay unresolved because nothing consumes them.
     EQuasiQuote {} -> pure expr
     EListComp body stmts -> do
-      (scope, stmts') <- resolveCompStmts stmts
-      body' <- withScope scope (resolveExpr body)
-      pure (EListComp body' stmts')
+      info <- currentModuleInfo
+      case traverse monadCompStmt stmts of
+        Just monadStmts
+          | MonadComprehensions `elem` moduleInfoExtensions info ->
+              resolveMonadComprehension body monadStmts
+        _ -> do
+          (scope, stmts') <- resolveCompStmts stmts
+          body' <- withScope scope (resolveExpr body)
+          pure (EListComp body' stmts')
     -- Each branch of a parallel comprehension sees only the outer scope.
     -- The body sees the binders of all branches.
     EListCompParallel body branches -> do
@@ -1424,6 +1430,7 @@ builtinSyntaxTerm info name =
         "return",
         "fail",
         "mfix",
+        "guard",
         "fmap",
         "<*>",
         "enumFrom",
@@ -1500,6 +1507,68 @@ resolveCompStmt stmt =
       byExpr' <- resolveExpr byExpr
       usingExpr' <- resolveExpr usingExpr
       pure (emptyScope, CompGroupByUsing byExpr' usingExpr')
+
+-- | A comprehension statement in a monadic form. A TransformListComp
+-- statement has no such form.
+data MonadCompStmt
+  = MonadCompAnn Annotation MonadCompStmt
+  | MonadCompDo (DoStmt Expr)
+  | MonadCompGuard Expr
+
+monadCompStmt :: CompStmt -> Maybe MonadCompStmt
+monadCompStmt stmt =
+  case stmt of
+    CompAnn ann inner -> MonadCompAnn ann <$> monadCompStmt inner
+    CompGen pat src -> Just (MonadCompDo (DoBind pat src))
+    CompLetDecls decls -> Just (MonadCompDo (DoLetDecls decls))
+    CompGuard condition -> Just (MonadCompGuard condition)
+    _ -> Nothing
+
+-- | Under MonadComprehensions, a comprehension @[e | quals]@ is a do block
+-- in each monad, as in GHC:
+--
+-- > do { quals'; return e }
+--
+-- A generator becomes a bind, a let stays a let, and a guard @g@ becomes
+-- the statement @guard g@. The do block then gets the usual monad methods.
+resolveMonadComprehension :: Expr -> [MonadCompStmt] -> ResolveM Expr
+resolveMonadComprehension body stmts = do
+  scope <- currentScope
+  (scope', stmts') <- go scope stmts
+  withScope scope' $ do
+    body' <- resolveExpr body
+    returnVar <- monadCompSyntaxVar "return"
+    pure (EDo (stmts' <> [DoExpr (EApp returnVar body')]) DoPlain)
+  where
+    go scope stmts'' =
+      withScope scope $
+        case stmts'' of
+          [] -> pure (scope, [])
+          stmt : rest -> do
+            (scope', stmt') <- resolveMonadCompStmt stmt
+            (scope'', rest') <- go scope' rest
+            pure (scope'', stmt' : rest')
+
+resolveMonadCompStmt :: MonadCompStmt -> ResolveM (Scope, DoStmt Expr)
+resolveMonadCompStmt stmt =
+  case stmt of
+    MonadCompAnn ann inner -> do
+      (scope', inner') <- withPushedSpan ann (resolveMonadCompStmt inner)
+      pure (scope', DoAnn ann inner')
+    MonadCompDo doStmt -> resolveDoStmt False doStmt
+    MonadCompGuard condition -> do
+      scope <- currentScope
+      condition' <- resolveExpr condition
+      guardVar <- monadCompSyntaxVar "guard"
+      stmt' <- annotateDoMethod False ">>" (DoExpr (EApp guardVar condition'))
+      pure (scope, stmt')
+
+-- | A variable that names a syntax term of a monad comprehension.
+monadCompSyntaxVar :: Text -> ResolveM Expr
+monadCompSyntaxVar name = do
+  sp <- currentSpan
+  ann <- syntaxTermAnnotation sp name
+  pure (EVar (Name Nothing NameVarId name [ann]))
 
 resolveCaseAlt :: CaseAlt Expr -> ResolveM (CaseAlt Expr)
 resolveCaseAlt alt =
