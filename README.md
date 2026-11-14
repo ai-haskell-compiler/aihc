@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC October retrospective: parallel runtime, smaller work, and parser evidence](https://blog.aihc.app/posts/2026-11-06-aihc-highlights/)** (06 Nov 2026)
+**[AIHC weekly highlights: a compiler that builds itself and learns from conflicts](https://blog.aihc.app/posts/2026-11-13-aihc-highlights/)** (13 Nov 2026)
 
-Four weeks of AIHC work add parallel execution, remove a costly emission pipeline, extend module optimization, and make parser work easier to inspect.
+Default-configuration self-compilation, a single-capability STM fix, PubGrub dependency solving, and precise n+k parser support.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -53,12 +53,12 @@ Each number is the AIHC value divided by the GHC value, as a geometric mean over
 
 | Metric | Native | LLVM | Wasm |
 | --- | ---: | ---: | ---: |
-| Compile time `-O0` | 0.11× | 0.09× | 0.28× |
-| Artifact size `-Os` | 0.10× | 0.11× | 0.52× |
-| Runtime `-O1` | 1.10× | 1.25× | 1.59× |
-| Runtime `-O2` | 1.00× | 1.27× | 0.89× |
+| Compile time `-O0` | 0.12× | 0.14× | 0.30× |
+| Artifact size `-Os` | 0.10× | 0.09× | 0.52× |
+| Runtime `-O1` | 1.05× | 1.16× | 1.51× |
+| Runtime `-O2` | 0.94× | 1.09× | 0.82× |
 
-Machine [`apple-m4-pro-542f1e`](https://perf.aihc.app/timeline.html?machine=apple-m4-pro-542f1e), commit [`401507cb0`](https://github.com/ai-haskell-compiler/aihc/commit/401507cb05df1e834d515296a5e585ff5be27f2f) (2026-11-05). Get all results at [perf.aihc.app](https://perf.aihc.app/).
+Machine [`apple-m4-pro-542f1e`](https://perf.aihc.app/timeline.html?machine=apple-m4-pro-542f1e), commit [`df6a01f74`](https://github.com/ai-haskell-compiler/aihc/commit/df6a01f7420d5f583f86d81089a11285e4bd51c7) (2026-11-13). Get all results at [perf.aihc.app](https://perf.aihc.app/).
 <!-- AUTO-GENERATED: END perf-highlights -->
 
 
