@@ -58,14 +58,14 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.FunDep (improveFunDeps)
+import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (defaultTypeSchemeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, when)
+import Control.Monad (filterM, foldM, forM, forM_, void, when)
 import Data.Either (isRight)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
@@ -946,6 +946,14 @@ solveWithSigGivens (ForAll _ predicates _) cts
   | otherwise = do
       let (equalityCts, dictionaryCts) = partition isEqualityCt cts
       residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
+      -- An equality superclass of a wanted must hold, so it can fix a meta
+      -- variable of the wanted before the improvement compares it with a
+      -- given. For @class (i ~ Ix r rs) => C r rs rs' i | r rs i -> rs'@,
+      -- the wanted @C r rs t0 t1@ gives @t1 := Ix r rs@. The given @C r rs
+      -- rs (Ix r rs)@ then improves @t0@. These equalities are for
+      -- improvement only, so their residuals are dropped.
+      entailed <- superClassEqualities dictionaryCts
+      mapM_ solveEntailed entailed
       -- A functional dependency of the context can fix a meta variable of
       -- a wanted. The enclosing scope does not improve against these givens.
       improveWithSignature dictionaryCts
@@ -959,6 +967,10 @@ solveWithSigGivens (ForAll _ predicates _) cts
     improveWithSignature dictionaryCts = do
       improved <- improveFunDeps predicates dictionaryCts
       when improved (improveWithSignature dictionaryCts)
+
+    solveEntailed predicate = do
+      evidence <- freshEvVar
+      void (solveEqualityCt (mkWantedCt predicate evidence (LetOrigin Nothing) Nothing))
 
     makeGiven predicate = do
       evidence <- freshEvVar
