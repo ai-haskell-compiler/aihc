@@ -11,6 +11,44 @@ module GHC.Num.Integer
     integerToBigNatSign#,
     integerFromWordNeg#,
     integerFromWord#,
+    integerFromWord,
+    integerFromInt#,
+    integerFromInt,
+    integerToWord#,
+    integerToWord,
+    integerToInt#,
+    integerToInt,
+    integerZero,
+    integerOne,
+    integerIsZero,
+    integerIsOne,
+    integerIsNegative#,
+    integerIsNegative,
+    integerEq#,
+    integerNe#,
+    integerLt#,
+    integerLe#,
+    integerGt#,
+    integerGe#,
+    integerEq,
+    integerNe,
+    integerLt,
+    integerLe,
+    integerGt,
+    integerGe,
+    integerCompare,
+    integerAdd,
+    integerSub,
+    integerMul,
+    integerNegate,
+    integerAbs,
+    integerSignum,
+    integerQuot,
+    integerRem,
+    integerDiv,
+    integerMod,
+    integerQuotRem,
+    integerDivMod,
     integerFromNatural,
     integerToNatural,
     integerSqr,
@@ -38,7 +76,7 @@ import GHC.Num.BigNat (BigNat (..), BigNat#, bigNatCheck#, bigNatFromAddr#, bigN
 import GHC.Num.Primitives (Bool#)
 import GHC.Prim (Addr#, ByteArray#, Int#, MutableByteArray#, State#, Word#, and#, clz#, indexWordArray#, int2Word#, negateInt#, quotInt#, quotRemWord2#, sizeofByteArray#, timesWord2#, uncheckedShiftRL#, word2Int#, (+#), (-#), (<#), (==#))
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
-import GHC.Types (IO (..))
+import GHC.Types (Bool (..), IO (..), Int (..), Ordering (..), Word (..))
 import Prelude (Eq (..), Integral (..), Num (..), Ord (..), gcd, lcm, odd, otherwise)
 
 -- | Whether an 'Integer' is canonical: a small value is in @IS@, and the
@@ -291,3 +329,100 @@ integerToMutableByteArray# value = bigNatToMutableByteArray# (integerMagnitude# 
 -- | The non-negative integer with the value of a machine word.
 integerFromWord# :: Word# -> Integer
 integerFromWord# = Internal.integerFromWord# 1#
+
+-- | The non-negative integer with the value of a machine word.
+integerFromWord :: Word -> Integer
+integerFromWord (W# word) = integerFromWord# word
+
+-- | The integer with the value of a machine integer.
+integerFromInt# :: Int# -> Integer
+integerFromInt# = IS
+
+-- | The integer with the value of a machine integer.
+integerFromInt :: Int -> Integer
+integerFromInt (I# value) = IS value
+
+-- | The low machine word of an integer, in two's complement.
+integerToWord# :: Integer -> Word#
+integerToWord# value = int2Word# (Internal.integerToInt# value)
+
+-- | The low machine word of an integer, in two's complement.
+integerToWord :: Integer -> Word
+integerToWord value = W# (integerToWord# value)
+
+-- | The low machine word of an integer, in two's complement, as an 'Int#'.
+integerToInt# :: Integer -> Int#
+integerToInt# = Internal.integerToInt#
+
+-- | The low machine word of an integer, in two's complement, as an 'Int'.
+integerToInt :: Integer -> Int
+integerToInt value = I# (integerToInt# value)
+
+-- | The integer 0.
+integerZero :: Integer
+integerZero = IS 0#
+
+-- | The integer 1.
+integerOne :: Integer
+integerOne = IS 1#
+
+-- | Whether an integer is 0.
+integerIsZero :: Integer -> Bool
+integerIsZero value = value == integerZero
+
+-- | Whether an integer is 1.
+integerIsOne :: Integer -> Bool
+integerIsOne value = value == integerOne
+
+-- | Whether an integer is less than 0.
+integerIsNegative# :: Integer -> Bool#
+integerIsNegative# value = boolToBool# (integerIsNegative value)
+
+-- | Whether an integer is less than 0.
+integerIsNegative :: Integer -> Bool
+integerIsNegative value = value < integerZero
+
+integerEq#, integerNe#, integerLt#, integerLe#, integerGt#, integerGe# :: Integer -> Integer -> Bool#
+integerEq# left right = boolToBool# (left == right)
+integerNe# left right = boolToBool# (left /= right)
+integerLt# left right = boolToBool# (left < right)
+integerLe# left right = boolToBool# (left <= right)
+integerGt# left right = boolToBool# (left > right)
+integerGe# left right = boolToBool# (left >= right)
+
+integerEq, integerNe, integerLt, integerLe, integerGt, integerGe :: Integer -> Integer -> Bool
+integerEq = (==)
+integerNe = (/=)
+integerLt = (<)
+integerLe = (<=)
+integerGt = (>)
+integerGe = (>=)
+
+-- | Compare two integers.
+integerCompare :: Integer -> Integer -> Ordering
+integerCompare = compare
+
+integerAdd, integerSub, integerMul :: Integer -> Integer -> Integer
+integerAdd = (+)
+integerSub = (-)
+integerMul = (*)
+
+integerNegate, integerAbs, integerSignum :: Integer -> Integer
+integerNegate = negate
+integerAbs = abs
+integerSignum = signum
+
+-- | Division operations. As in GHC, a zero divisor is an error.
+integerQuot, integerRem, integerDiv, integerMod :: Integer -> Integer -> Integer
+integerQuot = quot
+integerRem = rem
+integerDiv = div
+integerMod = mod
+
+integerQuotRem, integerDivMod :: Integer -> Integer -> (Integer, Integer)
+integerQuotRem = quotRem
+integerDivMod = divMod
+
+boolToBool# :: Bool -> Bool#
+boolToBool# True = 1#
+boolToBool# False = 0#

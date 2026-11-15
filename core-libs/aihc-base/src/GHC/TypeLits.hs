@@ -1,11 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level literals.
@@ -25,6 +27,7 @@ module GHC.TypeLits
     natVal',
     sameNat,
     SNat,
+    pattern SNat,
     fromSNat,
     withSomeSNat,
     withKnownNat,
@@ -36,6 +39,7 @@ module GHC.TypeLits
     symbolVal',
     sameSymbol,
     SSymbol,
+    pattern SSymbol,
     fromSSymbol,
     withSomeSSymbol,
     withKnownSymbol,
@@ -47,7 +51,9 @@ module GHC.TypeLits
     charVal',
     sameChar,
     SChar,
+    pattern SChar,
     fromSChar,
+    withSomeSChar,
     withKnownChar,
     Natural,
     AppendSymbol,
@@ -80,7 +86,7 @@ import GHC.Prim (Proxy#)
 import GHC.Prim.Natural (naturalFromInteger#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, SomeNat (..), fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, pattern SNat, SomeNat (..), fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
 import Unsafe.Coerce (unsafeCoerce)
@@ -125,6 +131,22 @@ sameSymbol left right =
 -- | A singleton for a known type-level symbol.
 type SSymbol :: Symbol -> Type
 newtype SSymbol s = UnsafeSSymbol [Char]
+
+-- | Match a singleton and get its dictionary, or build a singleton from a
+-- dictionary.
+pattern SSymbol :: forall s. () => (KnownSymbol s) => SSymbol s
+pattern SSymbol <- (knownSymbolInstance -> KnownSymbolInstance)
+  where
+    SSymbol = symbolSing
+
+{-# COMPLETE SSymbol #-}
+
+-- | The evidence that the pattern 'SSymbol' gives.
+data KnownSymbolInstance (s :: Symbol) where
+  KnownSymbolInstance :: (KnownSymbol s) => KnownSymbolInstance s
+
+knownSymbolInstance :: SSymbol s -> KnownSymbolInstance s
+knownSymbolInstance singleton = withKnownSymbol singleton KnownSymbolInstance
 
 -- | The value a singleton stands for.
 fromSSymbol :: SSymbol s -> [Char]
@@ -210,6 +232,28 @@ sameChar left right =
 -- | A singleton for a known type-level character.
 type SChar :: Char -> Type
 newtype SChar c = UnsafeSChar Char
+
+-- | Match a singleton and get its dictionary, or build a singleton from a
+-- dictionary.
+pattern SChar :: forall c. () => (KnownChar c) => SChar c
+pattern SChar <- (knownCharInstance -> KnownCharInstance)
+  where
+    SChar = charSing
+
+{-# COMPLETE SChar #-}
+
+-- | The evidence that the pattern 'SChar' gives.
+data KnownCharInstance (c :: Char) where
+  KnownCharInstance :: (KnownChar c) => KnownCharInstance c
+
+knownCharInstance :: SChar c -> KnownCharInstance c
+knownCharInstance singleton = withKnownChar singleton KnownCharInstance
+
+-- | Supply a singleton for a runtime character.
+-- Keep the type index private to each call.
+{-# NOINLINE withSomeSChar #-}
+withSomeSChar :: Char -> (forall c. SChar c -> r) -> r
+withSomeSChar value continuation = continuation (UnsafeSChar value :: SChar Any)
 
 -- | The value a singleton stands for.
 fromSChar :: SChar c -> Char
