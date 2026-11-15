@@ -295,8 +295,8 @@ in rec {
         // {
           aihc-cpp = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-cpp";
-            ver = "2.0.0.0";
-            sha256 = "1zfxrcrfnb5dylbnnhhcwcavwsp4gs307f7mjx8p5l99lca55nsl";
+            ver = "2.0.0.1";
+            sha256 = "02cijazghf33kxg7rl0mls24dgq8ld47shhikll70in75x994i1k";
           } {});
           aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "aihc-parser";
