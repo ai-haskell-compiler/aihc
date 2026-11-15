@@ -656,7 +656,8 @@ withBuildModuleSandbox getStore prefix action = do
 -- closures keep state in the instance, and an exception in a closure does
 -- not stop the guest. A static thunk that a closure evaluated keeps its
 -- value after collections between the closures. A module of the package
--- includes @sys/mman.h@ for its constants.
+-- includes @sys/mman.h@ for its constants, and a module reads declarations
+-- that the WASI libc leaves out.
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
 test_engineClosures getStore =
   withEngineFixture getStore [] "closures" $ \engine -> do
@@ -682,6 +683,8 @@ test_engineClosures getStore =
     assertEqual "the sum of the static list after the collections" ["200010000"] tableSecond
     memoryMap <- run "memoryMap"
     assertEqual "PROT_READ | PROT_WRITE" ["3"] memoryMap
+    wasiHeaders <- run "wasiHeaders"
+    assertEqual "sun_path, struct winsize, SCM_RIGHTS, and &pthread_exit" ["[108,8,1,4]"] wasiHeaders
 
 -- | A closure runs a Template Haskell computation in the guest and sends
 -- its result. The compiler decodes the message and converts it to the

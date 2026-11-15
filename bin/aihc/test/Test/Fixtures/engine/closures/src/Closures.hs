@@ -1,4 +1,4 @@
-module Closures (greet, failing, tableSum, churn, memoryMap) where
+module Closures (greet, failing, tableSum, churn, memoryMap, wasiHeaders) where
 
 import Control.Exception (ErrorCall (..), throwIO)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
@@ -7,6 +7,7 @@ import Foreign.C.Types (CChar)
 import Foreign.Ptr (Ptr)
 import MemoryMap (readWrite)
 import System.IO.Unsafe (unsafePerformIO)
+import WasiHeaders (wasiDeclarations)
 
 foreign import ccall unsafe "aihc_engine_send" engineSend :: Ptr CChar -> Int -> IO ()
 
@@ -49,3 +50,7 @@ churn = send (show (sum (map live [1 .. 12])))
 -- | Send a constant of @sys/mman.h@.
 memoryMap :: IO ()
 memoryMap = send (show readWrite)
+
+-- | Send values from declarations that the WASI libc leaves out.
+wasiHeaders :: IO ()
+wasiHeaders = send (show wasiDeclarations)

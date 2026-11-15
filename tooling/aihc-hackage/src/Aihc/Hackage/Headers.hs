@@ -88,6 +88,94 @@ compilerHeaderTexts target =
     ("Rts.h", rtsHeader),
     ("rts" </> "Signals.h", rtsSignalsHeader)
   ]
+    <> (if headerOs target == "wasi" then wasiCompatibilityHeaders else [])
+
+-- | Headers that replace or extend internal headers of the WASI libc.
+--
+-- WASI has no UNIX-domain sockets and no terminals, so the libc leaves out
+-- some declarations that packages read at compile time. @network@ reads
+-- @sun_path@ of @struct sockaddr_un@, and @terminal-size@ reads
+-- @struct winsize@ and @TIOCGWINSZ@. The Template Haskell engine compiles
+-- these packages for WebAssembly when a splice imports them. The engine
+-- gives a splice no sockets and no terminal, so a call fails at run time,
+-- but the code compiles. The compiler header directory comes before the
+-- sysroot in the include path, so these headers replace the headers of the
+-- libc with the same names.
+wasiCompatibilityHeaders :: [(FilePath, Text)]
+wasiCompatibilityHeaders =
+  [ -- The libc includes this header from @sys/un.h@. Its own copy has only
+    -- @sun_family@. This copy has the same guard and the field of musl.
+    ( "__struct_sockaddr_un.h",
+      headerLines
+        "__wasilibc___struct_sockaddr_un_h"
+        ["#include <__typedef_sa_family_t.h>"]
+        [ "struct sockaddr_un {",
+          "  __attribute__((aligned(__BIGGEST_ALIGNMENT__))) sa_family_t sun_family;",
+          "  char sun_path[108];",
+          "};"
+        ]
+    ),
+    -- The libc includes this header from @sys/socket.h@. This copy includes
+    -- the header of the libc, and adds the control messages and the
+    -- functions of musl that WASI does not have.
+    ( "__header_sys_socket.h",
+      T.unlines
+        [ "#include_next <__header_sys_socket.h>",
+          "#ifndef AIHC_WASI_SOCKET_H",
+          "#define AIHC_WASI_SOCKET_H",
+          "#include <stddef.h>",
+          "#include <__typedef_socklen_t.h>",
+          "#include <__typedef_ssize_t.h>",
+          "struct cmsghdr {",
+          "  socklen_t cmsg_len;",
+          "  int cmsg_level;",
+          "  int cmsg_type;",
+          "};",
+          "#define __MHDR_END(mhdr) ((unsigned char *)(mhdr)->msg_control + (mhdr)->msg_controllen)",
+          "#define __CMSG_LEN(cmsg) (((cmsg)->cmsg_len + sizeof(long) - 1) & ~(long)(sizeof(long) - 1))",
+          "#define __CMSG_NEXT(cmsg) ((unsigned char *)(cmsg) + __CMSG_LEN(cmsg))",
+          "#define CMSG_DATA(cmsg) ((unsigned char *)(((struct cmsghdr *)(cmsg)) + 1))",
+          "#define CMSG_NXTHDR(mhdr, cmsg) ((cmsg)->cmsg_len < sizeof(struct cmsghdr) || __CMSG_LEN(cmsg) + sizeof(struct cmsghdr) >= __MHDR_END(mhdr) - (unsigned char *)(cmsg) ? 0 : (struct cmsghdr *)__CMSG_NEXT(cmsg))",
+          "#define CMSG_FIRSTHDR(mhdr) ((size_t)(mhdr)->msg_controllen >= sizeof(struct cmsghdr) ? (struct cmsghdr *)(mhdr)->msg_control : (struct cmsghdr *)0)",
+          "#define CMSG_ALIGN(len) (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))",
+          "#define CMSG_SPACE(len) (CMSG_ALIGN(len) + CMSG_ALIGN(sizeof(struct cmsghdr)))",
+          "#define CMSG_LEN(len) (CMSG_ALIGN(sizeof(struct cmsghdr)) + (len))",
+          "#define SCM_RIGHTS 0x01",
+          "#define SCM_CREDENTIALS 0x02",
+          "ssize_t sendmsg(int, const struct msghdr *, int);",
+          "ssize_t recvmsg(int, struct msghdr *, int);",
+          "int socketpair(int, int, int, int[2]);",
+          "#endif"
+        ]
+    ),
+    -- WASI has no threads that can stop, so the libc does not declare
+    -- @pthread_exit@. The argon2 code of @crypton@ calls it.
+    ( "pthread.h",
+      T.unlines
+        [ "#include_next <pthread.h>",
+          "#ifndef AIHC_WASI_PTHREAD_H",
+          "#define AIHC_WASI_PTHREAD_H",
+          "_Noreturn void pthread_exit(void *);",
+          "#endif"
+        ]
+    ),
+    -- The libc includes this header from @sys/ioctl.h@. This copy includes
+    -- the header of the libc, and adds the terminal size request of musl.
+    -- The @ioctl@ of the libc gives an error for that request.
+    ( "__header_sys_ioctl.h",
+      T.unlines
+        [ "#include_next <__header_sys_ioctl.h>",
+          "#ifndef AIHC_WASI_IOCTL_H",
+          "#define AIHC_WASI_IOCTL_H",
+          "#ifndef __DEFINED_struct_winsize",
+          "#define __DEFINED_struct_winsize",
+          "struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; };",
+          "#endif",
+          "#define TIOCGWINSZ 0x5413",
+          "#endif"
+        ]
+    )
+  ]
 
 -- | Write the headers of the target under a root directory and give back the
 -- directory that holds them.
