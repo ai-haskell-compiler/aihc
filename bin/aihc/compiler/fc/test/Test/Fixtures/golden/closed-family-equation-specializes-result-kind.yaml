@@ -31,7 +31,7 @@ expected: |-
 
   pub type 1.tFst (k : sType) (k' : sType) (t : k) :: k' @N @N @N {}
 
-  axiom 1.$ax$Fst$0 (k0 : sType) (k1 : sType) (x : k0) (y : k1) : tFst (tTuple2 k0 k1) k0 (c(,) k0 k1 x y) ~N x
+  axiom 1.$ax$Fst$0 (k' : sType) (k0 : sType) (x : k') (y : k0) : tFst (tTuple2 k' k0) k' (c(,) k' k0 x y) ~N x
 
   axiom 1.$ax$Fst$1 (x : sType) (y : sType) : tFst sType sType (tTuple2 x y) ~N x
 status: pass
