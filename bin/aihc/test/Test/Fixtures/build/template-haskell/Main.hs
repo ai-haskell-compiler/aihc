@@ -256,7 +256,7 @@ main = do
   print (localId 2)
   -- A splice lifts a syntax tree of Template Haskell. The program gets
   -- the same tree.
-  print $(lift (LamE [VarP (mkName "z")] (AppE (VarE (mkName "f")) (LitE (StringL "s")))))
+  print $(lift (LamE [VarP (mkName "z")] (TupE [Just (AppE (VarE (mkName "f")) (LitE (StringL "s"))), Nothing])))
   -- The reify of a class gives the instances that the module can see.
   putStrLn
     $( do
