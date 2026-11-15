@@ -1,0 +1,55 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableInstances, DerivingVia, StandaloneDeriving #-}
+  module Main where
+  data P = Z | S P
+       │   │   └─ type: P → P
+       │   └─ type: P
+       └─ type: Type
+  data N = N0 | N1
+       │   │    └─ type: N
+       │   └─ type: N
+       └─ type: Type
+  type family Dim v :: P
+              └─ type: Type → P
+  type family Peano (n :: N) :: P
+              └─ type: N → P
+  class F1 t where
+  └─ class methods: h ∷ ∀ t. (F1 t) ⇒ t → t
+    h :: t -> t
+  newtype W v = W v
+          │     └─ type: ∀ v. v → W v
+          └─ type: Type → Type
+  instance (Dim v ~ 'S k) => F1 (W v) where
+  └─ $fF1Wv ∷ ∀ v k. ((Dim v) ~ ('S k)) ⇒ F1 (W v)
+    h x = x
+    │ └─ type: W v
+    └─ h ∷ W v → W v
+  data L (n :: N) = L
+       │            └─ type: ∀ n. L n
+       └─ type: N → Type
+  type instance Dim (L n) = Peano n
+  f :: (Peano n ~ 'S k) => W (L n) -> W (L n)
+  f = h
+  │   └─ type: W (L n) → W (L n); type-args: W (L n); evidence: $fF1Wv @L n @k (given Peano n ~ 'S k)
+  └─ type: ∀ n k. ((Peano n) ~ ('S k)) ⇒ W (L n) → W (L n)
+extensions: []
+reason: an instance context equality with a variable that is not in the head uses a given that matches only after a family reduction
+modules:
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableInstances, DerivingVia, StandaloneDeriving #-}
+  module Main where
+  data P = Z | S P
+  data N = N0 | N1
+  type family Dim v :: P
+  type family Peano (n :: N) :: P
+  class F1 t where
+    h :: t -> t
+  newtype W v = W v
+  instance (Dim v ~ 'S k) => F1 (W v) where
+    h x = x
+  data L (n :: N) = L
+  type instance Dim (L n) = Peano n
+  f :: (Peano n ~ 'S k) => W (L n) -> W (L n)
+  f = h
+status: pass
