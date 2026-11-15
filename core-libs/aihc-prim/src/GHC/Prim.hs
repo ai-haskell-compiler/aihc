@@ -682,7 +682,7 @@ data RealWorld
 type Proxy# :: forall k. k -> TYPE ('TupleRep '[])
 data Proxy# (a :: k)
 
-foreign import prim proxy# :: forall k (a :: k). Proxy# a
+foreign import prim proxy# :: forall {k} (a :: k). Proxy# a
 
 foreign import prim reallyUnsafePtrEquality# :: forall {l :: Levity} {k :: Levity} (a :: TYPE ('BoxedRep l)) (b :: TYPE ('BoxedRep k)). a -> b -> Int#
 
