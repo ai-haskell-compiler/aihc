@@ -21,7 +21,7 @@ module Aihc.Tc.Types
     sameType,
     samePred,
     setTyVarKind,
-    TcType (.., TcTyCon),
+    TcType (.., TcTyCon, TcKindedTyCon),
     isPolyType,
     GlobalName (..),
     LocalId (..),
@@ -35,6 +35,9 @@ module Aihc.Tc.Types
     isEqualityTyCon,
     mkAppTy,
     hasResultOnlyKindVariable,
+    tyConKeepsKindArguments,
+    isKindedTyCon,
+    setTyConKeepsKindArguments,
     kindedTyCon,
     reflexiveWitness,
     pairedKindArguments,
@@ -137,6 +140,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+import Text.Read qualified as Read
 
 -- | The term key with the name and origin of a type constructor.
 tyConTermKey :: TyCon -> Entity
@@ -200,14 +204,73 @@ setTyVarKind :: TcType -> TyVarId -> TyVarId
 setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
 -- | A type-constructor identity. Kind schemes live in the type-constructor environment.
-data TyCon = TyConInternal !Text !PackageId !Text !ResolutionNamespace !Int
-  deriving (Eq, Ord, Show, Read, Generic)
+--
+-- The last field tells whether an application of the constructor keeps
+-- its kind arguments (see 'tyConKeepsKindArguments'). It is not part of
+-- the identity: 'Eq', 'Ord', and 'Show' do not read it.
+data TyCon = TyConInternal !Text !PackageId !Text !ResolutionNamespace !Int !Bool
+  deriving (Generic)
+
+instance Eq TyCon where
+  TyConInternal leftName leftPackage leftModule leftNamespace leftArity _ == TyConInternal rightName rightPackage rightModule rightNamespace rightArity _ =
+    leftName == rightName
+      && leftPackage == rightPackage
+      && leftModule == rightModule
+      && leftNamespace == rightNamespace
+      && leftArity == rightArity
+
+instance Ord TyCon where
+  compare (TyConInternal leftName leftPackage leftModule leftNamespace leftArity _) (TyConInternal rightName rightPackage rightModule rightNamespace rightArity _) =
+    compare leftName rightName
+      <> compare leftPackage rightPackage
+      <> compare leftModule rightModule
+      <> compare leftNamespace rightNamespace
+      <> compare leftArity rightArity
+
+instance Show TyCon where
+  showsPrec precedence (TyConInternal name packageId moduleName namespace arity _) =
+    showParen (precedence > 10) $
+      showString "TyConInternal "
+        . showsPrec 11 name
+        . showChar ' '
+        . showsPrec 11 packageId
+        . showChar ' '
+        . showsPrec 11 moduleName
+        . showChar ' '
+        . showsPrec 11 namespace
+        . showChar ' '
+        . showsPrec 11 arity
+
+instance Read TyCon where
+  readPrec =
+    Read.parens . Read.prec 10 $ do
+      Read.Ident "TyConInternal" <- Read.lexP
+      TyConInternal
+        <$> Read.step Read.readPrec
+        <*> Read.step Read.readPrec
+        <*> Read.step Read.readPrec
+        <*> Read.step Read.readPrec
+        <*> Read.step Read.readPrec
+        <*> pure False
 
 instance NFData TyCon where
   rnf tyCon = tyCon `seq` ()
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName _ _ _ tyConArity
+pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName _ _ _ tyConArity _
+
+-- | Whether an application of the constructor keeps its kind arguments.
+-- The visible arguments of such an application do not give all kind
+-- arguments (see 'hasResultOnlyKindVariable'). 'mkAppTy' reads this flag
+-- when an application becomes saturated. A constructor that is built
+-- without its kind scheme does not keep them.
+tyConKeepsKindArguments :: TyCon -> Bool
+tyConKeepsKindArguments (TyConInternal _ _ _ _ _ keeps) = keeps
+
+-- | Set whether an application of the constructor keeps its kind arguments.
+setTyConKeepsKindArguments :: Bool -> TyCon -> TyCon
+setTyConKeepsKindArguments keeps (TyConInternal name packageId moduleName namespace arity _) =
+  TyConInternal name packageId moduleName namespace arity keeps
 
 {-# COMPLETE TyCon #-}
 
@@ -225,10 +288,10 @@ instance NFData TcAxiomKey where
 type TcKindEnv = Map GlobalName TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
-tyConPackageId (TyConInternal _ packageId _ _ _) = packageId
+tyConPackageId (TyConInternal _ packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
-tyConModuleName (TyConInternal _ _ moduleName _ _) = moduleName
+tyConModuleName (TyConInternal _ _ moduleName _ _ _) = moduleName
 
 -- | A bare type constructor with these kind arguments. With no kind
 -- argument, it is the plain constructor.
@@ -262,22 +325,21 @@ bareTyCon ty =
 -- A saturated application uses its visible arguments to determine these kinds.
 -- A saturated arrow becomes the function type.
 --
--- An application that keeps kind arguments in 'TcTyConApp' keeps them
--- when it gets more arguments. A use of a constructor whose visible
--- arguments do not give all its kinds is such an application (see
--- 'hasResultOnlyKindVariable'), as @Any \@(k -> Type) a@, the default of an
--- ambiguous @g a@.
+-- A constructor whose visible arguments do not give all its kinds (see
+-- 'tyConKeepsKindArguments') keeps its kind arguments in each application,
+-- as @Any \@(k -> Type) a@, the default of an ambiguous @g a@.
 mkAppTy :: TcType -> TcType -> TcType
 mkAppTy function argument
   -- The arguments determine the kinds once they saturate the constructor.
   | (TcKindedTyCon tyCon _, arguments) <- collectTypeApplications function,
-    length arguments + 1 >= tyConArity tyCon =
-      TcTyCon tyCon (arguments <> [argument])
+    not (tyConKeepsKindArguments tyCon) =
+      if length arguments + 1 >= tyConArity tyCon
+        then TcTyCon tyCon (arguments <> [argument])
+        else -- A partial application must retain its invisible kind arguments.
+          TcAppTy function argument
   | otherwise =
       case function of
         TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon kindArguments (arguments <> [argument])
-        -- A partial application must retain its invisible kind arguments.
-        TcKindedTyCon {} -> TcAppTy function argument
         TcAppTy TcArrowTy domain -> TcFunTy domain argument
         _ -> TcAppTy function argument
 
@@ -295,7 +357,7 @@ hasResultOnlyKindVariable (ForAll variables _ kind) arity =
     formalKinds _ = []
 
 tyConNamespace :: TyCon -> ResolutionNamespace
-tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
+tyConNamespace (TyConInternal _ _ _ namespace _ _) = namespace
 
 -- | The identity a type constructor is registered under: everything a
 -- 'TyCon' carries except its arity, which two constructors of one identity
@@ -304,12 +366,12 @@ tyConKey :: TyCon -> GlobalName
 tyConKey tyCon = GlobalName (tyConName tyCon) (tyConPackageId tyCon) (tyConModuleName tyCon) (tyConNamespace tyCon)
 
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
-mkTyConWithOrigin packageId moduleName name =
-  TyConInternal name packageId moduleName ResolutionNamespaceType
+mkTyConWithOrigin packageId moduleName name arity =
+  TyConInternal name packageId moduleName ResolutionNamespaceType arity False
 
 mkTyConWithNamespace :: ResolutionNamespace -> PackageId -> Text -> Text -> Int -> TyCon
-mkTyConWithNamespace namespace packageId moduleName name =
-  TyConInternal name packageId moduleName namespace
+mkTyConWithNamespace namespace packageId moduleName name arity =
+  TyConInternal name packageId moduleName namespace arity False
 
 -- | Internal types. Kinds use this same representation.
 data TcType
@@ -334,33 +396,27 @@ data TcType
     -- literal's sort, which is a wired-in type constructor rather than
     -- anything the literal carries.
     TcTyLit !TyLit
-  | -- | A poly-kinded type constructor with no visible argument, and the
-    -- kind arguments at which the type uses it. The kind arguments are in
-    -- the order of the variables of the kind scheme of the constructor.
-    --
-    -- An application of a type constructor gets its kind arguments from
-    -- the kinds of its visible arguments. A bare constructor has no
-    -- visible arguments: in @Proxy Tagged@ only the use site tells the
-    -- kind of @Tagged@. This form keeps that kind. A constructor whose
-    -- kind scheme has no variables is always 'TcTyCon'.
-    TcKindedTyCon !TyCon ![TcType]
   deriving (Show, Read, Generic)
 
--- | Equality of types. It does not compare the kind arguments of a
--- 'TcTyConApp'. Only some applications have kind arguments (see
--- @docs/design/tc-kind-arguments.md@), and an application without them
--- can be the same type as one with them. A relation that compares the
--- kind arguments only when both sides have them is not transitive, thus
--- 'Map' and 'Set' keys could not use it. The visible arguments decide,
--- as they did before the kind arguments existed. Unification, matching,
--- and 'sameType' compare the kind arguments when both sides have them.
+-- | Equality of types. A bare constructor with kind arguments
+-- ('TcKindedTyCon') is compared with its kind arguments: @Proxy \@Type@ and
+-- @Proxy \@Bool@ are different types. An application with visible
+-- arguments is compared without its kind arguments. Only some applications
+-- have kind arguments (see @docs/design/tc-kind-arguments.md@), and an
+-- application without them can be the same type as one with them. A
+-- relation that compares the kind arguments only when both sides have them
+-- is not transitive, thus 'Map' and 'Set' keys could not use it. The
+-- visible arguments decide. Unification, matching, and 'sameType' compare
+-- the kind arguments when both sides have them.
 instance Eq TcType where
   left == right =
     case (left, right) of
       (TcTyVar leftVariable, TcTyVar rightVariable) -> leftVariable == rightVariable
       (TcMetaTv leftUnique, TcMetaTv rightUnique) -> leftUnique == rightUnique
-      (TcTyConApp leftTyCon _ leftArguments, TcTyConApp rightTyCon _ rightArguments) ->
-        leftTyCon == rightTyCon && leftArguments == rightArguments
+      (TcTyConApp leftTyCon leftKinds leftArguments, TcTyConApp rightTyCon rightKinds rightArguments) ->
+        leftTyCon == rightTyCon
+          && leftArguments == rightArguments
+          && (not (null leftArguments) || leftKinds == rightKinds)
       (TcArrowTy, TcArrowTy) -> True
       (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
         leftArgument == rightArgument && leftResult == rightResult
@@ -371,20 +427,22 @@ instance Eq TcType where
       (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
         leftFunction == rightFunction && leftArgument == rightArgument
       (TcTyLit leftLiteral, TcTyLit rightLiteral) -> leftLiteral == rightLiteral
-      (TcKindedTyCon leftTyCon leftKinds, TcKindedTyCon rightTyCon rightKinds) ->
-        leftTyCon == rightTyCon && leftKinds == rightKinds
       _ -> False
 
--- | The order agrees with the 'Eq' instance: it does not compare the kind
--- arguments of a 'TcTyConApp'. The constructors are in the order of the
--- declaration.
+-- | The order agrees with the 'Eq' instance. The forms are in the order
+-- of the declaration, and a 'TcKindedTyCon' is last.
 instance Ord TcType where
   compare left right =
     case (left, right) of
+      _
+        | tcTypeFormIndex left /= tcTypeFormIndex right ->
+            compare (tcTypeFormIndex left) (tcTypeFormIndex right)
       (TcTyVar leftVariable, TcTyVar rightVariable) -> compare leftVariable rightVariable
       (TcMetaTv leftUnique, TcMetaTv rightUnique) -> compare leftUnique rightUnique
-      (TcTyConApp leftTyCon _ leftArguments, TcTyConApp rightTyCon _ rightArguments) ->
-        compare leftTyCon rightTyCon <> compare leftArguments rightArguments
+      (TcTyConApp leftTyCon leftKinds leftArguments, TcTyConApp rightTyCon rightKinds rightArguments) ->
+        compare leftTyCon rightTyCon
+          <> compare leftArguments rightArguments
+          <> (if null leftArguments then compare leftKinds rightKinds else EQ)
       (TcArrowTy, TcArrowTy) -> EQ
       (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
         compare leftArgument rightArgument <> compare leftResult rightResult
@@ -395,23 +453,24 @@ instance Ord TcType where
       (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
         compare leftFunction rightFunction <> compare leftArgument rightArgument
       (TcTyLit leftLiteral, TcTyLit rightLiteral) -> compare leftLiteral rightLiteral
-      (TcKindedTyCon leftTyCon leftKinds, TcKindedTyCon rightTyCon rightKinds) ->
-        compare leftTyCon rightTyCon <> compare leftKinds rightKinds
-      _ -> compare (constructorIndex left) (constructorIndex right)
-    where
-      constructorIndex :: TcType -> Int
-      constructorIndex ty =
-        case ty of
-          TcTyVar {} -> 0
-          TcMetaTv {} -> 1
-          TcTyConApp {} -> 2
-          TcArrowTy -> 3
-          TcFunTy {} -> 4
-          TcForAllTy {} -> 5
-          TcQualTy {} -> 6
-          TcAppTy {} -> 7
-          TcTyLit {} -> 8
-          TcKindedTyCon {} -> 9
+      _ -> compare (tcTypeFormIndex left) (tcTypeFormIndex right)
+
+-- | The position of the form of a type in the order of types. A bare
+-- constructor with kind arguments sorts after the other forms, as the
+-- former constructor of this form did.
+tcTypeFormIndex :: TcType -> Int
+tcTypeFormIndex ty =
+  case ty of
+    TcTyVar {} -> 0
+    TcMetaTv {} -> 1
+    TcKindedTyCon {} -> 9
+    TcTyConApp {} -> 2
+    TcArrowTy -> 3
+    TcFunTy {} -> 4
+    TcForAllTy {} -> 5
+    TcQualTy {} -> 6
+    TcAppTy {} -> 7
+    TcTyLit {} -> 8
 
 -- | The pairs of kind arguments that two applications of one type
 -- constructor must agree on. An application without kind arguments gets
@@ -450,6 +509,11 @@ instance (ExactOrd a) => ExactOrd [a] where
 instance ExactOrd TcType where
   compareExactly left right =
     case (left, right) of
+      -- The forms are in the order of 'Ord', thus the two orders agree on
+      -- types of different forms.
+      _
+        | tcTypeFormIndex left /= tcTypeFormIndex right ->
+            compare (tcTypeFormIndex left) (tcTypeFormIndex right)
       (TcTyVar leftVariable, TcTyVar rightVariable) -> compareExactly leftVariable rightVariable
       (TcTyConApp leftTyCon leftKinds leftArguments, TcTyConApp rightTyCon rightKinds rightArguments) ->
         compare leftTyCon rightTyCon <> compareExactly leftKinds rightKinds <> compareExactly leftArguments rightArguments
@@ -461,8 +525,6 @@ instance ExactOrd TcType where
         compareExactly leftPredicates rightPredicates <> compareExactly leftBody rightBody
       (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
         compareExactly leftFunction rightFunction <> compareExactly leftArgument rightArgument
-      (TcKindedTyCon leftTyCon leftKinds, TcKindedTyCon rightTyCon rightKinds) ->
-        compare leftTyCon rightTyCon <> compareExactly leftKinds rightKinds
       -- The other forms contain no type, and two different forms compare
       -- by their constructor.
       _ -> compare left right
@@ -497,10 +559,45 @@ instance ExactOrd TypeScheme where
 -- | A type constructor applied to its visible arguments. The pattern
 -- matches each list of kind arguments. The constructor gives no kind
 -- argument.
+--
+-- The pattern does not match a bare constructor with kind arguments. That
+-- form is 'TcKindedTyCon'.
 pattern TcTyCon :: TyCon -> [TcType] -> TcType
-pattern TcTyCon tyCon arguments <- TcTyConApp tyCon _ arguments
+pattern TcTyCon tyCon arguments <- (tyConApplication -> Just (tyCon, arguments))
   where
     TcTyCon tyCon arguments = TcTyConApp tyCon [] arguments
+
+-- | A poly-kinded type constructor with no visible argument, and the kind
+-- arguments at which the type uses it. The kind arguments are in the
+-- order of the variables of the kind scheme of the constructor.
+--
+-- An application of a type constructor gets its kind arguments from the
+-- kinds of its visible arguments. A bare constructor has no visible
+-- arguments: in @Proxy Tagged@ only the use site tells the kind of
+-- @Tagged@. This form keeps that kind. It is a 'TcTyConApp' with kind
+-- arguments and no visible argument. Build it with 'kindedTyCon', which
+-- gives 'TcTyCon' when there is no kind argument.
+pattern TcKindedTyCon :: TyCon -> [TcType] -> TcType
+pattern TcKindedTyCon tyCon kindArguments <- TcTyConApp tyCon kindArguments@(_ : _) []
+  where
+    TcKindedTyCon tyCon kindArguments = TcTyConApp tyCon kindArguments []
+
+-- | Whether a type is a 'TcKindedTyCon'.
+isKindedTyCon :: TcType -> Bool
+isKindedTyCon ty =
+  case ty of
+    TcKindedTyCon {} -> True
+    _ -> False
+
+-- | The constructor and the visible arguments of a 'TcTyConApp' that is not
+-- a 'TcKindedTyCon'.
+tyConApplication :: TcType -> Maybe (TyCon, [TcType])
+tyConApplication ty =
+  case ty of
+    TcTyConApp _ (_ : _) [] -> Nothing
+    TcTyConApp tyCon _ arguments -> Just (tyCon, arguments)
+    _ -> Nothing
+{-# INLINE tyConApplication #-}
 
 {-# COMPLETE TcTyVar, TcMetaTv, TcTyCon, TcArrowTy, TcFunTy, TcForAllTy, TcQualTy, TcAppTy, TcTyLit, TcKindedTyCon #-}
 
@@ -515,7 +612,6 @@ instance NFData TcType where
     TcQualTy predicates body -> rnf predicates `seq` rnf body
     TcAppTy function argument -> rnf function `seq` rnf argument
     TcTyLit {} -> ()
-    TcKindedTyCon _ kindArguments -> rnf kindArguments
 
 -- | A type-level literal, by sort. A natural stands at kind
 -- @GHC.Num.Natural.Natural@, a symbol at @GHC.Types.Symbol@ and a
@@ -701,13 +797,16 @@ canonicalApplications :: TcType -> TcType
 canonicalApplications ty =
   case ty of
     TcAppTy function argument
-      | (TcKindedTyCon tyCon _, arguments@(_ : _)) <- collectTypeApplications ty -> TcTyCon tyCon (map canonicalApplications arguments)
+      | (TcKindedTyCon tyCon _, arguments@(_ : _)) <- collectTypeApplications ty,
+        not (tyConKeepsKindArguments tyCon) ->
+          TcTyCon tyCon (map canonicalApplications arguments)
       | otherwise -> TcAppTy (canonicalApplications function) (canonicalApplications argument)
-    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map canonicalApplications kindArguments) (map canonicalApplications arguments)
-    TcFunTy argument result -> TcFunTy (canonicalApplications argument) (canonicalApplications result)
     -- A bare constructor with its kinds, such as the @Proxy \@Type@ that a
     -- given got from its use site, is the same constructor without them.
-    TcKindedTyCon tyCon _ -> TcTyCon tyCon []
+    TcKindedTyCon tyCon _
+      | not (tyConKeepsKindArguments tyCon) -> TcTyCon tyCon []
+    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map canonicalApplications kindArguments) (map canonicalApplications arguments)
+    TcFunTy argument result -> TcFunTy (canonicalApplications argument) (canonicalApplications result)
     _ -> ty
 
 -- | The kind vocabulary, resolved to the module that declares it.
@@ -852,8 +951,8 @@ familyEquationRightKind kinds kindEnv variables right =
         TcMetaTv {} -> False
         TcArrowTy -> True
         TcTyLit {} -> True
-        TcTyConApp _ kindArguments arguments -> all closed kindArguments && all closed arguments
         TcKindedTyCon _ kindArguments -> all closed kindArguments
+        TcTyConApp _ kindArguments arguments -> all closed kindArguments && all closed arguments
         TcFunTy argument result -> closed argument && closed result
         TcAppTy function argument -> closed function && closed argument
         TcForAllTy {} -> False
@@ -984,8 +1083,8 @@ applySubst substitution = go
         TcMetaTv {} -> ty
         TcArrowTy -> ty
         TcTyLit {} -> ty
-        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map go kindArguments) (map go arguments)
         TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon (map go kindArguments)
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map go kindArguments) (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
           TcForAllTy (setTyVarKind (go (tvKind tyVar)) tyVar) (applySubst (Map.delete (tvUnique tyVar) substitution) body)
@@ -1018,8 +1117,8 @@ typeMentionsMeta ty =
     TcTyVar {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyConApp _ kindArguments arguments -> any typeMentionsMeta kindArguments || any typeMentionsMeta arguments
     TcKindedTyCon _ kindArguments -> any typeMentionsMeta kindArguments
+    TcTyConApp _ kindArguments arguments -> any typeMentionsMeta kindArguments || any typeMentionsMeta arguments
     TcFunTy argument result -> typeMentionsMeta argument || typeMentionsMeta result
     TcForAllTy _ body -> typeMentionsMeta body
     TcQualTy predicates body -> any predicateMentionsMeta predicates || typeMentionsMeta body
@@ -1050,8 +1149,8 @@ typeMentionsTyVar target ty =
     TcMetaTv {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyConApp _ kindArguments arguments -> any (typeMentionsTyVar target) kindArguments || any (typeMentionsTyVar target) arguments
     TcKindedTyCon _ kindArguments -> any (typeMentionsTyVar target) kindArguments
+    TcTyConApp _ kindArguments arguments -> any (typeMentionsTyVar target) kindArguments || any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
@@ -1139,8 +1238,10 @@ sameType left right = typeShape left == typeShape right && sameKindArguments lef
 sameKindArguments :: TcType -> TcType -> Bool
 sameKindArguments left right =
   case (left, right) of
+    -- A bare constructor is the same type whatever kinds it has, as its
+    -- shape says.
     (TcTyConApp _ leftKinds leftArguments, TcTyConApp _ rightKinds rightArguments) ->
-      all (uncurry sameType) (pairedKindArguments leftKinds rightKinds)
+      (null leftArguments || all (uncurry sameType) (pairedKindArguments leftKinds rightKinds))
         && and (zipWith sameKindArguments leftArguments rightArguments)
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
       sameKindArguments leftArgument rightArgument && sameKindArguments leftResult rightResult
@@ -1177,8 +1278,8 @@ kindMentionsUnique target kind =
     TcMetaTv unique -> unique == target
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyConApp _ kindArguments arguments -> any (kindMentionsUnique target) kindArguments || any (kindMentionsUnique target) arguments
     TcKindedTyCon _ kindArguments -> any (kindMentionsUnique target) kindArguments
+    TcTyConApp _ kindArguments arguments -> any (kindMentionsUnique target) kindArguments || any (kindMentionsUnique target) arguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
     TcQualTy predicates body -> any (predicateMentionsUnique target) predicates || kindMentionsUnique target body

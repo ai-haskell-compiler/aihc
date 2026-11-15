@@ -474,8 +474,8 @@ typeUniques ty =
     TcMetaTv {} -> Set.empty
     TcArrowTy -> Set.empty
     TcTyLit {} -> Set.empty
-    TcTyConApp _ kindArguments arguments -> Set.unions (map typeUniques (kindArguments <> arguments))
     TcKindedTyCon _ kindArguments -> Set.unions (map typeUniques kindArguments)
+    TcTyConApp _ kindArguments arguments -> Set.unions (map typeUniques (kindArguments <> arguments))
     TcFunTy argument result -> typeUniques argument <> typeUniques result
     TcForAllTy tyVar body -> tyVarUniques tyVar <> typeUniques body
     TcQualTy predicates body -> Set.unions (typeUniques body : map predUniques predicates)

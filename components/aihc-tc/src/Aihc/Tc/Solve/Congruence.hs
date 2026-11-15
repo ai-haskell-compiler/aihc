@@ -470,6 +470,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
       | t == lhs = rhs
       | otherwise =
           case t of
+            TcKindedTyCon {} -> t
             TcTyConApp tc kindArgs args -> TcTyConApp tc (map (applyOne (lhs, rhs)) kindArgs) (map (applyOne (lhs, rhs)) args)
             TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
             TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)

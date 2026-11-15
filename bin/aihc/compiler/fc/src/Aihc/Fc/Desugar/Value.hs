@@ -6880,6 +6880,7 @@ coercionSideType coercion =
   where
     applyType function argument =
       case function of
+        TcKindedTyCon {} -> TcAppTy function argument
         TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon kindArguments (arguments <> [argument])
         _ -> TcAppTy function argument
 

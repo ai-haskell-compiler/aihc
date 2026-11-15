@@ -449,6 +449,7 @@ forwardPredFamilies equations predicate =
   where
     forward ty =
       case ty of
+        TcKindedTyCon {} -> ty
         TcTyConApp tyCon kindArguments arguments ->
           let ty' = TcTyConApp tyCon kindArguments (map forward arguments)
            in case [applySubst substitution right | (left, right) <- equations, Just substitution <- [matchTypes [left] [ty']]] of
@@ -933,8 +934,8 @@ typeMentionsTyCon name ty =
     TcMetaTv {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyConApp tyCon kindArguments arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments || any (typeMentionsTyCon name) arguments
     TcKindedTyCon tyCon kindArguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments
+    TcTyConApp tyCon kindArguments arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments || any (typeMentionsTyCon name) arguments
     TcFunTy argument result -> typeMentionsTyCon name argument || typeMentionsTyCon name result
     TcForAllTy _ body -> typeMentionsTyCon name body
     TcQualTy predicates body -> any (`predicateMentionsTyCon` name) predicates || typeMentionsTyCon name body
@@ -954,8 +955,8 @@ typeTyVars ty =
     TcMetaTv {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyConApp _ kindArguments arguments -> concatMap typeTyVars kindArguments <> concatMap typeTyVars arguments
     TcKindedTyCon _ kindArguments -> concatMap typeTyVars kindArguments
+    TcTyConApp _ kindArguments arguments -> concatMap typeTyVars kindArguments <> concatMap typeTyVars arguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body

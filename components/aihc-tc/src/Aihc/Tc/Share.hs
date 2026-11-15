@@ -56,7 +56,6 @@ data TypeKey
   | KeyQual ![Int] !Int
   | KeyApp !Int !Int
   | KeyLit !TyLit
-  | KeyKindedTyCon !Int ![Int]
   deriving (Eq, Ord)
 
 -- | A predicate as its constructor and the identities of its shared parts.
@@ -156,10 +155,6 @@ shareTypeKeyed ty =
       (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments
       (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
       record (KeyTyCon c ks as) (TcTyConApp tyCon' kindArguments' arguments')
-    TcKindedTyCon tyCon kindArguments -> do
-      (c, tyCon') <- shareTyConKeyed tyCon
-      (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments
-      record (KeyKindedTyCon c ks) (TcKindedTyCon tyCon' kindArguments')
     TcArrowTy -> record KeyArrow ty
     TcTyLit literal -> record (KeyLit literal) ty
     TcFunTy argument result -> do

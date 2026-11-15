@@ -1190,8 +1190,8 @@ freeKindVariables ty = case ty of
   TcMetaTv {} -> []
   TcArrowTy -> []
   TcTyLit {} -> []
-  TcTyConApp _ kindArguments arguments -> concatMap freeKindVariables kindArguments <> concatMap freeKindVariables arguments
   TcKindedTyCon _ kindArguments -> concatMap freeKindVariables kindArguments
+  TcTyConApp _ kindArguments arguments -> concatMap freeKindVariables kindArguments <> concatMap freeKindVariables arguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
   TcForAllTy variable body -> filter (/= variable) (freeKindVariables body)
@@ -5561,8 +5561,8 @@ tcTypeMetas ty =
     -- A wildcard is a visible argument. The kind arguments of an
     -- application whose visible arguments do not give them are not
     -- wildcards: the kind generalization of the equation names them.
-    TcTyConApp _ _ arguments -> concatMap tcTypeMetas arguments
     TcKindedTyCon _ kindArguments -> concatMap tcTypeMetas kindArguments
+    TcTyConApp _ _ arguments -> concatMap tcTypeMetas arguments
     TcFunTy argument result -> tcTypeMetas argument <> tcTypeMetas result
     TcForAllTy _ body -> tcTypeMetas body
     TcQualTy _ body -> tcTypeMetas body

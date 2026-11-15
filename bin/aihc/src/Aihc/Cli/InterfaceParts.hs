@@ -144,8 +144,8 @@ internType ty = do
         TcMetaTv {} -> pure ()
         TcArrowTy -> pure ()
         TcTyLit {} -> pure ()
-        TcTyConApp _ kindArguments arguments -> traverse_ internType kindArguments >> traverse_ internType arguments
         TcKindedTyCon _ kindArguments -> traverse_ internType kindArguments
+        TcTyConApp _ kindArguments arguments -> traverse_ internType kindArguments >> traverse_ internType arguments
         TcFunTy argument result -> traverse_ internType [argument, result]
         TcForAllTy variable body -> internTyVar variable *> void (internType body)
         TcQualTy predicates body -> traverse_ internPred predicates *> void (internType body)

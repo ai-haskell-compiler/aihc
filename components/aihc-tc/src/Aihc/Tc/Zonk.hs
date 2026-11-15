@@ -49,8 +49,8 @@ typeNeedsZonkIn state ty = case ty of
   TcTyLit {} -> False
   TcMetaTv (Unique key) -> IntMap.member key (tcsMetaSolutions state)
   TcTyVar tv -> kindNeedsZonkIn state (tvKind tv)
-  TcTyConApp _ kindArgs args -> any (kindNeedsZonkIn state) kindArgs || any (typeNeedsZonkIn state) args
   TcKindedTyCon _ kindArgs -> any (kindNeedsZonkIn state) kindArgs
+  TcTyConApp _ kindArgs args -> any (kindNeedsZonkIn state) kindArgs || any (typeNeedsZonkIn state) args
   TcFunTy a b -> typeNeedsZonkIn state a || typeNeedsZonkIn state b
   TcForAllTy tv body -> kindNeedsZonkIn state (tvKind tv) || typeNeedsZonkIn state body
   TcQualTy preds body -> any (predNeedsZonkIn state) preds || typeNeedsZonkIn state body
@@ -92,8 +92,8 @@ rebuildZonkedType ty = case ty of
             pure zonked
           else pure sol
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyConApp tc kindArgs args -> TcTyConApp tc <$> mapM zonkKind kindArgs <*> mapM rebuildZonkedType args
   TcKindedTyCon tc kindArgs -> TcKindedTyCon tc <$> mapM zonkKind kindArgs
+  TcTyConApp tc kindArgs args -> TcTyConApp tc <$> mapM zonkKind kindArgs <*> mapM rebuildZonkedType args
   TcFunTy a b -> TcFunTy <$> rebuildZonkedType a <*> rebuildZonkedType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> rebuildZonkedType body
   TcQualTy preds body -> TcQualTy <$> mapM rebuildZonkedPred preds <*> rebuildZonkedType body
@@ -139,8 +139,8 @@ typeNeedsDefaultKindsIn state = go
       TcArrowTy -> False
       TcTyLit {} -> False
       TcTyVar variable -> kindNeedsDefaultIn state (tvKind variable)
-      TcTyConApp _ kindArguments arguments -> any (kindNeedsDefaultIn state) kindArguments || any go arguments
       TcKindedTyCon _ arguments -> any (kindNeedsDefaultIn state) arguments
+      TcTyConApp _ kindArguments arguments -> any (kindNeedsDefaultIn state) kindArguments || any go arguments
       TcFunTy argument result -> go argument || go result
       TcForAllTy variable body -> kindNeedsDefaultIn state (tvKind variable) || go body
       TcQualTy predicates body -> any goPred predicates || go body
@@ -164,8 +164,8 @@ rebuildDefaultTypeKinds ty =
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
-    TcTyConApp tyCon kindArgs args -> TcTyConApp tyCon <$> mapM defaultKindArgument kindArgs <*> mapM defaultTypeKinds args
     TcKindedTyCon tyCon kindArgs -> TcKindedTyCon tyCon <$> mapM defaultKindArgument kindArgs
+    TcTyConApp tyCon kindArgs args -> TcTyConApp tyCon <$> mapM defaultKindArgument kindArgs <*> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body

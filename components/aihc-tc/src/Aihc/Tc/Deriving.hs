@@ -151,6 +151,7 @@ annotateDataFamilyInstDerivingTc extensions info clauses decl = do
 familyInstanceTargetType :: DataFamilyInstanceInfo -> Maybe SourceSpan -> TcType -> TcM TcType
 familyInstanceTargetType info sourceSpan expectedKind =
   case dfiiFamilyType info of
+    kinded@TcKindedTyCon {} -> pure kinded
     TcTyConApp family kindArguments arguments -> do
       let candidates =
             [ TcTyConApp family kindArguments kept

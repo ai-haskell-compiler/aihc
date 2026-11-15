@@ -60,7 +60,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignCApi (..), TcForeignCApiKind (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (CType (..), PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Types (Exact (..), TyLit (..), mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (Exact (..), TyLit (..), mkTyConWithNamespace, mkTyVarId, setTyConKeepsKindArguments, tyConKeepsKindArguments, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when, (<$!>))
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
@@ -481,20 +481,23 @@ getUnique = Unique <$!> getInt
 
 putTyConDefinition :: TyCon -> Builder.Builder
 putTyConDefinition tyCon =
-  cborArray 5
+  cborArray 6
     <> putPackageId (tyConPackageId tyCon)
     <> cborText (tyConModuleName tyCon)
     <> putResolutionNamespace (tyConNamespace tyCon)
     <> cborText (tyConName tyCon)
     <> cborInt (tyConArity tyCon)
+    <> cborWord (if tyConKeepsKindArguments tyCon then 1 else 0)
 
 getTyConDefinition :: Get.Get TyCon
 getTyConDefinition = do
-  expectArray 5
+  expectArray 6
   packageId <- getPackageId
   moduleName <- getText
   namespace <- getResolutionNamespace
-  mkTyConWithNamespace namespace packageId moduleName <$!> getText <*!> getInt
+  tyCon <- mkTyConWithNamespace namespace packageId moduleName <$!> getText <*!> getInt
+  keeps <- getWord
+  pure $! setTyConKeepsKindArguments (keeps /= 0) tyCon
 
 putTyCon :: PartIndex -> TyCon -> Builder.Builder
 putTyCon index tyCon = putNumber "type constructor" (Map.lookup tyCon (partIndexTyCons index))
@@ -555,9 +558,9 @@ putPart index part = case part of
     TcTyVar variable -> sum1 1 (putTyVar index variable)
     TcMetaTv unique -> sum1 2 (putUnique unique)
     -- An application that keeps its kind arguments has a form of its own.
-    TcTyConApp tyCon kindArguments@(_ : _) arguments ->
+    TcTyConApp tyCon [] arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
+    TcTyConApp tyCon kindArguments arguments ->
       cborArray 4 <> cborWord 17 <> putTyCon index tyCon <> encodeList (putType index) kindArguments <> encodeList (putType index) arguments
-    TcTyCon tyCon arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
     TcFunTy argument result -> sum2 4 (putType index argument) (putType index result)
     TcForAllTy variable body -> sum2 5 (putTyVar index variable) (putType index body)
     TcQualTy predicates body -> sum2 6 (encodeList (putPred index) predicates) (putType index body)
@@ -567,7 +570,6 @@ putPart index part = case part of
     -- has no bound, so decimal text carries it where a CBOR integer
     -- could not.
     TcTyLit literal -> sum2 15 (cborWord (tyLitSortTag literal)) (cborText (tyLitPayload literal))
-    TcKindedTyCon tyCon kindArguments -> sum2 16 (putTyCon index tyCon) (encodeList (putType index) kindArguments)
   PartPred predicate -> case predicate of
     ClassPred tyCon arguments -> sum2 9 (putTyCon index tyCon) (encodeList (putType index) arguments)
     EqPred left right -> sum2 10 (putType index left) (putType index right)
@@ -641,7 +643,6 @@ getPart tyCons parts = do
     (3, 12) -> predPart (IParamPred <$!> getText <*!> refType)
     (2, 14) -> predPart (IrredPred <$!> refType)
     (3, 15) -> typePart (TcTyLit <$!> (getWord >>= getTyLit))
-    (3, 16) -> typePart (TcKindedTyCon <$!> refTyCon <*!> getList refType)
     (4, 17) -> typePart (TcTyConApp <$!> refTyCon <*!> getList refType <*!> getList refType)
     (5, 13) -> PartScheme <$!> (Scheme <$!> getList refTyVar <*!> getList refTyVar <*!> getList refPred <*!> refType)
     _ -> fail "unsupported interface part"
