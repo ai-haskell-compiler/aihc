@@ -5119,11 +5119,16 @@ sourceTypeKey home ty =
     -- shape names itself. A module that instantiates one associated family
     -- at @()@ and again at @[a]@ would otherwise put both equations on the
     -- same axiom key, and the second would be reported as a duplicate.
-    TFun _ argument result -> "Fun$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
-    TList _ arguments -> arguments `keyedUnder` "List"
-    TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
-    TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
-    TStar {} -> "Star"
+    --
+    -- Each shape key has brackets. A declared constructor cannot have such
+    -- a name, so a shape key is not the key of a constructor. For example,
+    -- @(a, b)@ and @Tuple2 a b@ of a local @data Tuple2 a b@ get different
+    -- keys.
+    TFun _ argument result -> "(->)$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
+    TList _ arguments -> arguments `keyedUnder` "[]"
+    TTuple flavor _ arguments -> arguments `keyedUnder` tupleKey flavor (length arguments)
+    TUnboxedSum arguments -> arguments `keyedUnder` ("(#" <> T.replicate (length arguments - 1) "|" <> "#)")
+    TStar {} -> "(*)"
     TTypeLit literal ->
       case literal of
         TypeLitInteger value _ -> "Nat" <> T.pack (show value)
@@ -5133,11 +5138,11 @@ sourceTypeKey home ty =
     _ -> "T"
   where
     arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
-    tupleFlavorKey flavor =
+    commas arity = T.replicate (arity - 1) ","
+    tupleKey flavor arity =
       case flavor of
-        Boxed -> "Tuple"
-        Unboxed -> "UnboxedTuple"
-    intKey = T.pack . show
+        Boxed -> "(" <> commas arity <> ")"
+        Unboxed -> "(#" <> commas arity <> "#)"
 
 -- | The axiom-key fragment of one type constructor. A constructor the home
 -- module declares itself contributes its bare name, and an imported one
