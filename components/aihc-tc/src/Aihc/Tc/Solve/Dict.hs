@@ -1075,10 +1075,10 @@ couldMatchLater patterns targets
           | tyCon == targetTyCon && length arguments == length targetArguments -> concat <$> zipWithM bindings arguments targetArguments
         (TcFunTy argument result, TcFunTy targetArgument targetResult) -> (<>) <$> bindings argument targetArgument <*> bindings result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) -> (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
-        (TcAppTy function argument, TcTyCon targetTyCon targetArguments@(_ : _)) ->
-          (<>) <$> bindings function (TcTyCon targetTyCon (init targetArguments)) <*> bindings argument (last targetArguments)
-        (TcTyCon tyCon arguments@(_ : _), TcAppTy targetFunction targetArgument) ->
-          (<>) <$> bindings (TcTyCon tyCon (init arguments)) targetFunction <*> bindings (last arguments) targetArgument
+        (TcAppTy function argument, TcTyConApp targetTyCon targetKinds targetArguments@(_ : _)) ->
+          (<>) <$> bindings function (TcTyConApp targetTyCon targetKinds (init targetArguments)) <*> bindings argument (last targetArguments)
+        (TcTyConApp tyCon kindArguments arguments@(_ : _), TcAppTy targetFunction targetArgument) ->
+          (<>) <$> bindings (TcTyConApp tyCon kindArguments (init arguments)) targetFunction <*> bindings (last arguments) targetArgument
         _
           | isJust (matchTypes [patternType] [target]) -> Just []
           | otherwise -> Nothing
@@ -1203,7 +1203,7 @@ givenRewriteRuleSets givens = do
     containsType from ty =
       sameType from ty
         || case ty of
-          TcTyCon _ arguments -> any (containsType from) arguments
+          TcTyConApp _ kindArguments arguments -> any (containsType from) kindArguments || any (containsType from) arguments
           TcAppTy function argument -> containsType from function || containsType from argument
           TcFunTy domain range -> containsType from domain || containsType from range
           TcForAllTy _ body -> containsType from body
@@ -1259,11 +1259,11 @@ rewriteWithRules rules = go
         (to, proof) : _ -> (to, proof)
         [] ->
           case ty of
-            TcTyCon tyCon arguments ->
+            TcTyConApp tyCon kindArguments arguments ->
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)
                     then (ty, Refl ty)
-                    else (TcTyCon tyCon arguments', TyConAppCo tyCon arguments proofs [])
+                    else (TcTyConApp tyCon kindArguments arguments', TyConAppCo tyCon arguments proofs [])
             TcAppTy function argument ->
               let (function', functionProof) = go function
                   (argument', argumentProof) = go argument

@@ -257,8 +257,8 @@ splitApp :: TcType -> Maybe (TcType, TcType)
 splitApp ty =
   case ty of
     TcAppTy function argument -> Just (function, argument)
-    TcTyCon tyCon arguments
-      | not (null arguments) -> Just (TcTyCon tyCon (init arguments), last arguments)
+    TcTyConApp tyCon kindArguments arguments
+      | not (null arguments) -> Just (TcTyConApp tyCon kindArguments (init arguments), last arguments)
     _ -> Nothing
 
 -- | Follow the substitution to the type a variable stands for.

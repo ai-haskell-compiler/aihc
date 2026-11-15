@@ -49,7 +49,7 @@ data TyVarKey = TyVarKey !Unique !Int !Text
 data TypeKey
   = KeyTyVar !Int
   | KeyMetaTv !Unique
-  | KeyTyCon !Int ![Int]
+  | KeyTyCon !Int ![Int] ![Int]
   | KeyArrow
   | KeyFun !Int !Int
   | KeyForAll !Int !Int
@@ -151,10 +151,11 @@ shareTypeKeyed ty =
       (v, variable') <- shareTyVarKeyed variable
       record (KeyTyVar v) (TcTyVar variable')
     TcMetaTv unique -> record (KeyMetaTv unique) ty
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon kindArguments arguments -> do
       (c, tyCon') <- shareTyConKeyed tyCon
+      (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments
       (as, arguments') <- mapAndUnzipM shareTypeKeyed arguments
-      record (KeyTyCon c as) (TcTyCon tyCon' arguments')
+      record (KeyTyCon c ks as) (TcTyConApp tyCon' kindArguments' arguments')
     TcKindedTyCon tyCon kindArguments -> do
       (c, tyCon') <- shareTyConKeyed tyCon
       (ks, kindArguments') <- mapAndUnzipM shareTypeKeyed kindArguments

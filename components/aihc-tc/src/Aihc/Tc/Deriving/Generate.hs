@@ -316,7 +316,7 @@ kindMetas :: TcType -> [Unique]
 kindMetas kind =
   nub $ case kind of
     TcMetaTv unique -> [unique]
-    TcTyCon _ arguments -> concatMap kindMetas arguments
+    TcTyConApp _ kindArguments arguments -> concatMap kindMetas kindArguments <> concatMap kindMetas arguments
     TcKindedTyCon _ arguments -> concatMap kindMetas arguments
     TcFunTy argument result -> kindMetas argument <> kindMetas result
     TcAppTy function argument -> kindMetas function <> kindMetas argument

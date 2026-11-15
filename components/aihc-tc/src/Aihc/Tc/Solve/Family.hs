@@ -44,9 +44,9 @@ reduceTypeFamilies ty =
   -- A part that no equation rewrites stays the same object, so the result
   -- shares every such part of the input.
   case ty of
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon kindArguments arguments -> do
       arguments' <- mapMSame reduceTypeFamilies arguments
-      reduceHead (if sameObject arguments arguments' then ty else TcTyCon tyCon arguments')
+      reduceHead (if sameObject arguments arguments' then ty else TcTyConApp tyCon kindArguments arguments')
     TcFunTy argument result -> do
       argument' <- reduceTypeFamilies argument
       result' <- reduceTypeFamilies result
@@ -269,14 +269,14 @@ leafOutsideFamilies = do
 unsaturateFamilyApplication :: TcType -> TcM TcType
 unsaturateFamilyApplication ty =
   case ty of
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon kindArguments arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       pure $ case maybeInfo of
         Just info
           | tciFlavor info == TypeFamilyTyCon,
             length arguments > tciArity info ->
               let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
-               in foldl TcAppTy (TcTyCon tyCon familyArguments) extraArguments
+               in foldl TcAppTy (TcTyConApp tyCon kindArguments familyArguments) extraArguments
         _ -> ty
     _ -> pure ty
 

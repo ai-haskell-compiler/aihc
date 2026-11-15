@@ -195,7 +195,7 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
     splitApplication ty =
       case ty of
         TcAppTy function argument -> Just (function, argument)
-        TcTyCon constructor arguments@(_ : _) -> Just (TcTyCon constructor (init arguments), last arguments)
+        TcTyConApp constructor kindArguments arguments@(_ : _) -> Just (TcTyConApp constructor kindArguments (init arguments), last arguments)
         _ -> Nothing
     hasRigidHead ty = case ty of
       TcAppTy function _ -> hasRigidHead function

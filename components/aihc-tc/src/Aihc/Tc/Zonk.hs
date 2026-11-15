@@ -49,7 +49,7 @@ typeNeedsZonkIn state ty = case ty of
   TcTyLit {} -> False
   TcMetaTv (Unique key) -> IntMap.member key (tcsMetaSolutions state)
   TcTyVar tv -> kindNeedsZonkIn state (tvKind tv)
-  TcTyCon _ args -> any (typeNeedsZonkIn state) args
+  TcTyConApp _ kindArgs args -> any (kindNeedsZonkIn state) kindArgs || any (typeNeedsZonkIn state) args
   TcKindedTyCon _ kindArgs -> any (kindNeedsZonkIn state) kindArgs
   TcFunTy a b -> typeNeedsZonkIn state a || typeNeedsZonkIn state b
   TcForAllTy tv body -> kindNeedsZonkIn state (tvKind tv) || typeNeedsZonkIn state body
@@ -92,7 +92,7 @@ rebuildZonkedType ty = case ty of
             pure zonked
           else pure sol
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
-  TcTyCon tc args -> TcTyCon tc <$> mapM rebuildZonkedType args
+  TcTyConApp tc kindArgs args -> TcTyConApp tc <$> mapM zonkKind kindArgs <*> mapM rebuildZonkedType args
   TcKindedTyCon tc kindArgs -> TcKindedTyCon tc <$> mapM zonkKind kindArgs
   TcFunTy a b -> TcFunTy <$> rebuildZonkedType a <*> rebuildZonkedType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> rebuildZonkedType body
@@ -139,7 +139,7 @@ typeNeedsDefaultKindsIn state = go
       TcArrowTy -> False
       TcTyLit {} -> False
       TcTyVar variable -> kindNeedsDefaultIn state (tvKind variable)
-      TcTyCon _ arguments -> any go arguments
+      TcTyConApp _ kindArguments arguments -> any (kindNeedsDefaultIn state) kindArguments || any go arguments
       TcKindedTyCon _ arguments -> any (kindNeedsDefaultIn state) arguments
       TcFunTy argument result -> go argument || go result
       TcForAllTy variable body -> kindNeedsDefaultIn state (tvKind variable) || go body
@@ -164,7 +164,7 @@ rebuildDefaultTypeKinds ty =
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
-    TcTyCon tyCon args -> TcTyCon tyCon <$> mapM defaultTypeKinds args
+    TcTyConApp tyCon kindArgs args -> TcTyConApp tyCon <$> mapM defaultKindArgument kindArgs <*> mapM defaultTypeKinds args
     TcKindedTyCon tyCon kindArgs -> TcKindedTyCon tyCon <$> mapM defaultKindArgument kindArgs
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body

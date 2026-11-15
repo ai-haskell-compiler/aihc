@@ -270,7 +270,7 @@ mkAppTy function argument
       TcTyCon tyCon (arguments <> [argument])
   | otherwise =
       case function of
-        TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon kindArguments (arguments <> [argument])
         -- A partial application must retain its invisible kind arguments.
         TcKindedTyCon {} -> TcAppTy function argument
         TcAppTy TcArrowTy domain -> TcFunTy domain argument
@@ -542,7 +542,7 @@ canonicalApplications ty =
     TcAppTy function argument
       | (TcKindedTyCon tyCon _, arguments@(_ : _)) <- collectTypeApplications ty -> TcTyCon tyCon (map canonicalApplications arguments)
       | otherwise -> TcAppTy (canonicalApplications function) (canonicalApplications argument)
-    TcTyCon tyCon arguments -> TcTyCon tyCon (map canonicalApplications arguments)
+    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map canonicalApplications kindArguments) (map canonicalApplications arguments)
     TcFunTy argument result -> TcFunTy (canonicalApplications argument) (canonicalApplications result)
     -- A bare constructor with its kinds, such as the @Proxy \@Type@ that a
     -- given got from its use site, is the same constructor without them.
@@ -691,7 +691,7 @@ familyEquationRightKind kinds kindEnv variables right =
         TcMetaTv {} -> False
         TcArrowTy -> True
         TcTyLit {} -> True
-        TcTyCon _ arguments -> all closed arguments
+        TcTyConApp _ kindArguments arguments -> all closed kindArguments && all closed arguments
         TcKindedTyCon _ kindArguments -> all closed kindArguments
         TcFunTy argument result -> closed argument && closed result
         TcAppTy function argument -> closed function && closed argument
@@ -772,8 +772,8 @@ typeKindInEnv kinds kindEnv = go
         -- @f a@ of @Map :: (a -> Exp b) -> f a -> Exp (f b)@, matches a
         -- saturated constructor application, as @[Type]@: the head takes
         -- all arguments but the last one.
-        (TcAppTy function argument, TcTyCon right rightArguments@(_ : _)) ->
-          Map.union <$> recur function (TcTyCon right (init rightArguments)) <*> recur argument (last rightArguments)
+        (TcAppTy function argument, TcTyConApp right rightKinds rightArguments@(_ : _)) ->
+          Map.union <$> recur function (TcTyConApp right rightKinds (init rightArguments)) <*> recur argument (last rightArguments)
         _
           | formal == actual -> Right Map.empty
           | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
@@ -817,7 +817,7 @@ applySubst substitution = go
         TcMetaTv {} -> ty
         TcArrowTy -> ty
         TcTyLit {} -> ty
-        TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map go kindArguments) (map go arguments)
         TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon (map go kindArguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy tyVar body ->
@@ -851,7 +851,7 @@ typeMentionsMeta ty =
     TcTyVar {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyCon _ arguments -> any typeMentionsMeta arguments
+    TcTyConApp _ kindArguments arguments -> any typeMentionsMeta kindArguments || any typeMentionsMeta arguments
     TcKindedTyCon _ kindArguments -> any typeMentionsMeta kindArguments
     TcFunTy argument result -> typeMentionsMeta argument || typeMentionsMeta result
     TcForAllTy _ body -> typeMentionsMeta body
@@ -883,7 +883,7 @@ typeMentionsTyVar target ty =
     TcMetaTv {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
+    TcTyConApp _ kindArguments arguments -> any (typeMentionsTyVar target) kindArguments || any (typeMentionsTyVar target) arguments
     TcKindedTyCon _ kindArguments -> any (typeMentionsTyVar target) kindArguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> not (sameTyVar tyVar target) && typeMentionsTyVar target body
@@ -978,7 +978,7 @@ kindMentionsUnique target kind =
     TcMetaTv unique -> unique == target
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyCon _ arguments -> any (kindMentionsUnique target) arguments
+    TcTyConApp _ kindArguments arguments -> any (kindMentionsUnique target) kindArguments || any (kindMentionsUnique target) arguments
     TcKindedTyCon _ kindArguments -> any (kindMentionsUnique target) kindArguments
     TcFunTy argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
     TcForAllTy tyVar body -> tvUnique tyVar /= target && kindMentionsUnique target body
@@ -1251,7 +1251,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
         length formalArguments == length actualArguments =
           Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
     -- See 'typeKindInEnv': @f a@ matches @[Type]@ with @f := []@ and @a := Type@.
-    matchKind quantifiedUniques (TcAppTy function argument) (TcTyCon right actualArguments@(_ : _)) =
-      matchKind quantifiedUniques function (TcTyCon right (init actualArguments))
+    matchKind quantifiedUniques (TcAppTy function argument) (TcTyConApp right actualKinds actualArguments@(_ : _)) =
+      matchKind quantifiedUniques function (TcTyConApp right actualKinds (init actualArguments))
         <> matchKind quantifiedUniques argument (last actualArguments)
     matchKind _ _ _ = Map.empty

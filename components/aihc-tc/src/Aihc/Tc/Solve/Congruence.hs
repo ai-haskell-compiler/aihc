@@ -183,11 +183,11 @@ reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
     rewrite rule@(from, to, proof) current
       | sameType from current = (to, proof)
       | otherwise = case current of
-          TcTyCon constructor arguments ->
+          TcTyConApp constructor kindArguments arguments ->
             let (rewritten, proofs) = unzip (map (rewrite rule) arguments)
              in if and (zipWith sameType rewritten arguments)
                   then (current, Refl current)
-                  else (TcTyCon constructor rewritten, TyConAppCo constructor arguments proofs [])
+                  else (TcTyConApp constructor kindArguments rewritten, TyConAppCo constructor arguments proofs [])
           TcFunTy argument result ->
             let (argument', argumentProof) = rewrite rule argument
                 (result', resultProof) = rewrite rule result
@@ -449,8 +449,8 @@ application :: TcType -> Maybe (TcType, TcType)
 application ty =
   case ty of
     TcAppTy function argument -> Just (function, argument)
-    TcTyCon tyCon arguments
-      | not (null arguments) -> Just (TcTyCon tyCon (init arguments), last arguments)
+    TcTyConApp tyCon kindArguments arguments
+      | not (null arguments) -> Just (TcTyConApp tyCon kindArguments (init arguments), last arguments)
     TcFunTy domain range -> Just (TcAppTy TcArrowTy domain, range)
     _ -> Nothing
 
@@ -470,7 +470,7 @@ applyGivenSubst givens ty = foldr applyOne ty givens
       | t == lhs = rhs
       | otherwise =
           case t of
-            TcTyCon tc args -> TcTyCon tc (map (applyOne (lhs, rhs)) args)
+            TcTyConApp tc kindArgs args -> TcTyConApp tc (map (applyOne (lhs, rhs)) kindArgs) (map (applyOne (lhs, rhs)) args)
             TcFunTy a b -> TcFunTy (applyOne (lhs, rhs) a) (applyOne (lhs, rhs) b)
             TcAppTy f a -> mkAppTy (applyOne (lhs, rhs) f) (applyOne (lhs, rhs) a)
             TcForAllTy tv body -> TcForAllTy tv (applyOne (lhs, rhs) body)
