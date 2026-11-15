@@ -1666,6 +1666,11 @@ typeableConstructor :: TcType -> TcM (TypeableTyCon, [TcType])
 typeableConstructor ty = do
   kinds <- getKinds
   case ty of
+    -- The application keeps the kind arguments of its use.
+    TcTyConApp constructor kindArguments@(_ : _) _ -> do
+      zonked <- mapM zonkKind kindArguments
+      metadata <- typeableTyConMetadata constructor
+      pure (metadata, zonked)
     TcTyCon constructor arguments -> do
       info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
       instantiated <- instantiateWithArgs (tciKindScheme info)

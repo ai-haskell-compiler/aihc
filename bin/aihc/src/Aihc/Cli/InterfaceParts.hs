@@ -56,6 +56,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignTarget (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
+import Aihc.Tc.Types (Exact (..))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, state)
 import Data.Foldable (traverse_)
@@ -76,10 +77,10 @@ data InterfacePart
 -- type constructors keep their own table and are passed through.
 data PartIndex = PartIndex
   { partIndexTyCons :: !(Map TyCon Word64),
-    partIndexTyVars :: !(Map TyVarId Word64),
-    partIndexTypes :: !(Map TcType Word64),
-    partIndexPreds :: !(Map Pred Word64),
-    partIndexSchemes :: !(Map TypeScheme Word64)
+    partIndexTyVars :: !(Map (Exact TyVarId) Word64),
+    partIndexTypes :: !(Map (Exact TcType) Word64),
+    partIndexPreds :: !(Map (Exact Pred) Word64),
+    partIndexSchemes :: !(Map (Exact TypeScheme) Word64)
   }
 
 -- | The distinct parts of an interface, in the order they are numbered,
@@ -99,10 +100,10 @@ interfaceParts tyCons interface =
     final = execState (walkInterface interface) emptyState
 
 data PartsState = PartsState
-  { stateTyVars :: !(Map TyVarId Word64),
-    stateTypes :: !(Map TcType Word64),
-    statePreds :: !(Map Pred Word64),
-    stateSchemes :: !(Map TypeScheme Word64),
+  { stateTyVars :: !(Map (Exact TyVarId) Word64),
+    stateTypes :: !(Map (Exact TcType) Word64),
+    statePreds :: !(Map (Exact Pred) Word64),
+    stateSchemes :: !(Map (Exact TypeScheme) Word64),
     stateCount :: !Word64,
     -- | The parts numbered so far, most recent first.
     stateParts :: [InterfacePart]
@@ -125,16 +126,16 @@ record part remember =
 
 internTyVar :: TyVarId -> Parts Word64
 internTyVar variable = do
-  known <- gets (Map.lookup variable . stateTyVars)
+  known <- gets (Map.lookup (Exact variable) . stateTyVars)
   case known of
     Just number -> pure number
     Nothing -> do
       void (internType (tvKind variable))
-      record (PartTyVar variable) (\number current -> current {stateTyVars = Map.insert variable number (stateTyVars current)})
+      record (PartTyVar variable) (\number current -> current {stateTyVars = Map.insert (Exact variable) number (stateTyVars current)})
 
 internType :: TcType -> Parts Word64
 internType ty = do
-  known <- gets (Map.lookup ty . stateTypes)
+  known <- gets (Map.lookup (Exact ty) . stateTypes)
   case known of
     Just number -> pure number
     Nothing -> do
@@ -149,11 +150,11 @@ internType ty = do
         TcForAllTy variable body -> internTyVar variable *> void (internType body)
         TcQualTy predicates body -> traverse_ internPred predicates *> void (internType body)
         TcAppTy function argument -> traverse_ internType [function, argument]
-      record (PartType ty) (\number current -> current {stateTypes = Map.insert ty number (stateTypes current)})
+      record (PartType ty) (\number current -> current {stateTypes = Map.insert (Exact ty) number (stateTypes current)})
 
 internPred :: Pred -> Parts Word64
 internPred predicate = do
-  known <- gets (Map.lookup predicate . statePreds)
+  known <- gets (Map.lookup (Exact predicate) . statePreds)
   case known of
     Just number -> pure number
     Nothing -> do
@@ -166,18 +167,18 @@ internPred predicate = do
           traverse_ internTyVar variables
             *> traverse_ internPred antecedents
             *> void (internPred consequent)
-      record (PartPred predicate) (\number current -> current {statePreds = Map.insert predicate number (statePreds current)})
+      record (PartPred predicate) (\number current -> current {statePreds = Map.insert (Exact predicate) number (statePreds current)})
 
 internScheme :: TypeScheme -> Parts Word64
 internScheme scheme@(ForAll variables predicates body) = do
-  known <- gets (Map.lookup scheme . stateSchemes)
+  known <- gets (Map.lookup (Exact scheme) . stateSchemes)
   case known of
     Just number -> pure number
     Nothing -> do
       traverse_ internTyVar variables
       traverse_ internPred predicates
       void (internType body)
-      record (PartScheme scheme) (\number current -> current {stateSchemes = Map.insert scheme number (stateSchemes current)})
+      record (PartScheme scheme) (\number current -> current {stateSchemes = Map.insert (Exact scheme) number (stateSchemes current)})
 
 -- The shape of an interface, one entry per field the encoder writes.
 

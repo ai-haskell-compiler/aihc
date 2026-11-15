@@ -60,7 +60,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcForeignAbiType (..), TcForeignCApi (..), TcForeignCApiKind (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignSafety (..), TcForeignTarget (..))
 import Aihc.Tc.Env (CType (..), PatSynDirection (..), PatSynInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Types (TyLit (..), mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (Exact (..), TyLit (..), mkTyConWithNamespace, mkTyVarId, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless, when, (<$!>))
 import Data.Array (Array, listArray, (!))
 import Data.Binary.Get qualified as Get
@@ -462,13 +462,13 @@ getTermKey = do
     _ -> fail "unsupported term key"
 
 putTypeScheme :: PartIndex -> TypeScheme -> Builder.Builder
-putTypeScheme index scheme = putNumber "type scheme" (Map.lookup scheme (partIndexSchemes index))
+putTypeScheme index scheme = putNumber "type scheme" (Map.lookup (Exact scheme) (partIndexSchemes index))
 
 getTypeScheme :: PartTable -> Get.Get TypeScheme
 getTypeScheme table = getWord >>= partScheme (tableParts table)
 
 putTyVar :: PartIndex -> TyVarId -> Builder.Builder
-putTyVar index variable = putNumber "type variable" (Map.lookup variable (partIndexTyVars index))
+putTyVar index variable = putNumber "type variable" (Map.lookup (Exact variable) (partIndexTyVars index))
 
 getTyVar :: PartTable -> Get.Get TyVarId
 getTyVar table = getWord >>= partTyVar (tableParts table)
@@ -526,13 +526,13 @@ getPackageId :: Get.Get PackageId
 getPackageId = PackageId <$!> getText
 
 putType :: PartIndex -> TcType -> Builder.Builder
-putType index ty = putNumber "type" (Map.lookup ty (partIndexTypes index))
+putType index ty = putNumber "type" (Map.lookup (Exact ty) (partIndexTypes index))
 
 getType :: PartTable -> Get.Get TcType
 getType table = getWord >>= partType (tableParts table)
 
 putPred :: PartIndex -> Pred -> Builder.Builder
-putPred index predicate = putNumber "predicate" (Map.lookup predicate (partIndexPreds index))
+putPred index predicate = putNumber "predicate" (Map.lookup (Exact predicate) (partIndexPreds index))
 
 getPred :: PartTable -> Get.Get Pred
 getPred table = getWord >>= partPred (tableParts table)
@@ -554,6 +554,9 @@ putPart index part = case part of
   PartType ty -> case ty of
     TcTyVar variable -> sum1 1 (putTyVar index variable)
     TcMetaTv unique -> sum1 2 (putUnique unique)
+    -- An application that keeps its kind arguments has a form of its own.
+    TcTyConApp tyCon kindArguments@(_ : _) arguments ->
+      cborArray 4 <> cborWord 17 <> putTyCon index tyCon <> encodeList (putType index) kindArguments <> encodeList (putType index) arguments
     TcTyCon tyCon arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
     TcFunTy argument result -> sum2 4 (putType index argument) (putType index result)
     TcForAllTy variable body -> sum2 5 (putTyVar index variable) (putType index body)
@@ -639,6 +642,7 @@ getPart tyCons parts = do
     (2, 14) -> predPart (IrredPred <$!> refType)
     (3, 15) -> typePart (TcTyLit <$!> (getWord >>= getTyLit))
     (3, 16) -> typePart (TcKindedTyCon <$!> refTyCon <*!> getList refType)
+    (4, 17) -> typePart (TcTyConApp <$!> refTyCon <*!> getList refType <*!> getList refType)
     (5, 13) -> PartScheme <$!> (Scheme <$!> getList refTyVar <*!> getList refTyVar <*!> getList refPred <*!> refType)
     _ -> fail "unsupported interface part"
   where

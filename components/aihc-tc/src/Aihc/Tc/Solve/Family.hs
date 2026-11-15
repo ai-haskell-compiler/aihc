@@ -72,8 +72,7 @@ plainApplication :: TcType -> Bool
 plainApplication function =
   case collectTypeApplications function of
     (TcKindedTyCon tyCon _, arguments)
-      | not (isAnyTyCon tyCon),
-        length arguments + 1 >= tyConArity tyCon ->
+      | length arguments + 1 >= tyConArity tyCon ->
           False
     _ ->
       case function of

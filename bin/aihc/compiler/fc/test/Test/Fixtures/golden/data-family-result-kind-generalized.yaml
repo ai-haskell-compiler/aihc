@@ -1,0 +1,61 @@
+extensions:
+- DataKinds
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, PolyKinds, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  data Arg = Arg
+  data Res = Res
+  data family Tok (arg :: Type) :: k
+  data Proxy (a :: k) = Proxy
+  data Pair (a :: k) (b :: k) = Pair
+  -- No visible argument gives the result kind of either Tok. Pair makes
+  -- the two kinds one kind, and the signature generalizes it.
+  both :: Proxy (Pair (Tok Res) (Tok Arg)) -> ()
+  both _ = ()
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tArg :: sType {
+    pub 1.cArg :: tArg
+  }
+
+  pub type 1.tRes :: sType {
+    pub 1.cRes :: tRes
+  }
+
+  pub type 1.tTok (k : sType) (arg : sType) :: k @N @N {}
+
+  pub type 1.tProxy (k : sType) (a : k) :: sType {
+    pub 1.cProxy :: ∀(k : sType) (a : k). tProxy k a
+  }
+
+  pub type 1.tPair (k : sType) (a : k) (b : k) :: sType {
+    pub 1.cPair :: ∀(k : sType) (a : k) (b : k). tPair k a b
+  }
+
+  pub val 1.vboth :: ∀(k0 : sType). tProxy sType (tPair k0 (tTok k0 tRes) (tTok k0 tArg)) → tUnit
+    = Λ(k0 : sType). λ(unused x : tProxy sType (tPair k0 (tTok k0 tRes) (tTok k0 tArg))).
+      c()
+status: pass
+reason: The type checker generalizes the result kind of two data family applications, and it keeps that kind as their kind argument. FC reads it. No visible argument and no expected kind give it.

@@ -5558,7 +5558,10 @@ tcTypeMetas ty =
     TcTyVar {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyConApp _ kindArguments arguments -> concatMap tcTypeMetas kindArguments <> concatMap tcTypeMetas arguments
+    -- A wildcard is a visible argument. The kind arguments of an
+    -- application whose visible arguments do not give them are not
+    -- wildcards: the kind generalization of the equation names them.
+    TcTyConApp _ _ arguments -> concatMap tcTypeMetas arguments
     TcKindedTyCon _ kindArguments -> concatMap tcTypeMetas kindArguments
     TcFunTy argument result -> tcTypeMetas argument <> tcTypeMetas result
     TcForAllTy _ body -> tcTypeMetas body
