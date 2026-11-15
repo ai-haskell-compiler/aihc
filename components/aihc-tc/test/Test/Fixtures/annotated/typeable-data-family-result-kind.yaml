@@ -1,0 +1,62 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  import Type.Reflection (Typeable)
+  data Proxy a = Proxy
+       │         └─ type: ∀ k0 a. Proxy a
+       └─ type: k0 → Type
+  data Arg = Arg
+       │     └─ type: Arg
+       └─ type: Type
+  data Res = Res
+       │     └─ type: Res
+       └─ type: Type
+  data family Tok (arg :: Type) :: k
+              └─ type: Type → k
+  need :: Typeable a => Proxy a -> ()
+  need _ = ()
+  │    │   └─ type: ()
+  │    └─ type: Proxy a
+  └─ type: ∀ k0 a. (Type.Reflection.Typeable a) ⇒ Proxy a → ()
+  applied :: forall (f :: Type -> Type). Typeable f => ()
+  applied = need (Proxy @(f (Tok Arg)))
+  │         │     └─ type: Proxy (f (Tok Arg)); type-args: Type, f (Tok Arg)
+  │         └─ type: Proxy (f (Tok Arg)) → (); type-args: Type, f (Tok Arg); evidence: typeable @(f Tok Arg) (given Typeable f, typeable @Tok Arg (typeable @Arg))
+  └─ type: ∀ f. (Type.Reflection.Typeable f) ⇒ ()
+  arrow :: forall (f :: Type -> Type). Typeable f => ()
+  arrow = need (Proxy @(f (Tok Arg -> Tok Res)))
+  │       │     └─ type: Proxy (f (Tok Arg → Tok Res)); type-args: Type, f (Tok Arg → Tok Res)
+  │       └─ type: Proxy (f (Tok Arg → Tok Res)) → (); type-args: Type, f (Tok Arg → Tok Res); evidence: typeable @(f Tok Arg → Tok Res) (given Typeable f, typeable @Tok Arg → Tok Res (typeable @Tok Arg (typeable @Arg), typeable @Tok Res (typeable @Res)))
+  └─ type: ∀ f. (Type.Reflection.Typeable f) ⇒ ()
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+  └─ class methods:
+extensions:
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  import Type.Reflection (Typeable)
+  data Proxy a = Proxy
+  data Arg = Arg
+  data Res = Res
+  data family Tok (arg :: Type) :: k
+  need :: Typeable a => Proxy a -> ()
+  need _ = ()
+  applied :: forall (f :: Type -> Type). Typeable f => ()
+  applied = need (Proxy @(f (Tok Arg)))
+  arrow :: forall (f :: Type -> Type). Typeable f => ()
+  arrow = need (Proxy @(f (Tok Arg -> Tok Res)))
+status: pass
+reason: the Typeable solver takes the result-only kind of a data family application from the kind of the type variable that it is the argument of, or from a function type
