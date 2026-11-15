@@ -135,7 +135,7 @@ import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
@@ -556,7 +556,9 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   defaultDeferredKindMetas
   defaultGlobalKindMetas derivedKeys
   annotated <- mapM annotatePendingModule pending
-  mapM finalizeModuleTc annotated
+  finalized <- mapM finalizeModuleTc annotated
+  recordGlobalTermKindArguments initialKeys
+  pure finalized
   where
     units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
@@ -997,6 +999,21 @@ defaultDeferredKindMetas :: TcM ()
 defaultDeferredKindMetas = do
   deferred <- takeDeferredKindMetas
   mapM_ (defaultKindMetas . TcMetaTv) deferred
+
+-- | Record the kind arguments in the schemes of the terms that this
+-- component added. The interface gives these schemes to other modules.
+recordGlobalTermKindArguments :: GlobalStateKeys -> TcM ()
+recordGlobalTermKindArguments initialKeys = do
+  current <- lift (gets tcsGlobalTerms)
+  let previous = globalTerms initialKeys
+  unless (Map.size current == Map.size previous) $ do
+    recorded <- traverse recordBinder (Map.difference current previous)
+    lift (modify' (\state -> state {tcsGlobalTerms = Map.union recorded (tcsGlobalTerms state)}))
+  where
+    recordBinder binder =
+      case binder of
+        TcIdBinder scheme closedness -> (`TcIdBinder` closedness) <$> recordSchemeKindArguments scheme
+        TcMonoIdBinder {} -> pure binder
 
 -- | The type constructors this component declared itself.
 componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set GlobalName)
