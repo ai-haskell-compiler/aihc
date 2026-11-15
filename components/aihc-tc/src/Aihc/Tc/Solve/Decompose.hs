@@ -22,10 +22,10 @@ decomposeNominalEquality rawLeft rawRight = do
     then pure Nothing
     else decompose left right
   where
-    decompose (TcTyCon leftCon leftArgs) (TcTyCon rightCon rightArgs)
+    decompose (TcTyConApp leftCon leftKinds leftArgs) (TcTyConApp rightCon rightKinds rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs =
-          pure (Just (zip leftArgs rightArgs))
+          pure (Just (pairedKindArguments leftKinds rightKinds <> zip leftArgs rightArgs))
     decompose (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
       | leftCon == rightCon,
         length leftKinds == length rightKinds =
@@ -43,12 +43,12 @@ decomposeNominalEquality rawLeft rawRight = do
     decompose (TcFunTy domain range) (TcAppTy function argument) = do
       arrow <- arrowType
       pure (Just [(TcAppTy arrow domain, function), (range, argument)])
-    decompose (TcAppTy function argument) (TcTyCon tyCon arguments)
+    decompose (TcAppTy function argument) (TcTyConApp tyCon kindArguments arguments)
       | not (null arguments) =
-          pure (Just [(function, TcTyCon tyCon (init arguments)), (argument, last arguments)])
-    decompose (TcTyCon tyCon arguments) (TcAppTy function argument)
+          pure (Just [(function, TcTyConApp tyCon kindArguments (init arguments)), (argument, last arguments)])
+    decompose (TcTyConApp tyCon kindArguments arguments) (TcAppTy function argument)
       | not (null arguments) =
-          pure (Just [(TcTyCon tyCon (init arguments), function), (last arguments, argument)])
+          pure (Just [(TcTyConApp tyCon kindArguments (init arguments), function), (last arguments, argument)])
     decompose (TcAppTy leftFunction leftArgument) (TcAppTy rightFunction rightArgument) =
       pure (Just [(leftFunction, rightFunction), (leftArgument, rightArgument)])
     decompose _ _ = pure Nothing

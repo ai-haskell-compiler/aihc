@@ -1,0 +1,75 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+  - MagicHash
+  - PolyKinds
+  - UnboxedSums
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int (..))
+    import GHC.Prim (Int#, (+#))
+    import GHC.Types (Bool (..), RuntimeRep, TYPE)
+
+    -- The result representation is only partly known: the variable rep is
+    -- inside an unboxed sum and an unboxed tuple. Each exit is a tail call,
+    -- so the function does not need the layout of the result.
+    pick :: forall (rep :: RuntimeRep) (a :: TYPE rep). Bool -> (Int# -> (# Int | (# a, Int# #) #)) -> (Int# -> (# Int | (# a, Int# #) #)) -> Int# -> (# Int | (# a, Int# #) #)
+    pick b t f x = case b of
+      True -> t x
+      False -> f x
+
+    -- The same in the result of a closure.
+    newtype Step (a :: TYPE rep) = Step (Int# -> (# Int | (# a, Int# #) #))
+
+    choose :: forall (rep :: RuntimeRep) (a :: TYPE rep). Bool -> Step a -> Step a -> Step a
+    choose b (Step t) (Step f) = Step (\x -> case b of
+      True -> t x
+      False -> f x)
+
+    lifted :: Int# -> (# Int | (# Int, Int# #) #)
+    lifted x = (# | (# I# x, x +# 1# #) #)
+
+    unboxed :: Int# -> (# Int | (# Int#, Int# #) #)
+    unboxed x = (# | (# x +# 10#, x #) #)
+
+    failedLifted :: Int# -> (# Int | (# Int, Int# #) #)
+    failedLifted x = (# I# x | #)
+
+    failedUnboxed :: Int# -> (# Int | (# Int#, Int# #) #)
+    failedUnboxed x = (# I# x | #)
+
+    atLifted :: Bool -> Int
+    atLifted b = case pick b lifted failedLifted 1# of
+      (# | (# n, m #) #) -> case n of I# n' -> I# (n' +# m)
+      (# e | #) -> e
+
+    atUnboxed :: Bool -> Int
+    atUnboxed b = case pick b unboxed failedUnboxed 2# of
+      (# | (# n, m #) #) -> I# (n +# m)
+      (# e | #) -> e
+
+    atClosure :: Bool -> Int
+    atClosure b = case choose b (Step unboxed) (Step failedUnboxed) of
+      Step run -> case run 3# of
+        (# | (# n, m #) #) -> I# (n +# m)
+        (# e | #) -> e
+
+    data Results = Results Int Int Int Int Int Int
+
+    results :: Results
+    results =
+      Results
+        (atLifted True)
+        (atLifted False)
+        (atUnboxed True)
+        (atUnboxed False)
+        (atClosure True)
+        (atClosure False)
+output: |
+  Results (I# 3) (I# 1) (I# 14) (I# 2) (I# 16) (I# 3)
+expression: results
+status: pass
+reason: a function may return a value whose runtime representation contains a variable when every exit is a tail call; the layout belongs to the call site and the producer

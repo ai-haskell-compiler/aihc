@@ -449,8 +449,8 @@ forwardPredFamilies equations predicate =
   where
     forward ty =
       case ty of
-        TcTyCon tyCon arguments ->
-          let ty' = TcTyCon tyCon (map forward arguments)
+        TcTyConApp tyCon kindArguments arguments ->
+          let ty' = TcTyConApp tyCon kindArguments (map forward arguments)
            in case [applySubst substitution right | (left, right) <- equations, Just substitution <- [matchTypes [left] [ty']]] of
                 rewritten : _ -> rewritten
                 [] -> ty'
@@ -762,11 +762,11 @@ etaReduce tyVars ty =
   case (ty, last tyVars) of
     (TcAppTy function (TcTyVar argument), expected)
       | argument == expected -> etaReduce (init tyVars) function
-    (TcTyCon tyCon arguments, expected)
+    (TcTyConApp tyCon kindArguments arguments, expected)
       | not (null arguments),
         TcTyVar argument <- last arguments,
         argument == expected ->
-          etaReduce (init tyVars) (TcTyCon tyCon (init arguments))
+          etaReduce (init tyVars) (TcTyConApp tyCon kindArguments (init arguments))
     -- A function type @a -> r@ is the application @(->) a r@.
     (TcFunTy domain (TcTyVar result), expected)
       | result == expected -> etaReduce (init tyVars) (TcAppTy TcArrowTy domain)
@@ -933,7 +933,7 @@ typeMentionsTyCon name ty =
     TcMetaTv {} -> False
     TcArrowTy -> False
     TcTyLit {} -> False
-    TcTyCon tyCon arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) arguments
+    TcTyConApp tyCon kindArguments arguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments || any (typeMentionsTyCon name) arguments
     TcKindedTyCon tyCon kindArguments -> tyConName tyCon == name || any (typeMentionsTyCon name) kindArguments
     TcFunTy argument result -> typeMentionsTyCon name argument || typeMentionsTyCon name result
     TcForAllTy _ body -> typeMentionsTyCon name body
@@ -954,7 +954,7 @@ typeTyVars ty =
     TcMetaTv {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyCon _ arguments -> concatMap typeTyVars arguments
+    TcTyConApp _ kindArguments arguments -> concatMap typeTyVars kindArguments <> concatMap typeTyVars arguments
     TcKindedTyCon _ kindArguments -> concatMap typeTyVars kindArguments
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)

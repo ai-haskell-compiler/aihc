@@ -143,7 +143,7 @@ import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
 import Aihc.Hackage.Package (Arch, OS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.Hackage.Package qualified as HackagePackage
-import Aihc.Hackage.Preprocessor (Preprocessor (..), preprocessorEnvironmentVariable, preprocessorToolName)
+import Aihc.Hackage.Preprocessor (Preprocessor (..), c2hsImports, preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Resolve qualified as Lir
@@ -258,7 +258,7 @@ import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest 
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -293,7 +293,7 @@ import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, isRelative, makeRelative, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
 import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
 import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
@@ -4499,34 +4499,75 @@ targetCCompiler target level = do
 -- the macros aihc's own CPP pass prepends to a Haskell source. The header is
 -- per file because @cpp-options@ and @build-depends@ are per component.
 --
--- The files are independent. Thus this function preprocesses them in
+-- Most files are independent. Thus this function preprocesses them in
 -- parallel, with a maximum of one tool for each capability. Each tool runs
 -- the C compiler, and a package such as @unix@ has dozens of @.hsc@ files.
+--
+-- A @.chs@ file can import a different @.chs@ file of the package with an
+-- @{\# import \#}@ hook. c2hs then reads the @.chi@ file that it wrote for
+-- the imported module. Thus an import waits until c2hs has processed the
+-- imported module, as in Cabal. The @.chi@ files are part of the stamp.
 preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
 preprocessPackage config versions root storePath configureScript headerHash cInfo files = do
   capabilities <- getNumCapabilities
   limit <- newQSem (max 1 capabilities)
-  mapConcurrently (bracket_ (waitQSem limit) (signalQSem limit) . preprocessFile) files
+  imports <- forM files $ \file ->
+    case HackageCabal.fileInfoPreprocessor file of
+      Just C2hs -> mapMaybe c2hsImportTarget . c2hsImports . TE.decodeUtf8With lenientDecode <$> BS.readFile (HackageCabal.fileInfoPath file)
+      _ -> pure []
+  case [members | CyclicSCC members <- stronglyConnComp [(index, index, map fst targets) | (index, targets) <- zip [0 :: Int ..] imports]] of
+    members : _ -> ioError (userError ("The .chs files import each other in a cycle: " <> intercalate ", " [HackageCabal.fileInfoPath (files !! index) | index <- members]))
+    [] -> pure ()
+  finished <- Map.fromList <$> forM (zip [0 :: Int ..] files) (\(index, _) -> (,) index <$> newEmptyMVar)
+  let finish index = putMVar (finished Map.! index) ()
+  mapConcurrently
+    ( \(index, file, targets) -> do
+        -- The wait is before the semaphore, so that a file that waits does
+        -- not keep a tool slot from the files it waits for.
+        forM_ targets $ \(target, _) -> readMVar (finished Map.! target)
+        result <- bracket_ (waitQSem limit) (signalQSem limit) (preprocessFile file (map snd targets) [stemAt target <.> "chi" | (target, _) <- targets])
+        finish index
+        pure result
+    )
+    (zip3 [0 :: Int ..] files imports)
   where
     verbose = compileVerbose config
 
-    preprocessFile file =
+    stemFor file = storePath </> "preprocess" </> dropExtension (makeRelative root (HackageCabal.fileInfoPath file))
+    stemAt index = stemFor (files !! index)
+
+    -- The @.chs@ file of the package that is the module, and the root of
+    -- the generated tree that the @.chi@ file of the module is in. c2hs
+    -- finds the file at the path of the module under that root.
+    c2hsImportTarget importedModule =
+      listToMaybe
+        [ (index, take (length stem - length modulePath - 1) stem)
+        | (index, file) <- zip [0 :: Int ..] files,
+          HackageCabal.fileInfoPreprocessor file == Just C2hs,
+          let stem = stemFor file,
+          (pathSeparator : modulePath) `isSuffixOf` stem
+        ]
+      where
+        modulePath = map (\c -> if c == '.' then pathSeparator else c) importedModule
+
+    preprocessFile file importRoots chiPaths =
       case HackageCabal.fileInfoPreprocessor file of
         Nothing -> pure file
         Just preprocessor -> do
           let input = HackageCabal.fileInfoPath file
-              stem = storePath </> "preprocess" </> dropExtension (makeRelative root input)
+              stem = stemFor file
               output = stem <.> "hs"
               macrosPath = stem <.> "macros.h"
               stampPath = output <.> "hash"
               macros = cabalMacrosHeader (HackageCabal.fileInfoCppOptions file) versions (HackageCabal.fileInfoDependencies file)
-          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output macrosPath
+          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output macrosPath importRoots
           toolIdentity <- preprocessorIdentity executable
           inputBytes <- BS.readFile input
+          chiBytes <- mapM BS.readFile chiPaths
           configureHash <- maybe (pure "") (configureInputsHash config) configureScript
           environmentIdentity <- buildEnvironmentIdentity (compileTarget config)
           let inputsHash =
-                stableHash
+                stableHash $
                   [ TE.encodeUtf8 packageArtifactFormatVersion,
                     inputBytes,
                     TE.encodeUtf8 macros,
@@ -4536,6 +4577,7 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
                     BS8.pack headerHash,
                     BS8.pack environmentIdentity
                   ]
+                    <> chiBytes
           previous <- readStampText stampPath
           exists <- doesFileExist output
           if exists && previous == Just inputsHash
@@ -4553,12 +4595,14 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
           pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
 
 -- | The executable and arguments that run a preprocessor over one file,
--- given the path of that file's @cabal_macros.h@.
-preprocessorCommand :: ModuleCompileConfig -> Preprocessor -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> FilePath -> IO (FilePath, [String])
-preprocessorCommand config preprocessor cInfo file output macrosPath = do
+-- given the path of that file's @cabal_macros.h@ and, for c2hs, the roots
+-- of the generated trees that hold the @.chi@ files of its imports.
+preprocessorCommand :: ModuleCompileConfig -> Preprocessor -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> FilePath -> [FilePath] -> IO (FilePath, [String])
+preprocessorCommand config preprocessor cInfo file output macrosPath importRoots = do
   executable <- preprocessorExecutable preprocessor
   arguments <-
     case preprocessor of
+      C2hs -> c2hsArguments config cInfo file output macrosPath importRoots
       Hsc2hs -> hsc2hsArguments config cInfo file output macrosPath
       Alex -> pure (alexArguments file output)
       Happy -> pure (happyArguments file output)
@@ -4621,6 +4665,31 @@ hsc2hsArguments config cInfo file output macrosPath = do
         <> map ("--cflag=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath])
         <> map ("-I" <>) includeDirs
         <> ["-o", output, input]
+    )
+
+-- | The arguments Cabal would give c2hs.
+--
+-- c2hs reads the C headers of the file through the C preprocessor. The
+-- preprocessor is the C compiler of the target with @-E@, and it gets the
+-- same flags, include directories, platform macros and @cabal_macros.h@
+-- that hsc2hs gets. c2hs writes the module, its @.chi@ file and its
+-- @.chs.h@ header beside the output. It finds the @.chi@ file of an
+-- imported module under one of the import roots.
+--
+-- c2hs computes the sizes and the alignments of C types for the machine
+-- that it runs on. Cabal has the same limit.
+c2hsArguments :: ModuleCompileConfig -> HackageCabal.CCompileInfo -> HackageCabal.FileInfo -> FilePath -> FilePath -> [FilePath] -> IO [String]
+c2hsArguments config cInfo file output macrosPath importRoots = do
+  let target = compileTarget config
+      input = HackageCabal.fileInfoPath file
+  (compiler, cflags) <- targetCCompiler target (compileOptimization config)
+  let includeDirs = nub (takeDirectory input : HackageCabal.fileInfoIncludeDirs file <> HackageCabal.cCompileIncludeDirs cInfo <> [compileHeaderDirectory config])
+      options = HackageCabal.cCompileCcOptions cInfo <> HackageCabal.fileInfoCppOptions file
+  pure
+    ( ["--cpp=" <> compiler, "--cppopts=-E"]
+        <> map ("--cppopts=" <>) (cflags <> options <> hostPlatformMacros target <> ["-include", macrosPath] <> map ("-I" <>) includeDirs)
+        <> map ("--include=" <>) (nub importRoots)
+        <> ["--output-dir=" <> takeDirectory output, "--output=" <> takeFileName output, input]
     )
 
 -- | Whether hsc2hs can read the constants of a target out of its assembly.

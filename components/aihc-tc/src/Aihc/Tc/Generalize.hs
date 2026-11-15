@@ -21,8 +21,9 @@ import Aihc.Tc.Kind (defaultKindMetas, deferKindMetas)
 import Aihc.Tc.Monad (TcBinder (..), TcM, deferKindMeta, freshSkolemTv, getKinds, getMetaTermEnv, getPolyKinds, readMetaTv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (forM, forM_, void, when)
+import Control.Monad (filterM, forM, forM_, void, when)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 
@@ -149,10 +150,16 @@ generalizeIgnoringWithSubst ignoredKeys interior ty preds = do
   -- @forall {k} a (b :: k). a -> Const a b@, and each use chooses @k@. A
   -- kind meta that the environment can still reach stays open.
   kindVariables <- openKindVariables settleKinds envMetaVars uniqueMetaVars (ty'' : interior'') preds''
+  -- The kind defaulting can solve a quantified meta. An interior type of a
+  -- rewrite rule holds the kind argument @k@ of @put :: forall k (f :: k ->
+  -- Type) (t :: k). ...@ beside @t@. The kind of @t@ is then defaulted, and
+  -- @k@ is 'Type'. Quantify only the metas that are still open, or @k@
+  -- would also become a type variable that the kinds do not mention.
+  openMetaVars <- filterM (fmap isNothing . readMetaTv) uniqueMetaVars
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
-  tvs <- metaVarsToTyVars settleKinds uniqueMetaVars
-  let subst = zip uniqueMetaVars (map TcTyVar tvs)
+  tvs <- metaVarsToTyVars settleKinds openMetaVars
+  let subst = zip openMetaVars (map TcTyVar tvs)
   quantifiedTy <- zonkType (substMetas subst ty'')
   quantifiedPreds <- mapM (zonkPred . substMetasPred subst) preds''
   pure (Scheme (kindVariables <> tvs) [] quantifiedPreds quantifiedTy, subst)
@@ -339,7 +346,7 @@ substMetas subst = go
     go TcArrowTy = TcArrowTy
     go ty@(TcTyLit _) = ty
     go (TcTyVar tv) = TcTyVar tv
-    go (TcTyCon tc args) = TcTyCon tc (map go args)
+    go (TcTyConApp tc kindArgs args) = TcTyConApp tc (map go kindArgs) (map go args)
     go (TcKindedTyCon tc kindArgs) = TcKindedTyCon tc (map go kindArgs)
     go (TcFunTy a b) = TcFunTy (go a) (go b)
     go (TcForAllTy tv body) = TcForAllTy tv (go body)

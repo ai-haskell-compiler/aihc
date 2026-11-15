@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -887,7 +887,7 @@ solveNormalizedDict visited givens ct
 
     searchQuantifiedChain visited' target variables build sourcePredicate classVisited =
       case matchQuantifiedPredicate variables sourcePredicate target of
-        Just substitution -> build substitution
+        Just substitution -> build =<< completeQuantifiedSubstitution variables substitution
         Nothing ->
           case sourcePredicate of
             ClassPred sourceClass sourceArguments
@@ -921,6 +921,19 @@ solveNormalizedDict visited givens ct
                             0
                             normalized
             _ -> pure Nothing
+
+    -- A superclass of a quantified given need not mention every bound
+    -- variable: @forall a. V v a@ has the superclass @C v@. Then the match
+    -- leaves @a@ free, and the evidence must still apply the given to a
+    -- type. As in GHC, any type does: the unit type at @Type@, and @Any@ at
+    -- another kind.
+    completeQuantifiedSubstitution variables substitution = foldM complete substitution variables
+      where
+        complete current variable
+          | Map.member (tvUnique variable) current = pure current
+          | otherwise = do
+              filler <- undeterminedTypeOfKind =<< zonkType (applySubst current (tvKind variable))
+              pure (Map.insert (tvUnique variable) filler current)
 
     searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing
     searchQuantifiedSuperClasses visited' target variables build sourcePredicate classVisited sourceOrigin fieldTypes index (superClass : rest) = do
@@ -1058,14 +1071,15 @@ couldMatchLater patterns targets
       case (patternType, target) of
         (TcTyVar variable, _) -> Just [(variable, target)]
         (_, TcMetaTv _) -> Just []
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
-          | tyCon == targetTyCon && length arguments == length targetArguments -> concat <$> zipWithM bindings arguments targetArguments
+        (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
+          | tyCon == targetTyCon && length arguments == length targetArguments ->
+              concat <$> mapM (uncurry bindings) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
         (TcFunTy argument result, TcFunTy targetArgument targetResult) -> (<>) <$> bindings argument targetArgument <*> bindings result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) -> (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
-        (TcAppTy function argument, TcTyCon targetTyCon targetArguments@(_ : _)) ->
-          (<>) <$> bindings function (TcTyCon targetTyCon (init targetArguments)) <*> bindings argument (last targetArguments)
-        (TcTyCon tyCon arguments@(_ : _), TcAppTy targetFunction targetArgument) ->
-          (<>) <$> bindings (TcTyCon tyCon (init arguments)) targetFunction <*> bindings (last arguments) targetArgument
+        (TcAppTy function argument, TcTyConApp targetTyCon targetKinds targetArguments@(_ : _)) ->
+          (<>) <$> bindings function (TcTyConApp targetTyCon targetKinds (init targetArguments)) <*> bindings argument (last targetArguments)
+        (TcTyConApp tyCon kindArguments arguments@(_ : _), TcAppTy targetFunction targetArgument) ->
+          (<>) <$> bindings (TcTyConApp tyCon kindArguments (init arguments)) targetFunction <*> bindings (last arguments) targetArgument
         _
           | isJust (matchTypes [patternType] [target]) -> Just []
           | otherwise -> Nothing
@@ -1190,7 +1204,7 @@ givenRewriteRuleSets givens = do
     containsType from ty =
       sameType from ty
         || case ty of
-          TcTyCon _ arguments -> any (containsType from) arguments
+          TcTyConApp _ kindArguments arguments -> any (containsType from) kindArguments || any (containsType from) arguments
           TcAppTy function argument -> containsType from function || containsType from argument
           TcFunTy domain range -> containsType from domain || containsType from range
           TcForAllTy _ body -> containsType from body
@@ -1246,11 +1260,11 @@ rewriteWithRules rules = go
         (to, proof) : _ -> (to, proof)
         [] ->
           case ty of
-            TcTyCon tyCon arguments ->
+            TcTyConApp tyCon kindArguments arguments ->
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)
                     then (ty, Refl ty)
-                    else (TcTyCon tyCon arguments', TyConAppCo tyCon arguments proofs [])
+                    else (TcTyConApp tyCon kindArguments arguments', TyConAppCo tyCon arguments proofs [])
             TcAppTy function argument ->
               let (function', functionProof) = go function
                   (argument', argumentProof) = go argument
@@ -1528,10 +1542,10 @@ matchTypeQuantified quantified substitution (TcTyVar variable, target)
         Just existing
           | existing == target -> Just substitution
           | otherwise -> Nothing
-matchTypeQuantified quantified substitution (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+matchTypeQuantified quantified substitution (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
   | tyCon == targetTyCon,
     length arguments == length targetArguments =
-      foldM (matchTypeQuantified quantified) substitution (zip arguments targetArguments)
+      foldM (matchTypeQuantified quantified) substitution (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
 matchTypeQuantified quantified substitution (TcFunTy argument result, TcFunTy targetArgument targetResult) =
   matchTypeQuantified quantified substitution (argument, targetArgument)
     >>= \substitution' -> matchTypeQuantified quantified substitution' (result, targetResult)

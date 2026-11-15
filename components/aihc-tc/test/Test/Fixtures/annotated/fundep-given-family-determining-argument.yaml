@@ -1,0 +1,33 @@
+extensions: [FunctionalDependencies, TypeFamilies, AllowAmbiguousTypes, ScopedTypeVariables, FlexibleContexts, TypeApplications]
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, TypeFamilies, AllowAmbiguousTypes, ScopedTypeVariables, FlexibleContexts, TypeApplications #-}
+  module Test where
+  type family Ix r rs
+  class (i ~ Ix r rs) => C r rs rs' i | r rs i -> rs' where
+    get :: rs -> r
+  outer :: forall a rs. C a rs rs (Ix a rs) => rs -> a
+  outer = local @a
+    where
+      local :: forall r. C r rs rs (Ix r rs) => rs -> r
+      local = get
+status: pass
+reason: The local signature gives C r rs rs (Ix r rs), and the wanted is C r rs t0 t1. The superclass of the wanted gives t1 := Ix r rs, and then the functional dependency improves t0 to rs from the given. Before the fix, the improvement for a local signature did not use the superclass equalities of the wanted, and the wanted stayed unsolved.
+annotated:
+- |-
+  {-# LANGUAGE FunctionalDependencies, TypeFamilies, AllowAmbiguousTypes, ScopedTypeVariables, FlexibleContexts, TypeApplications #-}
+  module Test where
+  type family Ix r rs
+              └─ type: Type → Type → Type
+  class (i ~ Ix r rs) => C r rs rs' i | r rs i -> rs' where
+  └─ class methods: get ∷ ∀ r rs rs' i. (C r rs rs' i) ⇒ rs → r; fundeps: r rs i → rs'
+    get :: rs -> r
+  outer :: forall a rs. C a rs rs (Ix a rs) => rs -> a
+  outer = local @a
+  │       └─ type: rs → a; type-args: a; evidence: given C a rs rs Ix a rs
+  └─ type: ∀ a rs. (C a rs rs (Ix a rs)) ⇒ rs → a
+    where
+      local :: forall r. C r rs rs (Ix r rs) => rs -> r
+      local = get
+      │       └─ type: rs → r; type-args: r, rs, rs, Ix r rs; evidence: given C r rs rs Ix r rs
+      └─ type: ∀ r. (C r rs rs (Ix r rs)) ⇒ rs → r

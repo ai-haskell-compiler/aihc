@@ -44,9 +44,9 @@ reduceTypeFamilies ty =
   -- A part that no equation rewrites stays the same object, so the result
   -- shares every such part of the input.
   case ty of
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon kindArguments arguments -> do
       arguments' <- mapMSame reduceTypeFamilies arguments
-      reduceHead (if sameObject arguments arguments' then ty else TcTyCon tyCon arguments')
+      reduceHead (if sameObject arguments arguments' then ty else TcTyConApp tyCon kindArguments arguments')
     TcFunTy argument result -> do
       argument' <- reduceTypeFamilies argument
       result' <- reduceTypeFamilies result
@@ -269,14 +269,14 @@ leafOutsideFamilies = do
 unsaturateFamilyApplication :: TcType -> TcM TcType
 unsaturateFamilyApplication ty =
   case ty of
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon kindArguments arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       pure $ case maybeInfo of
         Just info
           | tciFlavor info == TypeFamilyTyCon,
             length arguments > tciArity info ->
               let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
-               in foldl TcAppTy (TcTyCon tyCon familyArguments) extraArguments
+               in foldl TcAppTy (TcTyConApp tyCon kindArguments familyArguments) extraArguments
         _ -> ty
     _ -> pure ty
 
@@ -522,9 +522,9 @@ patternBindings family = go
         (_, TcTyVar _) -> Just []
         (_, TcMetaTv _) -> Just []
         (_, TcTyCon targetTyCon _) | family targetTyCon -> Just []
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+        (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
           | tyCon == targetTyCon && length arguments == length targetArguments ->
-              concat <$> zipWithM go arguments targetArguments
+              concat <$> mapM (uncurry go) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
           | otherwise -> Nothing
         -- The kind arguments are kinds, and a kind can still change.
         (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> sameTyCon tyCon targetTyCon
@@ -554,8 +554,11 @@ typesCouldUnify family = go
       | open left || open right = True
       | otherwise =
           case (left, right) of
-            (TcTyCon tyCon arguments, TcTyCon tyCon' arguments') ->
-              tyCon == tyCon' && length arguments == length arguments' && and (zipWith go arguments arguments')
+            (TcTyConApp tyCon kindArguments arguments, TcTyConApp tyCon' kindArguments' arguments') ->
+              tyCon == tyCon'
+                && length arguments == length arguments'
+                && all (uncurry go) (pairedKindArguments kindArguments kindArguments')
+                && and (zipWith go arguments arguments')
             (TcKindedTyCon tyCon _, TcKindedTyCon tyCon' _) -> tyCon == tyCon'
             (TcKindedTyCon tyCon _, TcTyCon tyCon' []) -> tyCon == tyCon'
             (TcTyCon tyCon [], TcKindedTyCon tyCon' _) -> tyCon == tyCon'

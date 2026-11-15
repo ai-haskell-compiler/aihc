@@ -2057,13 +2057,32 @@ expressionType env expression =
 runtimeRep :: LowerEnv -> Fc.Type -> Either String GrinRep
 runtimeRep env sourceType = typeRuntimeRep env sourceType >>= convertRep env
 
--- | What a function with a result of a type produces where it returns.
+-- | What a function with a result of a type produces where it returns. A
+-- representation that contains a type variable, also inside a tuple or a
+-- sum, has no fixed layout. Thus, the function forwards the result.
 typeResultRep :: LowerEnv -> Fc.Type -> Either String GrinResultRep
 typeResultRep env sourceType = do
   representation <- typeRuntimeRep env sourceType
-  case reduce env representation of
-    Fc.TyVar _ -> Right ResultForwarded
-    _ -> ResultRep <$> convertRep env representation
+  if repHasVariable env representation
+    then Right ResultForwarded
+    else ResultRep <$> convertRep env representation
+
+-- | Whether a runtime representation contains a type variable. This reads
+-- the same structure as 'convertRep'.
+repHasVariable :: LowerEnv -> Fc.Type -> Bool
+repHasVariable env sourceRep =
+  case reduce env sourceRep of
+    Fc.TyVar _ -> True
+    Fc.TyApp (Fc.TyCon name) fields
+      | Fc.nameText name `elem` ["TupleRep", "SumRep"] -> listHasVariable fields
+    _ -> False
+  where
+    listHasVariable list =
+      case reduce env list of
+        Fc.TyVar _ -> True
+        Fc.TyApp (Fc.TyApp (Fc.TyApp (Fc.TyCon name) _) item) rest
+          | Fc.nameText name == ":" -> repHasVariable env item || listHasVariable rest
+        _ -> False
 
 typeRuntimeRep :: LowerEnv -> Fc.Type -> Either String Fc.Type
 typeRuntimeRep env sourceType =

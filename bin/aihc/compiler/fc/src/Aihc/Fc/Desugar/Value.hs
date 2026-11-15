@@ -6880,7 +6880,7 @@ coercionSideType coercion =
   where
     applyType function argument =
       case function of
-        TcTyCon tyCon arguments -> TcTyCon tyCon (arguments <> [argument])
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon kindArguments (arguments <> [argument])
         _ -> TcAppTy function argument
 
 resolvedTermName :: Syn.Name -> ValueM Name

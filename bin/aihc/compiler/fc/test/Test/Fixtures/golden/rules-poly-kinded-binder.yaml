@@ -1,0 +1,14 @@
+extensions: [PolyKinds, KindSignatures]
+modules:
+- |
+  {-# LANGUAGE PolyKinds, KindSignatures #-}
+  module Test where
+  import GHC.Types (Type)
+  data P (f :: u -> Type) = P
+  put :: f t -> P f -> P f
+  put _ p = p
+  put2 :: f t -> P f -> P f
+  put2 _ p = p
+  {-# RULES "put/put" forall x y z. put x (put y z) = put2 x (put y z) #-}
+status: pass
+reason: The rule instantiates the poly-kinded put, so its type arguments hold the kind argument k beside t of kind k. The generalization of the rule defaulted the kind of t, which solved k, and then also made k a type binder of the rule. The FC lint then found a kind argument that the binder kinds do not mention. The generalization now quantifies only the metas that are still open.

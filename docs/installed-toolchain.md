@@ -102,6 +102,16 @@ The tool is found on the `PATH`, or named with `AIHC_HAPPY`. aihc gives it
 the `-agc` flags that Cabal gives it for GHC, so the generated parser is the
 same as under GHC.
 
+A module that a package ships as a `.chs` file goes through `c2hs`.
+The tool is found on the `PATH`, or named with `AIHC_C2HS`.
+c2hs reads the C headers through the C compiler of the target with `-E`.
+The C compiler gets the same flags, include directories, and `cabal_macros.h` that hsc2hs gets.
+A `.chs` file can use an `{# import #}` hook for a different `.chs` file of the package.
+c2hs then reads the `.chi` file of that module.
+Thus aihc runs c2hs on the imported module first, as Cabal does.
+An import of a `.chs` module from a different package is not supported.
+c2hs computes the sizes of C types for the machine that it runs on, as under Cabal.
+
 ## Compiler headers
 
 C code of a package expects the headers that a GHC installation gives:

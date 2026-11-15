@@ -1,0 +1,16 @@
+extensions: [DataKinds, PolyKinds, TypeFamilyDependencies]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, TypeFamilyDependencies #-}
+  module Test where
+  import GHC.Types (Type)
+  data R (f :: u -> Type) (ts :: [u]) = R
+  type family T f t = (r :: (u -> Type, [u])) | r -> t where
+    T f (f a, f b) = '(f, '[a, b])
+    T f () = '(f, '[])
+  type family U (t :: (u -> Type, [u])) = r | r -> t where
+    U '(f, ts) = R f ts
+  class C f t where
+    c :: t -> U (T f t)
+status: pass
+reason: The equation T f () = '(f, '[]) makes the kind of f equal to u -> Type, with u from the result kind signature of T. Before the fix, the type checker did not bind the equation's copy of u to u, because it read the kind of u before it zonked it. T then got the kind (k0 -> Type) -> Type -> (u -> Type, [u]), and FC failed with an unbound runtime-representation variable in the class C.
