@@ -5,6 +5,7 @@
 module GHC.Exts
   ( WithDict (withDict),
     module GHC.Prim,
+    module GHC.ArrayArray,
     atomicModifyMutVar#,
     addCFinalizerToWeak#,
     dataToTag#,
@@ -144,6 +145,7 @@ import Data.Coerce (coerce)
 import Data.List (groupBy, sortBy)
 import Data.Ord (Down (..), comparing)
 import Data.String (IsString (..))
+import GHC.ArrayArray
 import GHC.CString (cstringLength#, unpackAppendCString#, unpackAppendCStringUtf8#, unpackCString#, unpackCStringUtf8#, unpackFoldrCString#, unpackFoldrCStringUtf8#, unpackNBytes#)
 import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
