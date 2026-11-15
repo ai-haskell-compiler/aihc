@@ -43,7 +43,7 @@ annotated:
   nil :: SameShapeAs '[] ys => Proxy ys -> Proxy '[]
   nil p = p
   │   └─ type: Proxy ys
-  └─ type: ∀ k0 k1 k0 ys. (SameShapeAs 'GHC.Types.[] ys) ⇒ Proxy ys → Proxy 'GHC.Types.[]
+  └─ type: ∀ k0 k0 k1 ys. (SameShapeAs 'GHC.Types.[] ys) ⇒ Proxy ys → Proxy 'GHC.Types.[]
 
   -- The match on @x :* xs@ gives @xs ~ (x ': xs')@. Then the superclass
   -- @SameShapeAs xs ys@ gives @ys ~ (Head ys ': Tail ys)@. With both, the

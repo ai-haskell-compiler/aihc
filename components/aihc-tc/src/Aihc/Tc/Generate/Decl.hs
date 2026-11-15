@@ -1141,11 +1141,19 @@ inventedKindVariablesFirst variables =
 -- the variables whose kinds mention it, so that instantiation can
 -- substitute it into those kinds: @class C (a :: k)@ binds @a@ before @k@
 -- in source order.
+--
+-- The invented kind variables come before all source binders, as
+-- 'inventedKindVariablesFirst' gives. The metadata of a data constructor
+-- uses that order, and System FC binds the constructor from the metadata.
+-- A GADT constructor can have an inferred source binder before an invented
+-- kind variable: @cat@ and @k0@ in @InputType :: CatType 'In a@ for @data
+-- CatType (cat :: Cat) a@. The order must be @k0 cat a@ there, or the type
+-- arguments of a use site are in the wrong order.
 withInventedKindVariables :: TypeScheme -> TypeScheme
 withInventedKindVariables (Scheme inferred specified predicates body) =
   Scheme (filter (not . isSpecified) ordered) (filter isSpecified ordered) predicates body
   where
-    ordered = closeKindVariables (inferred <> specified)
+    ordered = inventedKindVariablesFirst (inferred <> specified)
     isSpecified variable = tvUnique variable `elem` map tvUnique specified
 
 uniqueKindVariables :: [TyVarId] -> [TyVarId]
