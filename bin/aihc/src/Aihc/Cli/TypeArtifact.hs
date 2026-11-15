@@ -558,9 +558,9 @@ putPart index part = case part of
     TcTyVar variable -> sum1 1 (putTyVar index variable)
     TcMetaTv unique -> sum1 2 (putUnique unique)
     -- An application that keeps its kind arguments has a form of its own.
-    TcTyConApp tyCon kindArguments@(_ : _) arguments ->
+    TcTyConApp tyCon [] arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
+    TcTyConApp tyCon kindArguments arguments ->
       cborArray 4 <> cborWord 17 <> putTyCon index tyCon <> encodeList (putType index) kindArguments <> encodeList (putType index) arguments
-    TcTyCon tyCon arguments -> sum2 3 (putTyCon index tyCon) (encodeList (putType index) arguments)
     TcFunTy argument result -> sum2 4 (putType index argument) (putType index result)
     TcForAllTy variable body -> sum2 5 (putTyVar index variable) (putType index body)
     TcQualTy predicates body -> sum2 6 (encodeList (putPred index) predicates) (putType index body)
