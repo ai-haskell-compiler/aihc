@@ -4658,7 +4658,11 @@ registerInstanceAssociatedTypes origin classInfo dictName instanceTyVars headTys
 -- head types of an instance. A family parameter that is not a class
 -- parameter becomes a fresh type variable.
 instantiateAssociatedDefault :: (Text, Text) -> Text -> [TyVarId] -> [TcType] -> AssociatedTypeInfo -> TypeFamilyInstanceInfo -> TcM TypeFamilyInstanceInfo
-instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars headTys info defaultEquation = do
+instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars rawHeadTys info defaultEquation = do
+  -- The head check can leave a solved kind meta in a head type, as the
+  -- kind argument of @R@ in @instance C R@. Zonk it, so the axiom binds
+  -- the instance variable that the meta stands for.
+  headTys <- mapM zonkType rawHeadTys
   let defaultArguments = typeArguments (tfiiLeft defaultEquation)
   -- The class arguments fix the kind variables of the default equation:
   -- @type AllB (c :: k -> Constraint) b = ...@ at @b := Unit@ fixes @k@.
@@ -4668,7 +4672,7 @@ instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars 
       | (TcTyVar tyVar, Just ty) <- zip defaultArguments (map (associatedClassArgument headTys) (atiClassParams info))
       ]
   let kindSubstitution = fromMaybe Map.empty (matchTypes (map fst headKinds) (map snd headKinds))
-  args <- zipWithM (argumentType kindSubstitution) (map Just defaultArguments <> repeat Nothing) (atiClassParams info)
+  args <- zipWithM (argumentType headTys kindSubstitution) (map Just defaultArguments <> repeat Nothing) (atiClassParams info)
   let substitution =
         kindSubstitution
           <> Map.fromList [(tvUnique tyVar, arg) | (TcTyVar tyVar, arg) <- zip defaultArguments args]
@@ -4691,7 +4695,7 @@ instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars 
   where
     -- A parameter that is not a class parameter gets a fresh variable of
     -- the kind the default equation gives it.
-    argumentType kindSubstitution defaultArgument maybeIndex =
+    argumentType headTys kindSubstitution defaultArgument maybeIndex =
       case associatedClassArgument headTys maybeIndex of
         Just ty -> pure ty
         Nothing -> do

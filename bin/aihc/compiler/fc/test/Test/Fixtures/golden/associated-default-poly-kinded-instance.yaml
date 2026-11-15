@@ -1,0 +1,13 @@
+extensions: [ConstraintKinds, PolyKinds, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, PolyKinds, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data R (f :: k -> Type) = R
+  class C r where
+    type F r (f :: k -> Type) :: Constraint
+    type F r f = ()
+  instance C R
+status: pass
+reason: The instance takes the default of F at the poly-kinded head R. The kind argument of R is an instance variable, and the axiom must bind it. Before the fix, the type checker read the head before it zonked a kind meta. The axiom then did not bind the variable, and FC failed with an unbound runtime-representation variable.
