@@ -1,0 +1,44 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, DataKinds, TypeFamilies #-}
+  module Main where
+  data P = Z | S P
+       │   │   └─ type: P → P
+       │   └─ type: P
+       └─ type: Type
+  type family Dim (v :: k) :: P
+              └─ type: k → P
+  data Q (n :: P) = Q
+       │            └─ type: ∀ n. Q n
+       └─ type: P → Type
+  newtype C (n :: P) a = C a
+          │              └─ type: ∀ n a. a → C n a
+          └─ type: P → Type → Type
+  type instance Dim (C n) = n
+  dimOf :: C n a -> Q (Dim (C n))
+  dimOf _ = Q
+  │     │   └─ type: Q n; type-args: n
+  │     └─ type: C n a
+  └─ type: ∀ n a. C n a → Q (Dim (C n))
+  meta :: Q 'Z
+  meta = dimOf (C 'x')
+  │      │      │ └─ type: GHC.Types.Char
+  │      │      └─ type: GHC.Types.Char → C 'Z GHC.Types.Char; type-args: 'Z, Char
+  │      └─ type: C 'Z GHC.Types.Char → Q (Dim (C 'Z)); type-args: 'Z, Char
+  └─ type: Q 'Z
+extensions: []
+reason: a poly-kinded type family reduces when its argument has a meta variable
+modules:
+- |
+  {-# LANGUAGE PolyKinds, DataKinds, TypeFamilies #-}
+  module Main where
+  data P = Z | S P
+  type family Dim (v :: k) :: P
+  data Q (n :: P) = Q
+  newtype C (n :: P) a = C a
+  type instance Dim (C n) = n
+  dimOf :: C n a -> Q (Dim (C n))
+  dimOf _ = Q
+  meta :: Q 'Z
+  meta = dimOf (C 'x')
+status: pass

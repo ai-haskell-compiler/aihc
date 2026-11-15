@@ -24,7 +24,7 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), typeFamilyAxiomIndex)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), freshMetaTvOfKind, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, trackKindMeta)
+import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), freshMetaTvOfKind, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, readMetaTvKind, trackKindMeta)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
@@ -302,8 +302,19 @@ reduceHead ty =
                   family <- isTypeFamilyTyCon
                   kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
                   let kindOf = either (const Nothing) Just . typeKindInEnv kinds kindEnv
-                      argumentKinds = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon familyArguments Nothing)
-                      bareKindArguments bare expectedKind = do
+                      kindsOfArguments viewed = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon viewed Nothing)
+                  -- A meta variable in an argument has a kind, but the kind
+                  -- environment does not know it. The poly-kinded @Dim (v ::
+                  -- k)@ applied to @ContVec t0@ needs the kind of @ContVec
+                  -- t0@ to find @k@. Without it, the argument kind stays @k@
+                  -- and no equation matches. Thus each meta variable stands
+                  -- for a variable of its kind while the kinds are computed.
+                  -- The equations still match the arguments as they are.
+                  argumentKinds <-
+                    if any typeMentionsMeta familyArguments
+                      then kindsOfArguments <$> mapM metasAsVariables familyArguments
+                      else pure (kindsOfArguments familyArguments)
+                  let bareKindArguments bare expectedKind = do
                         ForAll quantified _ bareKind <- Map.lookup (tyConKey bare) kindEnv
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
@@ -313,6 +324,18 @@ reduceHead ty =
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
                     Nothing -> pure ty
         _ -> pure ty
+    _ -> pure ty
+
+-- | The type with each meta variable replaced by a variable of the same
+-- unique and the kind of the meta variable. Only the kind of the result
+-- is used.
+metasAsVariables :: TcType -> TcM TcType
+metasAsVariables ty =
+  case ty of
+    TcMetaTv unique -> TcTyVar . mkTyVarId (T.pack "meta") unique <$> readMetaTvKind unique
+    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM metasAsVariables arguments
+    TcAppTy function argument -> TcAppTy <$> metasAsVariables function <*> metasAsVariables argument
+    TcFunTy argument result -> TcFunTy <$> metasAsVariables argument <*> metasAsVariables result
     _ -> pure ty
 
 -- | Give each equation variable that the match left without a value a
