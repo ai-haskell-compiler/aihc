@@ -1,0 +1,20 @@
+extensions: [ConstraintKinds, PolyKinds, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, PolyKinds, TypeFamilies #-}
+  module Class where
+  import GHC.Types (Constraint, Type)
+  class C record where
+    type F record (f :: k -> Type) :: Constraint
+    type F record f = ()
+    m :: F record f => record f -> record f
+- |
+  {-# LANGUAGE PolyKinds, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  import Class (C (..))
+  data R (f :: k -> Type) = R
+  instance C R where
+    m x = x
+status: pass
+reason: The module Test makes an instance of a class from the module Class, and the instance takes the default of F. The interface of Class must give the default equation without kind metas. Before the fix, the interface kept the class kind meta in the equation, and FC failed with a kind that still has a meta variable.

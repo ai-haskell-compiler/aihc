@@ -1275,14 +1275,26 @@ defaultGlobalKindMetas initialKeys = do
       superClassTypes <- mapM defaultTypeKinds (ciSuperClassTypes info)
       methods <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciMethods info)
       defaultSignatures <- mapM (traverse (fmap withInventedKindVariables . defaultTypeSchemeKinds)) (ciDefaultSignatures info)
+      -- The interface gives the associated type defaults to other modules,
+      -- which cannot read the kind metas of this module.
+      associatedTypes <- mapM defaultAssociatedTypeKinds (ciAssociatedTypes info)
       pure
         info
           { ciKindTyVars = kindTyVars,
             ciTyVars = tyVars,
             ciSuperClassTypes = superClassTypes,
             ciMethods = methods,
-            ciDefaultSignatures = defaultSignatures
+            ciDefaultSignatures = defaultSignatures,
+            ciAssociatedTypes = associatedTypes
           }
+    defaultAssociatedTypeKinds associated = do
+      defaultEquation <- traverse defaultEquationKinds (atiDefault associated)
+      pure associated {atiDefault = defaultEquation}
+    defaultEquationKinds equation = do
+      tyVars <- mapM defaultTyVarKinds (tfiiTyVars equation)
+      left <- defaultTypeKinds (tfiiLeft equation)
+      right <- defaultTypeKinds (tfiiRight equation)
+      pure equation {tfiiTyVars = tyVars, tfiiLeft = left, tfiiRight = right}
     defaultInstanceKinds info =
       InstanceInfo
         (iiClass info)
