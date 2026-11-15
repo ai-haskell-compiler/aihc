@@ -75,7 +75,8 @@ import Prelude
 -- 'Lift' instances can be derived automatically by use of the @-XDeriveLift@
 -- GHC language extension:
 --
--- > -- > module Foo where
+-- > {-# LANGUAGE DeriveLift #-}
+-- > module Foo where
 -- >
 -- > import Language.Haskell.TH.Syntax
 -- >
