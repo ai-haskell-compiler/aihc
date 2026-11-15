@@ -1,0 +1,55 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableSuperClasses #-}
+  module Main where
+  data P = Z | S P
+       │   │   └─ type: P → P
+       │   └─ type: P
+       └─ type: Type
+  data Q (n :: P) = Q
+       │            └─ type: ∀ n. Q n
+       └─ type: P → Type
+  type family Dim v :: P
+              └─ type: Type → P
+  class C (n :: P) where
+  └─ class methods: p ∷ ∀ n. (C n) ⇒ Q n → P
+    p :: Q n -> P
+  class C (Dim v) => V v where
+  └─ class methods: cv ∷ ∀ v. (V v) ⇒ v → Q (Dim v)
+    cv :: v -> Q (Dim v)
+  h :: (C n, n ~ 'S k) => Q n -> P
+  h = p
+  │   └─ type: Q ('S k) → P; type-args: 'S k; evidence: cast(given C n, C given n ~ 'S k)
+  └─ type: ∀ n k. (C n, n ~ ('S k)) ⇒ Q n → P
+  o :: (b -> c) -> (a -> b) -> a -> c
+  o f g x = f (g x)
+  │ │ │ └─ type: a
+  │ │ └─ type: a → b
+  │ └─ type: b → c
+  └─ type: ∀ b c a. (b → c) → (a → b) → a → c
+  g :: (V v, Dim v ~ 'S k) => v -> P
+  g = h `o` cv
+  │   │  │  └─ type: v → Q (Dim v); type-args: v; evidence: given V v
+  │   │  └─ type: (Q ('S k) → P) → (v → Q ('S k)) → v → P; type-args: Q ('S k), P, v
+  │   └─ type: Q ('S k) → P; type-args: 'S k, k; evidence: cast(super[0](given V v), C given Dim v ~ 'S k), refl 'S k
+  └─ type: ∀ v k. (V v, (Dim v) ~ ('S k)) ⇒ v → P
+extensions: []
+reason: a given equality rewrites a superclass of a class given to solve a wanted that was rewritten first
+modules:
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableSuperClasses #-}
+  module Main where
+  data P = Z | S P
+  data Q (n :: P) = Q
+  type family Dim v :: P
+  class C (n :: P) where
+    p :: Q n -> P
+  class C (Dim v) => V v where
+    cv :: v -> Q (Dim v)
+  h :: (C n, n ~ 'S k) => Q n -> P
+  h = p
+  o :: (b -> c) -> (a -> b) -> a -> c
+  o f g x = f (g x)
+  g :: (V v, Dim v ~ 'S k) => v -> P
+  g = h `o` cv
+status: pass

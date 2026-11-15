@@ -406,6 +406,9 @@ solveNormalizedDict visited givens ct
               let evidence = EvCast (EvGiven given) (TyConAppCo givenClass givenArgs coercions [])
               found <- superclassEvidence [] visited' target evidence (ClassPred givenClass rewrittenArgs)
               maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
+        ClassPred {} -> do
+          found <- rewrittenSuperclassEvidence [] visited' rules target (EvGiven given) given
+          maybe (rewrittenIrreducibleGiven visited' rules target rest) (pure . Just) found
         _ -> rewrittenIrreducibleGiven visited' rules target rest
 
     -- A stuck family constraint among the givens, or among their
@@ -530,26 +533,71 @@ solveNormalizedDict visited givens ct
 
     superclassEvidence classVisited solveVisited target sourceEvidence sourcePredicate =
       case sourcePredicate of
-        ClassPred sourceClass sourceArgs
+        ClassPred sourceClass _
           | sourceClass `elem` classVisited -> pure Nothing
           | otherwise -> do
-              classInfo <- lookupClass sourceClass
-              case classInfo of
+              found <- normalizedSuperClasses sourcePredicate
+              case found of
+                Just (origin, fieldTypes, normalized) ->
+                  searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence origin sourcePredicate fieldTypes target 0 normalized
                 Nothing -> pure Nothing
-                Just info -> do
-                  kinds <- getKinds
-                  let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
-                  substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
-                  let fieldTypes = classFieldTypes info substitution
-                  case traverse (superClassPred kinds substitution) (ciSuperClassTypes info) of
-                    Just superClasses -> do
-                      -- A superclass is compared in the same normal form as
-                      -- the wanted: families reduced, and a family-headed
-                      -- one irreducible rather than a class predicate.
-                      normalized <- mapM normalizeGiven superClasses
-                      searchSuperClasses (sourceClass : classVisited) solveVisited sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 normalized
-                    Nothing -> pure Nothing
         _ -> pure Nothing
+
+    -- The superclasses of a class predicate, with the origin of the class
+    -- and the field types of its dictionary. A superclass is in the same
+    -- normal form as the wanted: families reduced, and a family-headed one
+    -- irreducible rather than a class predicate.
+    normalizedSuperClasses sourcePredicate =
+      case sourcePredicate of
+        ClassPred sourceClass sourceArgs -> do
+          classInfo <- lookupClass sourceClass
+          case classInfo of
+            Nothing -> pure Nothing
+            Just info -> do
+              kinds <- getKinds
+              let visibleSubstitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
+              substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+              let fieldTypes = classFieldTypes info substitution
+              case traverse (superClassPred kinds substitution) (ciSuperClassTypes info) of
+                Just superClasses -> do
+                  normalized <- mapM normalizeGiven superClasses
+                  pure (Just (ciOrigin info, fieldTypes, normalized))
+                Nothing -> pure Nothing
+        _ -> pure Nothing
+
+    -- The rules can rewrite a superclass of a given that they do not
+    -- rewrite: with the given @Dim v ~ 'S k@, the given @V v@ has the
+    -- superclass @C (Dim v)@, which rewrites to the wanted @C ('S k)@. The
+    -- projected dictionary is cast along the rewrite.
+    rewrittenSuperclassEvidence classVisited solveVisited rules target sourceEvidence sourcePredicate =
+      case sourcePredicate of
+        ClassPred sourceClass _
+          | sourceClass `elem` classVisited -> pure Nothing
+          | otherwise -> do
+              found <- normalizedSuperClasses sourcePredicate
+              case found of
+                Nothing -> pure Nothing
+                Just (origin, fieldTypes, superClasses) ->
+                  let search _ [] = pure Nothing
+                      search index (superClass : rest) = do
+                        let projection = EvSuperClass sourceEvidence origin sourcePredicate fieldTypes index
+                        result <- rewrittenProjection (sourceClass : classVisited) projection superClass
+                        maybe (search (index + 1) rest) (pure . Just) result
+                   in search (0 :: Int) superClasses
+        _ -> pure Nothing
+      where
+        rewrittenProjection classVisited' projection superClass =
+          case superClass of
+            ClassPred superClassName superClassArgs
+              | let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) superClassArgs),
+                not (and (zipWith sameType rewrittenArgs superClassArgs)) -> do
+                  normalized <- normalizeGiven (ClassPred superClassName rewrittenArgs)
+                  let evidence = EvCast projection (TyConAppCo superClassName superClassArgs coercions [])
+                  if samePredicate normalized target
+                    then pure (Just evidence)
+                    else superclassEvidence [] solveVisited target evidence normalized
+              | otherwise -> rewrittenSuperclassEvidence classVisited' solveVisited rules target projection superClass
+            _ -> pure Nothing
 
     searchSuperClasses _ _ _ _ _ _ _ _ [] = pure Nothing
     searchSuperClasses classVisited solveVisited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
