@@ -22,10 +22,10 @@ decomposeNominalEquality rawLeft rawRight = do
     then pure Nothing
     else decompose left right
   where
-    decompose (TcTyCon leftCon leftArgs) (TcTyCon rightCon rightArgs)
+    decompose (TcTyConApp leftCon leftKinds leftArgs) (TcTyConApp rightCon rightKinds rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs =
-          pure (Just (zip leftArgs rightArgs))
+          pure (Just (pairedKindArguments leftKinds rightKinds <> zip leftArgs rightArgs))
     decompose (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
       | leftCon == rightCon,
         length leftKinds == length rightKinds =

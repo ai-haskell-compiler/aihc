@@ -23,10 +23,10 @@ matchOne subst (TcTyVar tv, target) =
     Just existing
       | existing == target -> Just subst
       | otherwise -> Nothing
-matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
+matchOne subst (TcTyConApp tc kindArgs args, TcTyConApp targetTc targetKindArgs targetArgs)
   | tc == targetTc,
     length args == length targetArgs =
-      foldM matchOne subst (zip args targetArgs)
+      foldM matchOne subst (pairedKindArguments kindArgs targetKindArgs <> zip args targetArgs)
 matchOne subst (TcKindedTyCon tc kindArgs, TcKindedTyCon targetTc targetKindArgs)
   | tc == targetTc,
     length kindArgs == length targetKindArgs =
@@ -42,13 +42,13 @@ matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
   matchOne subst (f, targetF) >>= \subst' -> matchOne subst' (a, targetA)
 -- A pattern application @t m@ matches a saturated constructor application
 -- @CmdM m@: the head takes all arguments but the last one.
-matchOne subst (TcAppTy f a, TcTyCon targetTc targetArgs@(_ : _)) =
-  matchOne subst (f, TcTyCon targetTc (init targetArgs)) >>= \subst' -> matchOne subst' (a, last targetArgs)
+matchOne subst (TcAppTy f a, TcTyConApp targetTc targetKindArgs targetArgs@(_ : _)) =
+  matchOne subst (f, TcTyConApp targetTc targetKindArgs (init targetArgs)) >>= \subst' -> matchOne subst' (a, last targetArgs)
 -- A constructor pattern @Rec l r@ matches the same application written as
 -- a spine, as a use site that kinds the constructor writes it: the last
 -- argument against the last application.
-matchOne subst (TcTyCon tc args@(_ : _), TcAppTy targetF targetA) =
-  matchOne subst (TcTyCon tc (init args), targetF) >>= \subst' -> matchOne subst' (last args, targetA)
+matchOne subst (TcTyConApp tc kindArgs args@(_ : _), TcAppTy targetF targetA) =
+  matchOne subst (TcTyConApp tc kindArgs (init args), targetF) >>= \subst' -> matchOne subst' (last args, targetA)
 -- Two quantified types match when their bodies do, with the pattern's
 -- bound variable standing for the target's. A default signature and its
 -- method share @forall a. f a -> e (g a)@ with different binders. The bound

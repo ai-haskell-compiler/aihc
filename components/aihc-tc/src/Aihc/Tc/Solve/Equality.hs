@@ -74,9 +74,10 @@ alignProvedKinds left right
   | typeMentionsMeta left || typeMentionsMeta right = go left right
   | otherwise = pure ()
   where
-    go (TcTyCon leftCon leftArgs) (TcTyCon rightCon rightArgs)
+    go (TcTyConApp leftCon leftKinds leftArgs) (TcTyConApp rightCon rightKinds rightArgs)
       | leftCon == rightCon,
-        length leftArgs == length rightArgs =
+        length leftArgs == length rightArgs = do
+          mapM_ (uncurry unifyOpen) (pairedKindArguments leftKinds rightKinds)
           zipWithM_ go leftArgs rightArgs
     go (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
       | leftCon == rightCon,

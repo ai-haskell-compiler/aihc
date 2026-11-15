@@ -1071,8 +1071,9 @@ couldMatchLater patterns targets
       case (patternType, target) of
         (TcTyVar variable, _) -> Just [(variable, target)]
         (_, TcMetaTv _) -> Just []
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
-          | tyCon == targetTyCon && length arguments == length targetArguments -> concat <$> zipWithM bindings arguments targetArguments
+        (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
+          | tyCon == targetTyCon && length arguments == length targetArguments ->
+              concat <$> mapM (uncurry bindings) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
         (TcFunTy argument result, TcFunTy targetArgument targetResult) -> (<>) <$> bindings argument targetArgument <*> bindings result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) -> (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
         (TcAppTy function argument, TcTyConApp targetTyCon targetKinds targetArguments@(_ : _)) ->
@@ -1541,10 +1542,10 @@ matchTypeQuantified quantified substitution (TcTyVar variable, target)
         Just existing
           | existing == target -> Just substitution
           | otherwise -> Nothing
-matchTypeQuantified quantified substitution (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+matchTypeQuantified quantified substitution (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
   | tyCon == targetTyCon,
     length arguments == length targetArguments =
-      foldM (matchTypeQuantified quantified) substitution (zip arguments targetArguments)
+      foldM (matchTypeQuantified quantified) substitution (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
 matchTypeQuantified quantified substitution (TcFunTy argument result, TcFunTy targetArgument targetResult) =
   matchTypeQuantified quantified substitution (argument, targetArgument)
     >>= \substitution' -> matchTypeQuantified quantified substitution' (result, targetResult)

@@ -522,9 +522,9 @@ patternBindings family = go
         (_, TcTyVar _) -> Just []
         (_, TcMetaTv _) -> Just []
         (_, TcTyCon targetTyCon _) | family targetTyCon -> Just []
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+        (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
           | tyCon == targetTyCon && length arguments == length targetArguments ->
-              concat <$> zipWithM go arguments targetArguments
+              concat <$> mapM (uncurry go) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
           | otherwise -> Nothing
         -- The kind arguments are kinds, and a kind can still change.
         (TcKindedTyCon tyCon _, TcKindedTyCon targetTyCon _) -> sameTyCon tyCon targetTyCon
@@ -554,8 +554,11 @@ typesCouldUnify family = go
       | open left || open right = True
       | otherwise =
           case (left, right) of
-            (TcTyCon tyCon arguments, TcTyCon tyCon' arguments') ->
-              tyCon == tyCon' && length arguments == length arguments' && and (zipWith go arguments arguments')
+            (TcTyConApp tyCon kindArguments arguments, TcTyConApp tyCon' kindArguments' arguments') ->
+              tyCon == tyCon'
+                && length arguments == length arguments'
+                && all (uncurry go) (pairedKindArguments kindArguments kindArguments')
+                && and (zipWith go arguments arguments')
             (TcKindedTyCon tyCon _, TcKindedTyCon tyCon' _) -> tyCon == tyCon'
             (TcKindedTyCon tyCon _, TcTyCon tyCon' []) -> tyCon == tyCon'
             (TcTyCon tyCon [], TcKindedTyCon tyCon' _) -> tyCon == tyCon'
