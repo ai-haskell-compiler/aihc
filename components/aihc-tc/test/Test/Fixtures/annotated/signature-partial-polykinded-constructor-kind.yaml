@@ -1,0 +1,33 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, KindSignatures, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  newtype Const a (b :: k) = Const a
+  newtype All (f :: k -> Type) = All (forall x. f x)
+  allConst :: a -> All (Const a)
+  allConst a = All (Const a)
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, KindSignatures, RankNTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  newtype Const a (b :: k) = Const a
+          │                  └─ type: ∀ k a b. a → Const a b
+          └─ type: Type → k → Type
+  newtype All (f :: k -> Type) = All (forall x. f x)
+          │                      └─ type: ∀ k f. (∀ x. f x) → All f
+          └─ type: (k → Type) → Type
+  allConst :: a -> All (Const a)
+  allConst a = All (Const a)
+  │        │   ││    └─ type: a → Const a x; type-args: k0, a, x
+  │        │   └─ type: ∀ x. Const a x
+  │        │   └─ type: (∀ x. Const a x) → All (Const a); type-args: k0, Const a
+  │        └─ type: a
+  └─ type: ∀ k0 a. a → All (Const a)
+reason: the body of allConst uses the kind variable k0 of its signature. A
+  proof of the result type by its shape must also unify the kind arguments of
+  the partial application Const a, else the kind of Const in the body
+  defaults to Type
+status: pass
