@@ -39,7 +39,7 @@ annotated:
     eqB, neB :: (bool ~ BooleanOf a) => a -> a -> bool
     neB u v = notB (eqB u v)
     │   │ │   │     └─ type: a → a → bool; type-args: a, bool; evidence: given EqB a, given bool ~ BooleanOf a
-    │   │ │   └─ type: bool → bool; type-args: bool; evidence: cast(super[0](given EqB a), sym (Boolean given bool ~ BooleanOf a))
+    │   │ │   └─ type: bool → bool; type-args: bool; evidence: cast(super[0](given EqB a), Boolean sym (given bool ~ BooleanOf a))
     │   │ └─ type: a
     │   └─ type: a
     └─ neB ∷ ∀ a bool. (EqB a, bool ~ (BooleanOf a)) ⇒ a → a → bool
