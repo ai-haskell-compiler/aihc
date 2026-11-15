@@ -46,6 +46,7 @@
     pkgs.haskellPackages.hsc2hs
     pkgs.haskellPackages.happy
     pkgs.haskellPackages.alex
+    pkgs.haskellPackages.c2hs
   ];
 
   selfCompileEnvironment = ''
@@ -213,6 +214,7 @@ in {
       pkgs.haskellPackages.hsc2hs
       pkgs.haskellPackages.happy
       pkgs.haskellPackages.alex
+      pkgs.haskellPackages.c2hs
     ] ''
       set -euo pipefail
       ${repoRootGuard}
@@ -306,6 +308,7 @@ in {
       pkgs.haskellPackages.hsc2hs
       pkgs.haskellPackages.happy
       pkgs.haskellPackages.alex
+      pkgs.haskellPackages.c2hs
     ] ''
       set -euo pipefail
       ${repoRootGuard}
@@ -340,6 +343,7 @@ in {
       pkgs.haskellPackages.hsc2hs
       pkgs.haskellPackages.happy
       pkgs.haskellPackages.alex
+      pkgs.haskellPackages.c2hs
       hsPkgs.ghc
     ] ''
       set -euo pipefail
