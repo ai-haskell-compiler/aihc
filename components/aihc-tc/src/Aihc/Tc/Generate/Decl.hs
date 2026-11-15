@@ -68,7 +68,8 @@ import Aihc.Parser.Syntax
     RuleDecl (..),
     SourceSpan,
     TupleFlavor (..),
-    TyVarBinder,
+    TyVarBVisibility (..),
+    TyVarBinder (..),
     Type (..),
     TypeFamilyDecl (..),
     TypeFamilyEq (..),
@@ -6029,7 +6030,7 @@ registerTypeSynonymHeader :: Maybe TypeScheme -> TypeSynDecl -> TcM ()
 registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   let tyBinder = binderHeadName (typeSynHead typeSynDecl)
       tyName = unqualifiedNameText tyBinder
-      params = binderHeadParams (typeSynHead typeSynDecl)
+      params = visibleHeadParams (binderHeadParams (typeSynHead typeSynDecl))
       arity = length params
   -- A kind variable that a binder mentions, as @k@ in @type Arity (ty ::
   -- k) = Arity' k@, is one variable of the synonym kind. Each mention of
@@ -6061,20 +6062,35 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = synonymBodyScope params
+              tvEnv = synonymBodyScope (tciKindScheme info) (binderHeadParams (typeSynHead typeSynDecl)) params
           (body, _) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 
 -- | The type variables that the body of a synonym can use: the
--- parameters and the kind variables that the parameter kinds mention. A
--- parameter hides a kind variable of the same name.
-synonymBodyScope :: [TyVarId] -> TvKindEnv
-synonymBodyScope params =
-  Map.fromList [(tvName variable, (variable, tvKind variable)) | variable <- kindVariables <> params]
+-- parameters, the kind variables that the parameter kinds mention, and
+-- the invisible binders of the head. A parameter hides a kind variable of
+-- the same name.
+synonymBodyScope :: TypeScheme -> [TyVarBinder] -> [TyVarId] -> TvKindEnv
+synonymBodyScope kindScheme binders params =
+  Map.fromList ([(tvName variable, (variable, tvKind variable)) | variable <- kindVariables <> params] <> invisible)
   where
     kindVariables = uniqueKindVariables (concatMap (freeKindVariables . tvKind) params)
+    invisible = [(name, (variable, tvKind variable)) | (name, variable) <- invisibleHeadBinders kindScheme binders]
+
+-- | The visible binders of a declaration head. An invisible binder, as
+-- @k@ in @type T \@k = ...@, is not a parameter. See 'invisibleHeadBinders'.
+visibleHeadParams :: [TyVarBinder] -> [TyVarBinder]
+visibleHeadParams = filter ((== TyVarBVisible) . tyVarBinderVisibility)
+
+-- | Each invisible binder of a declaration head names the next specified
+-- variable of the standalone kind signature, as in GHC. In @type TyCon1
+-- :: (k1 -> k2) -> (k1 ~> k2)@ and @type TyCon1 \@a \@b = ...@, the name
+-- @a@ is @k1@ and @b@ is @k2@.
+invisibleHeadBinders :: TypeScheme -> [TyVarBinder] -> [(Text, TyVarId)]
+invisibleHeadBinders (Scheme _ specified _ _) binders =
+  zip [tyVarBinderName binder | binder <- binders, tyVarBinderVisibility binder == TyVarBInvisible] specified
 
 checkTypeSynonymBody :: Decl -> TcM ()
 checkTypeSynonymBody (DeclAnn _ inner) = checkTypeSynonymBody inner
@@ -6086,7 +6102,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = synonymBodyScope params
+              tvEnv = synonymBodyScope (tciKindScheme info) (binderHeadParams (typeSynHead typeSynDecl)) params
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (body, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind
