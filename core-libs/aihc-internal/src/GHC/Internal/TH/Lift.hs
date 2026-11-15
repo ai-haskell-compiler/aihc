@@ -42,6 +42,7 @@ module GHC.Internal.TH.Lift
 where
 
 import Data.Array.Byte (ByteArray)
+import Data.Char (isUpper)
 import Data.Data hiding (Fixity, Infix)
 import Data.Either
 import Data.Fixed (Fixed (MkFixed))
@@ -118,48 +119,48 @@ instance Lift Int# where
 
 instance Lift Int8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int8 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int16 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int32 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int64 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Word# where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word# lifting is not available"
+  lift x = return (LitE (WordPrimL (fromIntegral (W# x))))
 
 instance Lift Word where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word8 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word16 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word32 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word64 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Natural where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Natural lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 -- | GHC lifts a byte array through the primitive bytes literal, which this
 -- standin has no builder for. The instance is still declared, because a
@@ -170,7 +171,7 @@ instance Lift ByteArray where
 
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Ratio lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.17.0.0
 instance Lift (Fixed a) where
@@ -182,12 +183,12 @@ mkFixedName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Fixed" "MkFixed"
 
 instance Lift Float where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Float lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Double where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Double lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Char where
@@ -375,52 +376,52 @@ nonemptyName = mkNameG_d "ghc-internal" "GHC.Internal.Base" ":|"
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Loc where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DocLoc where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift ModName where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift GHC.Internal.TH.Syntax.Module where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NameSpace where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NamespaceSpecifier where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PkgName where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NameFlavour where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift OccName where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Name where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -432,12 +433,12 @@ instance Lift NameIs where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Specificity where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift BndrVis where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -455,12 +456,12 @@ instance (Lift a) => Lift (TyVarBndr a) where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TyLit where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Type where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -470,172 +471,172 @@ instance Lift Bytes where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Lit where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Pat where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Clause where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DerivClause where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DerivStrategy where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Overlap where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FunDep where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Safety where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Callconv where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Foreign where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift ForeignSrcLang where
-  lift _ = error "Template Haskell ForeignSrcLang lifting is not available"
+  lift = liftEnumeration
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FixityDirection where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Fixity where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Inline where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift RuleMatch where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Phases where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift RuleBndr where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift AnnTarget where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Pragma where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift SourceStrictness where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift SourceUnpackedness where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift DecidedStrictness where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Bang where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Con where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TySynEqn where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift FamilyResultSig where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift InjectivityAnn where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift TypeFamilyHead where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Role where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PatSynArgs where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift PatSynDir where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Dec where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Range where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Exp where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
@@ -645,41 +646,59 @@ instance Lift (TExp a) where
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Match where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Guard where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Stmt where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Body where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Info where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift AnnLookup where
-  lift _ = error "Template Haskell AST lifting is not available"
+  lift = liftSyntax
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Extension where
-  lift _ = error "Template Haskell Extension lifting is not available"
+  lift = liftEnumeration
   liftTyped = unsafeCodeCoerce . lift
 
+-- | The name of a data constructor of "GHC.Internal.TH.Syntax". The package
+-- of a global name is the package id of the compiler, which has a version.
 thSyntaxDataName :: String -> Name
-thSyntaxDataName = mkNameG_d "aihc-internal" "GHC.Internal.TH.Syntax"
+thSyntaxDataName = mkNameG_d (tyConPackage syntaxTyCon) (tyConModule syntaxTyCon)
+  where
+    syntaxTyCon = typeRepTyCon (typeRep (Proxy :: Proxy Exp))
+
+-- | Lift a value of the syntax tree of Template Haskell. GHC derives these
+-- instances. Here, the generic lift of 'Data' gives the same expression:
+-- each constructor is a global name of its package and module, applied to
+-- its lifted fields.
+liftSyntax :: (Quote m, Data a) => a -> m Exp
+liftSyntax = dataToExpQ (\value -> fmap lift (cast value :: Maybe Bytes))
+
+-- | Lift a value of an enumeration type that has no 'Data' instance. The
+-- derived 'Show' instance gives the name of the constructor.
+liftEnumeration :: forall m a. (Quote m, Show a, Typeable a) => a -> m Exp
+liftEnumeration value = return (ConE (mkNameG_d (tyConPackage tyCon) (tyConModule tyCon) (show value)))
+  where
+    tyCon = typeRepTyCon (typeRep (Proxy :: Proxy a))
 
 -----------------------------------------------------
 --
@@ -704,7 +723,54 @@ dataToQa ::
   (forall b. (Data b) => b -> Maybe (m q)) ->
   a ->
   m q
-dataToQa _ _ _ _ _ = error "Generic Template Haskell lifting is not available"
+dataToQa mkCon mkLit appCon antiQ t =
+  case antiQ t of
+    Just y -> y
+    Nothing ->
+      case constrRep constr of
+        AlgConstr _ -> appCon (mkCon (constructorName t constr)) (gmapQ (dataToQa mkCon mkLit appCon antiQ) t)
+        IntConstr n -> mkLit (IntegerL n)
+        FloatConstr n -> mkLit (RationalL n)
+        CharConstr c -> mkLit (CharL c)
+  where
+    constr = toConstr t
+
+-- | The name of a constructor of a value. The list constructors and the
+-- tuple constructors are built-in syntax, so their names have no module.
+-- Other names come from the package and the module of the type of the
+-- value. A constructor that starts with a lower-case letter or a symbol
+-- is an ordinary function, as for the abstract types in
+-- Note [Data for non-algebraic types].
+constructorName :: (Data a) => a -> Constr -> Name
+constructorName t constr =
+  case showConstr constr of
+    "(:)" -> mkNameS ":"
+    spelling@('(' : _) -> mkNameS spelling
+    spelling@"[]" -> mkNameS spelling
+    spelling@(first : _)
+      | first /= ':' && not (isUpper first) -> mkNameG_v package home spelling
+    spelling -> mkNameG_d package home spelling
+  where
+    tyCon = typeRepTyCon (typeOf t)
+    package = tyConPackage tyCon
+    home = tyConModule tyCon
+
+-- | Whether a constructor is a constructor of a list.
+isListConstr :: Constr -> Bool
+isListConstr constr = showConstr constr == "(:)" || showConstr constr == "[]"
+
+-- | Whether a constructor is a constructor of a boxed tuple or of the unit.
+isTupleConstr :: Constr -> Bool
+isTupleConstr constr =
+  case showConstr constr of
+    '(' : rest -> all (== ',') (takeWhile (/= ')') rest)
+    _ -> False
+
+-- | The elements of a list, each with a function applied.
+listElements :: (Data a) => (forall b. (Data b) => b -> r) -> a -> [r]
+listElements f list
+  | showConstr (toConstr list) == "(:)" = gmapQi 0 f list : gmapQi 1 (listElements f) list
+  | otherwise = []
 
 {- Note [Data for non-algebraic types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -738,23 +804,66 @@ function.  Two complications
 -- override type-specific cases; see 'liftData' for a more commonly
 -- used variant.
 dataToExpQ ::
+  forall m a.
   (Quote m, Data a) =>
   (forall b. (Data b) => b -> Maybe (m Exp)) ->
   a ->
   m Exp
-dataToExpQ _ _ = error "Generic Template Haskell lifting is not available"
+dataToExpQ antiQ = go
+  where
+    go :: forall b. (Data b) => b -> m Exp
+    go t =
+      case antiQ t of
+        Just y -> y
+        Nothing ->
+          case constrRep constr of
+            AlgConstr _
+              | isListConstr constr -> ListE <$> sequence (listElements go t)
+              | isTupleConstr constr -> TupE . map Just <$> sequence (gmapQ go t)
+              | otherwise -> foldl (\left right -> AppE <$> left <*> right) (return (varOrConE (constructorName t constr))) (gmapQ go t)
+            IntConstr n -> return (LitE (IntegerL n))
+            FloatConstr n -> return (LitE (RationalL n))
+            CharConstr c -> return (LitE (CharL c))
+          where
+            constr = toConstr t
+    varOrConE name =
+      case nameSpace name of
+        Just DataName -> ConE name
+        Nothing | isConstructorName name -> ConE name
+        _ -> VarE name
+    isConstructorName name =
+      case nameBase name of
+        first : _ -> first == ':' || isUpper first || first == '(' || first == '['
+        [] -> False
 
 -- | 'liftData' is a variant of 'lift' in the 'Lift' type class which
 -- works for any type with a 'Data' instance.
 liftData :: (Quote m, Data a) => a -> m Exp
-liftData _ = error "Generic Template Haskell lifting is not available"
+liftData = dataToExpQ (const Nothing)
 
 -- | 'dataToPatQ' converts a value to a 'Pat' representation of the same
 -- value, in the SYB style. It takes a function to handle type-specific cases,
 -- alternatively, pass @const Nothing@ to get default behavior.
 dataToPatQ ::
+  forall m a.
   (Quote m, Data a) =>
   (forall b. (Data b) => b -> Maybe (m Pat)) ->
   a ->
   m Pat
-dataToPatQ _ _ = error "Generic Template Haskell lifting is not available"
+dataToPatQ antiQ = go
+  where
+    go :: forall b. (Data b) => b -> m Pat
+    go t =
+      case antiQ t of
+        Just y -> y
+        Nothing ->
+          case constrRep constr of
+            AlgConstr _
+              | isListConstr constr -> ListP <$> sequence (listElements go t)
+              | isTupleConstr constr -> TupP <$> sequence (gmapQ go t)
+              | otherwise -> ConP (constructorName t constr) [] <$> sequence (gmapQ go t)
+            IntConstr n -> return (LitP (IntegerL n))
+            FloatConstr n -> return (LitP (RationalL n))
+            CharConstr c -> return (LitP (CharL c))
+          where
+            constr = toConstr t
