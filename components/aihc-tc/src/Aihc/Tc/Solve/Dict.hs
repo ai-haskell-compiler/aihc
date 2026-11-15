@@ -1053,7 +1053,7 @@ typeableArguments ty =
 -- the other.
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
-  written <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
+  written <- allGivenEqualities givens
   decomposed <- concat <$> mapM (decomposeGiven (8 :: Int)) written
   -- A rule is compared with a wanted whose families are reduced, so its
   -- sides are reduced too. The proof still names the given as written.

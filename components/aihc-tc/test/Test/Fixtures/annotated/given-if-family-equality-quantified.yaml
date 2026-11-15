@@ -1,0 +1,74 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Data.Type.Bool where
+  import GHC.Types (Bool (..))
+  type If :: Bool -> k -> k -> k
+  type family If cond tru fls where
+              └─ type: GHC.Types.Bool → k → k → k
+    If 'True tru _ = tru
+    If 'False _ fls = fls
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, FlexibleInstances, GADTs, KindSignatures, PolyKinds, QuantifiedConstraints, RankNTypes, TypeFamilies, TypeOperators #-}
+  module Test where
+  import Data.Type.Bool (If)
+  import GHC.Types (Bool (..), Constraint, Type)
+  data Scope = User | System
+       │       │      └─ type: Scope
+       │       └─ type: Scope
+       └─ type: Type
+  data Bytes = Bytes
+       │       └─ type: Bytes
+       └─ type: Type
+  type family IsSystem (s :: Scope) :: Bool where
+              └─ type: Scope → GHC.Types.Bool
+    IsSystem 'System = 'True
+    IsSystem 'User = 'False
+  class Same a where
+  └─ class methods: same ∷ ∀ a. (Same a) ⇒ a → a → Bool
+    same :: a -> a -> Bool
+  data Cmd (scope :: Scope) (cmd :: Scope -> Type -> Type -> Type) where
+       └─ type: Scope → (Scope → Type → Type → Type) → Type
+    Cmd :: forall arg cmd scope. If (IsSystem scope) (arg ~ Bytes) (() :: Constraint) => cmd scope arg Bool -> Cmd scope cmd
+    └─ type: ∀ scope cmd arg. (Data.Type.Bool.If (IsSystem scope) (GHC.Types.~ arg Bytes) GHC.Classes.CTuple0) ⇒ cmd scope arg GHC.Types.Bool → Cmd scope cmd
+  instance (forall res. Same (cmd 'System Bytes res)) => Same (Cmd 'System cmd) where
+  └─ $fSameCmdSystemcmd ∷ ∀ cmd. (∀ res. Same (cmd 'System Bytes res)) ⇒ Same (Cmd 'System cmd)
+    same (Cmd a) (Cmd b) = same a b
+    │     │   │   │   │    └─ type: cmd 'System arg GHC.Types.Bool → cmd 'System arg GHC.Types.Bool → GHC.Types.Bool; type-args: cmd 'System arg Bool; evidence: cast((given forall res. Same cmd 'System Bytes res) @Bool, sym (Same app (app (refl cmd 'System) (super[0](given If (IsSystem 'System) (~ arg Bytes) CTuple0))) (refl Bool)))
+    │     │   │   │   └─ type: cmd 'System arg GHC.Types.Bool
+    │     │   │   └─ type: cmd 'System arg GHC.Types.Bool → Cmd 'System cmd; type-args: 'System, cmd, arg; evidence: given If (IsSystem 'System) (~ arg Bytes) CTuple0
+    │     │   └─ type: cmd 'System arg GHC.Types.Bool
+    │     └─ type: cmd 'System arg GHC.Types.Bool → Cmd 'System cmd; type-args: 'System, cmd, arg; evidence: given If (IsSystem 'System) (~ arg Bytes) CTuple0
+    └─ same ∷ Cmd 'System cmd → Cmd 'System cmd → Bool
+extensions:
+- DataKinds
+- GADTs
+- QuantifiedConstraints
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, StandaloneKindSignatures, TypeFamilies #-}
+  module Data.Type.Bool where
+  import GHC.Types (Bool (..))
+  type If :: Bool -> k -> k -> k
+  type family If cond tru fls where
+    If 'True tru _ = tru
+    If 'False _ fls = fls
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, FlexibleInstances, GADTs, KindSignatures, PolyKinds, QuantifiedConstraints, RankNTypes, TypeFamilies, TypeOperators #-}
+  module Test where
+  import Data.Type.Bool (If)
+  import GHC.Types (Bool (..), Constraint, Type)
+  data Scope = User | System
+  data Bytes = Bytes
+  type family IsSystem (s :: Scope) :: Bool where
+    IsSystem 'System = 'True
+    IsSystem 'User = 'False
+  class Same a where
+    same :: a -> a -> Bool
+  data Cmd (scope :: Scope) (cmd :: Scope -> Type -> Type -> Type) where
+    Cmd :: forall arg cmd scope. If (IsSystem scope) (arg ~ Bytes) (() :: Constraint) => cmd scope arg Bool -> Cmd scope cmd
+  instance (forall res. Same (cmd 'System Bytes res)) => Same (Cmd 'System cmd) where
+    same (Cmd a) (Cmd b) = same a b
+status: pass
+reason: a GADT given whose If family reduces to an equality rewrites the wanted dictionary, so a quantified given at the rewritten type solves it
