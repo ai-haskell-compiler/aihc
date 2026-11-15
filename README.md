@@ -12,12 +12,12 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | --- | --- | --- |
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
-| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `124/124` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `413/418` (`98.80%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1117/1153` (`96.87%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `274/274` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `828/5013` (`16.52%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●○○○○ `2293/10061` (`22.79%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `137/137` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `570/575` (`99.13%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1279/1301` (`98.30%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `276/276` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `894/5013` (`17.83%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●●○○○ `4624/10061` (`45.96%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
 | Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `131/132` (`99.24%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started
@@ -151,7 +151,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | scientific | 0.3.10.0 | ✅ installs |
 | megaparsec | 9.8.3 | ✅ installs |
 | aihc-cabal-syntax | 2.0.0.0 | ✅ installs |
-| aihc-parser | 5.0.0.0 | ✅ installs |
+| aihc-parser | 6.0.0.0 | ✅ installs |
 | text-short | 0.1.6.1 | ✅ installs |
 | base16 | 2.0 | ✅ installs |
 | base64 | 2.1 | ✅ installs |
@@ -173,7 +173,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | directory | 1.3.11.0 | ✅ installs |
 | aihc-hackage | 0.1.0.0 | ✅ installs |
 | crypton-x509-store | 1.10.0 | ✅ installs |
-| network | 3.2.12.0 | ✅ installs |
+| network | 3.2.14.0 | ✅ installs |
 | crypton-socks | 0.6.2 | ✅ installs |
 | iproute | 1.8.0 | ✅ installs |
 | crypton-x509-validation | 1.10.1 | ✅ installs |
@@ -195,7 +195,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | serialise | 0.2.6.1 | ✅ installs |
 | wherefrom-compat | 0.2.0.0 | ✅ installs |
 | nothunks | 0.3.2 | ✅ installs |
-| monoidmap | 0.1.3.1 | ✅ installs |
+| monoidmap | 0.1.4.0 | ✅ installs |
 | aihc-resolve | 0.1.0.0 | ✅ installs |
 | aihc-tc | 0.1.0.0 | ✅ installs |
 | witherable | 0.5 | ✅ installs |
@@ -204,12 +204,12 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | zlib | 0.7.1.1 | ✅ installs |
 | streaming-commons | 0.2.3.1 | ✅ installs |
 | http-client | 0.7.19 | ✅ installs |
-| tls | 2.5.1 | ✅ installs |
+| tls | 2.5.2 | ✅ installs |
 | crypton-connection | 0.4.6 | ✅ installs |
 | http-client-tls | 0.4.0 | ✅ installs |
 | aihc-http | 0.1.0.0 | ✅ installs |
 | aihc-hackage-fetch | 0.1.0.0 | ✅ installs |
-| aihc | 0.1.0.0 | ❌ fails (linker command failed with exit code 1 (use -v to see invocation)) |
+| aihc | 0.1.0 | ❌ fails (linker command failed with exit code 1 (use -v to see invocation)) |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->
