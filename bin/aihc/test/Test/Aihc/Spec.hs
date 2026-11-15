@@ -737,7 +737,9 @@ noRequest _ = assertFailure "the closure sent a request"
 -- expression quotes, splices in the position of a declaration, and name
 -- quotes. The program is for the host target, and the
 -- splices run for @wasm32-wasip3@, so the store has the core libraries of
--- the two targets.
+-- the two targets. The program also depends on a package that its C code
+-- makes only for native targets. The splices do not import that package,
+-- so the builds for the engine must not compile it.
 test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
 test_buildSplices getStore getEngineStore = do
   available <- getEngineStore
@@ -745,6 +747,7 @@ test_buildSplices getStore getEngineStore = do
     withBuildModuleSandbox getStore "aihc-splices" $ \sandbox _fixtureRoot storeRoot options -> do
       copyWritable (seedStoreRoot engineStore) storeRoot
       fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/template-haskell"
+      workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
       let output = sandboxRoot sandbox </> "program"
       void $
         buildWithConfig
@@ -752,7 +755,8 @@ test_buildSplices getStore getEngineStore = do
           options
             { buildInput = fixtureRoot </> "Main.hs",
               buildSourceDirectories = [fixtureRoot],
-              buildPackageConstraints = buildPackageConstraints options <> ["template-haskell"],
+              buildPackageConstraints = buildPackageConstraints options <> ["template-haskell", "native-only == 1.0.0"],
+              buildWorkspace = Just workspace,
               buildOutput = Just output
             }
           withSplices
