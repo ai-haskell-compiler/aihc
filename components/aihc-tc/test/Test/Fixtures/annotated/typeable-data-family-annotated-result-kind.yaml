@@ -1,0 +1,60 @@
+annotated:
+- |-
+  {-# LANGUAGE KindSignatures, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  import Type.Reflection (Typeable)
+  data Proxy a = Proxy
+       │         └─ type: ∀ k0 a. Proxy a
+       └─ type: k0 → Type
+  data Box (a :: k) = Box
+       │              └─ type: ∀ k a. Box a
+       └─ type: k → Type
+  data Arg = Arg
+       │     └─ type: Arg
+       └─ type: Type
+  data family Tok (arg :: Type) :: k
+              └─ type: Type → k
+  need :: Typeable a => Proxy a -> ()
+  need _ = ()
+  │    │   └─ type: ()
+  │    └─ type: Proxy a
+  └─ type: ∀ k0 a. (Type.Reflection.Typeable a) ⇒ Proxy a → ()
+  -- As Distribution.Simple.SetupHooks.Rule in Cabal-3.18.2.0 uses
+  -- Proxy @(TypeRep (Tok "arg" :: Type)). Only the annotation gives the
+  -- result kind of Tok.
+  annotated :: ()
+  annotated = need (Proxy @(Box (Tok Arg :: Type)))
+  └─ type: () │     └─ type: Proxy (Box (Tok Arg)); type-args: Type, Box (Tok Arg)
+              └─ type: Proxy (Box (Tok Arg)) → (); type-args: Type, Box (Tok Arg); evidence: typeable @Box (Tok Arg) (typeable @Tok Arg (typeable @Arg))
+- |-
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+  └─ class methods:
+extensions:
+- PolyKinds
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE PolyKinds #-}
+  module Type.Reflection where
+  class Typeable a where
+- |
+  {-# LANGUAGE KindSignatures, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  import Type.Reflection (Typeable)
+  data Proxy a = Proxy
+  data Box (a :: k) = Box
+  data Arg = Arg
+  data family Tok (arg :: Type) :: k
+  need :: Typeable a => Proxy a -> ()
+  need _ = ()
+  -- As Distribution.Simple.SetupHooks.Rule in Cabal-3.18.2.0 uses
+  -- Proxy @(TypeRep (Tok "arg" :: Type)). Only the annotation gives the
+  -- result kind of Tok.
+  annotated :: ()
+  annotated = need (Proxy @(Box (Tok Arg :: Type)))
+status: pass
+reason: the kind annotation gives the result-only kind of a data family application under a poly-kinded constructor, and the type keeps it for the Typeable solver

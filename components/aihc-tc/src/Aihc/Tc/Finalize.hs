@@ -383,7 +383,9 @@ recordKindArgumentsIn kinds globals = go
           let application = TcTyConApp tyCon headKinds arguments'
           case openResultKindScheme globals tyCon (length arguments') of
             Just variables
-              | not (determined tyCon arguments' variables) -> do
+              -- The type checker kept the kind arguments of this application.
+              | null headKinds,
+                not (determined tyCon arguments' variables) -> do
                   reduced <- reduceTypeFamilies application
                   -- The reduct can be a stuck application with an open
                   -- result kind, as @TypeError msg@. Its kind is then the

@@ -34,10 +34,12 @@ module Aihc.Tc.Types
     TcKinds (..),
     isEqualityTyCon,
     mkAppTy,
-    isAnyTyCon,
+    hasResultOnlyKindVariable,
     kindedTyCon,
     reflexiveWitness,
     pairedKindArguments,
+    Exact (..),
+    ExactOrd (..),
     bareTyCon,
     tyConNamespace,
     mkTyConWithOrigin,
@@ -129,7 +131,7 @@ where
 
 import Aihc.Resolve (Entity (..), GlobalName (..), LocalId (..), PackageId (..), ResolutionNamespace (..))
 import Control.DeepSeq (NFData (..))
-import Control.Monad (zipWithM)
+import Control.Monad (foldM, zipWithM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -259,14 +261,16 @@ bareTyCon ty =
 -- A partial application retains its invisible kind arguments.
 -- A saturated application uses its visible arguments to determine these kinds.
 -- A saturated arrow becomes the function type.
+--
+-- An application that keeps kind arguments in 'TcTyConApp' keeps them
+-- when it gets more arguments. A use of a constructor whose visible
+-- arguments do not give all its kinds is such an application (see
+-- 'hasResultOnlyKindVariable'), as @Any \@(k -> Type) a@, the default of an
+-- ambiguous @g a@.
 mkAppTy :: TcType -> TcType -> TcType
 mkAppTy function argument
   -- The arguments determine the kinds once they saturate the constructor.
-  -- @Any :: forall k. k@ has its kind only in the result, and it never
-  -- reduces: @Any \@(k -> Type) a@, the default of an ambiguous @g a@,
-  -- keeps its kind.
   | (TcKindedTyCon tyCon _, arguments) <- collectTypeApplications function,
-    not (isAnyTyCon tyCon),
     length arguments + 1 >= tyConArity tyCon =
       TcTyCon tyCon (arguments <> [argument])
   | otherwise =
@@ -277,10 +281,18 @@ mkAppTy function argument
         TcAppTy TcArrowTy domain -> TcFunTy domain argument
         _ -> TcAppTy function argument
 
--- | Whether a type constructor is @GHC.Types.Any@, the type family without
--- equations that defaulting uses for an ambiguous type variable.
-isAnyTyCon :: TyCon -> Bool
-isAnyTyCon tyCon = tyConName tyCon == "Any" && tyConModuleName tyCon == "GHC.Types" && tyConArity tyCon == 0
+-- | Whether the visible arguments of a saturated application do not give
+-- all kind arguments of a kind scheme: a variable of the scheme is in the
+-- result kind only. Examples are @Any :: forall k. k@, @TypeError ::
+-- forall b. ErrorMessage -> b@, and a data family @Tok :: Symbol -> k@. An
+-- application of such a constructor must keep its kind arguments.
+hasResultOnlyKindVariable :: TypeScheme -> Int -> Bool
+hasResultOnlyKindVariable (ForAll variables _ kind) arity =
+  any (\variable -> not (any (typeMentionsTyVar variable) formals)) variables
+  where
+    formals = take arity (formalKinds kind)
+    formalKinds (KFun formal result) = formal : formalKinds result
+    formalKinds _ = []
 
 tyConNamespace :: TyCon -> ResolutionNamespace
 tyConNamespace (TyConInternal _ _ _ namespace _) = namespace
@@ -409,6 +421,78 @@ pairedKindArguments :: [TcType] -> [TcType] -> [(TcType, TcType)]
 pairedKindArguments left right
   | null left || null right = []
   | otherwise = zip left right
+
+-- | A value compared with all kind arguments of each 'TcTyConApp' in it.
+-- The 'Eq' and 'Ord' instances of 'TcType' do not compare these kind
+-- arguments. A table that must keep two types apart when they differ only
+-- in their kind arguments, as the parts of a serialised interface, uses
+-- this key.
+newtype Exact a = Exact a
+
+instance (ExactOrd a) => Eq (Exact a) where
+  Exact left == Exact right = compareExactly left right == EQ
+
+instance (ExactOrd a) => Ord (Exact a) where
+  compare (Exact left) (Exact right) = compareExactly left right
+
+-- | An order that compares all kind arguments.
+class ExactOrd a where
+  compareExactly :: a -> a -> Ordering
+
+instance (ExactOrd a) => ExactOrd [a] where
+  compareExactly left right =
+    case (left, right) of
+      ([], []) -> EQ
+      ([], _) -> LT
+      (_, []) -> GT
+      (l : ls, r : rs) -> compareExactly l r <> compareExactly ls rs
+
+instance ExactOrd TcType where
+  compareExactly left right =
+    case (left, right) of
+      (TcTyVar leftVariable, TcTyVar rightVariable) -> compareExactly leftVariable rightVariable
+      (TcTyConApp leftTyCon leftKinds leftArguments, TcTyConApp rightTyCon rightKinds rightArguments) ->
+        compare leftTyCon rightTyCon <> compareExactly leftKinds rightKinds <> compareExactly leftArguments rightArguments
+      (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
+        compareExactly leftArgument rightArgument <> compareExactly leftResult rightResult
+      (TcForAllTy leftVariable leftBody, TcForAllTy rightVariable rightBody) ->
+        compareExactly leftVariable rightVariable <> compareExactly leftBody rightBody
+      (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody) ->
+        compareExactly leftPredicates rightPredicates <> compareExactly leftBody rightBody
+      (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
+        compareExactly leftFunction rightFunction <> compareExactly leftArgument rightArgument
+      (TcKindedTyCon leftTyCon leftKinds, TcKindedTyCon rightTyCon rightKinds) ->
+        compare leftTyCon rightTyCon <> compareExactly leftKinds rightKinds
+      -- The other forms contain no type, and two different forms compare
+      -- by their constructor.
+      _ -> compare left right
+
+instance ExactOrd TyVarId where
+  compareExactly (TyVarIdInternal leftName leftUnique leftKind) (TyVarIdInternal rightName rightUnique rightKind) =
+    compare leftName rightName <> compare leftUnique rightUnique <> compareExactly leftKind rightKind
+
+instance ExactOrd Pred where
+  compareExactly left right =
+    case (left, right) of
+      (ClassPred leftTyCon leftArguments, ClassPred rightTyCon rightArguments) ->
+        compare leftTyCon rightTyCon <> compareExactly leftArguments rightArguments
+      (EqPred leftLeft leftRight, EqPred rightLeft rightRight) ->
+        compareExactly leftLeft rightLeft <> compareExactly leftRight rightRight
+      (QuantifiedPred leftVariables leftAntecedents leftConsequent, QuantifiedPred rightVariables rightAntecedents rightConsequent) ->
+        compareExactly leftVariables rightVariables
+          <> compareExactly leftAntecedents rightAntecedents
+          <> compareExactly leftConsequent rightConsequent
+      (IParamPred leftName leftPayload, IParamPred rightName rightPayload) ->
+        compare leftName rightName <> compareExactly leftPayload rightPayload
+      (IrredPred leftConstraint, IrredPred rightConstraint) -> compareExactly leftConstraint rightConstraint
+      _ -> compare left right
+
+instance ExactOrd TypeScheme where
+  compareExactly (Scheme leftInferred leftSpecified leftPredicates leftBody) (Scheme rightInferred rightSpecified rightPredicates rightBody) =
+    compareExactly leftInferred rightInferred
+      <> compareExactly leftSpecified rightSpecified
+      <> compareExactly leftPredicates rightPredicates
+      <> compareExactly leftBody rightBody
 
 -- | A type constructor applied to its visible arguments. The pattern
 -- matches each list of kind arguments. The constructor gives no kind
@@ -783,6 +867,12 @@ typeKindInEnv kinds kindEnv = go
       case rawType of
         TcTyVar tyVar -> Right (tvKind tyVar)
         TcMetaTv {} -> Left "type still has a meta variable"
+        -- The kind arguments give the kind of the constructor, and the
+        -- visible arguments apply it.
+        TcTyConApp tyCon kindArguments@(_ : _) arguments
+          | Just (ForAll quantified _ body) <- Map.lookup (tyConKey tyCon) kindEnv,
+            length quantified == length kindArguments ->
+              foldM applyKind (applySubst (Map.fromList (zip (map tvUnique quantified) kindArguments)) body) arguments
         TcTyCon tyCon arguments -> do
           scheme <-
             maybe
