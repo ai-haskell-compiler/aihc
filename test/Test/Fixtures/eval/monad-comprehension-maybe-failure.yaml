@@ -12,5 +12,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: A failed pattern in a Maybe comprehension must return Nothing. The type checker treats the generators as lists.
+status: pass
+reason: A failed pattern in a Maybe comprehension calls fail of Maybe, thus the result is Nothing.

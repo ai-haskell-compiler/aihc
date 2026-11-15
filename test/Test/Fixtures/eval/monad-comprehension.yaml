@@ -13,5 +13,5 @@ output: |
   True
 expression: |
   result
-status: xfail
+status: pass
 reason: MonadComprehensions accepts a comprehension over Maybe.

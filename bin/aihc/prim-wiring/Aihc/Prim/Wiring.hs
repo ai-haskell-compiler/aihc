@@ -363,4 +363,4 @@ coreRecognizedClasses =
 -- literal and @do@ desugaring names, the list syntax, and the classes of
 -- deriving. The resolver reads them as the built-in scope of a module.
 builtinFunctionModules :: [Text]
-builtinFunctionModules = ["GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
+builtinFunctionModules = ["Control.Monad", "GHC.IsList", "GHC.Classes", "GHC.Prim", "GHC.Prim.Base", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.Num", "GHC.Prim.Real", "GHC.Prim.String", "GHC.Types"]
