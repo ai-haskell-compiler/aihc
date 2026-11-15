@@ -9,7 +9,7 @@ import Data.Proxy (Proxy)
 import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
 import Language.Haskell.TH
 import Lower (Mode (..))
-import Language.Haskell.TH.Syntax (Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
+import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
 -- A quote in a module that also has a do block in an operand of an infix
 -- expression. Name resolution runs two times on such a module, and the
@@ -254,3 +254,13 @@ main = do
   print ($([|\(left, right) -> left + right|]) (2, 3 :: Int))
   print (localSecret 1)
   print (localId 2)
+  -- A splice lifts a syntax tree of Template Haskell. The program gets
+  -- the same tree.
+  print $(lift (LamE [VarP (mkName "z")] (AppE (VarE (mkName "f")) (LitE (StringL "s")))))
+  -- The reify of a class gives the instances that the module can see.
+  putStrLn
+    $( do
+         ClassI _ instances <- reify ''Lift
+         let heads = [name | InstanceD _ _ (AppT _ (ConT name)) _ <- instances]
+         litE (stringL (show (''Exp `elem` heads, ''Bool `elem` heads)))
+     )

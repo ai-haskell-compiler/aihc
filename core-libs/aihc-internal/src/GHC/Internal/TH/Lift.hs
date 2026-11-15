@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
@@ -118,48 +119,48 @@ instance Lift Int# where
 
 instance Lift Int8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int8 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int16 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int32 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Int64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Int64 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Word# where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word# lifting is not available"
+  lift x = return (LitE (WordPrimL (fromIntegral (W# x))))
 
 instance Lift Word where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word8 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word8 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word16 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word16 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word32 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word32 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Word64 where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Word64 lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 instance Lift Natural where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Natural lifting is not available"
+  lift x = return (LitE (IntegerL (fromIntegral x)))
 
 -- | GHC lifts a byte array through the primitive bytes literal, which this
 -- standin has no builder for. The instance is still declared, because a
@@ -170,7 +171,7 @@ instance Lift ByteArray where
 
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Ratio lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.17.0.0
 instance Lift (Fixed a) where
@@ -182,12 +183,12 @@ mkFixedName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Fixed" "MkFixed"
 
 instance Lift Float where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Float lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Double where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell Double lifting is not available"
+  lift x = return (LitE (RationalL (toRational x)))
 
 -- | @since template-haskell-2.16.0.0
 instance Lift Char where
@@ -374,54 +375,34 @@ nonemptyName = mkNameG_d "ghc-internal" "GHC.Internal.Base" ":|"
 -----------------------------------------------------
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Loc where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Loc
 
 -- | @since template-haskell-2.22.1.0
-instance Lift DocLoc where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift DocLoc
 
 -- | @since template-haskell-2.22.1.0
-instance Lift ModName where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift ModName
 
 -- | @since template-haskell-2.22.1.0
-instance Lift GHC.Internal.TH.Syntax.Module where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift GHC.Internal.TH.Syntax.Module
 
 -- | @since template-haskell-2.22.1.0
-instance Lift NameSpace where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift NameSpace
 
 -- | @since template-haskell-2.22.1.0
-instance Lift NamespaceSpecifier where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift NamespaceSpecifier
 
 -- | @since template-haskell-2.22.1.0
-instance Lift PkgName where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift PkgName
 
 -- | @since template-haskell-2.22.1.0
-instance Lift NameFlavour where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift NameFlavour
 
 -- | @since template-haskell-2.22.1.0
-instance Lift OccName where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift OccName
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Name where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Name
 
 -- | @since template-haskell-2.22.1.0
 instance Lift NameIs where
@@ -431,14 +412,10 @@ instance Lift NameIs where
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Specificity where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Specificity
 
 -- | @since template-haskell-2.22.1.0
-instance Lift BndrVis where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift BndrVis
 
 -- | @since template-haskell-2.22.1.0
 instance (Lift a) => Lift (TyVarBndr a) where
@@ -454,14 +431,10 @@ instance (Lift a) => Lift (TyVarBndr a) where
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
-instance Lift TyLit where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift TyLit
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Type where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Type
 
 -- | @since template-haskell-2.22.1.0
 instance Lift Bytes where
@@ -469,174 +442,106 @@ instance Lift Bytes where
   lift _ = error "Template Haskell Bytes lifting is not available"
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Lit where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Lit
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Pat where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Pat
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Clause where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Clause
 
 -- | @since template-haskell-2.22.1.0
-instance Lift DerivClause where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift DerivClause
 
 -- | @since template-haskell-2.22.1.0
-instance Lift DerivStrategy where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift DerivStrategy
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Overlap where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Overlap
 
 -- | @since template-haskell-2.22.1.0
-instance Lift FunDep where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift FunDep
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Safety where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Safety
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Callconv where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Callconv
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Foreign where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Foreign
 
 -- | @since template-haskell-2.22.1.0
-instance Lift ForeignSrcLang where
-  lift _ = error "Template Haskell ForeignSrcLang lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift ForeignSrcLang
 
 -- | @since template-haskell-2.22.1.0
-instance Lift FixityDirection where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift FixityDirection
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Fixity where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Fixity
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Inline where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Inline
 
 -- | @since template-haskell-2.22.1.0
-instance Lift RuleMatch where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift RuleMatch
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Phases where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Phases
 
 -- | @since template-haskell-2.22.1.0
-instance Lift RuleBndr where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift RuleBndr
 
 -- | @since template-haskell-2.22.1.0
-instance Lift AnnTarget where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift AnnTarget
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Pragma where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Pragma
 
 -- | @since template-haskell-2.22.1.0
-instance Lift SourceStrictness where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift SourceStrictness
 
 -- | @since template-haskell-2.22.1.0
-instance Lift SourceUnpackedness where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift SourceUnpackedness
 
 -- | @since template-haskell-2.22.1.0
-instance Lift DecidedStrictness where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift DecidedStrictness
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Bang where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Bang
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Con where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Con
 
 -- | @since template-haskell-2.22.1.0
-instance Lift TySynEqn where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift TySynEqn
 
 -- | @since template-haskell-2.22.1.0
-instance Lift FamilyResultSig where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift FamilyResultSig
 
 -- | @since template-haskell-2.22.1.0
-instance Lift InjectivityAnn where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift InjectivityAnn
 
 -- | @since template-haskell-2.22.1.0
-instance Lift TypeFamilyHead where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift TypeFamilyHead
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Role where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Role
 
 -- | @since template-haskell-2.22.1.0
-instance Lift PatSynArgs where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift PatSynArgs
 
 -- | @since template-haskell-2.22.1.0
-instance Lift PatSynDir where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift PatSynDir
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Dec where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Dec
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Range where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Range
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Exp where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Exp
 
 -- | @since template-haskell-2.22.1.0
 instance Lift (TExp a) where
@@ -644,39 +549,25 @@ instance Lift (TExp a) where
   liftTyped = unsafeCodeCoerce . lift
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Match where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Match
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Guard where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Guard
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Stmt where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Stmt
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Body where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Body
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Info where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Info
 
 -- | @since template-haskell-2.22.1.0
-instance Lift AnnLookup where
-  lift _ = error "Template Haskell AST lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift AnnLookup
 
 -- | @since template-haskell-2.22.1.0
-instance Lift Extension where
-  lift _ = error "Template Haskell Extension lifting is not available"
-  liftTyped = unsafeCodeCoerce . lift
+deriving instance Lift Extension
 
 thSyntaxDataName :: String -> Name
 thSyntaxDataName = mkNameG_d "aihc-internal" "GHC.Internal.TH.Syntax"

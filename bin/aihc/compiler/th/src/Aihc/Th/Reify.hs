@@ -16,8 +16,8 @@
 --
 -- * A data type or a newtype: @TyConI@ with @DataD@ or @NewtypeD@.
 -- * A type synonym: @TyConI@ with @TySynD@.
--- * A class: @ClassI@ with @ClassD@ and its method signatures, with no
---   instances.
+-- * A class: @ClassI@ with @ClassD@, its method signatures, and the
+--   instances of the class in the type facts that the compiler gives.
 -- * A type constructor with no constructors that the compiler knows, such
 --   as @Int#@: @PrimTyConI@.
 -- * A data constructor: @DataConI@.
@@ -40,11 +40,12 @@ import Aihc.Tc.Env
     DataConSourceForm (..),
     DataTypeInfo (..),
     FunDep (..),
+    InstanceInfo (..),
     TyConFlavor (..),
     TyConInfo (..),
     TypeSynonymInfo (..),
   )
-import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataTypes)
+import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataTypes, tcInterfaceInstances)
 import Aihc.Tc.Roles (Role (..), RoleFacts (..), tyConRoles)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -110,7 +111,7 @@ reifyRoles interface global
 typeInfo :: TcInterface -> GlobalName -> Either Text Tree
 typeInfo interface global
   | Just dataType <- Map.lookup global (tcInterfaceDataTypeMap interface) = node "TyConI" . pure <$> dataDeclaration dataType
-  | Just classInfo <- Map.lookup global (tcInterfaceClassMap interface) = classDeclaration global classInfo
+  | Just classInfo <- Map.lookup global (tcInterfaceClassMap interface) = classDeclaration global classInfo (classInstances interface global)
   | Just tyCon <- Map.lookup global (tcInterfaceTyConMap interface) =
       case (tciFlavor tyCon, tciTypeSynonym tyCon) of
         (_, Just synonym) -> node "TyConI" . pure <$> synonymDeclaration global synonym
@@ -284,11 +285,19 @@ classMethodType classInfo (Scheme inferred specified predicates body) =
         body
     )
 
-classDeclaration :: GlobalName -> ClassInfo -> Either Text Tree
-classDeclaration global classInfo = do
+-- | The instances of a class in the type facts. GHC gives the instances
+-- that the module of the splice can see. The facts of the imports of that
+-- module have these instances.
+classInstances :: TcInterface -> GlobalName -> [InstanceInfo]
+classInstances interface global =
+  [instanceInfo | instanceInfo <- tcInterfaceInstances interface, tyConKey (iiClass instanceInfo) == global]
+
+classDeclaration :: GlobalName -> ClassInfo -> [InstanceInfo] -> Either Text Tree
+classDeclaration global classInfo instances = do
   binders <- mapM (binderTree "BndrReq") (ciTyVars classInfo)
   superClasses <- mapM typeTree (ciSuperClassTypes classInfo)
   methods <- mapM method (ciMethods classInfo)
+  instances' <- mapM instanceTree instances
   let declaration =
         node
           "ClassD"
@@ -298,7 +307,7 @@ classDeclaration global classInfo = do
             list (map funDep (ciFunDeps classInfo)),
             list methods
           ]
-  Right (node "ClassI" [declaration, list []])
+  Right (node "ClassI" [declaration, list instances'])
   where
     method (name, scheme) = do
       methodType <- schemeTree scheme
@@ -306,6 +315,18 @@ classDeclaration global classInfo = do
     funDep dependency =
       node "FunDep" [list (map parameter (fdDeterminers dependency)), list (map parameter (fdDetermined dependency))]
     parameter position = maybe (node "Name" [node "OccName" [TreeString "?"], node "NameS" []]) variableName (lookup position (zip [0 ..] (ciTyVars classInfo)))
+
+-- | An instance as an @InstanceD@ with no declarations, as the @reify@ of
+-- GHC gives it. The variables of the instance are free in its type.
+instanceTree :: InstanceInfo -> Either Text Tree
+instanceTree instanceInfo = do
+  context <- mapM predTree (iiContext instanceInfo)
+  instanceHead <- predTree (ClassPred (iiClass instanceInfo) (iiHead instanceInfo))
+  Right (node "InstanceD" [overlap, list context, instanceHead, list []])
+  where
+    overlap
+      | iiIncoherent instanceInfo = node "Just" [node "Incoherent" []]
+      | otherwise = node "Nothing" []
 
 synonymDeclaration :: GlobalName -> TypeSynonymInfo -> Either Text Tree
 synonymDeclaration global synonym =
