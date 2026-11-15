@@ -365,7 +365,7 @@ recordKindArgumentsIn kinds globals = go
     kindEnv = Map.map tciKindScheme globals
     go expected ty =
       case ty of
-        TcTyCon tyCon arguments -> do
+        TcTyConApp tyCon headKinds arguments -> do
           -- The two sides of an equality have one kind, and each side can
           -- give it.
           let argumentKinds
@@ -374,7 +374,7 @@ recordKindArgumentsIn kinds globals = go
                     [kindOf right, kindOf left]
                 | otherwise = []
           arguments' <- zipWithM go (argumentKinds <> repeat Nothing) arguments
-          let application = TcTyCon tyCon arguments'
+          let application = TcTyConApp tyCon headKinds arguments'
           case openResultKindScheme globals tyCon (length arguments') of
             Just variables
               | not (determined tyCon arguments' variables) -> do
@@ -751,8 +751,8 @@ firstMetaType ty =
       Nothing
     TcTyVar {} ->
       Nothing
-    TcTyCon _ args ->
-      firstJusts (map firstMetaType args)
+    TcTyConApp _ kindArgs args ->
+      firstJusts (map firstMetaType (kindArgs <> args))
     TcKindedTyCon _ kindArgs ->
       firstJusts (map firstMetaType kindArgs)
     TcFunTy left right ->

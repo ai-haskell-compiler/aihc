@@ -110,7 +110,7 @@ metaVariables ty =
     TcMetaTv unique -> [unique]
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyCon _ arguments -> concatMap metaVariables arguments
+    TcTyConApp _ kindArguments arguments -> concatMap metaVariables kindArguments <> concatMap metaVariables arguments
     TcKindedTyCon _ kindArguments -> concatMap metaVariables kindArguments
     TcFunTy argument result -> metaVariables argument <> metaVariables result
     TcForAllTy _ body -> metaVariables body

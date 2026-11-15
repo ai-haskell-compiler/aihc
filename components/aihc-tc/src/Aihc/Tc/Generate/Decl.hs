@@ -702,7 +702,7 @@ kindedTyConKinds :: TcType -> [TcType]
 kindedTyConKinds ty =
   case ty of
     TcKindedTyCon _ kindArguments -> kindArguments
-    TcTyCon _ arguments -> concatMap kindedTyConKinds arguments
+    TcTyConApp _ kindArguments arguments -> kindArguments <> concatMap kindedTyConKinds arguments
     TcFunTy argument result -> kindedTyConKinds argument <> kindedTyConKinds result
     TcAppTy function argument -> kindedTyConKinds function <> kindedTyConKinds argument
     TcForAllTy _ body -> kindedTyConKinds body
@@ -1190,7 +1190,7 @@ freeKindVariables ty = case ty of
   TcMetaTv {} -> []
   TcArrowTy -> []
   TcTyLit {} -> []
-  TcTyCon _ arguments -> concatMap freeKindVariables arguments
+  TcTyConApp _ kindArguments arguments -> concatMap freeKindVariables kindArguments <> concatMap freeKindVariables arguments
   TcKindedTyCon _ kindArguments -> concatMap freeKindVariables kindArguments
   TcFunTy argument result -> freeKindVariables argument <> freeKindVariables result
   TcAppTy function argument -> freeKindVariables function <> freeKindVariables argument
@@ -5538,7 +5538,7 @@ tcTypeMetas ty =
     TcTyVar {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyCon _ arguments -> concatMap tcTypeMetas arguments
+    TcTyConApp _ kindArguments arguments -> concatMap tcTypeMetas kindArguments <> concatMap tcTypeMetas arguments
     TcKindedTyCon _ kindArguments -> concatMap tcTypeMetas kindArguments
     TcFunTy argument result -> tcTypeMetas argument <> tcTypeMetas result
     TcForAllTy _ body -> tcTypeMetas body
@@ -6483,7 +6483,7 @@ rejigIndices initialClaimed indices = do
     substituteKindParams kindParams kind =
       case kind of
         TcTyVar tyVar -> fromMaybe kind (Map.lookup (tvUnique tyVar) kindParams)
-        TcTyCon tyCon arguments -> TcTyCon tyCon (map (substituteKindParams kindParams) arguments)
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon kindArguments (map (substituteKindParams kindParams) arguments)
         TcFunTy argument result -> TcFunTy (substituteKindParams kindParams argument) (substituteKindParams kindParams result)
         TcAppTy function argument -> TcAppTy (substituteKindParams kindParams function) (substituteKindParams kindParams argument)
         _ -> kind

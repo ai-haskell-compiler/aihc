@@ -162,7 +162,7 @@ typeVariables ty = nub $ case ty of
   TcMetaTv _ -> []
   TcArrowTy -> []
   TcTyLit {} -> []
-  TcTyCon _ arguments -> concatMap typeVariables arguments
+  TcTyConApp _ kindArguments arguments -> concatMap typeVariables kindArguments <> concatMap typeVariables arguments
   TcKindedTyCon _ kindArguments -> concatMap typeVariables kindArguments
   TcFunTy argument result -> typeVariables argument <> typeVariables result
   TcAppTy function argument -> typeVariables function <> typeVariables argument

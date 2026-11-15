@@ -123,7 +123,7 @@ splitLastArgument :: TcType -> Maybe (TcType, TcType)
 splitLastArgument ty =
   case ty of
     TcTyCon _ [] -> Nothing
-    TcTyCon tyCon arguments -> Just (TcTyCon tyCon (init arguments), last arguments)
+    TcTyConApp tyCon kindArguments arguments -> Just (TcTyConApp tyCon kindArguments (init arguments), last arguments)
     TcAppTy function argument -> Just (function, argument)
     TcFunTy domain result -> Just (TcAppTy TcArrowTy domain, result)
     _ -> Nothing

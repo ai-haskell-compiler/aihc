@@ -151,9 +151,9 @@ annotateDataFamilyInstDerivingTc extensions info clauses decl = do
 familyInstanceTargetType :: DataFamilyInstanceInfo -> Maybe SourceSpan -> TcType -> TcM TcType
 familyInstanceTargetType info sourceSpan expectedKind =
   case dfiiFamilyType info of
-    TcTyCon family arguments -> do
+    TcTyConApp family kindArguments arguments -> do
       let candidates =
-            [ TcTyCon family kept
+            [ TcTyConApp family kindArguments kept
             | count <- [length arguments, length arguments - 1 .. 0],
               let (kept, dropped) = splitAt count arguments,
               all (droppable kept dropped) dropped

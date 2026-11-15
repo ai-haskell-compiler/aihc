@@ -333,7 +333,7 @@ replaceFamilyApplications :: Unique -> TcType -> TcM (TcType, [(TcType, TcType)]
 replaceFamilyApplications u = go
   where
     go ty = case ty of
-      TcTyCon tyCon arguments -> do
+      TcTyConApp tyCon kindArguments arguments -> do
         maybeInfo <- lookupTyConByIdentity tyCon
         case maybeInfo of
           Just info
@@ -341,7 +341,7 @@ replaceFamilyApplications u = go
               length arguments >= tciArity info ->
                 do
                   let (familyArguments, extraArguments) = splitAt (tciArity info) arguments
-                      application = TcTyCon tyCon familyArguments
+                      application = TcTyConApp tyCon kindArguments familyArguments
                   (application', applicationBreakers) <-
                     if occursIn u application
                       then do
@@ -353,7 +353,7 @@ replaceFamilyApplications u = go
                   pure (foldl mkAppTy application' extraArguments', applicationBreakers <> extraBreakers)
           _ -> do
             (arguments', breakers) <- goList arguments
-            pure (TcTyCon tyCon arguments', breakers)
+            pure (TcTyConApp tyCon kindArguments arguments', breakers)
       TcFunTy argument result -> do
         (argument', argumentBreakers) <- go argument
         (result', resultBreakers) <- go result
@@ -396,7 +396,7 @@ occursIn u = go
     go TcArrowTy = False
     go (TcTyLit _) = False
     go (TcTyVar _) = False
-    go (TcTyCon _ args) = any go args
+    go (TcTyConApp _ kindArgs args) = any go kindArgs || any go args
     go (TcKindedTyCon _ kindArgs) = any go kindArgs
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
