@@ -1,0 +1,45 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableInstances, DerivingVia, StandaloneDeriving #-}
+  module Main where
+  data P = Z | S P
+       │   │   └─ type: P → P
+       │   └─ type: P
+       └─ type: Type
+  type family Dim v :: P
+              └─ type: Type → P
+  class F1 t where
+  └─ class methods: h ∷ ∀ t. (F1 t) ⇒ t → t
+    h :: t -> t
+  newtype W v = W v
+          │     └─ type: ∀ v. v → W v
+          └─ type: Type → Type
+  instance (Dim v ~ 'S k) => F1 (W v) where
+  └─ $fF1Wv ∷ ∀ v k. ((Dim v) ~ ('S k)) ⇒ F1 (W v)
+    h x = x
+    │ └─ type: W v
+    └─ h ∷ W v → W v
+  data O = O
+       │   └─ type: O
+       └─ type: Type
+  type instance Dim O = 'S 'Z
+  deriving via W O instance F1 O
+  │                         └─ $fF1O ∷ () ⇒ F1 O
+  └─ deriving plans: via W O F1 O [context: ()] [methods: h]
+extensions: []
+reason: deriving via uses an instance whose context has a variable that is not in its head
+modules:
+- |
+  {-# LANGUAGE DataKinds, TypeFamilies, FlexibleContexts, UndecidableInstances, DerivingVia, StandaloneDeriving #-}
+  module Main where
+  data P = Z | S P
+  type family Dim v :: P
+  class F1 t where
+    h :: t -> t
+  newtype W v = W v
+  instance (Dim v ~ 'S k) => F1 (W v) where
+    h x = x
+  data O = O
+  type instance Dim O = 'S 'Z
+  deriving via W O instance F1 O
+status: pass

@@ -144,6 +144,11 @@ finalizeInstanceAnnotation annotation = do
   -- binds it after the evidence is built.
   superClasses <- mapM (traverse zonkEvTerm) (tcInstanceSuperClasses annotation)
   defaultMethodEvidence <- mapM (traverse (mapM zonkEvTerm)) (tcInstanceDefaultMethodEvidence annotation)
+  -- The evidence of a derived instance that reuses another instance can
+  -- have the same kind of variable: deriving via @W O@ uses
+  -- @instance (Dim v ~ 'S k) => F1 (W v)@, and the solver binds @k@ only
+  -- after the evidence is built.
+  coerced <- traverse (\body -> (\evidence -> body {tcCoercedEvidence = evidence}) <$> traverse zonkEvTerm (tcCoercedEvidence body)) (tcInstanceCoerced annotation)
   let finalized =
         annotation
           { tcInstanceDictType = dictionaryType,
@@ -152,7 +157,8 @@ finalizeInstanceAnnotation annotation = do
             tcInstanceClassTyVars = classVariables,
             tcInstanceClassMethods = methods,
             tcInstanceSuperClasses = superClasses,
-            tcInstanceDefaultMethodEvidence = defaultMethodEvidence
+            tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
+            tcInstanceCoerced = coerced
           }
   rejectMetaFinalAnnotation (mkAnnotation finalized)
   pure finalized
