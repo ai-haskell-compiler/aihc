@@ -82,7 +82,7 @@ import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (get)
+import Control.Monad.Trans.State.Strict (get, gets)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
@@ -325,11 +325,13 @@ checkRuntimeType tvEnv ty = do
   requireRuntimeKind ty converted
 
 -- | Require that a converted type has the kind @TYPE rep@. An open kind
--- becomes 'Type'.
+-- becomes 'Type'. A given kind equality can show the kind: with the given
+-- @k1 ~ Type@ the argument @r@ of @r -> IO ()@ with @r :: k1@ is a runtime
+-- type.
 requireRuntimeKind :: Type -> (TcType, TcType) -> TcM TcType
 requireRuntimeKind ty (tcTy, actual) = do
   kinds <- getKinds
-  actual' <- zonkKind actual
+  actual' <- zonkKind actual >>= refineGivenKind
   case actual' of
     KTYPE {} -> pure tcTy
     KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique (typeKind kinds) >> pure tcTy
@@ -1321,16 +1323,39 @@ refineGivenKind kind = do
     replace ty left right@TcTyVar {} | sameType ty right, not (sameType left right) = Just left
     replace _ _ _ = Nothing
 
--- | The kind equalities that a given equality between two type variables
--- implies, split into the equalities of their parts. Only variables are
--- read here: their kinds are at hand, and computing the kind of another
--- type would unify kinds and so ask for the given equalities again.
+-- | The kind equalities that a given equality with a type variable on one
+-- side implies, split into the equalities of their parts. The kind of a
+-- variable is at hand. The kind of another type comes from the pure
+-- 'typeKindInEnv'. 'tcTypeKind' would unify kinds and so ask for the given
+-- equalities again.
+--
+-- The given @tup ~ (,)@ of a match on @HRefl@, with @tup :: k1 -> k2 ->
+-- Type@, gives @k1 ~ Type@ and @k2 ~ Type@, as in the @Binary@ instances of
+-- @Distribution.Simple.SetupHooks.Rule@ in Cabal.
 givenKindEqualities :: (TcType, TcType) -> TcM [(TcType, TcType)]
 givenKindEqualities (TcTyVar left, TcTyVar right) = do
   leftKind <- zonkKind (tvKind left)
   rightKind <- zonkKind (tvKind right)
   pure (splitKindEquality leftKind rightKind)
+givenKindEqualities (TcTyVar left, right) = do
+  leftKind <- zonkKind (tvKind left)
+  rightKind <- pureTypeKind right
+  pure (maybe [] (splitKindEquality leftKind) rightKind)
+givenKindEqualities (left, TcTyVar right) = do
+  leftKind <- pureTypeKind left
+  rightKind <- zonkKind (tvKind right)
+  pure (maybe [] (`splitKindEquality` rightKind) leftKind)
 givenKindEqualities _ = pure []
+
+-- | The kind of a type without kind unification, if the type gives it.
+pureTypeKind :: TcType -> TcM (Maybe TcType)
+pureTypeKind ty = do
+  kinds <- getKinds
+  kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
+  zonked <- zonkKind ty
+  case typeKindInEnv kinds kindEnv zonked of
+    Right kind -> Just <$> zonkKind kind
+    Left _ -> pure Nothing
 
 splitKindEquality :: TcType -> TcType -> [(TcType, TcType)]
 splitKindEquality left right

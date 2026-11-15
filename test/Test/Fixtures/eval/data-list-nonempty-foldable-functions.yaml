@@ -1,0 +1,34 @@
+modules:
+  - |
+    module Test where
+
+    import Data.List.NonEmpty (NonEmpty (..))
+    import qualified Data.List.NonEmpty as NE
+    import Prelude
+
+    -- GHC gives these Data.List.NonEmpty functions Foldable types, so they
+    -- accept a NonEmpty or a Maybe as well as a list.
+    main :: IO ()
+    main = do
+      print (NE.groupBy (==) (1 :| [1, 2 :: Int]))
+      print (NE.group (Just 'a'))
+      print (NE.groupWith even (2 :| [4, 5 :: Int]))
+      print (NE.inits (Just 'b'))
+      print (NE.tails ('c' :| "d"))
+      print (NE.insert 2 (1 :| [3 :: Int]))
+      print (NE.scanl (+) 0 (1 :| [2 :: Int]))
+      print (NE.scanr (+) 0 (Just (5 :: Int)))
+stdout: |
+  [1 :| [1],2 :| []]
+  ['a' :| ""]
+  [2 :| [4],5 :| []]
+  "" :| ["b"]
+  "cd" :| ["d",""]
+  1 :| [2,3]
+  0 :| [1,3]
+  5 :| [0]
+output: |
+  ()
+expression: main
+status: pass
+reason: The Data.List.NonEmpty functions group, groupBy, groupWith, inits, tails, insert, scanl, and scanr accept a Foldable container, as in GHC

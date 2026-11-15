@@ -1,0 +1,87 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+       └─ type: k1 → k2 → Type
+    HRefl :: HEq a a
+    └─ type: ∀ k1 a k2 b. (k2 ~ k1, b ~ a) ⇒ HEq a b
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  data Rep (a :: k) where
+       └─ type: k → Type
+    RCon :: Rep a
+    └─ type: ∀ k a. Rep a
+    RApp :: forall k1 k2 (f :: k1 -> k2) (x :: k1). Rep f -> Rep x -> Rep (f x)
+    └─ type: ∀ k a k1 k2 f x. (k ~ k2, a ~ (f x)) ⇒ Rep f → Rep x → Rep a
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  │     │ │   └─ type: Maybe (HEq a b); type-args: HEq a b
+  │     │ └─ type: Rep b
+  │     └─ type: Rep a
+  └─ type: ∀ k0 k1 a b. Rep a → Rep b → Maybe (HEq a b)
+  data Box (a :: Type) = Box
+       │                 └─ type: ∀ a. Box a
+       └─ type: Type → Type
+  boxed :: Box a -> ()
+  boxed _ = ()
+  │     │   └─ type: ()
+  │     └─ type: Box a
+  └─ type: ∀ a. Box a → ()
+  use :: forall (t :: Type). Rep t -> ()
+  use rep = case rep of
+  │   │     └─ type: ()
+  │   └─ type: Rep t
+  └─ type: ∀ t. Rep t → ()
+    RApp (RApp (tup :: Rep tup) (left :: Rep l)) (right :: Rep r) -> case eqRep tup (RCon :: Rep (,)) of
+    │     │     └─ type: Rep f   └─ type: Rep x   └─ type: Rep x     │    │          └─ type: Rep GHC.Tuple.Tuple2; type-args: Type → Type → Type, Tuple2
+    │     │                                                          │    └─ type: Rep f → Rep GHC.Tuple.Tuple2 → Maybe (HEq f GHC.Tuple.Tuple2); type-args: k1 → k2, Type → Type → Type, f, Tuple2
+    │     │                                                          └─ type: ()
+    │     └─ type: Rep f → Rep x → Rep f; type-args: k1 → k2, f, k1, k2, f, x; evidence: given k1 → k2 ~ k2, given f ~ f x
+    └─ type: Rep f → Rep x → Rep t; type-args: Type, t, k1, k2, f, x; evidence: given Type ~ k2, given t ~ f x
+      Just HRefl -> case (Box :: Box l) of
+      │    │        │     └─ type: Box x; type-args: x
+      │    │        └─ type: ()
+      │    └─ type: HEq f GHC.Tuple.Tuple2; type-args: k1 → k2, f, Type → Type → Type, Tuple2; evidence: given Type → Type → Type ~ k1 → k2, given Tuple2 ~ f
+      └─ type: Maybe (HEq f GHC.Tuple.Tuple2)
+        _ -> boxed (Box :: Box (l -> ()))
+        │    │      └─ type: Box (x → ()); type-args: x → ()
+        │    └─ type: Box (x → ()) → (); type-args: x → ()
+        └─ type: Box x
+      Nothing -> ()
+      │          └─ type: ()
+      └─ type: Maybe (HEq f GHC.Tuple.Tuple2)
+    _ -> ()
+    │    └─ type: ()
+    └─ type: Rep t
+extensions:
+- GADTs
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+    HRefl :: HEq a a
+  data Maybe a = Nothing | Just a
+  data Rep (a :: k) where
+    RCon :: Rep a
+    RApp :: forall k1 k2 (f :: k1 -> k2) (x :: k1). Rep f -> Rep x -> Rep (f x)
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  data Box (a :: Type) = Box
+  boxed :: Box a -> ()
+  boxed _ = ()
+  use :: forall (t :: Type). Rep t -> ()
+  use rep = case rep of
+    RApp (RApp (tup :: Rep tup) (left :: Rep l)) (right :: Rep r) -> case eqRep tup (RCon :: Rep (,)) of
+      Just HRefl -> case (Box :: Box l) of
+        _ -> boxed (Box :: Box (l -> ()))
+      Nothing -> ()
+    _ -> ()
+status: pass
+reason: a match on HRefl gives an equality between a type variable and a type constructor, the kinds of the two sides are then equal too, and an argument of a function type in the branch has kind Type

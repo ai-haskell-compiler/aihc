@@ -1,0 +1,49 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, PolyKinds #-}
+    module Test where
+    data Cat = In | Out
+    data CatType (cat :: Cat) a where
+      InputType :: CatType 'In a
+      OutputType :: CatType 'Out a
+    inputType :: f a -> CatType 'In a
+    inputType _ = InputType
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tCat :: sType {
+    pub 1.cIn :: tCat;
+    pub 1.cOut :: tCat
+  }
+
+  pub type 1.tCatType (k0 : sType) (cat : tCat) (a : k0) :: sType {
+    pub 1.cInputType :: ∀(k0 : sType) (cat : tCat) (a : k0). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (cat ~ cIn) (tCatType k0 cat a);
+    pub 1.cOutputType :: ∀(k0 : sType) (cat : tCat) (a : k0). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (cat ~ cOut) (tCatType k0 cat a)
+  }
+
+  pub val 1.vinputType :: ∀(k0 : sType) (f : k0 → sType) (a : k0). f a → tCatType k0 cIn a
+    = Λ(k0 : sType) (f : k0 → sType) (a : k0). λ(unused x : f a).
+      cInputType @k0 @cIn @a (coercion (refl cIn))
+status: pass
+reason: 'The GADT constructor InputType has the invented kind variable k0 of a, and the unwritten variable cat. System FC binds the constructor as forall k0 cat a, from the constructor metadata. Before the fix, the type checker scheme had the order cat k0 a. Thus the use site gave the type arguments in the wrong order, and the FC linter found a kind mismatch. This stopped morpheus-graphql-server in Data.Morpheus.Server.Deriving.Utils.Kinded.'

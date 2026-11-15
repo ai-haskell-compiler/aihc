@@ -17,6 +17,7 @@ where
 import Aihc.Tc.Types (TyLit (..))
 import Data.Char (chr, ord)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | The modules that declare the built-in families. A family of one of
 -- these names declared anywhere else is an ordinary family. Like the
@@ -45,6 +46,11 @@ evaluateTypeLitFamily family arguments =
     ("CmpSymbol", [TyLitSymbol left, TyLitSymbol right]) -> ordering (compare left right)
     ("CmpChar", [TyLitChar left, TyLitChar right]) -> ordering (compare left right)
     ("AppendSymbol", [TyLitSymbol left, TyLitSymbol right]) -> Just (TypeLitSymbol (left <> right))
+    ("ConsSymbol", [TyLitChar first, TyLitSymbol rest]) -> Just (TypeLitSymbol (T.cons first rest))
+    -- "GHC.TypeLits" defines @UnconsSymbol@ with these two families. They
+    -- do not reduce at the empty symbol.
+    ("UnconsSymbolHead", [TyLitSymbol symbol]) -> TypeLitChar . fst <$> T.uncons symbol
+    ("UnconsSymbolTail", [TyLitSymbol symbol]) -> TypeLitSymbol . snd <$> T.uncons symbol
     ("CharToNat", [TyLitChar value]) -> natural (toInteger (ord value))
     ("NatToChar", [TyLitNat value]) | value >= 0 && value <= 0x10ffff -> Just (TypeLitChar (chr (fromInteger value)))
     ("+", [TyLitNat left, TyLitNat right]) -> natural (left + right)

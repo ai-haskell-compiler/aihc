@@ -1,0 +1,26 @@
+extensions: [DataKinds, TypeFamilies, UndecidableInstances]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, TypeFamilies, UndecidableInstances #-}
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import GHC.TypeLits
+
+    -- Read a decimal number from a symbol, as generic-lens does.
+    type family Parse (acc :: Nat) (m :: Maybe (Char, Symbol)) :: Nat where
+      Parse acc ('Just '(c, rest)) = Parse (10 * acc + (CharToNat c - CharToNat '0')) (UnconsSymbol rest)
+      Parse acc 'Nothing = acc
+
+    type family Reverse (acc :: Symbol) (m :: Maybe (Char, Symbol)) :: Symbol where
+      Reverse acc ('Just '(c, rest)) = Reverse (ConsSymbol c acc) (UnconsSymbol rest)
+      Reverse acc 'Nothing = acc
+
+    answer :: Bool
+    answer = natVal (Proxy :: Proxy (Parse 0 (UnconsSymbol "4207"))) == 4207
+      && symbolVal (Proxy :: Proxy (Reverse "" (UnconsSymbol "abc"))) == "cba"
+      && symbolVal (Proxy :: Proxy (ConsSymbol 'x' "")) == "x"
+expression: answer
+output: |
+  True
+status: pass
+reason: UnconsSymbol and ConsSymbol reduce at literal symbols, also at the empty symbol.

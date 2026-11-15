@@ -1,0 +1,49 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, RoleAnnotations #-}
+  module Main where
+  type family N a
+              └─ type: Type → Type
+  type role Box nominal
+  data Box n = Box n
+       │       └─ type: ∀ n. n → Box n
+       └─ type: Type → Type
+  class T t where
+  └─ class methods: tr ∷ ∀ t. (T t) ⇒ Box (N t) → t → t
+    tr :: Box (N t) -> t -> t
+  data Seg n = Seg
+       │       └─ type: ∀ n. Seg n
+       └─ type: Type → Type
+  type instance N (Seg n) = n
+  instance T (Seg n) where
+  └─ $fTSegn ∷ ∀ n. () ⇒ T (Seg n)
+    tr _ b = b
+    │  │ └─ type: Seg n
+    │  └─ type: Box (N (Seg n))
+    └─ tr ∷ Box (N (Seg n)) → Seg n → Seg n
+  type instance N (ST n) = n
+  newtype ST n = ST (Seg n)
+  │       │      └─ type: ∀ n. Seg n → ST n
+  │       └─ type: Type → Type
+  └─ deriving plans: newtype T (ST n) [context: ()] [methods: tr]
+    deriving T
+             └─ $fTSTn ∷ ∀ n. () ⇒ T (ST n)
+extensions: []
+reason: newtype deriving proves a nominal argument of a method type by type family equations on both sides
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving, TypeFamilies, RoleAnnotations #-}
+  module Main where
+  type family N a
+  type role Box nominal
+  data Box n = Box n
+  class T t where
+    tr :: Box (N t) -> t -> t
+  data Seg n = Seg
+  type instance N (Seg n) = n
+  instance T (Seg n) where
+    tr _ b = b
+  type instance N (ST n) = n
+  newtype ST n = ST (Seg n)
+    deriving T
+status: pass
