@@ -5,6 +5,7 @@
 -- | Finalize type-checker annotations after constraint solving.
 module Aihc.Tc.Finalize
   ( finalizeModuleTc,
+    recordSchemeKindArguments,
   )
 where
 
@@ -321,6 +322,17 @@ zonkEvTerm evTerm =
 finalizeType :: TcType -> TcM TcType
 finalizeType = zonkType >=> defaultTypeKinds >=> recordKindArguments Nothing
 
+-- | Record the kind arguments in the scheme of a term, as
+-- 'recordKindArguments' does for an annotation. Another module reads the
+-- scheme from the interface, and the visible arguments of an application
+-- in it do not always give its kind arguments.
+recordSchemeKindArguments :: TypeScheme -> TcM TypeScheme
+recordSchemeKindArguments scheme@(Scheme inferred specified predicates body) = do
+  recorded <- recordKindArguments Nothing (TcQualTy predicates body)
+  pure $ case recorded of
+    TcQualTy predicates' body' -> Scheme inferred specified predicates' body'
+    _ -> scheme
+
 -- | Record the kind arguments of a saturated type constructor application
 -- when its visible arguments do not give them.
 --
@@ -389,7 +401,15 @@ recordKindArgumentsIn kinds globals = go
         TcFunTy argument result -> TcFunTy <$> go (Just (typeKind kinds)) argument <*> go (Just (typeKind kinds)) result
         TcForAllTy tyVar body -> TcForAllTy tyVar <$> go expected body
         TcQualTy predicates body -> TcQualTy <$> mapM (recordPredKindArguments go anyKindOf kinds) predicates <*> go expected body
-        TcAppTy function argument -> TcAppTy <$> go Nothing function <*> go Nothing argument
+        -- The kind of the function gives the kind of the argument, as
+        -- @Type@ for @Param n a@ in @f (Param n a)@ when @f :: Type -> Type@.
+        TcAppTy function argument -> do
+          let argumentKind
+                | typeHasOpenResultKind globals argument,
+                  Just (KFun kind _) <- kindOf function =
+                    Just kind
+                | otherwise = Nothing
+          TcAppTy <$> go Nothing function <*> go argumentKind argument
         _ -> pure ty
     kindOf argument =
       case anyKindOf argument of

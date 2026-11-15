@@ -35,7 +35,7 @@ import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Either (fromLeft, isRight)
 import Data.Functor.Identity (Identity (..))
-import Data.List (intercalate, isInfixOf)
+import Data.List (intercalate, isInfixOf, isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.String (fromString)
@@ -62,6 +62,7 @@ main =
       testCase "keeps the preferred version of a lock" test_prefersLockedVersion,
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
       testCase "maps the package of a boot library import to its standin" test_aliasesImportPackages,
+      testCase "keeps the CPP lines of a literate source" test_literateSourceKeepsCppLines,
       testCase "explains a failed solve" test_explainsFailure,
       testCase "reports an unknown package" test_reportsUnknownPackage,
       testCase "avoids and reports a package that aihc cannot build" test_reportsUnsupportedPackage,
@@ -527,6 +528,39 @@ test_aliasesImportPackages = do
     "the boot library import names the standin, and the other import is unchanged"
     [Just "aihc-template-haskell", Just "containers"]
     (map (fmap T.unpack . importDeclPackage) (moduleImports (parsedFileModule parsed)))
+
+-- | GHC removes the bird tracks of a literate source before CPP, and keeps
+-- each line that starts with @#@. Thus CPP must remove the branch that
+-- the condition does not select.
+test_literateSourceKeepsCppLines :: Assertion
+test_literateSourceKeepsCppLines = do
+  let source =
+        BSC.pack
+          ( unlines
+              [ "> {-# LANGUAGE CPP #-}",
+                "> module M where",
+                "#ifdef DEBUG",
+                "> value = 1",
+                "#else",
+                "> value = 2",
+                "#endif"
+              ]
+          )
+      fileInfo =
+        FileInfo
+          { fileInfoPath = "M.lhs",
+            fileInfoExtensions = [],
+            fileInfoCppOptions = [],
+            fileInfoIncludeDirs = [],
+            fileInfoLanguage = Nothing,
+            fileInfoDependencies = [],
+            fileInfoPreprocessor = Nothing
+          }
+  parsed <- parseInterfaceBytes "." "." Map.empty fileInfo source
+  assertEqual
+    "CPP keeps only the branch without DEBUG"
+    ["value = 2"]
+    (filter ("value" `isPrefixOf`) (map (T.unpack . T.strip) (T.lines (parsedFileSource parsed))))
 
 -- The explanation of a failed solve is the derivation of the final
 -- incompatibility: each line combines two facts into a new one, and the

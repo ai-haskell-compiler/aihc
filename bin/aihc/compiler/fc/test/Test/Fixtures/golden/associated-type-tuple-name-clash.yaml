@@ -1,0 +1,75 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies #-}
+    module Test where
+    -- The tuple syntax (a, b) and the local Tuple2 must give two axioms.
+    data Tuple2 a b = Tuple2 a b
+    class Firstable a where
+      type ProductFirst a
+      first :: a -> ProductFirst a
+    instance Firstable (a, b) where
+      type ProductFirst (a, b) = a
+      first (a, _) = a
+    instance Firstable (Tuple2 a b) where
+      type ProductFirst (Tuple2 a b) = a
+      first (Tuple2 a _) = a
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → 2.tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tTuple2 (a : sType) (b : sType) :: sType {
+    pub 1.cTuple2 :: ∀(a : sType) (b : sType). a → b → 1.tTuple2 a b
+  }
+
+  pub type 1.t$Dict$Firstable (a : sType) :: sType {
+    pub 1.c$Dict$Firstable :: ∀(a : sType). (a → tProductFirst a) → t$Dict$Firstable a
+  }
+
+  pub type 1.tProductFirst (a : sType) :: sType @N {}
+
+  axiom 1.$ax$ProductFirst$(,)$a$b (a : sType) (b : sType) : tProductFirst (2.tTuple2 a b) ~N a
+
+  axiom 1.$ax$ProductFirst$Tuple2$a$b (a : sType) (b : sType) : tProductFirst (1.tTuple2 a b) ~N a
+
+  pub val 1.vfirst :: ∀(a : sType). t$Dict$Firstable a → a → tProductFirst a
+    = Λ(a : sType). λ($dFirstable : t$Dict$Firstable a).
+      let! c$Dict$Firstable ($cfirst : a → tProductFirst a) = $dFirstable;
+      $cfirst
+
+  pub val 1.v$fFirstableTuple2ab :: ∀(a : sType) (b : sType). t$Dict$Firstable (2.tTuple2 a b)
+    = Λ(a : sType) (b : sType).
+      c$Dict$Firstable @(2.tTuple2 a b) (v$fFirstableTuple2ab$cfirst @a @b)
+
+  val 1.v$fFirstableTuple2ab$cfirst :: ∀(a : sType) (b : sType). 2.tTuple2 a b → tProductFirst (2.tTuple2 a b)
+    = Λ(a : sType) (b : sType). λ(x : 2.tTuple2 a b).
+      let! c(,) (a{1} : a) (unused _pat : b) = x;
+      a{1}
+
+  pub val 1.v$fFirstableTuple2ab$Test :: ∀(a : sType) (b : sType). t$Dict$Firstable (1.tTuple2 a b)
+    = Λ(a : sType) (b : sType).
+      c$Dict$Firstable @(1.tTuple2 a b) (v$fFirstableTuple2ab$Test$cfirst @a @b)
+
+  val 1.v$fFirstableTuple2ab$Test$cfirst :: ∀(a : sType) (b : sType). 1.tTuple2 a b → tProductFirst (1.tTuple2 a b)
+    = Λ(a : sType) (b : sType). λ(x : 1.tTuple2 a b).
+      let! cTuple2 (a{1} : a) (unused _pat : b) = x;
+      a{1}
+status: pass
+reason: 'The tuple type (a, b) and a local data type Tuple2 a b must give two different axioms. Before the fix, the axiom key of a tuple type was Tuple2, which is also the key of the local type. Both instance equations got the same axiom name, and the FC linter rejected the tuple method. This stopped foundation in Foundation.Tuple.'

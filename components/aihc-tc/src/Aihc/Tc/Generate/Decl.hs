@@ -68,7 +68,8 @@ import Aihc.Parser.Syntax
     RuleDecl (..),
     SourceSpan,
     TupleFlavor (..),
-    TyVarBinder,
+    TyVarBVisibility (..),
+    TyVarBinder (..),
     Type (..),
     TypeFamilyDecl (..),
     TypeFamilyEq (..),
@@ -135,7 +136,7 @@ import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
@@ -556,7 +557,9 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   defaultDeferredKindMetas
   defaultGlobalKindMetas derivedKeys
   annotated <- mapM annotatePendingModule pending
-  mapM finalizeModuleTc annotated
+  finalized <- mapM finalizeModuleTc annotated
+  recordGlobalTermKindArguments initialKeys
+  pure finalized
   where
     units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
     polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
@@ -998,6 +1001,21 @@ defaultDeferredKindMetas = do
   deferred <- takeDeferredKindMetas
   mapM_ (defaultKindMetas . TcMetaTv) deferred
 
+-- | Record the kind arguments in the schemes of the terms that this
+-- component added. The interface gives these schemes to other modules.
+recordGlobalTermKindArguments :: GlobalStateKeys -> TcM ()
+recordGlobalTermKindArguments initialKeys = do
+  current <- lift (gets tcsGlobalTerms)
+  let previous = globalTerms initialKeys
+  unless (Map.size current == Map.size previous) $ do
+    recorded <- traverse recordBinder (Map.difference current previous)
+    lift (modify' (\state -> state {tcsGlobalTerms = Map.union recorded (tcsGlobalTerms state)}))
+  where
+    recordBinder binder =
+      case binder of
+        TcIdBinder scheme closedness -> (`TcIdBinder` closedness) <$> recordSchemeKindArguments scheme
+        TcMonoIdBinder {} -> pure binder
+
 -- | The type constructors this component declared itself.
 componentTyConKeys :: GlobalStateKeys -> TcM (Set.Set GlobalName)
 componentTyConKeys initialKeys = do
@@ -1141,11 +1159,19 @@ inventedKindVariablesFirst variables =
 -- the variables whose kinds mention it, so that instantiation can
 -- substitute it into those kinds: @class C (a :: k)@ binds @a@ before @k@
 -- in source order.
+--
+-- The invented kind variables come before all source binders, as
+-- 'inventedKindVariablesFirst' gives. The metadata of a data constructor
+-- uses that order, and System FC binds the constructor from the metadata.
+-- A GADT constructor can have an inferred source binder before an invented
+-- kind variable: @cat@ and @k0@ in @InputType :: CatType 'In a@ for @data
+-- CatType (cat :: Cat) a@. The order must be @k0 cat a@ there, or the type
+-- arguments of a use site are in the wrong order.
 withInventedKindVariables :: TypeScheme -> TypeScheme
 withInventedKindVariables (Scheme inferred specified predicates body) =
   Scheme (filter (not . isSpecified) ordered) (filter isSpecified ordered) predicates body
   where
-    ordered = closeKindVariables (inferred <> specified)
+    ordered = inventedKindVariablesFirst (inferred <> specified)
     isSpecified variable = tvUnique variable `elem` map tvUnique specified
 
 uniqueKindVariables :: [TyVarId] -> [TyVarId]
@@ -5123,11 +5149,16 @@ sourceTypeKey home ty =
     -- shape names itself. A module that instantiates one associated family
     -- at @()@ and again at @[a]@ would otherwise put both equations on the
     -- same axiom key, and the second would be reported as a duplicate.
-    TFun _ argument result -> "Fun$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
-    TList _ arguments -> arguments `keyedUnder` "List"
-    TTuple flavor _ arguments -> arguments `keyedUnder` (tupleFlavorKey flavor <> intKey (length arguments))
-    TUnboxedSum arguments -> arguments `keyedUnder` ("Sum" <> intKey (length arguments))
-    TStar {} -> "Star"
+    --
+    -- Each shape key has brackets. A declared constructor cannot have such
+    -- a name, so a shape key is not the key of a constructor. For example,
+    -- @(a, b)@ and @Tuple2 a b@ of a local @data Tuple2 a b@ get different
+    -- keys.
+    TFun _ argument result -> "(->)$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
+    TList _ arguments -> arguments `keyedUnder` "[]"
+    TTuple flavor _ arguments -> arguments `keyedUnder` tupleKey flavor (length arguments)
+    TUnboxedSum arguments -> arguments `keyedUnder` ("(#" <> T.replicate (length arguments - 1) "|" <> "#)")
+    TStar {} -> "(*)"
     TTypeLit literal ->
       case literal of
         TypeLitInteger value _ -> "Nat" <> T.pack (show value)
@@ -5137,11 +5168,11 @@ sourceTypeKey home ty =
     _ -> "T"
   where
     arguments `keyedUnder` tag = T.concat (tag : [T.cons '$' (sourceTypeKey home argument) | argument <- arguments])
-    tupleFlavorKey flavor =
+    commas arity = T.replicate (arity - 1) ","
+    tupleKey flavor arity =
       case flavor of
-        Boxed -> "Tuple"
-        Unboxed -> "UnboxedTuple"
-    intKey = T.pack . show
+        Boxed -> "(" <> commas arity <> ")"
+        Unboxed -> "(#" <> commas arity <> "#)"
 
 -- | The axiom-key fragment of one type constructor. A constructor the home
 -- module declares itself contributes its bare name, and an imported one
@@ -6038,7 +6069,7 @@ registerTypeSynonymHeader :: Maybe TypeScheme -> TypeSynDecl -> TcM ()
 registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   let tyBinder = binderHeadName (typeSynHead typeSynDecl)
       tyName = unqualifiedNameText tyBinder
-      params = binderHeadParams (typeSynHead typeSynDecl)
+      params = visibleHeadParams (binderHeadParams (typeSynHead typeSynDecl))
       arity = length params
   -- A kind variable that a binder mentions, as @k@ in @type Arity (ty ::
   -- k) = Arity' k@, is one variable of the synonym kind. Each mention of
@@ -6070,20 +6101,35 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = synonymBodyScope params
+              tvEnv = synonymBodyScope (tciKindScheme info) (binderHeadParams (typeSynHead typeSynDecl)) params
           (body, _) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 
 -- | The type variables that the body of a synonym can use: the
--- parameters and the kind variables that the parameter kinds mention. A
--- parameter hides a kind variable of the same name.
-synonymBodyScope :: [TyVarId] -> TvKindEnv
-synonymBodyScope params =
-  Map.fromList [(tvName variable, (variable, tvKind variable)) | variable <- kindVariables <> params]
+-- parameters, the kind variables that the parameter kinds mention, and
+-- the invisible binders of the head. A parameter hides a kind variable of
+-- the same name.
+synonymBodyScope :: TypeScheme -> [TyVarBinder] -> [TyVarId] -> TvKindEnv
+synonymBodyScope kindScheme binders params =
+  Map.fromList ([(tvName variable, (variable, tvKind variable)) | variable <- kindVariables <> params] <> invisible)
   where
     kindVariables = uniqueKindVariables (concatMap (freeKindVariables . tvKind) params)
+    invisible = [(name, (variable, tvKind variable)) | (name, variable) <- invisibleHeadBinders kindScheme binders]
+
+-- | The visible binders of a declaration head. An invisible binder, as
+-- @k@ in @type T \@k = ...@, is not a parameter. See 'invisibleHeadBinders'.
+visibleHeadParams :: [TyVarBinder] -> [TyVarBinder]
+visibleHeadParams = filter ((== TyVarBVisible) . tyVarBinderVisibility)
+
+-- | Each invisible binder of a declaration head names the next specified
+-- variable of the standalone kind signature, as in GHC. In @type TyCon1
+-- :: (k1 -> k2) -> (k1 ~> k2)@ and @type TyCon1 \@a \@b = ...@, the name
+-- @a@ is @k1@ and @b@ is @k2@.
+invisibleHeadBinders :: TypeScheme -> [TyVarBinder] -> [(Text, TyVarId)]
+invisibleHeadBinders (Scheme _ specified _ _) binders =
+  zip [tyVarBinderName binder | binder <- binders, tyVarBinderVisibility binder == TyVarBInvisible] specified
 
 checkTypeSynonymBody :: Decl -> TcM ()
 checkTypeSynonymBody (DeclAnn _ inner) = checkTypeSynonymBody inner
@@ -6095,7 +6141,7 @@ checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     Just info
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
-              tvEnv = synonymBodyScope params
+              tvEnv = synonymBodyScope (tciKindScheme info) (binderHeadParams (typeSynHead typeSynDecl)) params
               resultKind = typeResultKind (length params) (typeSchemeBody (tciKindScheme info))
           (body, bodyKind) <- convertSurfaceTypeWithKinds tvEnv (typeSynBody typeSynDecl)
           unifyKindsAt (surfaceTypeSpan (typeSynBody typeSynDecl)) resultKind bodyKind

@@ -144,12 +144,14 @@ searchCoercion unwrap equations rawSource rawTarget = go [] (normalize rawSource
         ]
 
     -- A representation parameter carries an argument coercion. A nominal one
-    -- admits only the argument it already has.
+    -- gets a proof without newtype axioms. Type family equations can still
+    -- join the two arguments, as in @Box (N (Seg n)) ~ Box (N (ST n))@,
+    -- where both arguments reduce to @n@.
     argumentProof visited constructor index (sourceArgument, targetArgument) = do
       representational <- if unwrap then isRepresentationParameter constructor index else pure True
       if representational
         then go visited sourceArgument targetArgument
-        else pure (if sourceArgument == targetArgument then Just (Refl sourceArgument) else Nothing)
+        else nominalCoercionBetween equations sourceArgument targetArgument
 
 -- | The type of the dictionary of a class predicate.
 dictionaryType :: Pred -> Maybe TcType

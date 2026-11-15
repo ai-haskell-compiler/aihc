@@ -51,6 +51,8 @@ module GHC.TypeLits
     withKnownChar,
     Natural,
     AppendSymbol,
+    ConsSymbol,
+    UnconsSymbol,
     CmpChar,
     CmpSymbol,
     CharToNat,
@@ -239,6 +241,26 @@ withKnownChar (UnsafeSChar value) = withDict @(KnownChar c) value
 
 type AppendSymbol :: Symbol -> Symbol -> Symbol
 type family AppendSymbol a b
+
+-- | Put a character in front of a symbol.
+type ConsSymbol :: Char -> Symbol -> Symbol
+type family ConsSymbol a b
+
+-- | The first character and the rest of a symbol, or 'Nothing' for the
+-- empty symbol. GHC computes this family itself. Here the compiler
+-- computes the two parts, and the equations give the result.
+type UnconsSymbol :: Symbol -> Maybe (Char, Symbol)
+type family UnconsSymbol s where
+  UnconsSymbol "" = 'Nothing
+  UnconsSymbol s = 'Just '(UnconsSymbolHead s, UnconsSymbolTail s)
+
+-- | The first character of a symbol that is not empty. Not exported.
+type UnconsSymbolHead :: Symbol -> Char
+type family UnconsSymbolHead s
+
+-- | A symbol without its first character. Not exported.
+type UnconsSymbolTail :: Symbol -> Symbol
+type family UnconsSymbolTail s
 
 type CmpSymbol :: Symbol -> Symbol -> Ordering
 type family CmpSymbol a b

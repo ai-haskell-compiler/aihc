@@ -1,0 +1,59 @@
+extensions:
+- PatternSynonyms
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Nat = Z | S Nat
+  class Count a where
+    fromNat :: Nat -> a
+  pattern N :: Count n => n -> Nat
+  pattern N n <- (fromNat -> n)
+  -- The lambda argument has an annotation of its own outside the annotation of the use.
+  count :: Count n => Nat -> n
+  count = \(N n) -> n
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tNat :: sType {
+    pub 1.cZ :: tNat;
+    pub 1.cS :: tNat → tNat
+  }
+
+  pub type 1.t$Dict$Count (a : sType) :: sType {
+    pub 1.c$Dict$Count :: ∀(a : sType). (tNat → a) → t$Dict$Count a
+  }
+
+  pub val 1.vfromNat :: ∀(a : sType). t$Dict$Count a → tNat → a
+    = Λ(a : sType). λ($dCount : t$Dict$Count a).
+      let! c$Dict$Count ($cfromNat : tNat → a) = $dCount;
+      $cfromNat
+
+  pub val 1.v$mN :: ∀(n : sType) (rep : tRuntimeRep) (r : tTYPE rep). t$Dict$Count n → tNat → (FUN @sLiftedRep @rep n r) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(n : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ($dCount : t$Dict$Count n) (x : tNat)
+    (y : FUN @sLiftedRep @rep n r) (unused z : FUN @sLiftedRep @rep tUnit r).
+      y (vfromNat @n $dCount x)
+
+  pub val 1.vcount :: ∀(n : sType). t$Dict$Count n → tNat → n
+    = Λ(n : sType). λ($dCount : t$Dict$Count n) (x : tNat).
+      v$mN @n @sLiftedRep @n $dCount x (λ(n{1} : n).
+        n{1}) (λ(unused _pattern_failure : tUnit).
+        absurd x return (n))
+status: pass
