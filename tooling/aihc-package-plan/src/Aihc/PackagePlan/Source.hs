@@ -279,11 +279,15 @@ normalizeSource path source =
         then T.unlines (unlitBird (T.lines withoutBom))
         else withoutBom
 
+-- | Remove the bird tracks of a literate source. A line that starts with
+-- @#@ stays as it is, as in GHC's unlit, because CPP reads it after this
+-- step. Each other line that is not code becomes empty.
 unlitBird :: [Text] -> [Text]
 unlitBird =
   map $ \line ->
     case T.uncons line of
       Just ('>', rest) -> rest
+      Just ('#', _) -> line
       _ -> ""
 
 -- | Change the package of each package-qualified import of a boot library
