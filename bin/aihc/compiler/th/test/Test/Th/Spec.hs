@@ -34,6 +34,7 @@ tests =
       testCase "converts an instance declaration to the surface syntax" instanceTest,
       testCase "converts a forall type and leaves out a pragma" forallTest,
       testCase "converts a class declaration to the surface syntax" classTest,
+      testCase "converts an equality and a type instance" equalityAndTypeInstanceTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -356,6 +357,36 @@ classTest = do
   assertEqual
     "a class with a context, a dependency, a signature, and a default"
     (Right "class Show c => HasBox c e | c -> e where box :: c -> e label = \"box\"")
+    (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | The @makeWrapped@ of @lens@ gives an instance with an equality in its
+-- context and an instance with an associated type instance.
+equalityAndTypeInstanceTest :: IO ()
+equalityAndTypeInstanceTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      equality left = apply (apply (TreeNode "EqualityT" []) left)
+      equation left right = TreeNode "TySynEqn" [TreeNode "Nothing" [], left, right]
+      tree =
+        list
+          [ TreeNode
+              "InstanceD"
+              [ TreeNode "Nothing" [],
+                list [equality (TreeNode "VarT" [name "t"]) (TreeNode "ConT" [name "Box"])],
+                apply (apply (TreeNode "ConT" [name "Rewrapped"]) (TreeNode "ConT" [name "Box"])) (TreeNode "VarT" [name "t"]),
+                list []
+              ],
+            TreeNode
+              "InstanceD"
+              [ TreeNode "Nothing" [],
+                list [],
+                apply (TreeNode "ConT" [name "Wrapped"]) (TreeNode "ConT" [name "Box"]),
+                list [TreeNode "TySynInstD" [equation (apply (TreeNode "ConT" [name "Unwrapped"]) (TreeNode "ConT" [name "Box"])) (TreeNode "ConT" [name "Int"])]]
+              ],
+            TreeNode "TySynInstD" [equation (apply (TreeNode "ConT" [name "F"]) (TreeNode "ConT" [name "Box"])) (apply (TreeNode "EqualityT" []) (TreeNode "ConT" [name "Int"]))]
+          ]
+  assertEqual
+    "an equality in a context, an associated type instance, and a type instance"
+    (Right "instance (t ~ Box) => Rewrapped Box t instance Wrapped Box where type Unwrapped Box = Int type instance F Box = (~) Int")
     (T.unwords . map render <$> declarationsFromTree tree)
 
 unsupportedTest :: IO ()

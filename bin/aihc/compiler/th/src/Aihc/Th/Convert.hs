@@ -22,7 +22,9 @@ import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (ExactTerm (..), ExactType (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
+import Control.Monad ((>=>))
 import Data.Char (isAlpha, isUpper)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -59,6 +61,7 @@ declaration tree =
       rhs <- rightSide body locals
       pure (DeclValue (FunctionBind binder [Match [] MatchHeadPrefix [] rhs]))
     TreeNode "ValD" [pattern', body, locals] -> DeclValue <$> (PatternBind NoMultiplicityTag <$> patternFromTree pattern' <*> rightSide body locals)
+    TreeNode "TySynInstD" [equation] -> DeclTypeFamilyInst <$> typeFamilyInstance equation
     TreeNode "InstanceD" [TreeNode "Nothing" [], context, instanceHead, members] -> do
       context' <- list context >>= mapM typeFromTree
       instanceHead' <- typeFromTree instanceHead
@@ -80,6 +83,7 @@ declaration tree =
       case item of
         TreeNode "SigD" [name, signature] -> (\binder signature' -> [InstanceItemTypeSig [binder] signature']) <$> binderFromTree name <*> typeFromTree signature
         TreeNode "PragmaD" _ -> Right []
+        TreeNode "TySynInstD" [equation] -> pure . InstanceItemTypeFamilyInst <$> typeFamilyInstance equation
         _ -> do
           member <- declaration item
           case member of
@@ -105,6 +109,16 @@ declaration tree =
           pure (FunctionalDependency [] determiners' determined')
         _ -> unsupported "functional dependency" dependency
     variableText = fmap unqualifiedNameText . binderFromTree
+    -- The left side of an equation is the family applied to its arguments.
+    -- The binders of an explicit @forall@ come first.
+    typeFamilyInstance equation =
+      case equation of
+        TreeNode "TySynEqn" [binders, left, right] -> do
+          binders' <- optional (list >=> mapM typeVariableBinder) binders
+          left' <- typeFromTree left
+          right' <- typeFromTree right
+          pure (TypeFamilyInst (fromMaybe [] binders') TypeHeadPrefix left' right')
+        _ -> unsupported "type family equation" equation
     clause clauseTree =
       case clauseTree of
         TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
@@ -147,9 +161,14 @@ typeFromTree tree =
       body' <- typeFromTree body
       let qualified = if null context' then body' else TContext context' body'
       pure (if null binders' then qualified else TForall (ForallTelescope ForallInvisible binders') qualified)
+    -- An equality with its two sides is an infix type, as GHC prints it.
+    -- The resolver gives @~@ its built-in meaning.
+    (TreeNode "EqualityT" [], [left, right]) -> (\left' right' -> TParen (TInfix left' equality Unpromoted right')) <$> typeFromTree left <*> typeFromTree right
+    (TreeNode "EqualityT" [], arguments) -> foldl TApp (TCon equality Unpromoted) <$> mapM typeFromTree arguments
     (TreeNode "ForallVisT" [binders, body], []) -> TForall . ForallTelescope ForallVisible <$> (list binders >>= mapM typeVariableBinder) <*> typeFromTree body
     (other, _) -> unsupported "type" other
   where
+    equality = mkName Nothing NameVarSym "~"
     -- The head of a chain of type applications, and its arguments.
     typeApplication applied arguments =
       case applied of
