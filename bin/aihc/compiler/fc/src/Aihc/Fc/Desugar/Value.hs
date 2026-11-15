@@ -532,7 +532,7 @@ patSynHelperKey :: (PackageId, Text) -> Text -> PatSynInfo -> Entity
 patSynHelperKey (package, moduleName') prefix info = GlobalTerm package moduleName' (patSynHelperName prefix info)
 
 -- | The pattern synonym that a constructor pattern uses, with the checked
--- annotation of the pattern.
+-- annotation of the use.
 patternPatSyn :: Syn.Pattern -> ValueM (Maybe (PatSynInfo, TcAnnotation))
 patternPatSyn pattern' = do
   patSyns <- gets vsPatSyns
@@ -540,8 +540,23 @@ patternPatSyn pattern' = do
     name <- patternConstructorSourceName pattern'
     key <- nameTermKey name
     info <- Map.lookup key patSyns
-    annotation <- patternAnnotation pattern'
+    annotation <- constructorPatternAnnotation pattern'
     pure (info, annotation)
+
+-- | The annotation nearest to the constructor of a pattern. The type
+-- checker puts the annotation of the use, with its type arguments, on the
+-- constructor pattern. An outer annotation, as the one on a lambda
+-- argument, has only the type of the pattern.
+constructorPatternAnnotation :: Syn.Pattern -> Maybe TcAnnotation
+constructorPatternAnnotation pattern' =
+  case pattern' of
+    Syn.PAnn annotation inner -> constructorPatternAnnotation inner <|> Syn.fromAnnotation annotation
+    Syn.PParen inner -> constructorPatternAnnotation inner
+    Syn.PStrict inner -> constructorPatternAnnotation inner
+    Syn.PIrrefutable inner -> constructorPatternAnnotation inner
+    Syn.PAs _ inner -> constructorPatternAnnotation inner
+    Syn.PTypeSig inner _ -> constructorPatternAnnotation inner
+    _ -> Nothing
 
 patternAnnotation :: Syn.Pattern -> Maybe TcAnnotation
 patternAnnotation pattern' =
