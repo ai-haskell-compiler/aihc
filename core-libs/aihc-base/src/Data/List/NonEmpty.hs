@@ -264,7 +264,7 @@ toList ((:|) value values) = value : values
 map :: (a -> b) -> NonEmpty a -> NonEmpty b
 map f ((:|) value values) = f value :| mapList f values
 
-inits :: [a] -> NonEmpty [a]
+inits :: (Foldable f) => f a -> NonEmpty [a]
 inits values = [] :| nonEmptyInits (foldableToList values)
 
 nonEmptyInits :: [a] -> [[a]]
@@ -279,7 +279,7 @@ nonEmptyInitsFrom _ [] = []
 nonEmptyInitsFrom value (next : values) =
   [value, next] : mapList (prependValue value) (nonEmptyInitsFrom next values)
 
-tails :: [a] -> NonEmpty [a]
+tails :: (Foldable f) => f a -> NonEmpty [a]
 tails values =
   case tailsList (foldableToList values) of
     first : rest -> first :| rest
@@ -292,7 +292,7 @@ nonEmptyTails :: [a] -> [[a]]
 nonEmptyTails [] = []
 nonEmptyTails values@(_ : rest) = values : nonEmptyTails rest
 
-insert :: (Ord a) => a -> [a] -> NonEmpty a
+insert :: (Foldable f, Ord a) => a -> f a -> NonEmpty a
 insert value values = fromList (insertByList compareValues value (foldableToList values))
 
 some1 :: (Alternative f) => f a -> f (NonEmpty a)
@@ -300,7 +300,7 @@ some1 values = fmap makeNonEmpty values <*> many values
   where
     makeNonEmpty value rest = value :| rest
 
-scanl :: (b -> a -> b) -> b -> [a] -> NonEmpty b
+scanl :: (Foldable f) => (b -> a -> b) -> b -> f a -> NonEmpty b
 scanl f initial values = initial :| scanlTail f initial (foldableToList values)
 
 scanlTail :: (b -> a -> b) -> b -> [a] -> [b]
@@ -309,7 +309,7 @@ scanlTail f initial (value : values) =
   case f initial value of
     result -> result : scanlTail f result values
 
-scanr :: (a -> b -> b) -> b -> [a] -> NonEmpty b
+scanr :: (Foldable f) => (a -> b -> b) -> b -> f a -> NonEmpty b
 scanr f initial values = fromList (scanrList f initial (foldableToList values))
 
 scanrList :: (a -> b -> b) -> b -> [a] -> [b]
@@ -387,13 +387,13 @@ filter predicate values = filterList predicate (toList values)
 partition :: (a -> Bool) -> NonEmpty a -> ([a], [a])
 partition predicate values = partitionList predicate (toList values)
 
-group :: (Eq a) => [a] -> [NonEmpty a]
+group :: (Foldable f, Eq a) => f a -> [NonEmpty a]
 group values = groupByList equalValues (foldableToList values)
 
-groupBy :: (a -> a -> Bool) -> [a] -> [NonEmpty a]
+groupBy :: (Foldable f) => (a -> a -> Bool) -> f a -> [NonEmpty a]
 groupBy predicate values = groupByList predicate (foldableToList values)
 
-groupWith :: (Eq b) => (a -> b) -> [a] -> [NonEmpty a]
+groupWith :: (Foldable f, Eq b) => (a -> b) -> f a -> [NonEmpty a]
 groupWith projection = groupBy (equalOn projection)
 
 equalOn :: (Eq b) => (a -> b) -> a -> a -> Bool
@@ -481,8 +481,8 @@ mapList f (value : values) = f value : mapList f values
 prependValue :: a -> [a] -> [a]
 prependValue value values = value : values
 
-foldableToList :: [a] -> [a]
-foldableToList values = values
+foldableToList :: (Foldable f) => f a -> [a]
+foldableToList values = foldr (:) [] values
 
 foldrList :: (a -> b -> b) -> b -> [a] -> b
 foldrList _ initial [] = initial
