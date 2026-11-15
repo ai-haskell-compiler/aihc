@@ -1,0 +1,15 @@
+extensions: [ConstraintKinds, PolyKinds, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, PolyKinds, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  data R (f :: k -> Type) = R
+  class C record where
+    type F record (f :: k -> Type) :: Constraint
+    type F record f = ()
+    m :: F record f => record f -> record f
+  instance C R where
+    m x = x
+status: pass
+reason: The method signature fixes the kind of record to (k -> Type) -> Type, so the default equation of F has a solved kind meta in its kinds. The axiom at the instance head R must use one kind variable for R and for f. Before the fix, the type checker read the default equation before it zonked that meta. The axiom then used two kind variables, and the FC lint failed with a kind mismatch.
