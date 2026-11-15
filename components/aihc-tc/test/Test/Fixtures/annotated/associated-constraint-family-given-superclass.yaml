@@ -1,0 +1,49 @@
+extensions: [ConstraintKinds, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances]
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  type family U a
+  class (U a ~ u) => Into u a
+  instance (U a ~ u) => Into u a
+  data Arr u a = Arr
+  mk :: Arr (U a) a
+  mk = Arr
+  class K f where
+    type E f :: Type -> Constraint
+    new :: E f b => f b
+  instance K (Arr u) where
+    type E (Arr u) = Into u
+    new = mk
+status: pass
+reason: The given E (Arr u) b applies the family E of arity one to two arguments. It reduces to the class constraint Into u b, and its superclass U b ~ u proves the wanted Arr (U b) b ~ Arr u b. Before the fix, the solver did not reduce an over-applied family given, and the wanted stayed unsolved.
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  type family U a
+              └─ type: Type → Type
+  class (U a ~ u) => Into u a
+  └─ class methods:
+  instance (U a ~ u) => Into u a
+  └─ $fIntoua ∷ ∀ a u. ((U a) ~ u) ⇒ Into u a [superclasses: given U a ~ u]
+  data Arr u a = Arr
+       │         └─ type: ∀ u a. Arr u a
+       └─ type: Type → Type → Type
+  mk :: Arr (U a) a
+  mk = Arr
+  │    └─ type: Arr (U a) a; type-args: U a, a
+  └─ type: ∀ a. Arr (U a) a
+  class K f where
+  └─ class methods: new ∷ ∀ f b. (K f, E f b) ⇒ f b
+    type E f :: Type -> Constraint
+         └─ type: (Type → Type) → Type → GHC.Types.Constraint
+    new :: E f b => f b
+  instance K (Arr u) where
+  └─ $fKArru ∷ ∀ u. () ⇒ K (Arr u) [associated types: E (Arr u) = Into u]
+    type E (Arr u) = Into u
+    new = mk
+    │     └─ type: Arr (U b) b; type-args: b
+    └─ new ∷ ∀ b. (E (Arr u) b) ⇒ Arr u b

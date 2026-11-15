@@ -9,7 +9,7 @@ module Aihc.Tc.Solve.Congruence
   )
 where
 
-import Aihc.Tc.Env (ClassInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
+import Aihc.Tc.Env (ClassInfo (..), TyConFlavor (..), TyConInfo (..), classFieldTypes, superClassPred)
 import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
@@ -278,9 +278,20 @@ stuckGivenConstraints visited (predicate, evidence) = case predicate of
                 superItems
   _ -> pure []
   where
+    -- A family can return a class that takes more arguments. The given
+    -- @Element arr b@ applies the family @Element@ of arity one to two
+    -- arguments, and @Element arr@ reduces to a partial class application.
     stuckFamily constraint = do
-      family <- isTypeFamilyApplication constraint
+      family <- isFamilyHeaded constraint
       pure [(constraint, evidence) | family]
+    isFamilyHeaded constraint =
+      case constraint of
+        TcTyCon tyCon arguments -> do
+          maybeInfo <- lookupTyConByIdentity tyCon
+          pure $ case maybeInfo of
+            Just info -> tciFlavor info == TypeFamilyTyCon && length arguments >= tciArity info
+            Nothing -> False
+        _ -> pure False
 
 -- | Preserve the dictionary path of each equality superclass.
 givenEqualities :: [TyCon] -> (Pred, EvTerm) -> TcM [(TcType, TcType, Coercion)]
