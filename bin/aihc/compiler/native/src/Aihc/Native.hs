@@ -44,6 +44,7 @@ module Aihc.Native
     renderOptimizationLevel,
     wasmClangCommand,
     wasmSysroot,
+    wasmSysrootArchives,
   )
 where
 
@@ -54,7 +55,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.List (intercalate, sort)
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -527,9 +528,22 @@ data WasmSysroot = WasmSysroot
     wasmSysrootLibc :: !FilePath,
     -- | The compiler runtime archive of the target, which a link adds after
     -- the libc. A sysroot that does not carry one leaves it out.
-    wasmSysrootBuiltins :: !(Maybe FilePath)
+    wasmSysrootBuiltins :: !(Maybe FilePath),
+    -- | The archive of the @mmap@ emulation of the libc. WASI has no true
+    -- @mmap@, and @sys/mman.h@ stops with an error unless the code defines
+    -- @_WASI_EMULATED_MMAN@. Some packages include the header only for its
+    -- constants, such as @memory@. A sysroot that does not carry the
+    -- archive leaves it out, and the C compilations do not define the
+    -- macro.
+    wasmSysrootEmulatedMman :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
+
+-- | The archives of the sysroot that a link adds after all other inputs,
+-- in order: the @mmap@ emulation, the libc, and the compiler runtime.
+wasmSysrootArchives :: WasmSysroot -> [FilePath]
+wasmSysrootArchives sysroot =
+  maybeToList (wasmSysrootEmulatedMman sysroot) <> [wasmSysrootLibc sysroot] <> maybeToList (wasmSysrootBuiltins sysroot)
 
 -- | Locate the WASI sysroot. @AIHC_WASM_SYSROOT@ names one directly.
 -- Otherwise the well-known installation prefixes are searched, so an
@@ -554,8 +568,9 @@ readWasmSysroot root = do
   includes <- filterM (\directory -> doesFileExist (directory </> "stdlib.h")) [root </> "include" </> name | name <- wasmSysrootTargetNames]
   archives <- filterM doesFileExist [root </> "lib" </> name </> "libc.a" | name <- wasmSysrootTargetNames]
   builtins <- findWasmBuiltins root
+  emulatedMman <- listToMaybe <$> filterM doesFileExist [root </> "lib" </> name </> "libwasi-emulated-mman.a" | name <- wasmSysrootTargetNames]
   pure $ case (includes, archives) of
-    (include : _, archive : _) -> Just WasmSysroot {wasmSysrootInclude = include, wasmSysrootLibc = archive, wasmSysrootBuiltins = builtins}
+    (include : _, archive : _) -> Just WasmSysroot {wasmSysrootInclude = include, wasmSysrootLibc = archive, wasmSysrootBuiltins = builtins, wasmSysrootEmulatedMman = emulatedMman}
     _ -> Nothing
 
 -- | The target directory names of the libc that the target links.

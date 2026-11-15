@@ -28,13 +28,13 @@ module Aihc.Wasm.Engine
 where
 
 import Aihc.DataFiles (getDataFileName)
-import Aihc.Native (WasmSysroot (..), readWasmClangProcessWithExitCode, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot)
+import Aihc.Native (readWasmClangProcessWithExitCode, renderLinkedGlobalSymbol, wasmClangCommand, wasmSysroot, wasmSysrootArchives)
 import Control.Exception (bracket, onException)
 import Control.Monad (void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, intToDigit, isHexDigit)
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import System.Environment (lookupEnv)
@@ -88,8 +88,7 @@ linkImage output objects archives libraries = do
         <> archives
         <> ["--no-whole-archive"]
         <> libraries
-        <> [wasmSysrootLibc sysroot]
-        <> maybeToList (wasmSysrootBuiltins sysroot)
+        <> wasmSysrootArchives sysroot
         <> ["-o", output]
     )
 
