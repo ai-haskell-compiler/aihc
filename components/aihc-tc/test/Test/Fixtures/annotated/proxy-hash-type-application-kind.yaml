@@ -1,0 +1,32 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, MagicHash, TypeApplications, ScopedTypeVariables #-}
+  module Main where
+  import GHC.Prim (Proxy#, proxy#)
+  data P = Z | S P
+       │   │   └─ type: P → P
+       │   └─ type: P
+       └─ type: Type
+  class C (n :: P) where
+  └─ class methods: p ∷ ∀ n. (C n) ⇒ Proxy# n → P
+    p :: Proxy# n -> P
+  instance C n => C ('S n) where
+  └─ $fCSn ∷ ∀ n. (C n) ⇒ C ('S n)
+    p _ = p (proxy# @n)
+    │ │   │  └─ type: GHC.Prim.Proxy# n; type-args: P, n
+    │ │   └─ type: GHC.Prim.Proxy# n → P; type-args: n; evidence: given C n
+    │ └─ type: GHC.Prim.Proxy# ('S n)
+    └─ p ∷ Proxy# ('S n) → P
+extensions: []
+reason: proxy# has an inferred kind variable, thus a visible type application gives the type argument and not its kind
+modules:
+- |
+  {-# LANGUAGE DataKinds, MagicHash, TypeApplications, ScopedTypeVariables #-}
+  module Main where
+  import GHC.Prim (Proxy#, proxy#)
+  data P = Z | S P
+  class C (n :: P) where
+    p :: Proxy# n -> P
+  instance C n => C ('S n) where
+    p _ = p (proxy# @n)
+status: pass
