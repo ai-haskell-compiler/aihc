@@ -84,6 +84,10 @@ alignProvedKinds left right
           zipWithM_ unifyOpen leftKinds rightKinds
     go (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       go leftArg rightArg >> go leftResult rightResult
+    -- A partial application keeps the kind arguments of its constructor:
+    -- @Const \@k a@ in @All (Const a)@.
+    go (TcAppTy leftFunction leftArg) (TcAppTy rightFunction rightArg) =
+      go leftFunction rightFunction >> go leftArg rightArg
     go leftLeaf rightLeaf
       | sameType leftLeaf rightLeaf = pure ()
       | otherwise = do
