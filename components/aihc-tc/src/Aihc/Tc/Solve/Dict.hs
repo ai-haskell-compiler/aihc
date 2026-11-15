@@ -32,7 +32,7 @@ import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zon
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Congruence (allGivenEqualities, givenEqualities, proveGivenEquality, stuckGivenConstraints)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
@@ -1053,7 +1053,7 @@ typeableArguments ty =
 -- the other.
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
-  written <- concat <$> traverse (\predicate -> givenEqualities [] (predicate, EvGiven predicate)) givens
+  written <- allGivenEqualities givens
   decomposed <- concat <$> mapM (decomposeGiven (8 :: Int)) written
   -- A rule is compared with a wanted whose families are reduced, so its
   -- sides are reduced too. The proof still names the given as written.
