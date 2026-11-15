@@ -86,7 +86,7 @@ import GHC.Prim (Proxy#)
 import GHC.Prim.Natural (naturalFromInteger#)
 import GHC.Real (toInteger)
 import GHC.TypeError (ErrorMessage (..), TypeError)
-import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, pattern SNat, SomeNat (..), fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, type (*), type (+), type (-), type (^))
+import GHC.TypeNats (CmpNat, Div, KnownNat, Log2, Mod, Nat, SNat, SomeNat (..), fromSNat, natSing, sameNat, withKnownNat, withSomeSNat, pattern SNat, type (*), type (+), type (-), type (^))
 import GHC.TypeNats qualified as Nats
 import GHC.Types (Any, Char, Constraint, Ordering, Symbol, Type)
 import Unsafe.Coerce (unsafeCoerce)
