@@ -4689,7 +4689,12 @@ instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars 
   -- kind argument of @R@ in @instance C R@. Zonk it, so the axiom binds
   -- the instance variable that the meta stands for.
   headTys <- mapM zonkType rawHeadTys
-  let defaultArguments = typeArguments (tfiiLeft defaultEquation)
+  -- The kinds of the default equation can also hold solved kind metas,
+  -- as the class kind variable @k@ in @type F r (f :: k -> Type)@. Zonk
+  -- them, so the head kinds can fix that variable.
+  defaultLeft <- zonkType (tfiiLeft defaultEquation)
+  defaultRight <- zonkType (tfiiRight defaultEquation)
+  let defaultArguments = typeArguments defaultLeft
   -- The class arguments fix the kind variables of the default equation:
   -- @type AllB (c :: k -> Constraint) b = ...@ at @b := Unit@ fixes @k@.
   headKinds <-
@@ -4715,7 +4720,7 @@ instantiateAssociatedDefault (packageName, moduleName') dictName instanceTyVars 
         tfiiOrigin = (PackageId packageName, moduleName'),
         tfiiTyVars = axiomTyVars <> freshTyVars,
         tfiiLeft = TcTyCon (atiTyCon info) args,
-        tfiiRight = applySubst substitution (tfiiRight defaultEquation),
+        tfiiRight = applySubst substitution defaultRight,
         tfiiClosed = False
       }
   where
