@@ -2969,9 +2969,8 @@ expandUnitSplices context runtimes unit availableExports sources modules =
     -- other packages, and their C code, for WebAssembly. A core library
     -- stays, because its name in the dependencies and its name in the
     -- exports can be different.
-    importingPackages = Map.fromListWith Set.union [(name, Set.singleton (packageName package)) | ModuleKey package name <- moduleExportKeys availableExports]
     importedDependencies importers dependencies =
-      let imported = Set.unions [Map.findWithDefault Set.empty name importingPackages | importer <- importers, (_, name) <- sourceDependencies importer]
+      let imported = Set.fromList [packageName package | importer <- importers, (_, name) <- sourceDependencies importer, package <- providerPackagesOf (taskModuleProvider context) name]
        in [dependency | dependency@(name, _) <- dependencies, name `Set.member` imported || isJust (lookupCoreProvider (T.unpack name))]
     expand run importedTypes source moduleUnit =
       case sourceModuleSpliceRequest source of
