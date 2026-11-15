@@ -1,0 +1,49 @@
+extensions: []
+modules:
+  - |
+    module Error (Error (path)) where
+    data Message = Message
+    data Error = Error { path :: Message }
+  - |
+    module Scope (Scope (..)) where
+    data Name = Name
+    data Scope = Scope { path :: Name }
+  - |
+    module Validator (Scope (..)) where
+    import Error
+    import Scope (Scope (..))
+  - |
+    module Test where
+    import Validator
+    current s = path s
+annotated:
+  - |-
+    module Error (Error (path)) where
+    data Message = Message
+         │         └─ v Error
+         └─ t Error
+    data Error = Error { path :: Message }
+         │       └─ v Error      └─ t Error
+         └─ t Error
+  - |-
+    module Scope (Scope (..)) where
+    data Name = Name
+         │      └─ v Scope
+         └─ t Scope
+    data Scope = Scope { path :: Name }
+         │       └─ v Scope      └─ t Scope
+         └─ t Scope
+  - |-
+    module Test where
+    import Validator
+    current s = path s
+    │       │   │    └─ v 0
+    │       │   └─ v Scope
+    │       └─ v 0
+    └─ v Test
+  - |-
+    module Validator (Scope (..)) where
+    import Error
+    import Scope (Scope (..))
+status: pass
+reason: a type item T (..) in an export list exports the fields of T from the import that gives T, also when another import gives a field with the same label; reduced from morpheus-graphql-core Data.Morpheus.Types.Internal.Validation

@@ -542,11 +542,24 @@ exportedScopeFor package exports extensions modu = \case
         -- first. Only those members: a local data instance of an imported
         -- family has its own fields, and an imported term with the name of
         -- such a field must not replace it.
+        --
+        -- The members come from the imports that give the type. Another
+        -- import can give a term with the label of a field: @import Error@
+        -- gives the field @path@ of @Error@, and @import Scope (Scope (..))@
+        -- gives the field @path@ of @Scope@. The item @Scope (..)@ exports
+        -- the field of @Scope@. The union of all imports has only one
+        -- @path@, thus it comes last.
         importedTypeFirst scope
           | Map.notMember (nameText name) (scopeTypes ownScope),
-            Map.member (nameText name) (scopeTypes imported) =
-              emptyScope {scopeTerms = Map.restrictKeys (scopeTerms imported) (Set.fromList (allTypeMembers (nameText name) imported))}
-                `unionScope` scope
+            Just resolvedType <- Map.lookup (nameText name) (scopeTypes imported) =
+              let typeImports =
+                    [ importScope
+                    | importScope <- Map.elems (scopeQualifiedModules imported),
+                      Map.lookup (nameText name) (scopeTypes importScope) == Just resolvedType
+                    ]
+                  source = List.foldl' unionScope emptyScope typeImports `unionScope` imported
+               in emptyScope {scopeTerms = Map.restrictKeys (scopeTerms source) (Set.fromList (allTypeMembers (nameText name) source))}
+                    `unionScope` scope
           | otherwise = scope
 
     qualifiedMemberScopes name =
