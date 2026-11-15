@@ -1,0 +1,3 @@
+status: pass
+reason: Rts.h includes stdio.h, stdlib.h, and assert.h, and Stg.h includes math.h, as in GHC. The cbits of bytebuild call sprintf with only Rts.h included.
+no-code: false

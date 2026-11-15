@@ -319,7 +319,9 @@ stgHeader :: Text
 stgHeader =
   headerLines
     "STG_H"
-    ["#include \"HsFFI.h\""]
+    -- GHC's @Stg.h@ includes @math.h@, so package C code that includes it
+    -- can call the math functions with no include of its own.
+    ["#include \"HsFFI.h\"", "#include <math.h>"]
     [ "typedef HsInt StgInt;",
       "typedef HsWord StgWord;",
       "typedef HsInt8 StgInt8;",
@@ -359,7 +361,10 @@ rtsHeader :: Text
 rtsHeader =
   headerLines
     "RTS_H"
-    ["#include \"Stg.h\"", "#include \"rts/Signals.h\""]
+    -- GHC's @Rts.h@ includes @assert.h@ and @stdlib.h@, and its
+    -- @rts/Flags.h@ includes @stdio.h@. Package C code such as the
+    -- @cbits@ of @bytebuild@ calls @sprintf@ with only @Rts.h@ included.
+    ["#include <assert.h>", "#include <stdlib.h>", "#include <stdio.h>", "#include \"Stg.h\"", "#include \"rts/Signals.h\""]
     [ "void startTimer(void);",
       "void stopTimer(void);",
       "void blockUserSignals(void);",
