@@ -325,11 +325,13 @@ checkRuntimeType tvEnv ty = do
   requireRuntimeKind ty converted
 
 -- | Require that a converted type has the kind @TYPE rep@. An open kind
--- becomes 'Type'.
+-- becomes 'Type'. A given kind equality can show the kind: with the given
+-- @k1 ~ Type@ the argument @r@ of @r -> IO ()@ with @r :: k1@ is a runtime
+-- type.
 requireRuntimeKind :: Type -> (TcType, TcType) -> TcM TcType
 requireRuntimeKind ty (tcTy, actual) = do
   kinds <- getKinds
-  actual' <- zonkKind actual
+  actual' <- zonkKind actual >>= refineGivenKind
   case actual' of
     KTYPE {} -> pure tcTy
     KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique (typeKind kinds) >> pure tcTy

@@ -42,11 +42,15 @@ annotated:
     │     │                                                          └─ type: ()
     │     └─ type: Rep f → Rep x → Rep f; type-args: k1 → k2, f, k1, k2, f, x; evidence: given k1 → k2 ~ k2, given f ~ f x
     └─ type: Rep f → Rep x → Rep t; type-args: Type, t, k1, k2, f, x; evidence: given Type ~ k2, given t ~ f x
-      Just HRefl -> boxed (Box :: Box l)
-      │    │        │      └─ type: Box x; type-args: x
-      │    │        └─ type: Box x → (); type-args: x
+      Just HRefl -> case (Box :: Box l) of
+      │    │        │     └─ type: Box x; type-args: x
+      │    │        └─ type: ()
       │    └─ type: HEq f GHC.Tuple.Tuple2; type-args: k1 → k2, f, Type → Type → Type, Tuple2; evidence: given Type → Type → Type ~ k1 → k2, given Tuple2 ~ f
       └─ type: Maybe (HEq f GHC.Tuple.Tuple2)
+        _ -> boxed (Box :: Box (l -> ()))
+        │    │      └─ type: Box (x → ()); type-args: x → ()
+        │    └─ type: Box (x → ()) → (); type-args: x → ()
+        └─ type: Box x
       Nothing -> ()
       │          └─ type: ()
       └─ type: Maybe (HEq f GHC.Tuple.Tuple2)
@@ -75,8 +79,9 @@ modules:
   use :: forall (t :: Type). Rep t -> ()
   use rep = case rep of
     RApp (RApp (tup :: Rep tup) (left :: Rep l)) (right :: Rep r) -> case eqRep tup (RCon :: Rep (,)) of
-      Just HRefl -> boxed (Box :: Box l)
+      Just HRefl -> case (Box :: Box l) of
+        _ -> boxed (Box :: Box (l -> ()))
       Nothing -> ()
     _ -> ()
 status: pass
-reason: a match on HRefl gives an equality between a type variable and a type constructor, and the kinds of the two sides are then equal too
+reason: a match on HRefl gives an equality between a type variable and a type constructor, the kinds of the two sides are then equal too, and an argument of a function type in the branch has kind Type
