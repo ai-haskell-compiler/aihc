@@ -656,7 +656,8 @@ withBuildModuleSandbox getStore prefix action = do
 -- closures keep state in the instance, and an exception in a closure does
 -- not stop the guest. A static thunk that a closure evaluated keeps its
 -- value after collections between the closures. A module of the package
--- reads declarations that the WASI libc leaves out.
+-- includes @sys/mman.h@ for its constants, and a module reads declarations
+-- that the WASI libc leaves out.
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
 test_engineClosures getStore =
   withEngineFixture getStore [] "closures" $ \engine -> do
@@ -680,6 +681,8 @@ test_engineClosures getStore =
     tableSecond <- run "tableSum"
     assertEqual "the first sum of the static list" ["200010000"] tableFirst
     assertEqual "the sum of the static list after the collections" ["200010000"] tableSecond
+    memoryMap <- run "memoryMap"
+    assertEqual "PROT_READ | PROT_WRITE" ["3"] memoryMap
     wasiHeaders <- run "wasiHeaders"
     assertEqual "sun_path, struct winsize, SCM_RIGHTS, and &pthread_exit" ["[108,8,1,4]"] wasiHeaders
 
@@ -740,7 +743,9 @@ noRequest _ = assertFailure "the closure sent a request"
 -- expression quotes, splices in the position of a declaration, and name
 -- quotes. The program is for the host target, and the
 -- splices run for @wasm32-wasip3@, so the store has the core libraries of
--- the two targets.
+-- the two targets. The program also depends on a package that its C code
+-- makes only for native targets. The splices do not import that package,
+-- so the builds for the engine must not compile it.
 test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
 test_buildSplices getStore getEngineStore = do
   available <- getEngineStore
@@ -748,6 +753,7 @@ test_buildSplices getStore getEngineStore = do
     withBuildModuleSandbox getStore "aihc-splices" $ \sandbox _fixtureRoot storeRoot options -> do
       copyWritable (seedStoreRoot engineStore) storeRoot
       fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/template-haskell"
+      workspace <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/workspace"
       let output = sandboxRoot sandbox </> "program"
       void $
         buildWithConfig
@@ -755,7 +761,8 @@ test_buildSplices getStore getEngineStore = do
           options
             { buildInput = fixtureRoot </> "Main.hs",
               buildSourceDirectories = [fixtureRoot],
-              buildPackageConstraints = buildPackageConstraints options <> ["template-haskell"],
+              buildPackageConstraints = buildPackageConstraints options <> ["template-haskell", "native-only == 1.0.0"],
+              buildWorkspace = Just workspace,
               buildOutput = Just output
             }
           withSplices

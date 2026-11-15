@@ -1,10 +1,11 @@
-module Closures (greet, failing, tableSum, churn, wasiHeaders) where
+module Closures (greet, failing, tableSum, churn, memoryMap, wasiHeaders) where
 
 import Control.Exception (ErrorCall (..), throwIO)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Foreign.C.String (withCStringLen)
 import Foreign.C.Types (CChar)
 import Foreign.Ptr (Ptr)
+import MemoryMap (readWrite)
 import System.IO.Unsafe (unsafePerformIO)
 import WasiHeaders (wasiDeclarations)
 
@@ -45,6 +46,10 @@ churn = send (show (sum (map live [1 .. 12])))
     -- The list stays live while 'length' walks it.
     live :: Int -> Int
     live seed = let values = [seed .. seed + 300000] in length values + sum values
+
+-- | Send a constant of @sys/mman.h@.
+memoryMap :: IO ()
+memoryMap = send (show readWrite)
 
 -- | Send values from declarations that the WASI libc leaves out.
 wasiHeaders :: IO ()

@@ -251,6 +251,8 @@ in rec {
       ".h.in"
       # The .hsc sources of the code-quality install fixtures.
       ".hsc"
+      # The .chs sources of the code-quality install fixtures.
+      ".chs"
       # The project file of the test-suites build fixture.
       "cabal.project"
     ];

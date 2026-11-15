@@ -1,0 +1,9 @@
+status: pass
+reason: |
+  A module that a package ships as a .chs file goes through c2hs. The
+  Shape.Point module uses an import hook for Shape.Kind. c2hs then reads
+  the .chi file that it wrote for Shape.Kind, so it must process Shape.Kind
+  first. The two files are in the order of the hook, not in parallel.
+expect-type-constructors:
+  - [Shape/Kind, [ShapeKind]]
+  - [Shape/Point, [Point]]

@@ -346,6 +346,18 @@ convertTypeWithExpectedKind env expectedKind ty =
       | Tc.isImplicitParamTyConName (Tc.tyConName tyCon) -> convertType env payload
     TcTyCon tyCon [left, right]
       | Tc.isEqualityTyCon (ceKinds env) tyCon -> convertPred env (EqPred left right)
+    -- The type checker kept the kind arguments of this application,
+    -- because its visible arguments do not give them.
+    TcTyConApp tyCon kindArguments@(_ : _) arguments
+      | Right (ForAll variables _ body) <- kindScheme env tyCon,
+        length variables == length kindArguments -> do
+          convertedKinds <- mapM (convertKindArgument env) kindArguments
+          let argumentKinds = formalKinds (Tc.applySubst (Map.fromList (zip (map tvUnique variables) kindArguments)) body)
+          converted <- zipWithM (convertNestedTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
+          pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) (convertedKinds <> converted))
+      where
+        formalKinds (KFun formal result) = formal : formalKinds result
+        formalKinds _ = []
     TcTyCon tyCon arguments -> convertTyConApplication env expectedKind tyCon arguments
     -- The type checker recorded the kind arguments of a bare constructor,
     -- because no visible argument tells them.

@@ -385,6 +385,10 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
               | length kindArguments <= length instantiated -> do
                   zipWithM_ (applyKindArgument tvEnv) instantiated kindArguments
                   (,) <$> zonkKind function <*> zonkKind kind
+            TcTyConApp _ instantiated@(_ : _) []
+              | length kindArguments <= length instantiated -> do
+                  zipWithM_ (applyKindArgument tvEnv) instantiated kindArguments
+                  (,) <$> zonkKind function <*> zonkKind kind
             _ -> do
               emitError (surfaceTypeSpan ty) (OtherError ("too many kind arguments for " <> T.unpack (nameText name)))
               pure (function, kind)
@@ -1003,7 +1007,24 @@ kindedTyConUse info = do
       kind <- readMetaTvKind unique >>= zonkKind
       when (quantifiableKind kinds kind) (trackKindMeta unique)
     _ -> pure ()
-  pure (kindedTyCon (tciTyCon info) (instTypeArgs instantiation), instType instantiation)
+  let tyCon = tciTyCon info
+      kindArguments = instTypeArgs instantiation
+      use
+        -- The visible arguments do not give all kinds of this constructor,
+        -- thus each application of this use keeps the kind arguments.
+        --
+        -- Only a data type, a newtype, or a data family keeps them now. A
+        -- type synonym family and a promoted data constructor still get
+        -- their kinds from the place of the use. Their equations and their
+        -- matching read the bare kinded form. See
+        -- @docs/design/tc-kind-arguments.md@, steps 5 and 6.
+        | not (null kindArguments),
+          tciFlavor info `elem` [DataTyCon, NewtypeTyCon, DataFamilyTyCon],
+          tyConNamespace tyCon == ResolutionNamespaceType,
+          hasResultOnlyKindVariable (tciKindScheme info) (tciArity info) =
+            TcTyConApp tyCon kindArguments []
+        | otherwise = kindedTyCon tyCon kindArguments
+  pure (use, instType instantiation)
 
 -- | Give a partial type constructor application the kind arguments of its use.
 -- A bare promoted data constructor without visible parameters, as @'[]@,
@@ -1024,7 +1045,7 @@ kindedTyConAt useKind ty = do
 kindedPartialTyCon :: TcType -> TcM (Maybe (TcType, TcType))
 kindedPartialTyCon ty =
   case ty of
-    TcTyCon tyCon arguments -> do
+    TcTyConApp tyCon [] arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       case maybeInfo of
         Just info
@@ -1748,6 +1769,16 @@ tcTypeKind ty =
           let ForAll variables _ body = tciKindScheme info
           zonkKind (applySubst (Map.fromList (zip (map tvUnique variables) kindArguments)) body)
         Nothing -> tcTypeKind (TcTyCon tyCon [])
+    -- The kind arguments give the kind of the constructor.
+    TcTyConApp tyCon kindArguments@(_ : _) arguments -> do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      case maybeInfo of
+        Just info
+          | ForAll variables _ body <- tciKindScheme info,
+            length variables == length kindArguments -> do
+              initialKind <- zonkKind (applySubst (Map.fromList (zip (map tvUnique variables) kindArguments)) body)
+              foldM applyArgument initialKind arguments
+        _ -> tcTypeKind (TcTyCon tyCon arguments)
     TcTyCon tyCon arguments -> do
       maybeInfo <- lookupTyConByIdentity tyCon
       initialKind <-

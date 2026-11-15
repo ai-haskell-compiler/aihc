@@ -457,7 +457,9 @@ undeterminedTypeOfKind kind = do
     KRuntimeRep -> pure (liftedRep kinds)
     _ -> do
       anyTyCon <- anyTyConOfWiring
-      pure (TcKindedTyCon anyTyCon [kind])
+      -- No visible argument gives the kind of @Any@, thus the application
+      -- keeps it, also when it gets arguments.
+      pure (TcTyConApp anyTyCon [kind] [])
 
 -- | Register the kind of the type family @Any :: forall k. k@ on first use.
 anyTyConOfWiring :: TcM TyCon
