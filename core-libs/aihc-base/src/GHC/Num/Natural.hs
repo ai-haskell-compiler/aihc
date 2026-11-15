@@ -249,14 +249,6 @@ naturalToBigNat# :: Natural -> BigNat#
 naturalToBigNat# (NS word) = bigNatFromWord# word
 naturalToBigNat# (NB magnitude) = magnitude
 
--- | The natural number 0.
-naturalZero :: Natural
-naturalZero = NS 0##
-
--- | The natural number 1.
-naturalOne :: Natural
-naturalOne = NS 1##
-
 -- | Whether a natural number is 0.
 naturalIsZero :: Natural -> Bool
 naturalIsZero (NS word) = isTrue# (eqWord# word 0##)
