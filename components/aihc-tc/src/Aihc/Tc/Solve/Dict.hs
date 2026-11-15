@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstances, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -839,7 +839,7 @@ solveNormalizedDict visited givens ct
 
     searchQuantifiedChain visited' target variables build sourcePredicate classVisited =
       case matchQuantifiedPredicate variables sourcePredicate target of
-        Just substitution -> build substitution
+        Just substitution -> build =<< completeQuantifiedSubstitution variables substitution
         Nothing ->
           case sourcePredicate of
             ClassPred sourceClass sourceArguments
@@ -873,6 +873,19 @@ solveNormalizedDict visited givens ct
                             0
                             normalized
             _ -> pure Nothing
+
+    -- A superclass of a quantified given need not mention every bound
+    -- variable: @forall a. V v a@ has the superclass @C v@. Then the match
+    -- leaves @a@ free, and the evidence must still apply the given to a
+    -- type. As in GHC, any type does: the unit type at @Type@, and @Any@ at
+    -- another kind.
+    completeQuantifiedSubstitution variables substitution = foldM complete substitution variables
+      where
+        complete current variable
+          | Map.member (tvUnique variable) current = pure current
+          | otherwise = do
+              filler <- undeterminedTypeOfKind =<< zonkType (applySubst current (tvKind variable))
+              pure (Map.insert (tvUnique variable) filler current)
 
     searchQuantifiedSuperClasses _ _ _ _ _ _ _ _ _ [] = pure Nothing
     searchQuantifiedSuperClasses visited' target variables build sourcePredicate classVisited sourceOrigin fieldTypes index (superClass : rest) = do
