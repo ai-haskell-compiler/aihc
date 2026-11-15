@@ -1,0 +1,84 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+       └─ type: k1 → k2 → Type
+    HRefl :: HEq a a
+    └─ type: ∀ k1 a k2 b. (k2 ~ k1, b ~ a) ⇒ HEq a b
+  data Rep (a :: k) = Rep
+       │              └─ type: ∀ k a. Rep a
+       └─ type: k → Type
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  repKind :: forall k (a :: k). Rep a -> Rep k
+  repKind _ = Rep
+  │       │   └─ type: Rep k; type-args: Type, k
+  │       └─ type: Rep a
+  └─ type: ∀ k a. Rep a → Rep k
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  │     │ │   └─ type: Maybe (HEq a b); type-args: HEq a b
+  │     │ └─ type: Rep b
+  │     └─ type: Rep a
+  └─ type: ∀ k0 k1 a b. Rep a → Rep b → Maybe (HEq a b)
+  data SomeRep where
+       └─ type: Type
+    SomeRep :: forall k (a :: k). Rep a -> SomeRep
+    └─ type: ∀ k a. Rep a → SomeRep
+  class Get a where
+  └─ class methods: get ∷ ∀ a. (Get a) ⇒ a
+    get :: a
+  getWrap :: forall cmd. (forall x. Get (cmd x)) => SomeRep -> Maybe (cmd ())
+  getWrap some = case some of
+  │       │      └─ type: Maybe (cmd ())
+  │       └─ type: SomeRep
+  └─ type: ∀ cmd. (∀ x. Get (cmd x)) ⇒ SomeRep → Maybe (cmd ())
+    SomeRep (rep :: Rep a) -> case eqRep (repKind rep) (Rep :: Rep Type) of
+    │        └─ type: Rep a   │    │      │             └─ type: Rep Type; type-args: Type, Type
+    │                         │    │      └─ type: Rep a → Rep k; type-args: k, a
+    │                         │    └─ type: Rep k → Rep Type → Maybe (HEq k Type); type-args: Type, Type, k, Type
+    │                         └─ type: Maybe (cmd ())
+    └─ type: Rep a → SomeRep; type-args: k, a
+      Just HRefl -> case get @(cmd a) of
+      │    │        │    └─ type: cmd a; type-args: cmd a; evidence: (given forall x. Get cmd x) @a
+      │    │        └─ type: Maybe (cmd ())
+      │    └─ type: HEq k Type; type-args: Type, k, Type, Type; evidence: given Type ~ Type, given Type ~ k
+      └─ type: Maybe (HEq k Type)
+        _ -> Nothing
+        │    └─ type: Maybe (cmd ()); type-args: cmd ()
+        └─ type: cmd a
+      Nothing -> Nothing
+      │          └─ type: Maybe (cmd ()); type-args: cmd ()
+      └─ type: Maybe (HEq k Type)
+extensions:
+- GADTs
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, QuantifiedConstraints, RankNTypes, ScopedTypeVariables, TypeApplications #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+    HRefl :: HEq a a
+  data Rep (a :: k) = Rep
+  data Maybe a = Nothing | Just a
+  repKind :: forall k (a :: k). Rep a -> Rep k
+  repKind _ = Rep
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  data SomeRep where
+    SomeRep :: forall k (a :: k). Rep a -> SomeRep
+  class Get a where
+    get :: a
+  getWrap :: forall cmd. (forall x. Get (cmd x)) => SomeRep -> Maybe (cmd ())
+  getWrap some = case some of
+    SomeRep (rep :: Rep a) -> case eqRep (repKind rep) (Rep :: Rep Type) of
+      Just HRefl -> case get @(cmd a) of
+        _ -> Nothing
+      Nothing -> Nothing
+status: pass
+reason: a match on HRefl gives a kind equality, and the improvement of the wanteds of the branch uses it to compute the kind of a visible type application
