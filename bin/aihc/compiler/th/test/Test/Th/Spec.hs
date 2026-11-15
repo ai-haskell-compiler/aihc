@@ -364,7 +364,7 @@ classTest = do
 equalityAndTypeInstanceTest :: IO ()
 equalityAndTypeInstanceTest = do
   let apply function argument = TreeNode "AppT" [function, argument]
-      equality left right = apply (apply (TreeNode "EqualityT" []) left) right
+      equality left = apply (apply (TreeNode "EqualityT" []) left)
       equation left right = TreeNode "TySynEqn" [TreeNode "Nothing" [], left, right]
       tree =
         list

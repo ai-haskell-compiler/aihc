@@ -22,6 +22,7 @@ import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (ExactTerm (..), ExactType (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
+import Control.Monad ((>=>))
 import Data.Char (isAlpha, isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -113,7 +114,7 @@ declaration tree =
     typeFamilyInstance equation =
       case equation of
         TreeNode "TySynEqn" [binders, left, right] -> do
-          binders' <- optional (\tree -> list tree >>= mapM typeVariableBinder) binders
+          binders' <- optional (list >=> mapM typeVariableBinder) binders
           left' <- typeFromTree left
           right' <- typeFromTree right
           pure (TypeFamilyInst (fromMaybe [] binders') TypeHeadPrefix left' right')
