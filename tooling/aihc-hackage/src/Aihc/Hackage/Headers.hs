@@ -135,10 +135,49 @@ ghcautoconfHeader target =
     "GHCAUTOCONF_H"
     ["#include \"ghcplatform.h\""]
     ( concatMap defineUnlessSet systemExtensions
-        <> ["#define HAVE_DLFCN_H 1" | headerOs target `elem` ["darwin", "linux"]]
+        <> ["#define HAVE_" <> headerMacroName name <> " 1" | name <- systemHeaders]
     )
   where
     defineUnlessSet name = ["#ifndef " <> name, "#define " <> name <> " 1", "#endif"]
+    -- GHC's @ghcautoconf.h@ gives a @HAVE_<NAME>_H@ macro for each system
+    -- header that its configure script found. Some packages stop with an
+    -- error when such a macro is not set: ngx-export requires
+    -- @HAVE_FCNTL_H@. The list has the headers of GHC's file that each
+    -- target has. The wasm sysroot also has @dlfcn.h@, but the compiler
+    -- gives @HAVE_DLFCN_H@ for it on the command line.
+    systemHeaders
+      | headerOs target `elem` ["darwin", "linux"] = commonHeaders <> ["dlfcn.h", "grp.h", "pwd.h", "signal.h", "sys/mman.h", "sys/resource.h", "sys/times.h", "sys/wait.h", "termios.h"]
+      | otherwise = commonHeaders
+    -- The headers that all targets have. The wasm sysroot has more
+    -- headers, but some of them only give an error.
+    commonHeaders =
+      [ "alloca.h",
+        "ctype.h",
+        "dirent.h",
+        "errno.h",
+        "fcntl.h",
+        "inttypes.h",
+        "limits.h",
+        "locale.h",
+        "pthread.h",
+        "sched.h",
+        "stdint.h",
+        "stdio.h",
+        "stdlib.h",
+        "string.h",
+        "strings.h",
+        "sys/param.h",
+        "sys/select.h",
+        "sys/stat.h",
+        "sys/time.h",
+        "sys/timeb.h",
+        "sys/types.h",
+        "sys/utsname.h",
+        "unistd.h",
+        "utime.h",
+        "wchar.h"
+      ]
+    headerMacroName = T.toUpper . T.map (\character -> if character == '/' || character == '.' then '_' else character)
     systemExtensions =
       [ "_ALL_SOURCE",
         "_DARWIN_C_SOURCE",

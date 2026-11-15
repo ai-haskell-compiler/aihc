@@ -1,0 +1,2 @@
+status: pass
+reason: HsFFI.h must give HAVE_FCNTL_H as GHC does, because ngx-export stops with an error without it.
