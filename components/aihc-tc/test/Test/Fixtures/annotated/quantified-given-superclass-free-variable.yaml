@@ -1,0 +1,33 @@
+annotated:
+- |-
+  {-# LANGUAGE QuantifiedConstraints, MultiParamTypeClasses, FlexibleContexts, UndecidableSuperClasses #-}
+  module Main where
+  class C v where
+  └─ class methods: c ∷ ∀ v. (C v) ⇒ v → v
+    c :: v -> v
+  class C v => V v a where
+  └─ class methods: hv ∷ ∀ v a. (V v a) ⇒ v → a → a
+    hv :: v -> a -> a
+  f :: C v => v -> v
+  f = c
+  │   └─ type: v → v; type-args: v; evidence: given C v
+  └─ type: ∀ v. (C v) ⇒ v → v
+  g :: (forall a. V v a) => v -> v
+  g = f
+  │   └─ type: v → v; type-args: v; evidence: super[0]((given forall a. V v a) @())
+  └─ type: ∀ v. (∀ a. V v a) ⇒ v → v
+extensions: []
+reason: a superclass of a quantified given that does not mention a bound variable applies the given to a closed type
+modules:
+- |
+  {-# LANGUAGE QuantifiedConstraints, MultiParamTypeClasses, FlexibleContexts, UndecidableSuperClasses #-}
+  module Main where
+  class C v where
+    c :: v -> v
+  class C v => V v a where
+    hv :: v -> a -> a
+  f :: C v => v -> v
+  f = c
+  g :: (forall a. V v a) => v -> v
+  g = f
+status: pass
