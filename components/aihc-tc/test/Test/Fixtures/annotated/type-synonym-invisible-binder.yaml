@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeAbstractions, FlexibleInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  class C a
+  └─ class methods:
+  type P :: k -> Type
+  data P a = MkP
+       │     └─ type: ∀ k a. P a
+       └─ type: k → Type
+  type Q :: k -> Type
+  type Q @k = (P :: k -> Type)
+       └─ type: k → Type
+  instance C (Q Bool)
+  └─ $fCPBool ∷ () ⇒ C (P Bool)
+  value :: Q 'True
+  value = MkP
+  │       └─ type: P 'GHC.Types.True; type-args: Bool, 'True
+  └─ type: P 'GHC.Types.True
+extensions:
+- DataKinds
+- FlexibleInstances
+- PolyKinds
+- StandaloneKindSignatures
+- TypeAbstractions
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, StandaloneKindSignatures, TypeAbstractions, FlexibleInstances #-}
+  module Test where
+  import GHC.Types (Bool (..), Type)
+  class C a
+  type P :: k -> Type
+  data P a = MkP
+  type Q :: k -> Type
+  type Q @k = (P :: k -> Type)
+  instance C (Q Bool)
+  value :: Q 'True
+  value = MkP
+reason: an invisible binder of a type synonym names a kind variable of the signature and is not a parameter
+status: pass
