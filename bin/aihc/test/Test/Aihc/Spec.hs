@@ -655,7 +655,8 @@ withBuildModuleSandbox getStore prefix action = do
 -- | The guest of an engine image runs closures of a shared module. The
 -- closures keep state in the instance, and an exception in a closure does
 -- not stop the guest. A static thunk that a closure evaluated keeps its
--- value after collections between the closures.
+-- value after collections between the closures. A module of the package
+-- reads declarations that the WASI libc leaves out.
 test_engineClosures :: IO (Maybe SeedStore) -> Assertion
 test_engineClosures getStore =
   withEngineFixture getStore [] "closures" $ \engine -> do
@@ -679,6 +680,8 @@ test_engineClosures getStore =
     tableSecond <- run "tableSum"
     assertEqual "the first sum of the static list" ["200010000"] tableFirst
     assertEqual "the sum of the static list after the collections" ["200010000"] tableSecond
+    wasiHeaders <- run "wasiHeaders"
+    assertEqual "sun_path, struct winsize, SCM_RIGHTS, and &pthread_exit" ["[108,8,1,4]"] wasiHeaders
 
 -- | A closure runs a Template Haskell computation in the guest and sends
 -- its result. The compiler decodes the message and converts it to the

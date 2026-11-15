@@ -4,7 +4,11 @@ version: 0.1.0.0
 build-type: Simple
 
 library
-  exposed-modules: Closures
+  exposed-modules:
+    Closures
+    WasiHeaders
+
   hs-source-dirs: src
   build-depends: base
+  build-tool-depends: hsc2hs:hsc2hs
   default-language: Haskell2010
