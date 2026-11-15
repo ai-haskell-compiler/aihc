@@ -148,7 +148,7 @@ import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Llvm.Lir qualified as Llvm
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wasmSysrootArchives)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -4440,7 +4440,7 @@ configureLinkOverrides target =
       -- the linker wants the atomics feature for that.
       pure
         [ ("LDFLAGS", "-nostartfiles -nodefaultlibs -Wl,--no-entry -Wl,--export=main -Wl,--extra-features=atomics"),
-          ("LIBS", unwords ([runtime </> "wasm" </> "aihc_wasip3_libc.c", wasmSysrootLibc sysroot] <> maybe [] pure (wasmSysrootBuiltins sysroot)))
+          ("LIBS", unwords ((runtime </> "wasm" </> "aihc_wasip3_libc.c") : wasmSysrootArchives sysroot))
         ]
     _ -> pure []
 
@@ -4770,12 +4770,19 @@ readHookedBuildInfo buildDirectory packageName = do
 -- that macro is set cannot rely on its own configure script to set it:
 -- @unix@ never checks for the header, and on other platforms another header
 -- includes @dlfcn.h@ for it.
+--
+-- WASI has no true @mmap@, and the @sys/mman.h@ of the sysroot stops with an
+-- error unless @_WASI_EMULATED_MMAN@ is defined. Some packages include it
+-- only for its constants, such as @memory@. When the sysroot has the archive
+-- of the emulation, the C compiler gets the macro and a link gets the
+-- archive. The code of a splice has no files to map, so the emulation is
+-- sufficient.
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
-      pure ["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"]
+      pure (["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"] <> ["-D_WASI_EMULATED_MMAN" | isJust (wasmSysrootEmulatedMman sysroot)])
     _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath

@@ -25,7 +25,7 @@ import Aihc.Cli.Lto (compileLtoProgram, moduleCorePath)
 import Aihc.Cli.Options (LinkExeOptions (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..))
 import Aihc.Hackage.Cabal qualified as HackageCabal
-import Aihc.Native (NativeTarget (..), PositionIndependence (..), WasmSysroot (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot)
+import Aihc.Native (NativeTarget (..), PositionIndependence (..), backendCompiler, cxxStandardLibraryArguments, executableLinkArguments, llvmLto, llvmLtoLinkArguments, parseNativeTarget, readWasmClangProcessWithExitCode, renderNativeTarget, wasmSysroot, wasmSysrootArchives)
 import Aihc.Wasm (wasip3WorldPath)
 import Aihc.Wasm.Engine qualified as Engine
 import Control.Monad (filterM, forM, forM_, unless, when)
@@ -335,8 +335,7 @@ linkExecutable Wasm32Wasip3 output LinkLibraries {linkCxxStdLib, linkArguments} 
         <> objects
         <> archives
         <> linkArguments
-        <> [wasmSysrootLibc sysroot]
-        <> maybe [] pure (wasmSysrootBuiltins sysroot)
+        <> wasmSysrootArchives sysroot
         <> ["-o", output]
     )
   runTool "wasm-tools" ["validate", output]
