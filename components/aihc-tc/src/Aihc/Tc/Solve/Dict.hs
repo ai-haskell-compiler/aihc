@@ -735,11 +735,20 @@ solveNormalizedDict visited givens ct
         -- An application whose head is not a type constructor, as @f a@
         -- with the givens @Typeable f@ and @Typeable a@, is the application
         -- of the two representations.
+        --
+        -- The kind of the function fixes the kind of the argument. The
+        -- argument @Tok "arg"@ of @f (Tok "arg")@, with @f :: Type -> Type@
+        -- and @data family Tok (arg :: Symbol) :: k@, has the kind 'Type'.
         Nothing
           | TcAppTy function argument <- ty -> do
               classOrigin <- maybe Nothing ciOrigin <$> lookupClassByName "Typeable"
+              functionKind <- tcTypeKind function >>= zonkKind
+              let formal = case functionKind of
+                    TcFunTy argumentKind _ -> Just argumentKind
+                    _ -> Nothing
+              kindedArgument <- kindedTypeableArgument formal argument
               functionEvidence <- solveSubPred [ctPred ct] (ClassPred typeableTyCon [function])
-              argumentEvidence <- solveSubPred [ctPred ct] (ClassPred typeableTyCon [argument])
+              argumentEvidence <- typeableArgumentEvidence typeableTyCon classOrigin kindedArgument
               case (functionEvidence, argumentEvidence) of
                 (Just functionTerm, Just argumentTerm) -> do
                   bindEvidence (ctEvVar ct) (EvTypeableApp classOrigin function argument functionTerm argumentTerm)
@@ -1540,7 +1549,12 @@ kindedTypeableArguments ty arguments =
       info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
       instantiated <- instantiateWithArgs (tciKindScheme info)
       formals <- argumentKinds (instType instantiated) arguments
-      zipWithM withKindArguments (map Just formals <> repeat Nothing) arguments
+      zipWithM kindedTypeableArgument (map Just formals <> repeat Nothing) arguments
+    -- Both sides of a function type have a runtime kind. The result-only
+    -- kind of @Tok "depsRes"@ in @Tok "depsRes" -> IO ()@ is 'Type'.
+    TcFunTy {} -> do
+      kinds <- getKinds
+      mapM (kindedTypeableArgument (Just (typeKind kinds))) arguments
     _ -> pure arguments
   where
     argumentKinds _ [] = pure []
@@ -1553,6 +1567,12 @@ kindedTypeableArguments ty arguments =
           formal' <- zonkKind formal
           (formal' :) <$> argumentKinds result rest
         _ -> pure []
+
+-- | An argument of a @Typeable@ wanted, with the kind arguments that the
+-- kind of its position fixes. See 'kindedTypeableArguments'.
+kindedTypeableArgument :: Maybe TcType -> TcType -> TcM TcType
+kindedTypeableArgument = withKindArguments
+  where
     withKindArguments (Just formal) argument@(TcTyCon constructor constructorArguments@(_ : _))
       | not (kindMentionsMeta formal) = do
           info <- lookupTyConByIdentity constructor >>= maybe (abortTc "Typeable constructor has no checked kind") pure
