@@ -267,8 +267,12 @@ solveImplication impl = do
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
       skolems = implSkols impl
-  improveImplicationWanteds givenPredicates dictionaryWanteds
-  entailed <- superClassEqualities dictionaryWanteds
+  -- Improvement computes the kinds of the wanteds. A given of the branch,
+  -- such as the @k ~ Type@ of a match on @HRefl@, can be necessary for
+  -- these kinds, so the givens must be in scope.
+  entailed <- withGivenPredicates givenPredicates $ do
+    improveImplicationWanteds givenPredicates dictionaryWanteds
+    superClassEqualities dictionaryWanteds
   deferredEqualities <- solveImplicationEqualities skolems givenPredicates entailed givenEqs equalityWanteds
   deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
   pure (deferredEqualities <> deferredDictionaries)
