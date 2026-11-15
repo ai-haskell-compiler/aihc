@@ -128,8 +128,11 @@ solveEquality ct = do
 solveRewrittenByGivens :: [Pred] -> Ct -> TcM EqResult
 solveRewrittenByGivens givens ct = case ctPred ct of
   EqPred left right | not (null givens) -> do
-    left' <- zonkType left
-    right' <- zonkType right
+    -- The givens are oriented in their reduced form, so the wanted is
+    -- reduced too: with the given @Peano n ~ 'S k@, the wanted @Dim (L n)
+    -- ~ 'S k0@ names @Peano n@ only after @Dim (L n)@ reduces.
+    left' <- zonkType left >>= reduceTypeFamilies
+    right' <- zonkType right >>= reduceTypeFamilies
     substitution <- givenRewrites givens
     let rewrittenLeft = applyGivenSubst substitution left'
         rewrittenRight = applyGivenSubst substitution right'
