@@ -1451,7 +1451,8 @@ test_buildAsmSources getStore = do
 -- @cxx-options@, records in its manifest that its objects need the C++
 -- standard library, and an executable that links the package links that
 -- library, directly and through a bundle. The fixture's C++ allocates a
--- vector, so the link fails without it.
+-- vector, so the link fails without it. A @.m@ file in the field is
+-- compiled as Objective-C with the @cc-options@, as GHC does.
 test_buildCxxSources :: IO SeedStore -> Assertion
 test_buildCxxSources getStore = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/cxx-sources"
@@ -1493,7 +1494,7 @@ test_buildCxxSources getStore = do
     assertEqual "built executables" [targetRoot </> "bin" </> "triangle"] outputs
     (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> "triangle") [] ""
     assertEqual "triangle exit status" ExitSuccess status
-    assertEqual "triangle stdout" "55\n" stdout
+    assertEqual "triangle stdout" "55\n42\n" stdout
     assertEqual "triangle stderr" "" stderr
     let packageRoot = targetRoot </> "cxx-sources-0.1.0.0"
     assertFileExists (packageRoot </> "cbits" </> "cbits_triangle.o")
@@ -1509,7 +1510,7 @@ test_buildCxxSources getStore = do
     runLinkExe LinkExeOptions {linkExeBundle = bundles </> "triangle", linkExeOutputFile = linked}
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
     assertEqual "linked executable exit status" ExitSuccess linkedStatus
-    assertEqual "linked executable stdout" "55\n" linkedStdout
+    assertEqual "linked executable stdout" "55\n42\n" linkedStdout
 
 -- A package that names a C archive in @extra-libraries@ and
 -- @extra-lib-dirs@ records the link arguments in its manifest, and an

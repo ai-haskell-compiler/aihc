@@ -232,6 +232,8 @@ in rec {
       ".c"
       # The C++ source of the cxx-sources build fixture.
       ".cpp"
+      # The Objective-C source of the cxx-sources build fixture.
+      ".m"
       ".h"
       ".wit"
       # The engine driver of Aihc.Wasm.Engine.

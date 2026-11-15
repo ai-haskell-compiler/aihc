@@ -293,7 +293,7 @@ import Prettyprinter.Render.String (renderString)
 import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
 import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
 import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
@@ -4185,7 +4185,8 @@ removeFileIfPresent path = do
 -- of theirs is referenced before them.
 --
 -- A C++ source goes through the same driver as C++, with the @cxx-options@
--- of the package in place of its @cc-options@. The objects need the C++
+-- of the package in place of its @cc-options@. As in GHC, the suffix of a
+-- file in @cxx-sources@ selects its language: see 'cxxSourceLanguage'. The objects need the C++
 -- standard library, which the link adds for a package whose manifest says
 -- it has C++ sources; a target without that library refuses the package
 -- here rather than at the link of every program that depends on it.
@@ -4234,16 +4235,20 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
         exists <- doesFileExist source
         unless exists (ioError (userError ("C++ source is absent: " <> source)))
         let object = objectRoot </> cObjectFileName (makeRelative packageRoot source)
+            language = cxxSourceLanguage source
+            options
+              | foreignLanguageIsCxx language = HackageCabal.cCompileCxxOptions info
+              | otherwise = HackageCabal.cCompileCcOptions info
         verbose ("Compile C++ source: " <> source)
         runTool
           compiler
           ( targetArguments
               <> handwrittenCArguments level
               <> ltoArguments
-              <> HackageCabal.cCompileCxxOptions info
+              <> options
               <> handwrittenCOverrideArguments level
               <> includeArguments
-              <> ["-x", "c++", "-c", source, "-o", object]
+              <> ["-x", foreignLanguageName language, "-c", source, "-o", object]
           )
         pure object
       -- The assembly has no LLVM bitcode form, so it gets no LTO arguments.
@@ -4274,6 +4279,39 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
             pure (Just object)
           else pure Nothing
       pure (cObjects <> cxxObjects <> asmObjects <> catMaybes lirObjects)
+
+-- | A language that the C compiler driver compiles.
+data ForeignLanguage = LanguageC | LanguageCxx | LanguageObjectiveC | LanguageObjectiveCxx
+
+-- | The name of the language for the @-x@ argument of the driver.
+foreignLanguageName :: ForeignLanguage -> String
+foreignLanguageName language =
+  case language of
+    LanguageC -> "c"
+    LanguageCxx -> "c++"
+    LanguageObjectiveC -> "objective-c"
+    LanguageObjectiveCxx -> "objective-c++"
+
+-- | Whether the language is a C++ language. GHC gives the @cxx-options@ to
+-- a C++ language and the @cc-options@ to the other languages.
+foreignLanguageIsCxx :: ForeignLanguage -> Bool
+foreignLanguageIsCxx language =
+  case language of
+    LanguageCxx -> True
+    LanguageObjectiveCxx -> True
+    LanguageC -> False
+    LanguageObjectiveC -> False
+
+-- | The language of a file in @cxx-sources@. GHC selects the language of
+-- a file from its suffix, not from the field. Thus, a @.m@ file is
+-- Objective-C, as in @hfsevents@. A file with a different suffix is C++.
+cxxSourceLanguage :: FilePath -> ForeignLanguage
+cxxSourceLanguage source =
+  case takeExtension source of
+    ".c" -> LanguageC
+    ".m" -> LanguageObjectiveC
+    ".mm" -> LanguageObjectiveCxx
+    _ -> LanguageCxx
 
 -- | Run the configure script of a @build-type: Configure@ package, and
 -- return the directory that holds its outputs. A package without a script

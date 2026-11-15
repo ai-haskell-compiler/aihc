@@ -40,6 +40,7 @@ extra-source-files:
   test/Test/Fixtures/build/asm-sources/src/Answer.hs
   test/Test/Fixtures/build/cxx-sources/app/Main.hs
   test/Test/Fixtures/build/cxx-sources/cbits/triangle.cpp
+  test/Test/Fixtures/build/cxx-sources/cbits/twice.m
   test/Test/Fixtures/build/cxx-sources/cxx-sources.cabal
   test/Test/Fixtures/build/cxx-sources/src/Triangle.hs
   test/Test/Fixtures/build/executables/app/Greet.hs
