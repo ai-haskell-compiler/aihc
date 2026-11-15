@@ -101,6 +101,7 @@ import Aihc.Tc.Types
     isUnliftedTypeInEnv,
     mkTyConWithOrigin,
     runtimeRepOfTypeInEnv,
+    setTyVarKind,
     tvKind,
     tvName,
     tvUnique,
@@ -1380,13 +1381,26 @@ instanceMethodFieldType :: TcInstanceAnnotation -> TcClassMethodAnnotation -> Tc
 instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVars
   where
     classTyVars = tcInstanceClassTyVars annotation
-    extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
+    extraTyVars = instanceMethodTyVars annotation method
     substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
     (_, afterForAlls) = peelForAlls (tcClassMethodType method)
     (predicates, methodBody) = peelConstraints afterForAlls
     extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) predicates)
     resultType = applySubst substitution methodBody
     qualified = if null extraPredicates then resultType else TcQualTy extraPredicates resultType
+
+-- | The method's own type variables at an instance head. The class
+-- variables are fixed to the head types in their kinds too, as @r@ in the
+-- kind of @a@ in @class C (r :: RuntimeRep) where m :: forall (a :: TYPE r). a@.
+instanceMethodTyVars :: TcInstanceAnnotation -> TcClassMethodAnnotation -> [TyVarId]
+instanceMethodTyVars annotation method =
+  [ setTyVarKind (applySubst substitution (tvKind variable)) variable
+  | variable <- tcClassMethodTyVars method,
+    not (any (Tc.sameTyVar variable) classTyVars)
+  ]
+  where
+    classTyVars = tcInstanceClassTyVars annotation
+    substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
 
 -- | The type of a method worker: the dictionary's own quantifiers and
 -- context in front of the field type, so the worker takes exactly the
@@ -1450,7 +1464,7 @@ desugarMissingMethod annotation methodName = do
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
   let classTyCon = tcInstanceClassTyCon annotation
       classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
+      extraTyVars = instanceMethodTyVars annotation method
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
@@ -1488,7 +1502,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
   convertedHeadTypes <- convertTyConApplicationArguments (tcInstanceClassTyCon annotation) (tcInstanceHeadTypes annotation)
   convertedInstanceTypes <- mapM (convertCheckedType . TcTyVar) (tcInstanceTyVars annotation)
   let classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
+      extraTyVars = instanceMethodTyVars annotation method
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls

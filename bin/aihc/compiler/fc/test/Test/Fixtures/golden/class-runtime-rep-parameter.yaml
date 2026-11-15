@@ -1,0 +1,14 @@
+extensions: [DataKinds, PolyKinds, RankNTypes, GADTSyntax, KindSignatures]
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, RankNTypes, GADTSyntax, KindSignatures #-}
+  module Test where
+  import GHC.Types (RuntimeRep (..), TYPE, Type)
+  newtype Box :: forall (r :: RuntimeRep). TYPE r -> Type where
+    Box :: forall (r :: RuntimeRep) (a :: TYPE r). (() -> a) -> Box a
+  class Pure (r :: RuntimeRep) where
+    pure :: forall (a :: TYPE r). a -> Box a
+  instance Pure 'IntRep where
+    pure a = Box (\_ -> a)
+status: pass
+reason: The class variable r occurs only in the kind of the method variable a. The instance method type must have IntRep in the kind of the binder a. Before the fix, FC kept r in that kind and failed with an unbound runtime-representation variable.
