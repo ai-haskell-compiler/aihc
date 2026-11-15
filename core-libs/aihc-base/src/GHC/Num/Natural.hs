@@ -7,6 +7,17 @@ module GHC.Num.Natural
     naturalCheck,
     naturalFromBigNat#,
     naturalToBigNat#,
+    naturalZero,
+    naturalOne,
+    naturalIsZero,
+    naturalIsOne,
+    naturalFromWord#,
+    naturalFromWord,
+    naturalToWord#,
+    naturalToWord,
+    naturalToWordClamp#,
+    naturalToWordClamp,
+    naturalToWordMaybe#,
   )
 where
 
@@ -14,11 +25,11 @@ import Data.Bits (Bits (..))
 import GHC.Exception (ArithException (..), throw)
 import GHC.Ix (Ix (..), indexError)
 import GHC.Num.BigNat (BigNat#, bigNatCheck#, bigNatFromWord#, bigNatSize#)
-import GHC.Prim (Word#, addWordC#, eqWord#, int2Word#, ltWord#, minusWord#, timesWord2#, (<#), (>=#))
+import GHC.Prim (Word#, addWordC#, eqWord#, indexWordArray#, int2Word#, ltWord#, minusWord#, not#, timesWord2#, (<#), (>=#))
 import GHC.Prim.Integer (Integer (..), integerFromMagnitude#, integerFromWord#, wordToInteger)
 import GHC.Prim.Natural (Natural (..), naturalFromInteger#)
 import GHC.Read ()
-import GHC.Types (isTrue#)
+import GHC.Types (Word (..), isTrue#)
 import Text.ParserCombinators.ReadPrec (ReadPrec, pfail)
 import Prelude
 
@@ -236,3 +247,46 @@ naturalFromBigNat# magnitude = naturalFromInteger# (integerFromMagnitude# 1# mag
 naturalToBigNat# :: Natural -> BigNat#
 naturalToBigNat# (NS word) = bigNatFromWord# word
 naturalToBigNat# (NB magnitude) = magnitude
+
+-- | Whether a natural number is 0.
+naturalIsZero :: Natural -> Bool
+naturalIsZero (NS word) = isTrue# (eqWord# word 0##)
+naturalIsZero (NB _) = False
+
+-- | Whether a natural number is 1.
+naturalIsOne :: Natural -> Bool
+naturalIsOne (NS word) = isTrue# (eqWord# word 1##)
+naturalIsOne (NB _) = False
+
+-- | The natural number with the value of a machine word.
+naturalFromWord# :: Word# -> Natural
+naturalFromWord# = NS
+
+-- | The natural number with the value of a machine word.
+naturalFromWord :: Word -> Natural
+naturalFromWord (W# word) = NS word
+
+-- | The low machine word of a natural number.
+naturalToWord# :: Natural -> Word#
+naturalToWord# (NS word) = word
+naturalToWord# (NB magnitude) = indexWordArray# magnitude 0#
+
+-- | The low machine word of a natural number.
+naturalToWord :: Natural -> Word
+naturalToWord value = W# (naturalToWord# value)
+
+-- | The value of a natural number as a machine word, or the largest word
+-- when the value does not fit.
+naturalToWordClamp# :: Natural -> Word#
+naturalToWordClamp# (NS word) = word
+naturalToWordClamp# (NB _) = not# 0##
+
+-- | The value of a natural number as a machine word, or the largest word
+-- when the value does not fit.
+naturalToWordClamp :: Natural -> Word
+naturalToWordClamp value = W# (naturalToWordClamp# value)
+
+-- | The value of a natural number as a machine word, if it fits.
+naturalToWordMaybe# :: Natural -> (# (# #) | Word# #)
+naturalToWordMaybe# (NS word) = (# | word #)
+naturalToWordMaybe# (NB _) = (# (# #) | #)

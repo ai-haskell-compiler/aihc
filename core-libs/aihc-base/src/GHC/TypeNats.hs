@@ -1,12 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoStarIsType #-}
 
 -- | Type-level natural numbers.
@@ -28,6 +30,7 @@ module GHC.TypeNats
     natVal,
     natVal',
     SNat,
+    pattern SNat,
     fromSNat,
     withSomeSNat,
     withKnownNat,
@@ -113,6 +116,22 @@ infixr 8 ^
 -- | A singleton for a known type-level natural.
 type SNat :: Nat -> Type
 newtype SNat n = UnsafeSNat Natural
+
+-- | Match a singleton and get its dictionary, or build a singleton from a
+-- dictionary.
+pattern SNat :: forall n. () => (KnownNat n) => SNat n
+pattern SNat <- (knownNatInstance -> KnownNatInstance)
+  where
+    SNat = natSing
+
+{-# COMPLETE SNat #-}
+
+-- | The evidence that the pattern 'SNat' gives.
+data KnownNatInstance (n :: Nat) where
+  KnownNatInstance :: (KnownNat n) => KnownNatInstance n
+
+knownNatInstance :: SNat n -> KnownNatInstance n
+knownNatInstance singleton = withKnownNat singleton KnownNatInstance
 
 -- | The value a singleton stands for.
 fromSNat :: SNat n -> Natural
