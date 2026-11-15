@@ -459,7 +459,7 @@ undeterminedTypeOfKind kind = do
       anyTyCon <- anyTyConOfWiring
       -- No visible argument gives the kind of @Any@, thus the application
       -- keeps it, also when it gets arguments.
-      pure (TcTyConApp anyTyCon [kind] [])
+      pure (TcTyConApp (setTyConKeepsKindArguments True anyTyCon) [kind] [])
 
 -- | Register the kind of the type family @Any :: forall k. k@ on first use.
 anyTyConOfWiring :: TcM TyCon

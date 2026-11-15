@@ -1199,8 +1199,8 @@ typeTyVars ty =
     TcMetaTv {} -> Set.empty
     TcArrowTy -> Set.empty
     TcTyLit {} -> Set.empty
-    TcTyConApp _ kindArguments arguments -> Set.unions (map typeTyVars (kindArguments <> arguments))
     TcKindedTyCon _ kindArguments -> Set.unions (map typeTyVars kindArguments)
+    TcTyConApp _ kindArguments arguments -> Set.unions (map typeTyVars (kindArguments <> arguments))
     TcFunTy argument result -> typeTyVars argument <> typeTyVars result
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
     TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)

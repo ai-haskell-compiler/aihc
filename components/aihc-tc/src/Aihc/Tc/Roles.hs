@@ -162,8 +162,8 @@ typeVariables ty = nub $ case ty of
   TcMetaTv _ -> []
   TcArrowTy -> []
   TcTyLit {} -> []
-  TcTyConApp _ kindArguments arguments -> concatMap typeVariables kindArguments <> concatMap typeVariables arguments
   TcKindedTyCon _ kindArguments -> concatMap typeVariables kindArguments
+  TcTyConApp _ kindArguments arguments -> concatMap typeVariables kindArguments <> concatMap typeVariables arguments
   TcFunTy argument result -> typeVariables argument <> typeVariables result
   TcAppTy function argument -> typeVariables function <> typeVariables argument
   TcForAllTy binder body -> typeVariables (tvKind binder) <> filter (/= tvUnique binder) (typeVariables body)

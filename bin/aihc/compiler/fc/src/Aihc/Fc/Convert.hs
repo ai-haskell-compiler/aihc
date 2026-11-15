@@ -194,8 +194,8 @@ withUnresolvedKindVars types env =
   where
     typeConstructorKindVars ty =
       case ty of
-        TcTyConApp tyCon kindArguments arguments -> schemeVars tyCon <> foldMap typeConstructorKindVars kindArguments <> foldMap typeConstructorKindVars arguments
         TcKindedTyCon _ kindArguments -> foldMap typeConstructorKindVars kindArguments
+        TcTyConApp tyCon kindArguments arguments -> schemeVars tyCon <> foldMap typeConstructorKindVars kindArguments <> foldMap typeConstructorKindVars arguments
         TcAppTy function argument -> typeConstructorKindVars function <> typeConstructorKindVars argument
         TcFunTy argument result -> typeConstructorKindVars argument <> typeConstructorKindVars result
         TcForAllTy _ body -> typeConstructorKindVars body

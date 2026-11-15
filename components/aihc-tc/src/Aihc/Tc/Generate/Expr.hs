@@ -1570,8 +1570,8 @@ typeMetaVariables ty =
     TcArrowTy -> []
     TcTyLit {} -> []
     TcMetaTv meta -> [meta]
-    TcTyConApp _ kindArguments arguments -> concatMap typeMetaVariables kindArguments <> concatMap typeMetaVariables arguments
     TcKindedTyCon _ kindArguments -> concatMap typeMetaVariables kindArguments
+    TcTyConApp _ kindArguments arguments -> concatMap typeMetaVariables kindArguments <> concatMap typeMetaVariables arguments
     TcFunTy argument result -> typeMetaVariables argument <> typeMetaVariables result
     TcForAllTy _ body -> typeMetaVariables body
     TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> typeMetaVariables body

@@ -19,6 +19,7 @@ where
 import Aihc.Tc
 import Aihc.Tc.Annotations (TcForeignImportAnnotation (..), TcForeignImportInfo (..), TcForeignMarshal (..), TcForeignTarget (..))
 import Aihc.Tc.Env (TypeSynonymInfo (..))
+import Aihc.Tc.Types (tyConKeepsKindArguments)
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 
@@ -27,6 +28,15 @@ type Collect a = a -> Set.Set TyCon -> Set.Set TyCon
 
 collected :: Collect a -> a -> Set.Set TyCon
 collected collect value = collect value Set.empty
+
+-- | Add a type constructor. A constructor whose applications keep their
+-- kind arguments replaces the same constructor without the flag, and the
+-- flag is not lost: 'TyCon' equality does not read it.
+insertTyCon :: Collect TyCon
+insertTyCon tyCon acc
+  | tyConKeepsKindArguments tyCon = Set.insert tyCon acc
+  | Set.member tyCon acc = acc
+  | otherwise = Set.insert tyCon acc
 
 each :: Collect a -> Collect [a]
 each collect values acc = foldr collect acc values
@@ -43,7 +53,7 @@ interfaceTermTyCons interface = each typeSchemeTyConsInto (map snd (tcInterfaceT
 -- The closure reads type, data, and class declarations from its tables.
 -- Start with their identities here to avoid a second walk of their types.
 interfaceNonTermRootTyCons :: TcInterface -> Set.Set TyCon
-interfaceNonTermRootTyCons = collected (interfaceTyConsWith (Set.insert . tciTyCon) (Set.insert . dtiTyCon) (Set.insert . ciTyCon))
+interfaceNonTermRootTyCons = collected (interfaceTyConsWith (insertTyCon . tciTyCon) (insertTyCon . dtiTyCon) (insertTyCon . ciTyCon))
 
 interfaceTyConsWith :: Collect TyConInfo -> Collect DataTypeInfo -> Collect ClassInfo -> Collect TcInterface
 interfaceTyConsWith onTyCon onDataType onClass interface =
@@ -61,7 +71,7 @@ tyConInfoTyCons = collected tyConInfoTyConsInto
 
 tyConInfoTyConsInto :: Collect TyConInfo
 tyConInfoTyConsInto info =
-  Set.insert (tciTyCon info)
+  insertTyCon (tciTyCon info)
     . typeSchemeTyConsInto (tciKindScheme info)
     . maybe id typeSynonymInfoTyCons (tciTypeSynonym info)
 
@@ -75,7 +85,7 @@ dataTypeInfoTyCons = collected dataTypeInfoTyConsInto
 
 dataTypeInfoTyConsInto :: Collect DataTypeInfo
 dataTypeInfoTyConsInto info =
-  Set.insert (dtiTyCon info)
+  insertTyCon (dtiTyCon info)
     . each tyVarTyCons (dtiTyVars info)
     . typeTyConsInto (dtiResultKind info)
     . each dataConInfoTyCons (dtiConstructors info)
@@ -98,23 +108,23 @@ fieldRepTyCons rep =
     RepStored ty _ -> typeTyConsInto ty
     RepUnpack _ leaves -> each fieldRepTyCons leaves
     RepCast tyCon arguments inner ->
-      Set.insert tyCon . each typeTyConsInto arguments . fieldRepTyCons inner
+      insertTyCon tyCon . each typeTyConsInto arguments . fieldRepTyCons inner
 
 classInfoTyCons :: ClassInfo -> Set.Set TyCon
 classInfoTyCons = collected classInfoTyConsInto
 
 classInfoTyConsInto :: Collect ClassInfo
 classInfoTyConsInto info =
-  Set.insert (ciTyCon info)
+  insertTyCon (ciTyCon info)
     . each tyVarTyCons (ciKindTyVars info <> ciTyVars info)
     . each typeTyConsInto (ciSuperClassTypes info)
     . each (typeSchemeTyConsInto . snd) (ciMethods info <> ciDefaultSignatures info)
-    . each (Set.insert . atiTyCon) (ciAssociatedTypes info)
+    . each (insertTyCon . atiTyCon) (ciAssociatedTypes info)
     . each typeFamilyInstanceInfoTyCons (mapMaybe atiDefault (ciAssociatedTypes info))
 
 instanceInfoTyCons :: Collect InstanceInfo
 instanceInfoTyCons info =
-  Set.insert (iiClass info)
+  insertTyCon (iiClass info)
     . typeTyConsInto (iiDictType info)
     . each tyVarTyCons (iiTyVars info)
     . each predTyCons (iiContext info)
@@ -122,7 +132,7 @@ instanceInfoTyCons info =
 
 dataFamilyInstanceInfoTyCons :: Collect DataFamilyInstanceInfo
 dataFamilyInstanceInfoTyCons info =
-  Set.insert (dfiiRepresentationTyCon info)
+  insertTyCon (dfiiRepresentationTyCon info)
     . typeTyConsInto (dfiiFamilyType info)
     . each tyVarTyCons (dfiiTyVars info)
     . each dataConInfoTyCons (dfiiConstructors info)
@@ -147,7 +157,7 @@ tyVarTyCons = typeTyConsInto . tvKind
 
 predTyCons :: Collect Pred
 predTyCons predicate = case predicate of
-  ClassPred tyCon arguments -> Set.insert tyCon . each typeTyConsInto arguments
+  ClassPred tyCon arguments -> insertTyCon tyCon . each typeTyConsInto arguments
   EqPred left right -> typeTyConsInto left . typeTyConsInto right
   IParamPred _ payload -> typeTyConsInto payload
   IrredPred constraint -> typeTyConsInto constraint
@@ -165,8 +175,8 @@ typeTyConsInto ty = case ty of
   TcMetaTv {} -> id
   TcArrowTy -> id
   TcTyLit {} -> id
-  TcTyConApp tyCon kindArguments arguments -> Set.insert tyCon . each typeTyConsInto kindArguments . each typeTyConsInto arguments
-  TcKindedTyCon tyCon kindArguments -> Set.insert tyCon . each typeTyConsInto kindArguments
+  TcKindedTyCon tyCon kindArguments -> insertTyCon tyCon . each typeTyConsInto kindArguments
+  TcTyConApp tyCon kindArguments arguments -> insertTyCon tyCon . each typeTyConsInto kindArguments . each typeTyConsInto arguments
   TcFunTy argument result -> typeTyConsInto argument . typeTyConsInto result
   TcForAllTy variable body -> tyVarTyCons variable . typeTyConsInto body
   TcQualTy predicates body -> each predTyCons predicates . typeTyConsInto body

@@ -716,8 +716,8 @@ zonkTyVarKinds ty =
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
-    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM zonkKind kindArguments <*> mapM zonkTyVarKinds arguments
     TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM zonkKind kindArguments
+    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM zonkKind kindArguments <*> mapM zonkTyVarKinds arguments
     TcFunTy argument result -> TcFunTy <$> zonkTyVarKinds argument <*> zonkTyVarKinds result
     TcForAllTy tyVar body -> TcForAllTy <$> zonkVariable tyVar <*> zonkTyVarKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM zonkPredicate predicates <*> zonkTyVarKinds body
@@ -823,8 +823,8 @@ captureAvoidingType avoid substitution ty =
     TcMetaTv {} -> pure ty
     TcArrowTy -> pure ty
     TcTyLit {} -> pure ty
-    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM go kindArguments <*> mapM go arguments
     TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM go kindArguments
+    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM go kindArguments <*> mapM go arguments
     TcFunTy argument result -> TcFunTy <$> go argument <*> go result
     TcAppTy function argument -> mkAppTy <$> go function <*> go argument
     TcForAllTy tyVar body -> do
@@ -874,8 +874,8 @@ typeVariableUniques ty =
     TcMetaTv {} -> []
     TcArrowTy -> []
     TcTyLit {} -> []
-    TcTyConApp _ kindArguments arguments -> concatMap typeVariableUniques kindArguments <> concatMap typeVariableUniques arguments
     TcKindedTyCon _ kindArguments -> concatMap typeVariableUniques kindArguments
+    TcTyConApp _ kindArguments arguments -> concatMap typeVariableUniques kindArguments <> concatMap typeVariableUniques arguments
     TcFunTy argument result -> typeVariableUniques argument <> typeVariableUniques result
     TcAppTy function argument -> typeVariableUniques function <> typeVariableUniques argument
     TcForAllTy tyVar body -> tvUnique tyVar : typeVariableUniques (tvKind tyVar) <> typeVariableUniques body
@@ -1007,24 +1007,23 @@ kindedTyConUse info = do
       kind <- readMetaTvKind unique >>= zonkKind
       when (quantifiableKind kinds kind) (trackKindMeta unique)
     _ -> pure ()
-  let tyCon = tciTyCon info
-      kindArguments = instTypeArgs instantiation
-      use
-        -- The visible arguments do not give all kinds of this constructor,
-        -- thus each application of this use keeps the kind arguments.
-        --
-        -- Only a data type, a newtype, or a data family keeps them now. A
-        -- type synonym family and a promoted data constructor still get
-        -- their kinds from the place of the use. Their equations and their
-        -- matching read the bare kinded form. See
-        -- @docs/design/tc-kind-arguments.md@, steps 5 and 6.
-        | not (null kindArguments),
-          tciFlavor info `elem` [DataTyCon, NewtypeTyCon, DataFamilyTyCon],
-          tyConNamespace tyCon == ResolutionNamespaceType,
-          hasResultOnlyKindVariable (tciKindScheme info) (tciArity info) =
-            TcTyConApp tyCon kindArguments []
-        | otherwise = kindedTyCon tyCon kindArguments
-  pure (use, instType instantiation)
+  let kindArguments = instTypeArgs instantiation
+      -- The visible arguments do not give all kinds of this constructor,
+      -- thus each application of this use keeps the kind arguments (see
+      -- 'mkAppTy').
+      --
+      -- Only a data type, a newtype, or a data family keeps them now. A
+      -- type synonym family and a promoted data constructor still get
+      -- their kinds from the place of the use. Their equations and their
+      -- matching read the bare kinded form. See
+      -- @docs/design/tc-kind-arguments.md@.
+      keeps =
+        not (null kindArguments)
+          && tciFlavor info `elem` [DataTyCon, NewtypeTyCon, DataFamilyTyCon]
+          && tyConNamespace (tciTyCon info) == ResolutionNamespaceType
+          && hasResultOnlyKindVariable (tciKindScheme info) (tciArity info)
+      tyCon = setTyConKeepsKindArguments keeps (tciTyCon info)
+  pure (kindedTyCon tyCon kindArguments, instType instantiation)
 
 -- | Give a partial type constructor application the kind arguments of its use.
 -- A bare promoted data constructor without visible parameters, as @'[]@,
@@ -1233,20 +1232,13 @@ unifyKindsAt sp expected actual = do
       | isConcreteRuntimeRep kind -> pure ()
     (kind, TcTyVar {})
       | isConcreteRuntimeRep kind -> pure ()
+    -- The kind arguments unify when both sides have them. A bare
+    -- constructor that no use site kinded agrees with every kinding.
     (TcTyConApp left leftKinds leftArguments, TcTyConApp right rightKinds rightArguments)
       | left == right,
         length leftArguments == length rightArguments -> do
           mapM_ (uncurry (unifyKindsAt sp)) (pairedKindArguments leftKinds rightKinds)
           zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
-    (TcKindedTyCon left leftArguments, TcKindedTyCon right rightArguments)
-      | left == right,
-        length leftArguments == length rightArguments ->
-          zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
-    -- A bare constructor that no use site kinded agrees with every kinding.
-    (TcKindedTyCon left _, TcTyCon right [])
-      | left == right -> pure ()
-    (TcTyCon left [], TcKindedTyCon right _)
-      | left == right -> pure ()
     (TcFunTy leftArgument leftResult, TcFunTy rightArgument rightResult) ->
       unifyKindsAt sp leftArgument rightArgument >> unifyKindsAt sp leftResult rightResult
     (TcAppTy leftFunction leftArgument, TcAppTy rightFunction rightArgument) ->
@@ -1332,6 +1324,7 @@ refineGivenKind kind = do
           case [replacement | (left, right) <- equalities, Just replacement <- [replace ty left right]] of
             replacement : _ -> rewrite equalities (Set.insert ty visited) replacement
             [] -> case ty of
+              TcKindedTyCon {} -> ty
               TcTyConApp constructor kindArguments arguments -> TcTyConApp constructor (map recur kindArguments) (map recur arguments)
               TcFunTy argument result -> TcFunTy (recur argument) (recur result)
               TcAppTy function argument -> TcAppTy (recur function) (recur argument)
@@ -1476,8 +1469,8 @@ isGroundKind ty =
     TcArrowTy -> False
     -- A literal names one type and mentions nothing, so it is ground.
     TcTyLit {} -> True
-    TcTyConApp _ kindArguments arguments -> all isGroundKind kindArguments && all isGroundKind arguments
     TcKindedTyCon _ kindArguments -> all isGroundKind kindArguments
+    TcTyConApp _ kindArguments arguments -> all isGroundKind kindArguments && all isGroundKind arguments
     TcFunTy argument result -> isGroundKind argument && isGroundKind result
     TcForAllTy {} -> False
     TcQualTy _ body -> isGroundKind body
@@ -1669,8 +1662,8 @@ settleKindMetas defer kind =
           kinds <- getKinds
           writeMetaTv levity (TcTyCon (kindsDataCon kinds "Lifted" 0) [])
           pure (liftedRep kinds)
-    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM recur kindArguments <*> mapM recur arguments
     TcKindedTyCon tyCon kindArguments -> TcKindedTyCon tyCon <$> mapM recur kindArguments
+    TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon <$> mapM recur kindArguments <*> mapM recur arguments
     TcFunTy argument result -> TcFunTy <$> recur argument <*> recur result
     TcForAllTy tyVar body -> do
       kind' <- recur (tvKind tyVar)
@@ -1701,8 +1694,8 @@ kindMentionsMeta kind =
     TcArrowTy -> False
     TcTyLit {} -> False
     TcTyVar tyVar -> kindMentionsMeta (tvKind tyVar)
-    TcTyConApp _ kindArguments arguments -> any kindMentionsMeta kindArguments || any kindMentionsMeta arguments
     TcKindedTyCon _ kindArguments -> any kindMentionsMeta kindArguments
+    TcTyConApp _ kindArguments arguments -> any kindMentionsMeta kindArguments || any kindMentionsMeta arguments
     TcFunTy argument result -> kindMentionsMeta argument || kindMentionsMeta result
     TcForAllTy tyVar body -> kindMentionsMeta (tvKind tyVar) || kindMentionsMeta body
     TcQualTy predicates body -> any predicateMentions predicates || kindMentionsMeta body
@@ -1732,8 +1725,8 @@ occursInKind needle kind =
     TcTyLit {} -> False
     TcMetaTv unique -> unique == needle
     TcTyVar tyVar -> occursInKind needle (tvKind tyVar)
-    TcTyConApp _ kindArguments arguments -> any (occursInKind needle) kindArguments || any (occursInKind needle) arguments
     TcKindedTyCon _ kindArguments -> any (occursInKind needle) kindArguments
+    TcTyConApp _ kindArguments arguments -> any (occursInKind needle) kindArguments || any (occursInKind needle) arguments
     TcFunTy argument result -> occursInKind needle argument || occursInKind needle result
     TcForAllTy tyVar body -> occursInKind needle (tvKind tyVar) || occursInKind needle body
     TcQualTy predicates body -> any occursInPred predicates || occursInKind needle body

@@ -252,8 +252,10 @@ firstJustM (action : rest) = do
 normalize :: TcType -> TcType
 normalize ty = case ty of
   TcAppTy function argument -> case normalize function of
+    kinded@TcKindedTyCon {} -> TcAppTy kinded (normalize argument)
     TcTyConApp constructor kindArguments arguments -> TcTyConApp constructor kindArguments (arguments <> [normalize argument])
     other -> TcAppTy other (normalize argument)
+  TcKindedTyCon {} -> ty
   TcTyConApp constructor kindArguments arguments -> TcTyConApp constructor (map normalize kindArguments) (map normalize arguments)
   TcFunTy argument result -> TcFunTy (normalize argument) (normalize result)
   _ -> ty

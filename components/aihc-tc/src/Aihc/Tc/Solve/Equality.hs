@@ -74,15 +74,12 @@ alignProvedKinds left right
   | typeMentionsMeta left || typeMentionsMeta right = go left right
   | otherwise = pure ()
   where
-    go (TcTyConApp leftCon leftKinds leftArgs) (TcTyConApp rightCon rightKinds rightArgs)
+    go left@(TcTyConApp leftCon leftKinds leftArgs) right@(TcTyConApp rightCon rightKinds rightArgs)
       | leftCon == rightCon,
+        isKindedTyCon left == isKindedTyCon right,
         length leftArgs == length rightArgs = do
           mapM_ (uncurry unifyOpen) (pairedKindArguments leftKinds rightKinds)
           zipWithM_ go leftArgs rightArgs
-    go (TcKindedTyCon leftCon leftKinds) (TcKindedTyCon rightCon rightKinds)
-      | leftCon == rightCon,
-        length leftKinds == length rightKinds =
-          zipWithM_ unifyOpen leftKinds rightKinds
     go (TcFunTy leftArg leftResult) (TcFunTy rightArg rightResult) =
       go leftArg rightArg >> go leftResult rightResult
     -- A partial application keeps the kind arguments of its constructor:
@@ -337,6 +334,7 @@ replaceFamilyApplications :: Unique -> TcType -> TcM (TcType, [(TcType, TcType)]
 replaceFamilyApplications u = go
   where
     go ty = case ty of
+      TcKindedTyCon {} -> pure (ty, [])
       TcTyConApp tyCon kindArguments arguments -> do
         maybeInfo <- lookupTyConByIdentity tyCon
         case maybeInfo of
@@ -400,8 +398,8 @@ occursIn u = go
     go TcArrowTy = False
     go (TcTyLit _) = False
     go (TcTyVar _) = False
-    go (TcTyConApp _ kindArgs args) = any go kindArgs || any go args
     go (TcKindedTyCon _ kindArgs) = any go kindArgs
+    go (TcTyConApp _ kindArgs args) = any go kindArgs || any go args
     go (TcFunTy a b) = go a || go b
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body

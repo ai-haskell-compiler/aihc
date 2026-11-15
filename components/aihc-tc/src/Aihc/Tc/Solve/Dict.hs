@@ -1072,7 +1072,8 @@ couldMatchLater patterns targets
         (TcTyVar variable, _) -> Just [(variable, target)]
         (_, TcMetaTv _) -> Just []
         (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
-          | tyCon == targetTyCon && length arguments == length targetArguments ->
+          | not (isKindedTyCon patternType || isKindedTyCon target),
+            tyCon == targetTyCon && length arguments == length targetArguments ->
               concat <$> mapM (uncurry bindings) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
         (TcFunTy argument result, TcFunTy targetArgument targetResult) -> (<>) <$> bindings argument targetArgument <*> bindings result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) -> (<>) <$> bindings function targetFunction <*> bindings argument targetArgument
@@ -1204,6 +1205,7 @@ givenRewriteRuleSets givens = do
     containsType from ty =
       sameType from ty
         || case ty of
+          TcKindedTyCon {} -> False
           TcTyConApp _ kindArguments arguments -> any (containsType from) kindArguments || any (containsType from) arguments
           TcAppTy function argument -> containsType from function || containsType from argument
           TcFunTy domain range -> containsType from domain || containsType from range
@@ -1542,8 +1544,9 @@ matchTypeQuantified quantified substitution (TcTyVar variable, target)
         Just existing
           | existing == target -> Just substitution
           | otherwise -> Nothing
-matchTypeQuantified quantified substitution (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
-  | tyCon == targetTyCon,
+matchTypeQuantified quantified substitution (patternType@(TcTyConApp tyCon kindArguments arguments), targetType@(TcTyConApp targetTyCon targetKindArguments targetArguments))
+  | not (isKindedTyCon patternType || isKindedTyCon targetType),
+    tyCon == targetTyCon,
     length arguments == length targetArguments =
       foldM (matchTypeQuantified quantified) substitution (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
 matchTypeQuantified quantified substitution (TcFunTy argument result, TcFunTy targetArgument targetResult) =

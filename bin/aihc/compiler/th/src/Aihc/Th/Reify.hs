@@ -458,8 +458,8 @@ substitute renaming = go
     go ty =
       case ty of
         TcTyVar variable -> TcTyVar (Map.findWithDefault variable (identity variable) renaming)
-        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map go kindArguments) (map go arguments)
         TcKindedTyCon tyCon arguments -> TcKindedTyCon tyCon (map go arguments)
+        TcTyConApp tyCon kindArguments arguments -> TcTyConApp tyCon (map go kindArguments) (map go arguments)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         TcForAllTy variable body -> TcForAllTy variable (go body)
         TcQualTy predicates body -> TcQualTy (map (substitutePred renaming) predicates) (go body)
