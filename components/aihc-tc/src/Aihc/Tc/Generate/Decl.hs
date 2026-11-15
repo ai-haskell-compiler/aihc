@@ -5337,13 +5337,16 @@ bindOpenResultKindVariables lhs lhsKind =
             kind <- zonkKind lhsKind
             let (parameters, result) = splitKindArrows (tyConArity (tciTyCon familyInfo)) body
                 parameterVariables = map tvUnique (concatMap freeKindVariables parameters)
-                resultOnly =
+                candidates =
                   [ variable
                   | variable <- freeKindVariables result,
                     tvUnique variable `elem` map tvUnique variables,
-                    tvUnique variable `notElem` parameterVariables,
-                    sameType (tvKind variable) (typeKind kinds)
+                    tvUnique variable `notElem` parameterVariables
                   ]
+            -- The kind of a variable from a result kind signature can still
+            -- be a solved meta: @u@ in @(r :: (u -> Type, [u]))@ gets the
+            -- kind 'Type' only from its uses.
+            resultOnly <- filterM (\variable -> (`sameType` typeKind kinds) <$> zonkKind (tvKind variable)) candidates
             forM_ (matchTypes [result] [kind]) $ \values ->
               forM_ resultOnly $ \variable ->
                 case Map.lookup (tvUnique variable) values of
