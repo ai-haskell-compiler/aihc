@@ -1,6 +1,8 @@
 module Main (main) where
 
-import Triangle (triangle)
+import Triangle (triangle, twice)
 
 main :: IO ()
-main = print (triangle 10)
+main = do
+  print (triangle 10)
+  print (twice 21)
