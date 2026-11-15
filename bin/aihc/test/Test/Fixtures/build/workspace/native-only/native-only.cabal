@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: native-only
+version: 1.0.0
+build-type: Simple
+
+-- The C code of this package does not compile for WebAssembly. A splice
+-- does not use the package, so the splice builds must not compile it.
+library
+  exposed-modules: NativeOnly
+  hs-source-dirs: .
+  c-sources: cbits/native.c
+  build-depends: base
+  default-language: Haskell2010
