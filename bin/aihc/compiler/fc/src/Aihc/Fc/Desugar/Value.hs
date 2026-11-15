@@ -1365,13 +1365,24 @@ instanceMethodFieldType :: TcInstanceAnnotation -> TcClassMethodAnnotation -> Tc
 instanceMethodFieldType annotation method = foldr TcForAllTy qualified extraTyVars
   where
     classTyVars = tcInstanceClassTyVars annotation
-    extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
     substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+    extraTyVars = instanceMethodExtraTyVars classTyVars substitution method
     (_, afterForAlls) = peelForAlls (tcClassMethodType method)
     (predicates, methodBody) = peelConstraints afterForAlls
     extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) predicates)
     resultType = applySubst substitution methodBody
     qualified = if null extraPredicates then resultType else TcQualTy extraPredicates resultType
+
+-- | The quantified variables of a method that are not class variables, at
+-- the instance head. The kind of such a variable can name a class
+-- variable: @x :: k@ in @class C k m where op :: forall (x :: k). P x -> m@.
+-- At the instance @C a Int@ it is @x :: a@.
+instanceMethodExtraTyVars :: [TyVarId] -> Map Unique TcType -> TcClassMethodAnnotation -> [TyVarId]
+instanceMethodExtraTyVars classTyVars substitution method =
+  [ Tc.setTyVarKind (applySubst substitution (tvKind variable)) variable
+  | variable <- tcClassMethodTyVars method,
+    not (any (Tc.sameTyVar variable) classTyVars)
+  ]
 
 -- | The type of a method worker: the dictionary's own quantifiers and
 -- context in front of the field type, so the worker takes exactly the
@@ -1435,8 +1446,8 @@ desugarMissingMethod annotation methodName = do
       [] -> failValue ("missing checked class method layout for " <> T.unpack methodName)
   let classTyCon = tcInstanceClassTyCon annotation
       classTyVars = tcInstanceClassTyVars annotation
-      extraTyVars = filter (\variable -> not (any (Tc.sameTyVar variable) classTyVars)) (tcClassMethodTyVars method)
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
+      extraTyVars = instanceMethodExtraTyVars classTyVars substitution method
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, methodBody) = peelConstraints methodAfterForAlls
       extraPredicates = map (applySubstPred substitution) (dropClassPredicate classTyCon methodPredicates)

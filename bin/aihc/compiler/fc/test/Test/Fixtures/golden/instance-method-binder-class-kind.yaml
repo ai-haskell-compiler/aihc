@@ -1,0 +1,59 @@
+extensions:
+  - KindSignatures
+  - MultiParamTypeClasses
+  - PolyKinds
+  - RankNTypes
+modules:
+  - |
+    {-# LANGUAGE KindSignatures, MultiParamTypeClasses, PolyKinds, RankNTypes #-}
+    module Test where
+    data P (x :: k) = P
+    data T = T
+    class C k m where
+      op :: forall (x :: k). P x -> m -> m
+    instance C a T where
+      op _ m = m
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tP (k : sType) (x : k) :: sType {
+    pub 1.cP :: ∀(k : sType) (x : k). tP k x
+  }
+
+  pub type 1.tT :: sType {
+    pub 1.cT :: tT
+  }
+
+  pub type 1.t$Dict$C (k : sType) (m : sType) :: sType {
+    pub 1.c$Dict$C :: ∀(k : sType) (m : sType). (∀(x : k). tP k x → m → m) → t$Dict$C k m
+  }
+
+  pub val 1.vop :: ∀(k : sType) (m : sType) (x : k). t$Dict$C k m → tP k x → m → m
+    = Λ(k : sType) (m : sType) (x : k). λ($dC : t$Dict$C k m).
+      let! c$Dict$C ($cop : ∀(x{1} : k). tP k x{1} → m → m) = $dC;
+      $cop @x
+
+  pub val 1.v$fCaT :: ∀(a : sType). t$Dict$C a tT
+    = Λ(a : sType).
+      c$Dict$C @a @tT (v$fCaT$cop @a)
+
+  val 1.v$fCaT$cop :: ∀(a : sType) (x : a). tP a x → tT → tT
+    = Λ(a : sType) (x : a). λ(unused x{1} : tP a x) (y : tT).
+      y
+status: pass
+reason: The kind of the method binder x names the class variable k. At the
+  instance C a T, the method worker and the dictionary field bind x at the kind a.
