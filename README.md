@@ -228,13 +228,13 @@ Lower is better.
 
 | Stage | Compiler | Level | Build time | Relative to stage0 | Executable size |
 | --- | --- | --- | ---: | ---: | ---: |
-| stage0 | GHC 9.12.4 | `-O1` | 3m 04s | 1.00× | 91.5 MB |
-| stage1 | aihc stage0 | `-O2` | 8m 48s | 2.87× | 143.2 MB |
-| stage2 | aihc stage1 | `-O2` | 28m 10s | 9.18× | 143.2 MB |
-| stage1 | aihc stage0 | `-O1` | 1m 21s | 0.44× | 236.6 MB |
-| stage2 | aihc stage1 | `-O1` | 11m 40s | 3.80× | 236.6 MB |
+| stage0 | GHC 9.12.4 | `-O1` | 3m 18s | 1.00× | 94.4 MB |
+| stage1 | aihc stage0 | `-O2` | 9m 48s | 2.97× | 159.5 MB |
+| stage2 | aihc stage1 | `-O2` | 32m 13s | 9.76× | 159.5 MB |
+| stage1 | aihc stage0 | `-O1` | 1m 40s | 0.51× | 254.1 MB |
+| stage2 | aihc stage1 | `-O1` | 13m 22s | 4.05× | 254.1 MB |
 
-Machine `ubuntu24 (8 cores)`, commit [`eb4ea411b`](https://github.com/ai-haskell-compiler/aihc/commit/eb4ea411bbb432c0e916992dc5b187eb9c304ddd) (2026-11-08).
+Machine `ubuntu24 (8 cores)`, commit [`f26730698`](https://github.com/ai-haskell-compiler/aihc/commit/f2673069899814ce90c50a9e2ecdce187995f4e4) (2026-11-15).
 <!-- AUTO-GENERATED: END self-compile-perf -->
 
 ## FAQ
