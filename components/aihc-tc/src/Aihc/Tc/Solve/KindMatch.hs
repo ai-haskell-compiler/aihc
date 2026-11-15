@@ -61,10 +61,10 @@ matchKinds = go (Map.empty, [])
               | otherwise -> Nothing
         (_, TcMetaTv unique) -> Just (substitution, metas <> [(unique, patternKind)])
         (TcMetaTv unique, _) -> Just (substitution, metas <> [(unique, targetKind)])
-        (TcTyCon tyCon arguments, TcTyCon targetTyCon targetArguments)
+        (TcTyConApp tyCon kindArguments arguments, TcTyConApp targetTyCon targetKindArguments targetArguments)
           | tyCon == targetTyCon,
             length arguments == length targetArguments ->
-              foldM (uncurry . go) (substitution, metas) (zip arguments targetArguments)
+              foldM (uncurry . go) (substitution, metas) (pairedKindArguments kindArguments targetKindArguments <> zip arguments targetArguments)
         (TcFunTy argument result, TcFunTy targetArgument targetResult) ->
           go (substitution, metas) argument targetArgument
             >>= \next -> go next result targetResult

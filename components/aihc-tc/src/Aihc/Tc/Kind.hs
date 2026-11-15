@@ -1212,9 +1212,10 @@ unifyKindsAt sp expected actual = do
       | isConcreteRuntimeRep kind -> pure ()
     (kind, TcTyVar {})
       | isConcreteRuntimeRep kind -> pure ()
-    (TcTyCon left leftArguments, TcTyCon right rightArguments)
+    (TcTyConApp left leftKinds leftArguments, TcTyConApp right rightKinds rightArguments)
       | left == right,
-        length leftArguments == length rightArguments ->
+        length leftArguments == length rightArguments -> do
+          mapM_ (uncurry (unifyKindsAt sp)) (pairedKindArguments leftKinds rightKinds)
           zipWithM_ (unifyKindsAt sp) leftArguments rightArguments
     (TcKindedTyCon left leftArguments, TcKindedTyCon right rightArguments)
       | left == right,
