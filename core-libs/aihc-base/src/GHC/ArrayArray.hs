@@ -73,7 +73,7 @@ indexArrayArrayArray# (ArrayArray# array) index =
     (# element #) -> unsafeCoerce# element
 
 readByteArrayArray# :: MutableArrayArray# s -> Int# -> State# s -> (# State# s, ByteArray# #)
-readByteArrayArray# (MutableArrayArray# array) index s0 = readArray# array index s0
+readByteArrayArray# (MutableArrayArray# array) = readArray# array
 
 readMutableByteArrayArray# :: MutableArrayArray# s -> Int# -> State# s -> (# State# s, MutableByteArray# s #)
 readMutableByteArrayArray# (MutableArrayArray# array) index s0 =
@@ -91,27 +91,27 @@ readMutableArrayArrayArray# (MutableArrayArray# array) index s0 =
     (# s1, element #) -> (# s1, unsafeCoerce# element #)
 
 writeByteArrayArray# :: MutableArrayArray# s -> Int# -> ByteArray# -> State# s -> State# s
-writeByteArrayArray# (MutableArrayArray# array) index element s0 = writeArray# array index element s0
+writeByteArrayArray# (MutableArrayArray# array) = writeArray# array
 
 writeMutableByteArrayArray# :: MutableArrayArray# s -> Int# -> MutableByteArray# s -> State# s -> State# s
-writeMutableByteArrayArray# (MutableArrayArray# array) index element s0 =
-  writeArray# array index (unsafeCoerce# element) s0
+writeMutableByteArrayArray# (MutableArrayArray# array) index element =
+  writeArray# array index (unsafeCoerce# element)
 
 writeArrayArrayArray# :: MutableArrayArray# s -> Int# -> ArrayArray# -> State# s -> State# s
-writeArrayArrayArray# (MutableArrayArray# array) index element s0 =
-  writeArray# array index (unsafeCoerce# element) s0
+writeArrayArrayArray# (MutableArrayArray# array) index element =
+  writeArray# array index (unsafeCoerce# element)
 
 writeMutableArrayArrayArray# :: MutableArrayArray# s -> Int# -> MutableArrayArray# s -> State# s -> State# s
-writeMutableArrayArrayArray# (MutableArrayArray# array) index element s0 =
-  writeArray# array index (unsafeCoerce# element) s0
+writeMutableArrayArrayArray# (MutableArrayArray# array) index element =
+  writeArray# array index (unsafeCoerce# element)
 
 copyArrayArray# :: ArrayArray# -> Int# -> MutableArrayArray# s -> Int# -> Int# -> State# s -> State# s
-copyArrayArray# (ArrayArray# source) sourceOffset (MutableArrayArray# target) targetOffset count s0 =
-  copyArray# source sourceOffset target targetOffset count s0
+copyArrayArray# (ArrayArray# source) sourceOffset (MutableArrayArray# target) =
+  copyArray# source sourceOffset target
 
 copyMutableArrayArray# :: MutableArrayArray# s -> Int# -> MutableArrayArray# s -> Int# -> Int# -> State# s -> State# s
-copyMutableArrayArray# (MutableArrayArray# source) sourceOffset (MutableArrayArray# target) targetOffset count s0 =
-  copyMutableArray# source sourceOffset target targetOffset count s0
+copyMutableArrayArray# (MutableArrayArray# source) sourceOffset (MutableArrayArray# target) =
+  copyMutableArray# source sourceOffset target
 
 sameArrayArray# :: ArrayArray# -> ArrayArray# -> Int#
 sameArrayArray# (ArrayArray# left) (ArrayArray# right) = reallyUnsafePtrEquality# left right
