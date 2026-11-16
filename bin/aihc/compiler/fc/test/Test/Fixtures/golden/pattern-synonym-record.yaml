@@ -42,13 +42,15 @@ expected: |-
 
   pub val 1.vpx :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
-      let! cPair (px : a) (unused py : a) = x;
-      px
+      v$mPoint @a @sLiftedRep @a x (λ(px : a) (unused py : a).
+        px) (λ(unused _pattern_failure : tUnit).
+        absurd x return (a))
 
   pub val 1.vpy :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).
-      let! cPair (unused px : a) (py : a) = x;
-      py
+      v$mPoint @a @sLiftedRep @a x (λ(unused px : a) (py : a).
+        py) (λ(unused _pattern_failure : tUnit).
+        absurd x return (a))
 
   pub val 1.vfirst :: ∀(a : sType). tPair a → a
     = Λ(a : sType). λ(x : tPair a).

@@ -32,8 +32,17 @@
 // The instance gets no access to the host. Each import of the image is
 // denied, apart from the functions in hostFunctions. These functions give
 // fixed answers, such as an empty environment.
+//
+// Usage with a directory: node driver.mjs IMAGE DIRECTORY
+//
+// Then the instance can read the files in DIRECTORY. The directory is the
+// only preopened directory, with the name "/". The C library and the
+// run-time system start a relative path at "/", thus a relative path
+// starts at DIRECTORY. The instance cannot write, and it cannot read a
+// file outside DIRECTORY, also through a symbolic link.
 
-import { readFileSync, readSync, writeSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeSync } from "node:fs";
+import { resolve as resolvePath, sep as pathSeparator } from "node:path";
 
 const pageBytes = 65536;
 let pendingInput = Buffer.alloc(0);
@@ -145,6 +154,394 @@ const hostFunctions = {
     throw new Error("trap: " + new TextDecoder().decode(memoryBytes(message, length)));
   },
 };
+
+// The read-only directory of the instance, as a path without symbolic
+// links, or null.
+const readableRoot = process.argv[3] === undefined ? null : realpathSync(process.argv[3]);
+
+// The canonical ABI values of wasi:filesystem/types@0.3.0.
+const typeCodes = { blockDevice: 0, characterDevice: 1, directory: 2, fifo: 3, symbolicLink: 4, regularFile: 5, socket: 6, other: 7 };
+const errorCodes = { access: 0, badDescriptor: 2, invalid: 11, io: 12, isDirectory: 13, loop: 14, nameTooLong: 17, noEntry: 19, notDirectory: 23, notPermitted: 30, readOnly: 32 };
+const openCreate = 1;
+const openDirectory = 2;
+const openExclusive = 4;
+const openTruncate = 8;
+const descriptorRead = 1;
+const descriptorWrite = 2;
+const descriptorMutateDirectory = 32;
+// The states of a waitable and of a subtask.
+const waitableCompleted = 0;
+const waitableDropped = 1;
+const waitableCancelled = 2;
+const subtaskReturned = 2;
+
+// A filesystem error that goes to the instance as an error code.
+class FilesystemError extends Error {
+  constructor(code) {
+    super("filesystem error " + code);
+    this.code = code;
+  }
+}
+
+function hostErrorCode(error) {
+  if (error instanceof FilesystemError) return error.code;
+  switch (error?.code) {
+    case "ENOENT":
+      return errorCodes.noEntry;
+    case "ENOTDIR":
+      return errorCodes.notDirectory;
+    case "EISDIR":
+      return errorCodes.isDirectory;
+    case "EACCES":
+    case "EPERM":
+      return errorCodes.access;
+    case "ELOOP":
+      return errorCodes.loop;
+    case "ENAMETOOLONG":
+      return errorCodes.nameTooLong;
+    default:
+      return errorCodes.io;
+  }
+}
+
+// The resources, streams, futures, and waitable sets of the instance. They
+// use one table of handles. A handle is not zero.
+const handles = new Map();
+let nextHandle = 1;
+
+function addHandle(value) {
+  const handle = nextHandle++;
+  handles.set(handle, value);
+  return handle;
+}
+
+function handleOf(handle, kind) {
+  const value = handles.get(handle);
+  if (value?.kind !== kind) throw new FilesystemError(errorCodes.badDescriptor);
+  return value;
+}
+
+function memoryView() {
+  return new DataView(image.memory.buffer);
+}
+
+function guestString(address, length) {
+  return new TextDecoder().decode(memoryBytes(address, length));
+}
+
+// Copy bytes to new memory of the instance. The instance owns the memory.
+function guestAllocate(bytes, alignment) {
+  const address = image.cabi_realloc(0, 0, alignment, bytes.length);
+  new Uint8Array(image.memory.buffer, address, bytes.length).set(bytes);
+  return address;
+}
+
+// Write a string at an address, as its address and its number of bytes.
+function storeString(address, text) {
+  const bytes = new TextEncoder().encode(text);
+  const pointer = bytes.length === 0 ? 1 : guestAllocate(bytes, 1);
+  const view = memoryView();
+  view.setUint32(address, pointer, true);
+  view.setUint32(address + 4, bytes.length, true);
+}
+
+// The host path of a path that starts at a directory descriptor. The path
+// must stay in the readable root, also after symbolic links.
+function hostPath(directory, path) {
+  const descriptor = handleOf(directory, "descriptor");
+  if (!descriptor.directory) throw new FilesystemError(errorCodes.notDirectory);
+  if (path.startsWith("/") || path.includes("\0")) throw new FilesystemError(errorCodes.notPermitted);
+  const inRoot = (candidate) => candidate === readableRoot || candidate.startsWith(readableRoot + pathSeparator);
+  if (!inRoot(resolvePath(descriptor.path, path))) throw new FilesystemError(errorCodes.notPermitted);
+  const real = realpathSync(resolvePath(descriptor.path, path));
+  if (!inRoot(real)) throw new FilesystemError(errorCodes.notPermitted);
+  return real;
+}
+
+function typeCode(stats) {
+  if (stats.isFile()) return typeCodes.regularFile;
+  if (stats.isDirectory()) return typeCodes.directory;
+  if (stats.isSymbolicLink()) return typeCodes.symbolicLink;
+  if (stats.isFIFO()) return typeCodes.fifo;
+  if (stats.isSocket()) return typeCodes.socket;
+  if (stats.isCharacterDevice()) return typeCodes.characterDevice;
+  if (stats.isBlockDevice()) return typeCodes.blockDevice;
+  return typeCodes.other;
+}
+
+function openDescriptor(path) {
+  const stats = statSync(path);
+  return addHandle({ kind: "descriptor", path, directory: stats.isDirectory(), file: null });
+}
+
+// Write a result with the canonical ABI. The ok value comes from the
+// function, which gets the address of the payload. An error code goes into
+// the payload. A function that fails gives an error.
+function storeResult(address, payloadOffset, store) {
+  try {
+    const write = store();
+    const view = memoryView();
+    view.setUint8(address, 0);
+    write?.(address + payloadOffset);
+  } catch (error) {
+    const view = memoryView();
+    view.setUint8(address, 1);
+    view.setUint8(address + payloadOffset, hostErrorCode(error));
+  }
+}
+
+// A descriptor-stat at an address. The timestamps are absent, so that a
+// splice gives the same result on each run.
+function storeStat(stats) {
+  return (address) => {
+    const view = memoryView();
+    view.setUint8(address, typeCode(stats));
+    view.setBigUint64(address + 16, BigInt(stats.nlink), true);
+    view.setBigUint64(address + 24, BigInt(stats.size), true);
+    for (const offset of [32, 56, 80]) view.setUint8(address + offset, 0);
+  };
+}
+
+function storeHash(stats) {
+  return (address) => {
+    const view = memoryView();
+    view.setBigUint64(address, BigInt.asUintN(64, BigInt(stats.ino)), true);
+    view.setBigUint64(address + 8, BigInt.asUintN(64, BigInt(stats.dev)), true);
+  };
+}
+
+function openAt(self, pathAddress, pathLength, openFlags, flags, result) {
+  storeResult(result, 4, () => {
+    if (openFlags & (openCreate | openExclusive | openTruncate) || flags & (descriptorWrite | descriptorMutateDirectory)) {
+      throw new FilesystemError(errorCodes.readOnly);
+    }
+    const handle = openDescriptor(hostPath(self, guestString(pathAddress, pathLength)));
+    if (openFlags & openDirectory && !handles.get(handle).directory) {
+      handles.delete(handle);
+      throw new FilesystemError(errorCodes.notDirectory);
+    }
+    return (address) => memoryView().setUint32(address, handle, true);
+  });
+}
+
+function descriptorStats(self) {
+  const descriptor = handleOf(self, "descriptor");
+  return statSync(descriptor.path);
+}
+
+// A function of a write operation. Its result is the error read-only. The
+// last argument is the address of the result.
+function readOnly(...parameters) {
+  const result = parameters[parameters.length - 1];
+  const view = memoryView();
+  view.setUint8(result, 1);
+  view.setUint8(result + 4, errorCodes.readOnly);
+}
+
+// A stream of the bytes of a file, and a future of its result.
+function readViaStream(self, offset, result) {
+  let future;
+  let stream;
+  try {
+    const descriptor = handleOf(self, "descriptor");
+    if (descriptor.directory) throw new FilesystemError(errorCodes.isDirectory);
+    descriptor.file ??= openSync(descriptor.path, "r");
+    stream = addHandle({ kind: "stream", descriptor, position: Number(offset), ended: false });
+    future = addHandle({ kind: "future", error: null });
+  } catch (error) {
+    stream = addHandle({ kind: "stream", descriptor: null, position: 0, ended: true });
+    future = addHandle({ kind: "future", error: hostErrorCode(error) });
+  }
+  const view = memoryView();
+  view.setUint32(result, stream, true);
+  view.setUint32(result + 4, future, true);
+}
+
+function readStream(handle, address, length) {
+  const stream = handleOf(handle, "stream");
+  if (stream.ended) return waitableDropped;
+  if (length === 0) return waitableCompleted;
+  const buffer = Buffer.alloc(length);
+  const count = readSync(stream.descriptor.file, buffer, 0, length, stream.position);
+  if (count === 0) {
+    stream.ended = true;
+    return waitableDropped;
+  }
+  new Uint8Array(image.memory.buffer, address, count).set(buffer.subarray(0, count));
+  stream.position += count;
+  return (count << 4) | waitableCompleted;
+}
+
+// A stream of the entries of a directory. The entries are in the order of
+// their names, so that a splice gives the same result on each run.
+function readDirectory(self, result) {
+  let entries = [];
+  let error = null;
+  try {
+    const descriptor = handleOf(self, "descriptor");
+    if (!descriptor.directory) throw new FilesystemError(errorCodes.notDirectory);
+    entries = readdirSync(descriptor.path).sort().map((name) => {
+      let type = typeCodes.other;
+      try {
+        type = typeCode(statSync(hostPath(self, name)));
+      } catch {
+        // An entry outside the root, or a broken link, has the type other.
+      }
+      return { name, type };
+    });
+  } catch (failure) {
+    error = hostErrorCode(failure);
+  }
+  const view = memoryView();
+  view.setUint32(result, addHandle({ kind: "entries", entries, position: 0 }), true);
+  view.setUint32(result + 4, addHandle({ kind: "future", error }), true);
+}
+
+// Each directory-entry has 24 bytes: the type at 0, with no payload, and
+// the name at 16.
+function readEntries(handle, address, length) {
+  const stream = handleOf(handle, "entries");
+  if (stream.position === stream.entries.length) return waitableDropped;
+  const count = Math.min(length, stream.entries.length - stream.position);
+  for (let index = 0; index < count; index++) {
+    const entry = stream.entries[stream.position + index];
+    const at = address + 24 * index;
+    const view = memoryView();
+    view.setUint8(at, entry.type);
+    view.setUint8(at + 4, 0);
+    storeString(at + 16, entry.name);
+  }
+  stream.position += count;
+  return (count << 4) | waitableCompleted;
+}
+
+// The future of a stream has its result at once: the host reads files
+// synchronously.
+function readFuture(handle, address) {
+  const future = handleOf(handle, "future");
+  const view = memoryView();
+  if (future.error === null) {
+    view.setUint8(address, 0);
+  } else {
+    view.setUint8(address, 1);
+    view.setUint8(address + 4, future.error);
+  }
+  return waitableCompleted;
+}
+
+function dropHandle(handle) {
+  const value = handles.get(handle);
+  if (value?.kind === "descriptor" && value.file !== null) closeSync(value.file);
+  handles.delete(handle);
+}
+
+const filesystem = "wasi:filesystem/types@0.3.0 ";
+const byteStream = "[method]descriptor.read-via-stream";
+const entryStream = "[method]descriptor.read-directory";
+
+// The functions that give read access to the readable root. Each operation
+// completes before it returns, thus a subtask is returned at once and a
+// stream or a future is never blocked.
+const filesystemFunctions = {
+  // The root is the only preopened directory, with the name "/". Each
+  // call gives a new descriptor, which the instance owns.
+  "wasi:filesystem/preopens@0.3.0 get-directories": (result) => {
+    const list = guestAllocate(new Uint8Array(12), 4);
+    memoryView().setUint32(list, openDescriptor(readableRoot), true);
+    storeString(list + 4, "/");
+    memoryView().setUint32(result, list, true);
+    memoryView().setUint32(result + 4, 1, true);
+  },
+  // There is no initial directory. A relative path starts at "/".
+  "wasi:cli/environment@0.3.0 get-initial-cwd": (result) => {
+    memoryView().setUint8(result, 0);
+  },
+  [filesystem + "[resource-drop]descriptor"]: dropHandle,
+  [filesystem + "[method]descriptor.open-at"]: (self, _pathFlags, path, length, openFlags, flags, result) =>
+    openAt(self, path, length, openFlags, flags, result),
+  // The arguments are at an address: the descriptor at 0, the path flags at
+  // 4, the path at 8, the open flags at 16, and the descriptor flags at 17.
+  [filesystem + "[async-lower][method]descriptor.open-at"]: (arguments_, result) => {
+    const view = memoryView();
+    openAt(view.getUint32(arguments_, true), view.getUint32(arguments_ + 8, true), view.getUint32(arguments_ + 12, true), view.getUint8(arguments_ + 16), view.getUint8(arguments_ + 17), result);
+    return subtaskReturned;
+  },
+  [filesystem + "[method]descriptor.stat"]: (self, result) => storeResult(result, 8, () => storeStat(descriptorStats(self))),
+  [filesystem + "[async-lower][method]descriptor.stat"]: (self, result) => {
+    storeResult(result, 8, () => storeStat(descriptorStats(self)));
+    return subtaskReturned;
+  },
+  [filesystem + "[method]descriptor.stat-at"]: (self, _pathFlags, path, length, result) =>
+    storeResult(result, 8, () => storeStat(statSync(hostPath(self, guestString(path, length))))),
+  [filesystem + "[async-lower][method]descriptor.get-type"]: (self, result) => {
+    storeResult(result, 4, () => {
+      const type = typeCode(descriptorStats(self));
+      return (address) => {
+        memoryView().setUint8(address, type);
+      };
+    });
+    return subtaskReturned;
+  },
+  [filesystem + "[method]descriptor.get-flags"]: (self, result) =>
+    storeResult(result, 4, () => {
+      handleOf(self, "descriptor");
+      return (address) => memoryView().setUint8(address, descriptorRead);
+    }),
+  [filesystem + "[method]descriptor.metadata-hash"]: (self, result) => storeResult(result, 8, () => storeHash(descriptorStats(self))),
+  [filesystem + "[method]descriptor.metadata-hash-at"]: (self, _pathFlags, path, length, result) =>
+    storeResult(result, 8, () => storeHash(statSync(hostPath(self, guestString(path, length))))),
+  [filesystem + "[async-lower][method]descriptor.is-same-object"]: (self, other, result) => {
+    let same = false;
+    try {
+      same = handleOf(self, "descriptor").path === handleOf(other, "descriptor").path;
+    } catch {
+      same = false;
+    }
+    memoryView().setUint8(result, same ? 1 : 0);
+    return subtaskReturned;
+  },
+  // The host gives the target of each symbolic link, thus no path names a
+  // symbolic link.
+  [filesystem + "[method]descriptor.readlink-at"]: (_self, _path, _length, result) => {
+    const view = memoryView();
+    view.setUint8(result, 1);
+    view.setUint8(result + 4, errorCodes.invalid);
+  },
+  [filesystem + "[method]descriptor.advise"]: (_self, _offset, _length, _advice, result) => memoryView().setUint8(result, 0),
+  [filesystem + "[method]descriptor.sync"]: (_self, result) => memoryView().setUint8(result, 0),
+  [filesystem + "[method]descriptor.sync-data"]: (_self, result) => memoryView().setUint8(result, 0),
+  [filesystem + "[method]descriptor.create-directory-at"]: readOnly,
+  [filesystem + "[method]descriptor.remove-directory-at"]: readOnly,
+  [filesystem + "[method]descriptor.unlink-file-at"]: readOnly,
+  [filesystem + "[method]descriptor.rename-at"]: readOnly,
+  [filesystem + "[method]descriptor.symlink-at"]: readOnly,
+  [filesystem + "[method]descriptor.link-at"]: readOnly,
+  [filesystem + "[method]descriptor.set-size"]: readOnly,
+  [filesystem + "[method]descriptor.set-times"]: readOnly,
+  [filesystem + "[method]descriptor.set-times-at"]: readOnly,
+  [filesystem + byteStream]: readViaStream,
+  [filesystem + "[async-lower][stream-read-0]" + byteStream]: readStream,
+  [filesystem + "[stream-drop-readable-0]" + byteStream]: dropHandle,
+  [filesystem + "[stream-cancel-read-0]" + byteStream]: () => waitableCancelled,
+  [filesystem + "[async-lower][future-read-1]" + byteStream]: readFuture,
+  [filesystem + "[future-drop-readable-1]" + byteStream]: dropHandle,
+  [filesystem + "[future-cancel-read-1]" + byteStream]: () => waitableCancelled,
+  [filesystem + entryStream]: readDirectory,
+  [filesystem + "[async-lower][stream-read-0]" + entryStream]: readEntries,
+  [filesystem + "[stream-drop-readable-0]" + entryStream]: dropHandle,
+  [filesystem + "[stream-cancel-read-0]" + entryStream]: () => waitableCancelled,
+  [filesystem + "[async-lower][future-read-1]" + entryStream]: readFuture,
+  [filesystem + "[future-drop-readable-1]" + entryStream]: dropHandle,
+  [filesystem + "[future-cancel-read-1]" + entryStream]: () => waitableCancelled,
+  // The run-time system makes a waitable set for each operation. No
+  // operation blocks, thus the set never gets an event.
+  "$root [waitable-set-new]": () => addHandle({ kind: "waitable-set" }),
+  "$root [waitable-set-drop]": dropHandle,
+  "$root [waitable-join]": () => {},
+};
+
+// The filesystem functions are only available with a readable root.
+if (readableRoot !== null) Object.assign(hostFunctions, filesystemFunctions);
 
 function memoryBytes(address, length) {
   return new Uint8Array(image.memory.buffer, address, Number(length));

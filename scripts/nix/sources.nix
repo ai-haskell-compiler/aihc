@@ -247,6 +247,8 @@ in rec {
       # The assembly source of the asm-sources build fixture.
       ".S"
       "expected.txt"
+      # The package file that a splice of the engine-splices fixture reads.
+      "table.txt"
       # The configure script and header template of the install fixture for
       # build-type Configure packages.
       "configure"

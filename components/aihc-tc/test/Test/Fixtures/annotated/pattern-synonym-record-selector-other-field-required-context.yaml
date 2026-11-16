@@ -1,0 +1,52 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms, ViewPatterns, MultiParamTypeClasses, FlexibleInstances #-}
+  module Test where
+  class Conv s t where
+  └─ class methods: conv ∷ ∀ s t. (Conv s t) ⇒ s → t
+    conv :: s -> t
+  pattern Via :: Conv s t => t -> s
+  pattern Via x <- (conv -> x)
+  │                 ││       └─ type: t
+  │                 └─ type: s → t; type-args: s, t; evidence: given Conv s t
+  │                 └─ type: s
+  └─ type: ∀ s t. (Conv s t) ⇒ t → s
+  newtype Outer k = Outer k
+          │         └─ type: ∀ k. k → Outer k
+          └─ type: Type → Type
+  instance Conv k (Outer k) where
+  └─ $fConvkOuterk ∷ ∀ k. () ⇒ Conv k (Outer k)
+    conv = Outer
+    │      └─ type: k → Outer k; type-args: k
+    └─ conv ∷ k → Outer k
+  data Info k = Info k k
+       │        └─ type: ∀ k. k → k → Info k
+       └─ type: Type → Type
+  pattern Node :: Outer k -> k -> Info k
+  pattern Node {nodeO, nodeN} <- Info (Via nodeO) nodeN
+  │                              │     │   │      └─ type: k
+  │                              │     │   └─ type: Outer k
+  │                              │     └─ type: Outer k → k; type-args: k, Outer k; evidence: $fConvkOuterk @k
+  │                              └─ type: Info k
+  └─ type: ∀ k. Outer k → k → Info k
+extensions:
+- PatternSynonyms
+- ViewPatterns
+- MultiParamTypeClasses
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, ViewPatterns, MultiParamTypeClasses, FlexibleInstances #-}
+  module Test where
+  class Conv s t where
+    conv :: s -> t
+  pattern Via :: Conv s t => t -> s
+  pattern Via x <- (conv -> x)
+  newtype Outer k = Outer k
+  instance Conv k (Outer k) where
+    conv = Outer
+  data Info k = Info k k
+  pattern Node :: Outer k -> k -> Info k
+  pattern Node {nodeO, nodeN} <- Info (Via nodeO) nodeN
+reason: the selector of a field matches with the pattern synonym itself, so the other field has the type of the signature and the required constraint of Via is solved
+status: pass
