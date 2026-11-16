@@ -3577,8 +3577,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   case (builderMatches, maybeBuilderMatches) of
                     (Just _, Nothing) -> pure failedResult
                     _ -> do
-                      (selectorMatches, selectorResults) <-
-                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
+                      -- The selectors use the pattern synonym, so it must be
+                      -- known before they are checked.
                       addPatSyn
                         PatSynInfo
                           { psiName = name,
@@ -3590,6 +3590,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                             psiReqTheta = patSynLayoutRequired layout,
                             psiProvTheta = patSynLayoutProvided layout
                           }
+                      (selectorMatches, selectorResults) <-
+                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) (patSynUse key name argBinders) argBinders
                       zonkedTy <- zonkType (schemeToType scheme)
                       -- The source keeps the explicit builder equations for the
                       -- annotated output. The synthesized builder of an
@@ -3847,7 +3849,8 @@ patSynFieldTermKey key field =
 
 -- | Check the field selectors of a record pattern synonym. The selector
 -- of the field @f@ that the argument binder @x@ names is the function
--- @f $scrutinee = case $scrutinee of pat -> x@. Its signature quantifies
+-- @f $scrutinee = case $scrutinee of pat -> x@, where @pat@ uses the
+-- pattern synonym. Its signature quantifies
 -- the universal variables and keeps the required context, so it has the
 -- type @req => scrutinee -> field@. A field whose type mentions an
 -- existential variable has no selector.
@@ -3879,6 +3882,21 @@ tcPatSynRecordSelectors sigs package moduleName' nameSpan layout args pat argBin
           case maybeMatches of
             Just [match] -> pure ([(field, match)], results)
             _ -> pure ([], results)
+
+-- | The pattern that uses a pattern synonym with a variable for each
+-- argument. A field selector matches its scrutinee with this pattern, as
+-- in GHC. Thus, the type of each variable comes from the type of the
+-- pattern synonym, and not from the pattern of the declaration. In the
+-- pattern of the declaration, a variable that the selector does not
+-- return can have an ambiguous type.
+patSynUse :: Entity -> Text -> [UnqualifiedName] -> Pattern
+patSynUse key name argBinders =
+  PCon synonym [] (map PVar argBinders)
+  where
+    nameType'
+      | ":" `T.isPrefixOf` name = NameConSym
+      | otherwise = NameConId
+    synonym = Name Nothing nameType' name [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)]
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
