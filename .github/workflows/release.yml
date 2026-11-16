@@ -12,6 +12,11 @@ name: Release
 #
 # The paths of the work directory get into the executable. Thus, both stages
 # use the same WORK_DIR, and each target uses the same path.
+#
+# The Linux stages compile in a Debian 12 container with the Nix store of
+# the runner (scripts/release-container.sh). The executable then links
+# against glibc 2.36 and uses the standard program interpreter, so it runs
+# on each distribution with glibc 2.36 or a newer glibc.
 
 on:
   push:
@@ -70,8 +75,12 @@ jobs:
         include:
           - target: linux-amd64
             runner: ubuntu-24.04
+            stage: scripts/release-container.sh release-linux-stage
+            smoke-test: scripts/release-container.sh release-linux-smoke-test
           - target: apple-arm64
             runner: macos-15
+            stage: nix run .#self-compile-stage --
+            smoke-test: nix run .#release-smoke-test --
     env:
       TARGET: ${{ matrix.target }}
       VERSION: ${{ needs.version.outputs.version }}
@@ -90,7 +99,7 @@ jobs:
       # Without AIHC, the app uses the GHC-built aihc, which is stage 0.
       - name: Compile stage 1
         run: |
-          nix run .#self-compile-stage -- \
+          ${{ matrix.stage }} \
             --work-dir "$WORK_DIR" \
             --output "$RUNNER_TEMP/stages/aihc-stage1" \
             --target "$TARGET" \
@@ -103,7 +112,7 @@ jobs:
       - name: Compile stage 2
         run: |
           chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
-          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" ${{ matrix.stage }} \
             --work-dir "$WORK_DIR" \
             --output "$RUNNER_TEMP/stages/aihc-stage2" \
             --target "$TARGET" \
@@ -138,10 +147,35 @@ jobs:
             exit 1
           fi
 
+      # The executable must run outside Nix. Each glibc reads the symbol
+      # versions of the glibc that it is or of an older glibc.
+      - name: Check the dynamic linking
+        if: matrix.target == 'linux-amd64'
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/stages/aihc-stage2"
+          interpreter="$(readelf --program-headers "$file" | sed -n 's/.*Requesting program interpreter: \(.*\)]/\1/p')"
+          newest="$(objdump --dynamic-syms "$file" | grep -o 'GLIBC_[0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)"
+          {
+            echo "### Dynamic linking of aihc for $TARGET"
+            echo
+            echo "- Program interpreter: \`$interpreter\`"
+            echo "- Newest glibc symbol version: $newest"
+            echo "- Shared libraries: $(readelf --dynamic "$file" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | tr '\n' ' ')"
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$interpreter" != /lib64/ld-linux-x86-64.so.2 ]; then
+            echo "::error::The program interpreter is $interpreter, not /lib64/ld-linux-x86-64.so.2."
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$newest" 2.36 | sort -V | tail -n 1)" != 2.36 ]; then
+            echo "::error::The executable needs glibc $newest. The release supports glibc 2.36."
+            exit 1
+          fi
+
       - name: Run the smoke test
         run: |
           chmod +x "$RUNNER_TEMP/stages/aihc-stage2"
-          nix run .#release-smoke-test -- \
+          ${{ matrix.smoke-test }} \
             --aihc "$RUNNER_TEMP/stages/aihc-stage2" \
             --target "$TARGET"
 

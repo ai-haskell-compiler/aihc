@@ -60,6 +60,55 @@
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
   '';
 
+  # The Clang of a portable Linux release. The release compiles in a
+  # container with an old glibc (see scripts/release-container.sh), so the
+  # executable runs on each distribution with that glibc or a newer one.
+  # This Clang is not wrapped. Thus it uses the headers, the C runtime
+  # files, and the libraries of the container, not those of Nix. The
+  # Clang of Nix gives no program interpreter to the linker, and lld has no
+  # default. Thus a link gets the standard interpreter of x86-64 Linux. A
+  # command that does not link does not get it, because Clang warns about
+  # an unused argument, and the runtime compiles with -Werror.
+  releaseClang = let
+    clang = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+    driver = name: ''
+      link=1
+      for argument in "$@"; do
+        case "$argument" in
+        -c | -S | -E | -fsyntax-only | --version | -### | -print-* | --print-*) link=0 ;;
+        esac
+      done
+      if [ "$link" -eq 1 ]; then
+        exec ${clang} --driver-mode=${name} -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2 "$@"
+      fi
+      exec ${clang} --driver-mode=${name} "$@"
+    '';
+  in
+    pkgs.symlinkJoin {
+      name = "release-clang";
+      paths = [
+        (pkgs.writeShellScriptBin "clang" (driver "gcc"))
+        (pkgs.writeShellScriptBin "clang++" (driver "g++"))
+      ];
+    };
+
+  # The tools of a portable Linux release. lld is the linker, as in the
+  # other builds, but it is not wrapped. The C libraries come from the
+  # container.
+  releaseLinuxInputs =
+    pkgs.lib.subtractLists [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang] selfCompileInputs
+    ++ [releaseClang pkgs.llvmPackages.bintools-unwrapped];
+
+  releaseLinuxEnvironment = ''
+    set -euo pipefail
+    ${repoRootGuard}
+    export GHCRTS=-N
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    export AIHC_LLVM_AR=${pkgs.llvmPackages.bintools-unwrapped}/bin/llvm-ar
+    export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+  '';
+
   mkAppWithInputs = name: runtimeInputs: text: {
     type = "app";
     program = "${pkgs.writeShellApplication {
@@ -373,6 +422,19 @@ in {
   # names the executable, because a release does not come from the Nix build.
   release-smoke-test = mkAppWithInputs "release-smoke-test" selfCompileInputs ''
     ${selfCompileEnvironment}
+    exec bash ./scripts/release-smoke-test.sh "$@"
+  '';
+
+  # The two apps above for a portable Linux release. They run in the
+  # container of scripts/release-container.sh, not on the host.
+  release-linux-stage = mkAppWithInputs "release-linux-stage" releaseLinuxInputs ''
+    ${releaseLinuxEnvironment}
+    export AIHC="''${AIHC:-${aihcExe}}"
+    exec bash ./scripts/self-compile-stage.sh "$@"
+  '';
+
+  release-linux-smoke-test = mkAppWithInputs "release-linux-smoke-test" releaseLinuxInputs ''
+    ${releaseLinuxEnvironment}
     exec bash ./scripts/release-smoke-test.sh "$@"
   '';
 
