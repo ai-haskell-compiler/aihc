@@ -1265,7 +1265,7 @@ checkConTypeArguments sp conName typeArguments instantiated
       pure ([], [])
   | otherwise = do
       scoped <- getScopedTyVars
-      let unbound = List.nub (filter (`Map.notMember` scoped) (concatMap freeTypeVars typeArguments))
+      let unbound = List.nub (concatMap (filter (`Map.notMember` scoped) . freeTypeVars) typeArguments)
       boundTyVars <- mapM bindPatternTyVar unbound
       withPatternTyVars boundTyVars $ do
         scoped' <- getScopedTyVars

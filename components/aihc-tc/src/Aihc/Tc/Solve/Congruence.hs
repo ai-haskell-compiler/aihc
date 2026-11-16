@@ -217,7 +217,7 @@ rewriteDepth = 3
 allGivenEqualities :: [Pred] -> TcM [(TcType, TcType, Coercion)]
 allGivenEqualities predicates = do
   let roots = [(predicate, EvGiven predicate) | predicate <- predicates]
-  equalities <- sharedVariableEqualities <$> (concat <$> traverse (givenEqualities []) roots)
+  equalities <- sharedVariableEqualities . concat <$> traverse (givenEqualities []) roots
   stuck <- concat <$> traverse (stuckGivenConstraints []) roots
   if null stuck
     then pure equalities
