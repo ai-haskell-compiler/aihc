@@ -20,7 +20,20 @@
   # The C libraries that packages of docs/self-hosting-packages.md bind to:
   # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
   # CPATH for headers and LIBRARY_PATH for libraries.
-  selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
+  selfHostingCLibraries = [pkgs.libffi pkgs.ncurses];
+
+  # The aihc executable links zlib statically. A shared zlib from the Nix
+  # store would make the release executable fail on a computer without that
+  # store path. The macOS SDK of Nix has no zlib that a program can link.
+  # On macOS, the library is for macOS 11, the oldest version of the Apple
+  # target.
+  staticZlib =
+    if pkgs.stdenv.hostPlatform.isDarwin
+    then
+      pkgs.zlib.overrideAttrs (old: {
+        buildInputs = (old.buildInputs or []) ++ [(pkgs.darwinMinVersionHook "11.0")];
+      })
+    else pkgs.zlib;
   repoRootGuard = ''
     test -f cabal.project || {
       echo "Run this app from the repository root." >&2
@@ -55,57 +68,8 @@
     export GHCRTS=-N
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
-    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
-    export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-    export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
-  '';
-
-  # The Clang of a portable Linux release. The release compiles in a
-  # container with an old glibc (see scripts/release-container.sh), so the
-  # executable runs on each distribution with that glibc or a newer one.
-  # This Clang is not wrapped. Thus it uses the headers, the C runtime
-  # files, and the libraries of the container, not those of Nix. The
-  # Clang of Nix gives no program interpreter to the linker, and lld has no
-  # default. Thus a link gets the standard interpreter of x86-64 Linux. A
-  # command that does not link does not get it, because Clang warns about
-  # an unused argument, and the runtime compiles with -Werror.
-  releaseClang = let
-    clang = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
-    driver = name: ''
-      link=1
-      for argument in "$@"; do
-        case "$argument" in
-        -c | -S | -E | -fsyntax-only | --version | -### | -print-* | --print-*) link=0 ;;
-        esac
-      done
-      if [ "$link" -eq 1 ]; then
-        exec ${clang} --driver-mode=${name} -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2 "$@"
-      fi
-      exec ${clang} --driver-mode=${name} "$@"
-    '';
-  in
-    pkgs.symlinkJoin {
-      name = "release-clang";
-      paths = [
-        (pkgs.writeShellScriptBin "clang" (driver "gcc"))
-        (pkgs.writeShellScriptBin "clang++" (driver "g++"))
-      ];
-    };
-
-  # The tools of a portable Linux release. lld is the linker, as in the
-  # other builds, but it is not wrapped. The C libraries come from the
-  # container.
-  releaseLinuxInputs =
-    pkgs.lib.subtractLists [pkgs.llvmPackages.bintools pkgs.llvmPackages.clang] selfCompileInputs
-    ++ [releaseClang pkgs.llvmPackages.bintools-unwrapped];
-
-  releaseLinuxEnvironment = ''
-    set -euo pipefail
-    ${repoRootGuard}
-    export GHCRTS=-N
-    export LANG=C.UTF-8
-    export LC_ALL=C.UTF-8
-    export AIHC_LLVM_AR=${pkgs.llvmPackages.bintools-unwrapped}/bin/llvm-ar
+    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfHostingCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
   '';
 
@@ -422,19 +386,6 @@ in {
   # names the executable, because a release does not come from the Nix build.
   release-smoke-test = mkAppWithInputs "release-smoke-test" selfCompileInputs ''
     ${selfCompileEnvironment}
-    exec bash ./scripts/release-smoke-test.sh "$@"
-  '';
-
-  # The two apps above for a portable Linux release. They run in the
-  # container of scripts/release-container.sh, not on the host.
-  release-linux-stage = mkAppWithInputs "release-linux-stage" releaseLinuxInputs ''
-    ${releaseLinuxEnvironment}
-    export AIHC="''${AIHC:-${aihcExe}}"
-    exec bash ./scripts/self-compile-stage.sh "$@"
-  '';
-
-  release-linux-smoke-test = mkAppWithInputs "release-linux-smoke-test" releaseLinuxInputs ''
-    ${releaseLinuxEnvironment}
     exec bash ./scripts/release-smoke-test.sh "$@"
   '';
 
