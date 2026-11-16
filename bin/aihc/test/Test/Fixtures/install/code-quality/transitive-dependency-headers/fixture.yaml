@@ -1,0 +1,6 @@
+status: pass
+reason: The C code of a package sees the installed headers of a dependency of a dependency, as GHC gives the include directories of the whole dependency closure.
+input: consumer
+no-code: false
+expect-type-constructors:
+  - [Consumer, [Consumer]]
