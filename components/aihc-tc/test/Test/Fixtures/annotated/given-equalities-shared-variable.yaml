@@ -1,0 +1,50 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, TypeOperators #-}
+    module Test where
+    data RList a = RNil | RList a :> a
+    class Sym a where
+      sym :: a -> a
+    data Insts as where
+      InstsCons :: Sym a => Insts as -> Insts (as ':> a)
+    data Vals as where
+      ValsCons :: Vals as -> a -> Vals (as ':> a)
+    headSym :: Insts as -> Vals as -> ()
+    headSym (InstsCons _) (ValsCons _ v) = case sym v of _ -> ()
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTs, TypeOperators #-}
+    module Test where
+    data RList a = RNil | RList a :> a
+         │         │      └─ type: ∀ a. RList a → a → RList a
+         │         └─ type: ∀ a. RList a
+         └─ type: Type → Type
+    class Sym a where
+    └─ class methods: sym ∷ ∀ a. (Sym a) ⇒ a → a
+      sym :: a -> a
+    data Insts as where
+         └─ type: RList Type → Type
+      InstsCons :: Sym a => Insts as -> Insts (as ':> a)
+      └─ type: ∀ as as a. (as ~ (':> as a), Sym a) ⇒ Insts as → Insts as
+    data Vals as where
+         └─ type: RList Type → Type
+      ValsCons :: Vals as -> a -> Vals (as ':> a)
+      └─ type: ∀ as as a. (as ~ (':> as a)) ⇒ Vals as → a → Vals as
+    headSym :: Insts as -> Vals as -> ()
+    headSym (InstsCons _) (ValsCons _ v) = case sym v of _ -> ()
+    │        │         │   │        │ │    │    │        │    └─ type: ()
+    │        │         │   │        │ │    │    │        └─ type: a
+    │        │         │   │        │ │    │    └─ type: a → a; type-args: a; evidence: cast(given Sym a, Sym nth[0](trans (sym (given as ~ ':> as a)) (given as ~ ':> as a)))
+    │        │         │   │        │ │    └─ type: ()
+    │        │         │   │        │ └─ type: a
+    │        │         │   │        └─ type: Vals as
+    │        │         │   └─ type: Vals as → a → Vals as; type-args: as, as, a; evidence: given as ~ ':> as a
+    │        │         └─ type: Insts as
+    │        └─ type: Insts as → Insts as; type-args: as, as, a; evidence: given as ~ ':> as a, given Sym a
+    └─ type: ∀ as. Insts as → Vals as → ()
+status: pass
+reason: Two given equalities with the same variable side give the equality of their other sides.

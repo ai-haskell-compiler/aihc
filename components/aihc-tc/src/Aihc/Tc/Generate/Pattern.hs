@@ -522,10 +522,11 @@ checkPatternCore sp pat scrutTy =
 -- where-bound signature is this @a@, and the equality with the argument
 -- type makes it the @a@ of the outer signature.
 --
--- When the signature binds a type variable, the equality is solved at the
--- pattern if it can be, as GHC binds the variable at the pattern. Otherwise
--- a GADT match in the body can solve the meta variable from its own givens,
--- and the equality then fails outside that match.
+-- The equality is solved at the pattern if it can be, as GHC unifies a
+-- pattern signature at the pattern. Otherwise a GADT match in the body or
+-- in the inner pattern can solve a meta variable from its own givens, and
+-- the equality then fails outside that match. In sbv, the lambda pattern
+-- @(SBVsCons as a :: SBVs (as :> a))@ is an example.
 checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern sp inner tyAnn scrutTy = do
   scoped <- getScopedTyVars
@@ -537,12 +538,12 @@ checkTypeSigPattern sp inner tyAnn scrutTy = do
     scrutKind <- tcTypeKind =<< zonkType scrutTy
     sigTy <- checkSurfaceType scoped' tyAnn scrutKind
     eqCt <- wantedEq sp scrutTy sigTy
+    before <- lift get
+    result <- solveEquality eqCt
     solved <-
-      if null boundTyVars
-        then pure False
-        else do
-          result <- solveEquality eqCt
-          pure (case result of EqSolved -> True; _ -> False)
+      case result of
+        EqSolved -> pure True
+        _ -> False <$ lift (put before)
     innerCheck <- checkPattern sp inner sigTy
     pure
       innerCheck
@@ -1061,7 +1062,9 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- wantedEq sp scrutTy conResTy
-      subCheck <- checkPatterns sp (zip subPats argTys)
+      let Scheme inferred _ _ _ = scheme
+      (boundTyVars, typeArgCts) <- checkConTypeArguments sp conName (patternTypeArguments originalPat) (drop (length inferred) typeArgs)
+      subCheck <- withPatternTyVars boundTyVars (checkPatterns sp (zip subPats argTys))
       predicateGivens <- mapM (constructorGiven sp conName) predicates
       -- The annotation carries the constructor's result type, not the
       -- scrutinee's: the desugarer reads the type arguments of a newtype
@@ -1082,9 +1085,10 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
                   rebuiltPattern
       pure
         subCheck
-          { pcWantedCts = [scrutCt] <> pcWantedCts subCheck,
+          { pcWantedCts = [scrutCt] <> typeArgCts <> pcWantedCts subCheck,
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
+            pcTyVars = boundTyVars <> pcTyVars subCheck,
             pcPatterns = [PAnn (mkAnnotation (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
           }
     Just other ->
@@ -1251,6 +1255,45 @@ splitConTy n (TcFunTy arg rest) = do
 splitConTy n result = do
   missingArgs <- mapM (const freshMetaTv) [1 .. n]
   pure (missingArgs, result)
+
+-- | The explicit type arguments of a constructor pattern, as the
+-- @\@"name"@ of @Forall \@"name" x@.
+patternTypeArguments :: Pattern -> [Type]
+patternTypeArguments pat =
+  case pat of
+    PCon _ typeArguments _ -> typeArguments
+    _ -> []
+
+-- | Check the explicit type arguments of a constructor pattern against the
+-- specified type variables of the constructor, in order. Each argument is
+-- an equality with the type that instantiates its variable. As in a pattern
+-- signature, a type variable that is not in scope is bound by the pattern,
+-- and the equality is then solved at the pattern.
+checkConTypeArguments :: Maybe SourceSpan -> Text -> [Type] -> [TcType] -> TcM ([PatternTyVar], [Ct])
+checkConTypeArguments _ _ [] _ = pure ([], [])
+checkConTypeArguments sp conName typeArguments instantiated
+  | length typeArguments > length instantiated = do
+      emitError sp (OtherError ("the constructor pattern " <> T.unpack conName <> " has more type arguments than specified type variables"))
+      pure ([], [])
+  | otherwise = do
+      scoped <- getScopedTyVars
+      let unbound = List.nub (concatMap (filter (`Map.notMember` scoped) . freeTypeVars) typeArguments)
+      boundTyVars <- mapM bindPatternTyVar unbound
+      withPatternTyVars boundTyVars $ do
+        scoped' <- getScopedTyVars
+        equalities <- mapM (checkTypeArgument scoped') (zip typeArguments instantiated)
+        let solvedAt eqCt
+              | null boundTyVars = pure False
+              | otherwise = do
+                  result <- solveEquality eqCt
+                  pure (case result of EqSolved -> True; _ -> False)
+        solved <- mapM solvedAt equalities
+        pure (boundTyVars, [eqCt | (eqCt, False) <- zip equalities solved])
+  where
+    checkTypeArgument scoped (typeArgument, instantiatedTy) = do
+      kind <- tcTypeKind =<< zonkType instantiatedTy
+      argumentTy <- checkSurfaceType scoped typeArgument kind
+      wantedEq sp instantiatedTy argumentTy
 
 wantedEq :: Maybe SourceSpan -> TcType -> TcType -> TcM Ct
 wantedEq sp left right = do
