@@ -1,6 +1,7 @@
-module Splices (application, text, unique, recovered, dependentFile, bytes) where
+module Splices (application, text, unique, recovered, dependentFile, bytes, packageFile) where
 
 import Aihc.TH.Splice (runSplice)
+import Control.Exception (IOException, try)
 import Language.Haskell.TH
 import Data.Word (Word8)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
@@ -37,3 +38,15 @@ bytes =
       withForeignPtr memory (\start -> pokeArray start [0x78, 0x61, 0x62, 0xE9, 0x79 :: Word8])
       pure memory
     litE (bytesPrimL (Bytes pointer 1 3))
+
+-- | A splice reads a file of its package with a relative path. It cannot
+-- read a file outside the package directory, and it cannot write a file.
+packageFile :: IO ()
+packageFile =
+  runSplice $ do
+    (contents, outside, written) <- runIO $ do
+      contents <- readFile "data/table.txt"
+      outside <- try (readFile "../closures/engine-closures.cabal") :: IO (Either IOException String)
+      written <- try (writeFile "data/new.txt" "x") :: IO (Either IOException ())
+      pure (contents, either (const "denied") id outside, either (const "denied") (const "written") written)
+    tupE [litE (stringL contents), litE (stringL outside), litE (stringL written)]

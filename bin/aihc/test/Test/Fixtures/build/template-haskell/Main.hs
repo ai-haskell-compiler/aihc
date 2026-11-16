@@ -264,3 +264,7 @@ main = do
          let heads = [name | InstanceD _ _ (AppT _ (ConT name)) _ <- instances]
          litE (stringL (show (''Exp `elem` heads, ''Bool `elem` heads)))
      )
+  -- A splice reads its source location. The start is the position of the
+  -- dollar sign. The directory of the file depends on the build, so the
+  -- program only shows the file name.
+  putStrLn $(do loc <- location; litE (stringL (unwords [reverse (takeWhile (/= '/') (reverse (loc_filename loc))), loc_module loc, show (loc_start loc), show (loc_end loc)])))

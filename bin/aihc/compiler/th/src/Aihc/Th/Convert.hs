@@ -62,6 +62,25 @@ declaration tree =
       pure (DeclValue (FunctionBind binder [Match [] MatchHeadPrefix [] rhs]))
     TreeNode "ValD" [pattern', body, locals] -> DeclValue <$> (PatternBind NoMultiplicityTag <$> patternFromTree pattern' <*> rightSide body locals)
     TreeNode "TySynInstD" [equation] -> DeclTypeFamilyInst <$> typeFamilyInstance equation
+    TreeNode "TySynD" [name, binders, body] -> do
+      head' <- PrefixBinderHead <$> binderFromTree name <*> (list binders >>= mapM typeVariableBinder)
+      DeclTypeSyn . TypeSynDecl head' <$> typeFromTree body
+    TreeNode "DataD" [context, name, binders, kind, constructors, clauses] -> do
+      context' <- list context >>= mapM typeFromTree
+      head' <- PrefixBinderHead <$> binderFromTree name <*> (list binders >>= mapM typeVariableBinder)
+      kind' <- optional typeFromTree kind
+      constructors' <- list constructors >>= mapM dataConstructor
+      clauses' <- list clauses >>= mapM derivingClause
+      pure (DeclData (DataDecl Nothing head' context' kind' constructors' clauses'))
+    TreeNode "NewtypeD" [context, name, binders, kind, constructor', clauses] -> do
+      context' <- list context >>= mapM typeFromTree
+      head' <- PrefixBinderHead <$> binderFromTree name <*> (list binders >>= mapM typeVariableBinder)
+      kind' <- optional typeFromTree kind
+      constructor'' <- dataConstructor constructor'
+      clauses' <- list clauses >>= mapM derivingClause
+      pure (DeclNewtype (NewtypeDecl Nothing head' context' kind' (Just constructor'') clauses'))
+    TreeNode "DataInstD" _ -> DeclDataFamilyInst <$> dataFamilyInstance tree
+    TreeNode "NewtypeInstD" _ -> DeclDataFamilyInst <$> dataFamilyInstance tree
     TreeNode "InstanceD" [TreeNode "Nothing" [], context, instanceHead, members] -> do
       context' <- list context >>= mapM typeFromTree
       instanceHead' <- typeFromTree instanceHead
@@ -84,6 +103,8 @@ declaration tree =
         TreeNode "SigD" [name, signature] -> (\binder signature' -> [InstanceItemTypeSig [binder] signature']) <$> binderFromTree name <*> typeFromTree signature
         TreeNode "PragmaD" _ -> Right []
         TreeNode "TySynInstD" [equation] -> pure . InstanceItemTypeFamilyInst <$> typeFamilyInstance equation
+        TreeNode "DataInstD" _ -> pure . InstanceItemDataFamilyInst <$> dataFamilyInstance item
+        TreeNode "NewtypeInstD" _ -> pure . InstanceItemDataFamilyInst <$> dataFamilyInstance item
         _ -> do
           member <- declaration item
           case member of
@@ -119,10 +140,102 @@ declaration tree =
           right' <- typeFromTree right
           pure (TypeFamilyInst (fromMaybe [] binders') TypeHeadPrefix left' right')
         _ -> unsupported "type family equation" equation
+    -- A data family instance has no context in the surface syntax. GHC
+    -- also does not accept a context there.
+    dataFamilyInstance instanceTree =
+      case instanceTree of
+        TreeNode "DataInstD" [context, binders, left, kind, constructors, clauses] -> do
+          list context >>= noContext
+          familyInstance False binders left kind (list constructors >>= mapM dataConstructor) clauses
+        TreeNode "NewtypeInstD" [context, binders, left, kind, constructor', clauses] -> do
+          list context >>= noContext
+          familyInstance True binders left kind (pure <$> dataConstructor constructor') clauses
+        _ -> unsupported "data family instance" instanceTree
+      where
+        noContext context =
+          case context of
+            [] -> Right ()
+            first : _ -> unsupported "data family instance context" first
+        familyInstance isNewtype binders left kind constructors clauses = do
+          binders' <- optional (list >=> mapM typeVariableBinder) binders
+          left' <- typeFromTree left
+          kind' <- optional typeFromTree kind
+          constructors' <- constructors
+          clauses' <- list clauses >>= mapM derivingClause
+          pure (DataFamilyInst isNewtype (fromMaybe [] binders') left' kind' constructors' clauses')
     clause clauseTree =
       case clauseTree of
         TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
         _ -> unsupported "clause" clauseTree
+
+-- | A data constructor. A @ForallC@ gives the binders and the context of
+-- the constructor in it.
+dataConstructor :: Tree -> Either Text DataConDecl
+dataConstructor tree =
+  case tree of
+    TreeNode "ForallC" [binders, context, inner] -> do
+      binders' <- list binders >>= mapM typeVariableBinder
+      context' <- list context >>= mapM typeFromTree
+      inner' <- dataConstructor inner
+      case inner' of
+        PrefixCon [] [] name fields -> Right (PrefixCon binders' context' name fields)
+        InfixCon [] [] left name right -> Right (InfixCon binders' context' left name right)
+        RecordCon [] [] name fields -> Right (RecordCon binders' context' name fields)
+        GadtCon [] [] names body -> Right (GadtCon [ForallTelescope ForallInvisible binders' | not (null binders')] context' names body)
+        _ -> unsupported "nested constructor quantification" inner
+    TreeNode "NormalC" [name, fields] -> PrefixCon [] [] <$> binderFromTree name <*> (list fields >>= mapM strictField)
+    TreeNode "RecC" [name, fields] -> RecordCon [] [] <$> binderFromTree name <*> (list fields >>= mapM fieldDecl)
+    TreeNode "InfixC" [left, name, right] -> InfixCon [] [] <$> strictField left <*> binderFromTree name <*> strictField right
+    TreeNode "GadtC" [names, fields, result] -> do
+      names' <- list names >>= mapM binderFromTree
+      fields' <- list fields >>= mapM strictField
+      GadtCon [] [] names' . GadtPrefixBody [(field, ArrowUnrestricted) | field <- fields'] <$> typeFromTree result
+    TreeNode "RecGadtC" [names, fields, result] -> do
+      names' <- list names >>= mapM binderFromTree
+      fields' <- list fields >>= mapM fieldDecl
+      GadtCon [] [] names' . GadtRecordBody fields' <$> typeFromTree result
+    _ -> unsupported "constructor" tree
+  where
+    fieldDecl fieldTree =
+      case fieldTree of
+        TreeNode "(,,)" [name, bang, content] -> do
+          name' <- binderFromTree name
+          FieldDecl [] [name'] Nothing <$> strictField (TreeNode "(,)" [bang, content])
+        _ -> unsupported "record field" fieldTree
+
+-- | A field type of a constructor, with its strictness and its unpack
+-- pragma.
+strictField :: Tree -> Either Text BangType
+strictField tree =
+  case tree of
+    TreeNode "(,)" [TreeNode "Bang" [TreeNode unpackedness [], TreeNode strictness []], content] -> do
+      pragmas <- case unpackedness of
+        "NoSourceUnpackedness" -> Right []
+        "SourceUnpack" -> Right [Pragma (PragmaUnpack UnpackPragma) "{-# UNPACK #-}"]
+        "SourceNoUnpack" -> Right [Pragma (PragmaUnpack NoUnpackPragma) "{-# NOUNPACK #-}"]
+        _ -> unsupported "unpackedness" (TreeNode unpackedness [])
+      (strict, lazy) <- case strictness of
+        "NoSourceStrictness" -> Right (False, False)
+        "SourceStrict" -> Right (True, False)
+        "SourceLazy" -> Right (False, True)
+        _ -> unsupported "strictness" (TreeNode strictness [])
+      BangType [] pragmas strict lazy <$> typeFromTree content
+    _ -> unsupported "field type" tree
+
+-- | A @deriving@ clause, with its strategy.
+derivingClause :: Tree -> Either Text DerivingClause
+derivingClause tree =
+  case tree of
+    TreeNode "DerivClause" [strategy, classes] -> DerivingClause <$> optional derivingStrategy strategy <*> (Right <$> (list classes >>= mapM typeFromTree))
+    _ -> unsupported "deriving clause" tree
+  where
+    derivingStrategy strategy =
+      case strategy of
+        TreeNode "StockStrategy" [] -> Right DerivingStock
+        TreeNode "AnyclassStrategy" [] -> Right DerivingAnyclass
+        TreeNode "NewtypeStrategy" [] -> Right DerivingNewtype
+        TreeNode "ViaStrategy" [via] -> DerivingVia <$> typeFromTree via
+        _ -> unsupported "deriving strategy" strategy
 
 -- | The right side of a binding or of a case alternative, from its body
 -- and its local declarations.
@@ -324,7 +437,10 @@ typeVariableBinder tree =
             tyVarBinderSpecificity = case flag of
               TreeNode "InferredSpec" [] -> TyVarBInferred
               _ -> TyVarBSpecified,
-            tyVarBinderVisibility = TyVarBVisible
+            -- The flag @BndrInvis@ of a declaration head gives @\@a@.
+            tyVarBinderVisibility = case flag of
+              TreeNode "BndrInvis" [] -> TyVarBInvisible
+              _ -> TyVarBVisible
           }
 
 -- | The name of a @Name@ tree. A name with no module, a name with a module

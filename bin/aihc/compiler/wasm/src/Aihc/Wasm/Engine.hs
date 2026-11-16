@@ -10,7 +10,8 @@
 --
 -- The engine is a Node.js process that runs @driver.mjs@. The instance has
 -- no access to the host: the driver denies each import of the image, apart
--- from a clock that gives a fixed time.
+-- from a clock that gives a fixed time. As an option, the instance can read
+-- the files of one directory. It cannot write to that directory.
 module Aihc.Wasm.Engine
   ( Engine,
     EngineValue (..),
@@ -144,15 +145,16 @@ runLinker arguments = do
     ExitFailure _ -> ioError (userError ("wasm-ld failed (" <> show exitCode <> "): " <> if null err then out else err))
 
 -- | Start an engine with an instance of the image, run the action, and stop
--- the engine.
-withEngine :: FilePath -> (Engine -> IO value) -> IO value
-withEngine image action = bracket start stop (\(engine, _) -> action engine)
+-- the engine. If the first argument has a directory, the instance can read
+-- the files in that directory, and a relative path starts at it.
+withEngine :: Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
+withEngine readable image action = bracket start stop (\(engine, _) -> action engine)
   where
     start = do
       node <- engineNodeCommand
       driver <- engineDriverPath
       (input, output, _, process) <-
-        createProcess (proc node [driver, image]) {std_in = CreatePipe, std_out = CreatePipe}
+        createProcess (proc node ([driver, image] <> maybe [] pure readable)) {std_in = CreatePipe, std_out = CreatePipe}
       case (input, output) of
         (Just engineInput, Just engineOutput) -> do
           hSetBuffering engineInput LineBuffering

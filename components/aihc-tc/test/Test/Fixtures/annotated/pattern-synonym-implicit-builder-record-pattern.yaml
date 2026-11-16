@@ -1,0 +1,34 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Item = Item
+       │      └─ type: Item
+       └─ type: Type
+  data Flag = On | Off
+       │      │    └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  data Info = Info {from :: Item, to :: Flag}
+       │      └─ type: Item → Flag → Info
+       └─ type: Type
+  pattern Pair :: Item -> Flag -> Info
+  pattern Pair a b = Info {from = a, to = b}
+  │                  └─ type: Info│       └─ type: Flag
+  └─ type: Item → Flag → Info     └─ type: Item
+  sample = Pair Item On
+  └─ type: Info
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module Test where
+  data Item = Item
+  data Flag = On | Off
+  data Info = Info {from :: Item, to :: Flag}
+  pattern Pair :: Item -> Flag -> Info
+  pattern Pair a b = Info {from = a, to = b}
+  sample = Pair Item On
+reason: the builder of an implicitly bidirectional pattern synonym with a record pattern is a record construction
+status: pass
