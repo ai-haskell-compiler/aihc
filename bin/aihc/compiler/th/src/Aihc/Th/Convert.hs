@@ -245,13 +245,23 @@ rightSide body locals = do
   let localDecls = if null locals' then Nothing else Just locals'
   case body of
     TreeNode "NormalB" [value] -> (\value' -> UnguardedRhs [] value' localDecls) <$> expression value
-    TreeNode "GuardedB" [guarded] -> (\branches -> GuardedRhss [] branches localDecls) <$> (list guarded >>= mapM branch)
+    TreeNode "GuardedB" [guarded] -> (\branches -> GuardedRhss [] branches localDecls) <$> (list guarded >>= mapM guardedValue)
     _ -> unsupported "body" body
+
+-- | A guard and its value, from a @(Guard, Exp)@ tree.
+guardedValue :: Tree -> Either Text (GuardedRhs Expr)
+guardedValue tree =
+  case tree of
+    TreeNode "(,)" [TreeNode "NormalG" [condition], value] -> (\condition' value' -> GuardedRhs [] [GuardExpr condition'] value') <$> expression condition <*> expression value
+    TreeNode "(,)" [TreeNode "PatG" [statements], value] -> GuardedRhs [] <$> (list statements >>= mapM qualifier) <*> expression value
+    _ -> unsupported "guard" tree
   where
-    branch tree =
-      case tree of
-        TreeNode "(,)" [TreeNode "NormalG" [condition], value] -> (\condition' value' -> GuardedRhs [] [GuardExpr condition'] value') <$> expression condition <*> expression value
-        _ -> unsupported "guard" tree
+    qualifier statement =
+      case statement of
+        TreeNode "BindS" [pattern', value] -> GuardPat <$> patternFromTree pattern' <*> expression value
+        TreeNode "LetS" [locals] -> GuardLet <$> declarations locals
+        TreeNode "NoBindS" [condition] -> GuardExpr <$> expression condition
+        _ -> unsupported "guard statement" statement
 
 -- | The type of a @Type@ tree. An application of the arrow, the list, or a
 -- tuple constructor to all its arguments becomes the syntax of that type.
@@ -322,8 +332,61 @@ expression tree =
     TreeNode "SigE" [inner, signature] -> ETypeSig <$> expression inner <*> typeFromTree signature
     TreeNode "RecConE" [name, fields] -> (\name' fields' -> ERecordCon name' fields' False) <$> nameFromTree name <*> (list fields >>= mapM field)
     TreeNode "RecUpdE" [record, fields] -> ERecordUpd <$> expression record <*> (list fields >>= mapM field)
+    -- Template Haskell gives a chain of @UInfixE@ with no fixity, as the
+    -- source text has it. Name resolution gives the fixity to the chain.
+    TreeNode "UInfixE" [left, operator, right] -> EInfix <$> unresolvedOperand left <*> operatorName operator <*> unresolvedOperand right
+    TreeNode "AppTypeE" [function, argument] -> ETypeApp <$> expression function <*> typeFromTree argument
+    TreeNode "UnboxedTupE" [fields] -> ETuple Unboxed <$> (list fields >>= mapM (optional expression))
+    TreeNode "LamCasesE" [clauses] -> ELambdaCases <$> (list clauses >>= mapM lambdaCaseAlternative)
+    TreeNode "MultiIfE" [branches] -> EMultiWayIf <$> (list branches >>= mapM guardedValue)
+    TreeNode "DoE" [qualifier, statements] -> EDo <$> (list statements >>= mapM doStatement) <*> (maybe DoPlain DoQualified <$> optional qualifierName qualifier)
+    TreeNode "MDoE" [qualifier, statements] -> EDo <$> (list statements >>= mapM doStatement) <*> (maybe DoMdo DoQualifiedMdo <$> optional qualifierName qualifier)
+    TreeNode "CompE" [statements] -> list statements >>= comprehension
+    TreeNode "ArithSeqE" [range] -> EArithSeq <$> arithmeticSequence range
     _ -> unsupported "expression" tree
   where
+    -- An operand that is not @UInfixE@ is not part of the chain.
+    unresolvedOperand operandTree =
+      case operandTree of
+        TreeNode "UInfixE" _ -> expression operandTree
+        _ -> operand operandTree
+    qualifierName nameTree =
+      case nameTree of
+        TreeNode "ModName" [TreeString name] -> Right name
+        _ -> unsupported "module name" nameTree
+    lambdaCaseAlternative clauseTree =
+      case clauseTree of
+        TreeNode "Clause" [patterns, body, locals] -> LambdaCaseAlt [] <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
+        _ -> unsupported "clause" clauseTree
+    doStatement statement =
+      case statement of
+        TreeNode "BindS" [pattern', value] -> DoBind <$> patternFromTree pattern' <*> expression value
+        TreeNode "LetS" [locals] -> DoLetDecls <$> declarations locals
+        TreeNode "NoBindS" [value] -> DoExpr <$> expression value
+        TreeNode "RecS" [statements] -> DoRecStmt <$> (list statements >>= mapM doStatement)
+        _ -> unsupported "statement" statement
+    -- The last statement of a comprehension is its result. One @ParS@
+    -- statement before it gives a parallel comprehension.
+    comprehension statements =
+      case reverse statements of
+        TreeNode "NoBindS" [result] : qualifiers ->
+          case reverse qualifiers of
+            [TreeNode "ParS" [branches]] -> EListCompParallel <$> expression result <*> (list branches >>= mapM (list >=> mapM comprehensionStatement))
+            qualifiers' -> EListComp <$> expression result <*> mapM comprehensionStatement qualifiers'
+        _ -> Left "A comprehension in a splice result has no result expression."
+    comprehensionStatement statement =
+      case statement of
+        TreeNode "BindS" [pattern', value] -> CompGen <$> patternFromTree pattern' <*> expression value
+        TreeNode "LetS" [locals] -> CompLetDecls <$> declarations locals
+        TreeNode "NoBindS" [condition] -> CompGuard <$> expression condition
+        _ -> unsupported "comprehension statement" statement
+    arithmeticSequence range =
+      case range of
+        TreeNode "FromR" [from] -> ArithSeqFrom <$> expression from
+        TreeNode "FromThenR" [from, next] -> ArithSeqFromThen <$> expression from <*> expression next
+        TreeNode "FromToR" [from, to] -> ArithSeqFromTo <$> expression from <*> expression to
+        TreeNode "FromThenToR" [from, next, to] -> ArithSeqFromThenTo <$> expression from <*> expression next <*> expression to
+        _ -> unsupported "range" range
     alternative matchTree =
       case matchTree of
         TreeNode "Match" [pattern', body, locals] -> CaseAlt [] <$> patternFromTree pattern' <*> rightSide body locals
