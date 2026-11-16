@@ -47,7 +47,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Numeric (showHex)
 import System.Directory (doesFileExist)
-import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
+import System.Environment (lookupEnv)
+import System.FilePath (makeRelative, normalise, splitDirectories, splitSearchPath, takeDirectory, takeExtension, (</>))
 
 -- | One loaded source file. 'parsedFileSource' is what the parser saw, so
 -- offsets in the module's spans index into it directly.
@@ -187,7 +188,8 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
 -- diagnostics, every package header it included.
 preprocessInterfaceSource :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> Text -> IO (Text, [Diagnostic], Map FilePath Text)
 preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
-  drive M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
+  environmentDirs <- cpathDirectories
+  drive environmentDirs M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
     path = HackageCabal.fileInfoPath fileInfo
     cppOptions = HackageCabal.fileInfoCppOptions fileInfo
@@ -198,18 +200,29 @@ preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
           Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions cppOptions))
         }
 
-    drive includes step =
+    drive environmentDirs includes step =
       case step of
         Cpp.Done result ->
           pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
         Cpp.NeedInclude req k -> do
-          resolved <- resolveInclude headerDir packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
+          resolved <- resolveInclude headerDir environmentDirs packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of
             -- A package can include a dependency header with either CPP form.
             IncludeFromFile file content ->
-              drive (M.insert (normalise (makeRelative packageRoot file)) (digestChunks [content]) includes) (k (Just content))
-            IncludeFromCompiler content -> drive includes (k (Just content))
-            IncludeMissing -> drive includes (k Nothing)
+              drive environmentDirs (M.insert (normalise (makeRelative packageRoot file)) (digestChunks [content]) includes) (k (Just content))
+            IncludeFromCompiler content -> drive environmentDirs includes (k (Just content))
+            IncludeMissing -> drive environmentDirs includes (k Nothing)
+
+-- | The include directories of the @CPATH@ environment variable. The C
+-- compiler searches them after the directories of its @-I@ options, for
+-- each language. GHC runs the C preprocessor over a Haskell source, so the
+-- headers of these directories are available to a Haskell source too. An
+-- empty item names the current directory in the C compiler, but a package
+-- build does not depend on the current directory, so it is not kept.
+cpathDirectories :: IO [FilePath]
+cpathDirectories = do
+  value <- lookupEnv "CPATH"
+  pure [directory | directory <- maybe [] splitSearchPath value, not (null directory)]
 
 -- | Where the content of an @#include@ came from.
 data ResolvedInclude
@@ -217,23 +230,31 @@ data ResolvedInclude
   | IncludeFromCompiler !BS.ByteString
   | IncludeMissing
 
-resolveInclude :: FilePath -> FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
-resolveInclude headerDir packageRoot includeDirs currentFile req =
+resolveInclude :: FilePath -> [FilePath] -> FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> IO ResolvedInclude
+resolveInclude headerDir environmentDirs packageRoot includeDirs currentFile req =
   findFirst (includeCandidates packageRoot includeDirs currentFile req)
   where
     -- A header of the package comes first.  The headers of the compiler
-    -- answer the rest, from the directory that the C compiles also read.
+    -- come next, from the directory that the C compiles also read. The
+    -- directories of @CPATH@ answer the rest, as they do in the C compiler.
     compilerHeader = headerDir </> normalise (Cpp.includePath req)
     findFirst [] = do
       exists <- doesFileExist compilerHeader
       if exists
         then IncludeFromCompiler <$> BS.readFile compilerHeader
-        else pure IncludeMissing
+        else findEnvironment environmentDirs
     findFirst (candidate : rest) = do
       exists <- doesFileExist candidate
       if exists
         then IncludeFromFile candidate <$> BS.readFile candidate
         else findFirst rest
+    findEnvironment [] = pure IncludeMissing
+    findEnvironment (directory : rest) = do
+      let candidate = normalise (directory </> Cpp.includePath req)
+      exists <- doesFileExist candidate
+      if exists
+        then IncludeFromFile candidate <$> BS.readFile candidate
+        else findEnvironment rest
 
 includeCandidates :: FilePath -> [FilePath] -> FilePath -> Cpp.IncludeRequest -> [FilePath]
 includeCandidates packageRoot includeDirs currentFile req =

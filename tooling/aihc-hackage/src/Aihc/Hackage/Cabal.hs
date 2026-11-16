@@ -43,6 +43,7 @@ module Aihc.Hackage.Cabal
     collectLibraryAutogenIncludesFor,
     collectLibraryAutogenIncludesIn,
     applyHookedBuildInfo,
+    applyPkgConfigFlags,
     prependIncludeDirs,
 
     -- * Build tool dependency extraction
@@ -206,7 +207,10 @@ data CCompileInfo = CCompileInfo
     cCompileExtraFrameworkDirs :: [FilePath],
     -- | The options that the C compiler driver gives to the linker, from
     -- @ld-options@.
-    cCompileLdOptions :: [String]
+    cCompileLdOptions :: [String],
+    -- | The names of the pkg-config packages that the package needs, from
+    -- @pkgconfig-depends@. The version ranges are not kept.
+    cCompilePkgconfigDepends :: [String]
   }
   deriving (Eq, Show)
 
@@ -288,7 +292,8 @@ cCompileInfoFromBuild spec packageRoot build = do
         cCompileExtraLibDirs = nub [packageRoot </> path | path <- extraLibDirs build],
         cCompileFrameworks = map T.unpack (frameworks build),
         cCompileExtraFrameworkDirs = nub [packageRoot </> path | path <- extraFrameworkDirs build],
-        cCompileLdOptions = extractLdOptions build
+        cCompileLdOptions = extractLdOptions build,
+        cCompilePkgconfigDepends = extractPkgconfigDepends build
       }
 
 mergeCCompileInfo :: [CCompileInfo] -> CCompileInfo
@@ -306,8 +311,37 @@ mergeCCompileInfo items =
       cCompileExtraLibDirs = nub (concatMap cCompileExtraLibDirs items),
       cCompileFrameworks = nub (concatMap cCompileFrameworks items),
       cCompileExtraFrameworkDirs = nub (concatMap cCompileExtraFrameworkDirs items),
-      cCompileLdOptions = concatMap cCompileLdOptions items
+      cCompileLdOptions = concatMap cCompileLdOptions items,
+      cCompilePkgconfigDepends = nub (concatMap cCompilePkgconfigDepends items)
     }
+
+-- | Add the output of @pkg-config --cflags@ and @pkg-config --libs@ to the
+-- C inputs of a package, the way Cabal adds it.
+--
+-- An @-I@ flag of the C flags is an include directory. The CPP pass over
+-- the Haskell sources and the C compiles both search it, as they search
+-- the @include-dirs@ of the package. The other C flags are C options. An
+-- @-l@ flag of the link flags is an extra library, an @-L@ flag is an extra
+-- library directory, and the other link flags are linker options. The
+-- directories of the package come first in the search order.
+applyPkgConfigFlags :: [String] -> [String] -> [FileInfo] -> CCompileInfo -> ([FileInfo], CCompileInfo)
+applyPkgConfigFlags cflags libs files cInfo =
+  ( map addIncludeDirs files,
+    cInfo
+      { cCompileIncludeDirs = nub (cCompileIncludeDirs cInfo <> includeDirectories),
+        cCompileCcOptions = cCompileCcOptions cInfo <> otherCflags,
+        cCompileExtraLibraries = nub (cCompileExtraLibraries cInfo <> libraries),
+        cCompileExtraLibDirs = nub (cCompileExtraLibDirs cInfo <> libraryDirectories),
+        cCompileLdOptions = cCompileLdOptions cInfo <> otherLibs
+      }
+  )
+  where
+    includeDirectories = [drop 2 flag | flag <- cflags, "-I" `isPrefixOf` flag]
+    otherCflags = [flag | flag <- cflags, not ("-I" `isPrefixOf` flag)]
+    libraries = [drop 2 flag | flag <- libs, "-l" `isPrefixOf` flag]
+    libraryDirectories = [drop 2 flag | flag <- libs, "-L" `isPrefixOf` flag]
+    otherLibs = [flag | flag <- libs, not ("-l" `isPrefixOf` flag || "-L" `isPrefixOf` flag)]
+    addIncludeDirs file = file {fileInfoIncludeDirs = nub (fileInfoIncludeDirs file <> includeDirectories)}
 
 -- | The arguments that give the link inputs of the package to a C compiler
 -- driver, in the order GHC gives them. The search directories come before
@@ -875,6 +909,18 @@ extractExtraLibraries spec bi =
 extractLdOptions :: BuildInfo -> [String]
 extractLdOptions bi =
   concatMap (words . T.unpack . fieldText) (Map.findWithDefault [] (T.pack "ld-options") (extraFields bi))
+
+-- | Extract the package names of @pkgconfig-depends@ from a 'BuildInfo'.
+-- The field is a list separated by commas. Each item is a package name
+-- and, as an option, a version range. Only the names are kept.
+extractPkgconfigDepends :: BuildInfo -> [String]
+extractPkgconfigDepends bi =
+  nub
+    [ T.unpack name
+    | field <- Map.findWithDefault [] (T.pack "pkgconfig-depends") (extraFields bi),
+      item <- T.splitOn (T.pack ",") (fieldText field),
+      name : _ <- [T.words item]
+    ]
 
 -- | Extract build dependency package names from a 'BuildInfo'.
 extractDependencies :: BuildInfo -> [Text]
