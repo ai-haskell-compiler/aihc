@@ -1,0 +1,17 @@
+extensions: [UnboxedTuples]
+modules:
+  - |
+    {-# LANGUAGE UnboxedTuples #-}
+    module Test where
+    pair :: Bool -> (# Bool, Bool #)
+    pair x = (# x, x #)
+    firstOf :: Bool -> Bool
+    firstOf b = case pair $! b of
+      (# a, _ #) -> a
+output: |
+  True
+expression: |
+  firstOf True
+status: pass
+reason: The result of ($!) can be an unboxed tuple, as in GHC. flatparse uses
+  ($!) to give an unboxed sum result.

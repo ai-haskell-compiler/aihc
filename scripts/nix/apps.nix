@@ -20,7 +20,11 @@
   # The C libraries that packages of docs/self-hosting-packages.md bind to:
   # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
   # CPATH for headers and LIBRARY_PATH for libraries.
-  selfHostingCLibraries = [pkgs.libffi pkgs.ncurses];
+  selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
+
+  # The C libraries of a self-compiled aihc executable. They are the same as
+  # selfHostingCLibraries, but staticZlib replaces the shared zlib.
+  selfCompileCLibraries = [pkgs.libffi pkgs.ncurses];
 
   # The aihc executable links zlib statically. A shared zlib from the Nix
   # store would make the release executable fail on a computer without that
@@ -34,6 +38,32 @@
         buildInputs = (old.buildInputs or []) ++ [(pkgs.darwinMinVersionHook "11.0")];
       })
     else pkgs.zlib;
+
+  # The C libraries of the Hackage survey. Many Hackage packages bind to one
+  # of these libraries. Without the library, GHC cannot compile the package.
+  surveyCLibraries =
+    selfHostingCLibraries
+    ++ [
+      pkgs.blas
+      pkgs.bzip2
+      pkgs.expat
+      pkgs.file
+      pkgs.gsl
+      pkgs.icu
+      pkgs.lapack
+      pkgs.libmysqlclient
+      pkgs.libpq
+      pkgs.libusb1
+      pkgs.libxml2
+      pkgs.openssl
+      pkgs.pcre
+      pkgs.rdkafka
+      pkgs.secp256k1
+      pkgs.sqlite
+      pkgs.unixodbc
+      pkgs.xz
+      pkgs.zeromq
+    ];
   repoRootGuard = ''
     test -f cabal.project || {
       echo "Run this app from the repository root." >&2
@@ -68,8 +98,8 @@
     export GHCRTS=-N
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
-    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfHostingCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
-    export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfCompileCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfCompileCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
   '';
 
@@ -337,8 +367,8 @@ in {
 
   # Compile new Hackage packages with GHC and aihc, and add the results to
   # docs/hackage-survey.md. The GHC build uses the cabal-install and GHC of
-  # the project. The C libraries and pkg-config serve packages that bind to
-  # zlib, libffi, or ncurses.
+  # the project. The C libraries of surveyCLibraries and pkg-config serve
+  # packages that bind to a C library.
   hackage-survey =
     mkAppWithInputs "hackage-survey" [
       pkgs.bash
@@ -357,6 +387,8 @@ in {
       pkgs.haskellPackages.happy
       pkgs.haskellPackages.alex
       pkgs.haskellPackages.c2hs
+      # The configure script of postgresql-libpq runs pg_config.
+      pkgs.libpq.pg_config
       hsPkgs.ghc
     ] ''
       set -euo pipefail
@@ -367,9 +399,9 @@ in {
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC="''${AIHC:-${aihcExe}}"
-      export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
-      export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-      export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" selfHostingCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" surveyCLibraries}''${CPATH:+:$CPATH}"
+      export LIBRARY_PATH="${pkgs.lib.makeLibraryPath surveyCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+      export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" surveyCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/hackage-survey.sh "$@"
     '';

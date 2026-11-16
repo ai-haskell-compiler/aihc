@@ -1,0 +1,100 @@
+extensions:
+- DataKinds
+- GADTs
+- PatternSynonyms
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, PatternSynonyms, ViewPatterns #-}
+  module Test where
+  data Bool = True | False
+  data List a = Nil | Cons a (List a)
+  data Elem e r = MkElem
+  data MatchThere e r where
+    MTYes :: Elem e r -> MatchThere e ('Cons e' r)
+    MTNo :: MatchThere e r
+  matchThere :: Elem e r -> MatchThere e r
+  matchThere _ = MTNo
+  pattern There :: () => (r' ~ 'Cons e' r) => Elem e r -> Elem e r'
+  pattern There e <- (matchThere -> MTYes e)
+    where
+      There _ = MkElem
+  weaken :: Elem e r -> Elem e ('Cons x r)
+  weaken e = There e
+  isThere :: Elem e r -> Bool
+  isThere (There _) = True
+  isThere _ = False
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    2.c() :: tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tBool :: sType {
+    pub 1.cTrue :: tBool;
+    pub 1.cFalse :: tBool
+  }
+
+  pub type 1.tList (a : sType) :: sType {
+    pub 1.cNil :: ∀(a : sType). tList a;
+    pub 1.cCons :: ∀(a : sType). a → tList a → tList a
+  }
+
+  pub type 1.tElem (e : sType) (r : tList sType) :: sType {
+    pub 1.cMkElem :: ∀(e : sType) (r : tList sType). tElem e r
+  }
+
+  pub type 1.tMatchThere (e : sType) (r : tList sType) :: sType {
+    pub 1.cMTYes :: ∀(e : sType) (r : tList sType) (r{1} : tList sType) (e' : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (r ~ cCons sType e' r{1}) (tElem e r{1} → tMatchThere e r);
+    pub 1.cMTNo :: ∀(e : sType) (r : tList sType). tMatchThere e r
+  }
+
+  pub val 1.v$mThere :: ∀(r' : tList sType) (e : sType) (rep : tRuntimeRep) (r : tTYPE rep). tElem e r' → (∀(e' : sType) (r{1} : tList sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (r' ~ cCons sType e' r{1}) (FUN @sLiftedRep @rep (tElem e r{1}) r)) → FUN @sLiftedRep @rep (FUN @sLiftedRep @rep tUnit r) r
+    = Λ(r' : tList sType) (e : sType) (rep : tRuntimeRep) (r : tTYPE rep). λ(x : tElem e r')
+    (y : ∀(e' : sType) (r{1} : tList sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (r' ~ cCons sType e' r{1}) (FUN @sLiftedRep @rep (tElem e r{1}) r))
+    (z : FUN @sLiftedRep @rep tUnit r).
+      case vmatchThere @e @r' x of {
+        cMTYes @(r{1} : tList sType) @(e' : sType) ($co : r' ~ cCons sType e' r{1}) (e{1} : tElem e r{1}) →
+          y @e' @r{1} (coercion ($co)) e{1};
+        _ →
+          z c()
+      }
+
+  pub val 1.v$bThere :: ∀(r' : tList sType) (e' : sType) (r : tList sType) (e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (r' ~ cCons sType e' r) (tElem e r → tElem e r')
+    = Λ(r' : tList sType) (e' : sType) (r : tList sType) (e : sType). λ($co : r' ~ cCons sType e' r)
+    (unused x : tElem e r).
+      (cMkElem @e @(cCons sType e' r)) ▷ sym (tycon-co tElem (refl e) ($co))
+
+  pub val 1.vmatchThere :: ∀(e : sType) (r : tList sType). tElem e r → tMatchThere e r
+    = Λ(e : sType) (r : tList sType). λ(unused x : tElem e r).
+      cMTNo @e @r
+
+  pub val 1.vweaken :: ∀(e : sType) (r : tList sType) (x : sType). tElem e r → tElem e (cCons sType x r)
+    = Λ(e : sType) (r : tList sType) (x : sType). λ(x{1} : tElem e r).
+      v$bThere @(cCons sType x r) @x @r @e (coercion (refl (cCons sType x r))) x{1}
+
+  pub val 1.visThere :: ∀(e : sType) (r : tList sType). tElem e r → tBool
+    = Λ(e : sType) (r : tList sType). λ(x : tElem e r).
+      v$mThere @r @e @sLiftedRep @tBool x (Λ(e' : sType) (r{1} : tList sType). λ(unused $co : r ~ cCons sType e' r{1})
+      (unused _pat : tElem e r{1}).
+        cTrue) (λ(unused _pattern_failure : tUnit).
+        cFalse)
+status: pass
+reason: A use of a pattern synonym gives the matcher its universal type arguments, also when the signature names an existential variable first.

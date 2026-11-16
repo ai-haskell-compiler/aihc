@@ -733,6 +733,13 @@ test_engineSplice getStore =
     -- for each byte, also for a byte above 127.
     bytesLiteral <- splice "bytes"
     assertEqual "a bytes literal" (Right (Syntax.EStringHash "ab\233" "\"ab\\233\"#")) bytesLiteral
+    -- A splice reads a file of its package with a relative path. A read
+    -- outside the package directory and a write fail.
+    packageFile <- splice "packageFile"
+    assertEqual
+      "the file, a read outside the package, and a write"
+      (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "one\ntwo\n" "\"one\\ntwo\\n\""), Just (Syntax.EString "denied" "\"denied\""), Just (Syntax.EString "denied" "\"denied\"")]))
+      packageFile
 
 -- | The answer to a closure that must not send a request.
 noRequest :: BS.ByteString -> IO BS.ByteString
@@ -768,14 +775,15 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n(4,\"4\")\nTrue\nTrue\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n(4,\"4\")\nTrue\nTrue\nTrue\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (296,12) (296,177)\n" out
       assertEqual "stderr" "" err
 
 -- | Build an engine image and a shared module, and run an action with an
 -- engine that has the two. The image is the guest program with the image
 -- link and the packages of the constraints. The shared module has the
 -- modules of the fixture package @engine-NAME@, with the
--- position-independent code model. The action does not run when the
+-- position-independent code model. The engine can read the files of the
+-- fixture package. The action does not run when the
 -- WebAssembly toolchain or Node.js is not installed.
 withEngineFixture :: IO (Maybe SeedStore) -> [String] -> String -> (Engine -> Assertion) -> Assertion
 withEngineFixture getStore constraints name action = do
@@ -805,7 +813,7 @@ withEngineFixture getStore constraints name action = do
             { installPositionIndependent = True
             }
       linkSharedModule shared [] [installStorePath result </> "lib" </> "libengine-" <> name <> ".a"]
-      withEngine image $ \engine -> do
+      withEngine (Just fixtureRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
         action engine

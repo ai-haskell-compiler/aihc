@@ -1047,8 +1047,19 @@ resolveExpr expr =
   case expr of
     EAnn ann inner ->
       EAnn ann <$> withPushedSpan ann (resolveExpr inner)
-    EVar name ->
-      EVar <$> resolveTermUse name
+    EVar name -> do
+      inQuote <- inExpressionQuote
+      scope <- currentScope
+      -- GHC accepts a variable that is not in scope in an expression
+      -- quote. The quote gives an unbound variable, and the code that gets
+      -- the syntax tree finds its binder.
+      case termUseResolution scope name of
+        Unresolved _
+          | inQuote,
+            isNothing (nameQualifier name),
+            nameType name == NameVarId ->
+              pure expr
+        _ -> EVar <$> resolveTermUse name
     -- An implicit parameter has no lexical binder. The type checker
     -- connects the use to a binding through constraint solving.
     EImplicitParam _ -> pure expr
@@ -1138,9 +1149,9 @@ resolveExpr expr =
     EApp fun arg ->
       EApp <$> resolveExpr fun <*> resolveExpr arg
     ETHSplice inner ->
-      ETHSplice <$> resolveExpr inner
+      ETHSplice <$> withExpressionQuote False (resolveExpr inner)
     ETHTypedSplice inner ->
-      ETHTypedSplice <$> resolveExpr inner
+      ETHTypedSplice <$> withExpressionQuote False (resolveExpr inner)
     EPragma pragma inner ->
       EPragma pragma <$> resolveExpr inner
     EDo stmts DoMdo -> do
@@ -1178,7 +1189,7 @@ resolveExpr expr =
     -- names have the scope of the quote. The change of a quote into an
     -- expression that builds its syntax tree reads their resolutions.
     ETHExpQuote inner ->
-      ETHExpQuote <$> resolveExpr inner
+      ETHExpQuote <$> withExpressionQuote True (resolveExpr inner)
     ETHTypedQuote {} -> pure expr
     -- The body of a declaration or pattern quote stays unresolved. But
     -- each splice in the body is an expression at the level of the quote,
@@ -2599,7 +2610,7 @@ resolveType ty =
     TContext constraints inner ->
       TContext <$> mapM resolveType constraints <*> resolveType inner
     TSplice expr ->
-      TSplice <$> withResetLocalSupply (resolveExpr expr)
+      TSplice <$> withExpressionQuote False (withResetLocalSupply (resolveExpr expr))
     TWildcard -> pure ty
     TQuasiQuote {} -> TAnn <$> unhandledSyntax ResolutionNamespaceType "TQuasiQuote" <*> pure ty
 

@@ -3545,9 +3545,9 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   then do
                     kinds <- getKinds
                     unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
-                    let Scheme inferred specified predicates body = scheme
+                    let Scheme inferred specified predicates body = patSynLayoutBuilderScheme layout
                     pure (Scheme inferred specified predicates (TcFunTy (TcTyCon unitTyCon []) body))
-                  else pure scheme
+                  else pure (patSynLayoutBuilderScheme layout)
               let builderSig = CheckedSig builderName builderScheme nameSpan [] False
                   withVoidArgument matches
                     | voidBuilder = [match {matchPats = PWildcard : matchPats match} | match <- matches]
@@ -3577,8 +3577,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   case (builderMatches, maybeBuilderMatches) of
                     (Just _, Nothing) -> pure failedResult
                     _ -> do
-                      (selectorMatches, selectorResults) <-
-                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) pat argBinders
+                      -- The selectors use the pattern synonym, so it must be
+                      -- known before they are checked.
                       addPatSyn
                         PatSynInfo
                           { psiName = name,
@@ -3590,6 +3590,8 @@ tcPatSynDecl sigs groupId decl patSyn = do
                             psiReqTheta = patSynLayoutRequired layout,
                             psiProvTheta = patSynLayoutProvided layout
                           }
+                      (selectorMatches, selectorResults) <-
+                        tcPatSynRecordSelectors sigs package moduleName' nameSpan layout (patSynDeclArgs patSyn) (patSynUse key name argBinders) argBinders
                       zonkedTy <- zonkType (schemeToType scheme)
                       -- The source keeps the explicit builder equations for the
                       -- annotated output. The synthesized builder of an
@@ -3659,7 +3661,12 @@ data PatSynLayout = PatSynLayout
     patSynLayoutRequired :: ![Pred],
     patSynLayoutProvided :: ![Pred],
     patSynLayoutArgTypes :: ![TcType],
-    patSynLayoutResultType :: !TcType
+    patSynLayoutResultType :: !TcType,
+    -- | All type variables in the order of the signature. An expression
+    -- use instantiates them in this order, thus the builder takes them in
+    -- this order too. Without a signature, the universal variables come
+    -- first.
+    patSynLayoutSignatureOrder :: ![TyVarId]
   }
 
 -- | The constructor-like scheme of a pattern synonym. The predicates are
@@ -3668,6 +3675,16 @@ patSynLayoutScheme :: PatSynLayout -> TypeScheme
 patSynLayoutScheme layout =
   specifiedScheme
     (patSynLayoutUniversals layout <> patSynLayoutExistentials layout)
+    (patSynLayoutRequired layout <> patSynLayoutProvided layout)
+    (foldr TcFunTy (patSynLayoutResultType layout) (patSynLayoutArgTypes layout))
+
+-- | The scheme of the builder of a pattern synonym. It is the
+-- constructor-like scheme with the type variables in the order of the
+-- signature, because an expression use instantiates the signature.
+patSynLayoutBuilderScheme :: PatSynLayout -> TypeScheme
+patSynLayoutBuilderScheme layout =
+  specifiedScheme
+    (patSynLayoutSignatureOrder layout)
     (patSynLayoutRequired layout <> patSynLayoutProvided layout)
     (foldr TcFunTy (patSynLayoutResultType layout) (patSynLayoutArgTypes layout))
 
@@ -3701,7 +3718,8 @@ patSynLayoutFromSig name arity sig = do
                 patSynLayoutRequired = required,
                 patSynLayoutProvided = provided,
                 patSynLayoutArgTypes = argTys,
-                patSynLayoutResultType = resultType
+                patSynLayoutResultType = resultType,
+                patSynLayoutSignatureOrder = tyVars <> explicitExistentials
               }
         )
 
@@ -3742,7 +3760,8 @@ inferPatSynLayout sp name pat argBinders = do
                 patSynLayoutRequired = required,
                 patSynLayoutProvided = provided,
                 patSynLayoutArgTypes = argTys',
-                patSynLayoutResultType = resultType
+                patSynLayoutResultType = resultType,
+                patSynLayoutSignatureOrder = universals <> pcSkolems patCheck
               }
         )
   where
@@ -3847,7 +3866,8 @@ patSynFieldTermKey key field =
 
 -- | Check the field selectors of a record pattern synonym. The selector
 -- of the field @f@ that the argument binder @x@ names is the function
--- @f $scrutinee = case $scrutinee of pat -> x@. Its signature quantifies
+-- @f $scrutinee = case $scrutinee of pat -> x@, where @pat@ uses the
+-- pattern synonym. Its signature quantifies
 -- the universal variables and keeps the required context, so it has the
 -- type @req => scrutinee -> field@. A field whose type mentions an
 -- existential variable has no selector.
@@ -3879,6 +3899,21 @@ tcPatSynRecordSelectors sigs package moduleName' nameSpan layout args pat argBin
           case maybeMatches of
             Just [match] -> pure ([(field, match)], results)
             _ -> pure ([], results)
+
+-- | The pattern that uses a pattern synonym with a variable for each
+-- argument. A field selector matches its scrutinee with this pattern, as
+-- in GHC. Thus, the type of each variable comes from the type of the
+-- pattern synonym, and not from the pattern of the declaration. In the
+-- pattern of the declaration, a variable that the selector does not
+-- return can have an ambiguous type.
+patSynUse :: Entity -> Text -> [UnqualifiedName] -> Pattern
+patSynUse key name argBinders =
+  PCon synonym [] (map PVar argBinders)
+  where
+    nameType'
+      | ":" `T.isPrefixOf` name = NameConSym
+      | otherwise = NameConId
+    synonym = Name Nothing nameType' name [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)]
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
@@ -4014,10 +4049,18 @@ patternToExpr pat =
     PBuiltinCon (BuiltinTuple flavor arity) _ items
       | length items == arity -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
+    PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
+    -- A record pattern with a wildcard has no expression: the wildcard
+    -- binds the names of the fields.
+    PRecord name fields False -> (\fields' -> ERecordCon name fields' False) <$> mapM recordField fields
     PParen inner -> EParen <$> patternToExpr inner
     PStrict inner -> patternToExpr inner
     PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
     _ -> Nothing
+  where
+    -- A punned field becomes a field with an explicit value, because the
+    -- value of the field is the converted pattern.
+    recordField field = (\value -> field {recordFieldValue = value, recordFieldPun = False}) <$> patternToExpr (recordFieldValue field)
 
 -- | An annotated literal pattern as an expression.
 --

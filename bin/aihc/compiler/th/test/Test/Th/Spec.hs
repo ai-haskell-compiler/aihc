@@ -35,6 +35,10 @@ tests =
       testCase "converts a forall type and leaves out a pragma" forallTest,
       testCase "converts a class declaration to the surface syntax" classTest,
       testCase "converts an equality and a type instance" equalityAndTypeInstanceTest,
+      testCase "converts a data and a newtype declaration" dataDeclarationTest,
+      testCase "converts a type synonym" typeSynonymTest,
+      testCase "converts a data and a newtype family instance" dataInstanceTest,
+      testCase "converts a do expression, a comprehension, and an operator chain" statementsTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -389,6 +393,129 @@ equalityAndTypeInstanceTest = do
     (Right "instance (t ~ Box) => Rewrapped Box t instance Wrapped Box where type Unwrapped Box = Int type instance F Box = (~) Int")
     (T.unwords . map render <$> declarationsFromTree tree)
 
+-- | Fields with each strictness, a record, an infix constructor, a
+-- constructor with a forall and a context, and deriving clauses.
+dataDeclarationTest :: IO ()
+dataDeclarationTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      bang unpackedness strictness fieldType = TreeNode "(,)" [TreeNode "Bang" [TreeNode unpackedness [], TreeNode strictness []], fieldType]
+      plain = bang "NoSourceUnpackedness" "NoSourceStrictness"
+      required occurrence = TreeNode "PlainTV" [name occurrence, TreeNode "BndrReq" []]
+      deriving' strategy classes = TreeNode "DerivClause" [strategy, list classes]
+      tree =
+        list
+          [ TreeNode
+              "DataD"
+              [ list [],
+                name "Shape",
+                list [required "a"],
+                TreeNode "Nothing" [],
+                list
+                  [ TreeNode "NormalC" [name "Circle", list [bang "SourceUnpack" "SourceStrict" (TreeNode "ConT" [name "Int"]), plain (TreeNode "VarT" [name "a"])]],
+                    TreeNode "RecC" [name "Box", list [TreeNode "(,,)" [name "width", TreeNode "Bang" [TreeNode "NoSourceUnpackedness" [], TreeNode "SourceLazy" []], TreeNode "VarT" [name "a"]]]],
+                    TreeNode "InfixC" [plain (TreeNode "VarT" [name "a"]), name ":+", plain (TreeNode "VarT" [name "a"])],
+                    TreeNode "ForallC" [list [TreeNode "PlainTV" [name "b", TreeNode "SpecifiedSpec" []]], list [apply (TreeNode "ConT" [name "Show"]) (TreeNode "VarT" [name "b"])], TreeNode "NormalC" [name "Some", list [plain (TreeNode "VarT" [name "b"])]]]
+                  ],
+                list [deriving' (TreeNode "Nothing" []) [TreeNode "ConT" [name "Eq"]], deriving' (TreeNode "Just" [TreeNode "StockStrategy" []]) [TreeNode "ConT" [name "Show"]]]
+              ],
+            TreeNode
+              "NewtypeD"
+              [ list [],
+                name "Wrap",
+                list [],
+                TreeNode "Nothing" [],
+                TreeNode "NormalC" [name "Wrap", list [plain (TreeNode "ConT" [name "Int"])]],
+                list [deriving' (TreeNode "Just" [TreeNode "NewtypeStrategy" []]) [TreeNode "ConT" [name "Num"]]]
+              ]
+          ]
+  assertEqual
+    "a data declaration and a newtype declaration"
+    (Right "data Shape a = Circle {-# UNPACK #-} !Int a | Box {width :: ~a} | a :+ a | forall b. Show b => Some b deriving (Eq) deriving stock (Show) newtype Wrap = Wrap Int deriving newtype (Num)")
+    (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | The splice of @ngx-export@ gives a type synonym.
+typeSynonymTest :: IO ()
+typeSynonymTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      tree = list [TreeNode "TySynD" [name "Pair", list [TreeNode "PlainTV" [name "a", TreeNode "BndrReq" []]], apply (apply (TreeNode "TupleT" [TreeInteger 2]) (TreeNode "VarT" [name "a"])) (TreeNode "VarT" [name "a"])]]
+  assertEqual
+    "a type synonym"
+    (Right "type Pair a = (a, a)")
+    (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | A data family instance and a newtype family instance, at the top
+-- level and in an instance body, as the @derivingUnbox@ splice of
+-- @vector-th-unbox@ gives them.
+dataInstanceTest :: IO ()
+dataInstanceTest = do
+  let apply function argument = TreeNode "AppT" [function, argument]
+      plain fieldType = TreeNode "(,)" [TreeNode "Bang" [TreeNode "NoSourceUnpackedness" [], TreeNode "NoSourceStrictness" []], fieldType]
+      vector = apply (TreeNode "ConT" [name "Vector"]) (TreeNode "ConT" [name "Point"])
+      newtypeInstance =
+        TreeNode
+          "NewtypeInstD"
+          [ list [],
+            TreeNode "Nothing" [],
+            vector,
+            TreeNode "Nothing" [],
+            TreeNode "NormalC" [name "V_Point", list [plain (apply (TreeNode "ConT" [name "Vector"]) (TreeNode "ConT" [name "Int"]))]],
+            list []
+          ]
+      tree =
+        list
+          [ TreeNode "InstanceD" [TreeNode "Nothing" [], list [], apply (TreeNode "ConT" [name "Unbox"]) (TreeNode "ConT" [name "Point"]), list [newtypeInstance]],
+            TreeNode
+              "DataInstD"
+              [ list [],
+                TreeNode "Just" [list [TreeNode "PlainTV" [name "a", TreeNode "()" []]]],
+                apply (TreeNode "ConT" [name "Family"]) (apply (TreeNode "ConT" [name "Maybe"]) (TreeNode "VarT" [name "a"])),
+                TreeNode "Nothing" [],
+                list [TreeNode "NormalC" [name "FamilyNone", list []], TreeNode "NormalC" [name "FamilyJust", list [plain (TreeNode "VarT" [name "a"])]]],
+                list [TreeNode "DerivClause" [TreeNode "Nothing" [], list [TreeNode "ConT" [name "Eq"]]]]
+              ]
+          ]
+  assertEqual
+    "a newtype instance in an instance body and a data instance"
+    (Right "instance Unbox Point where newtype Vector Point = V_Point (Vector Int) data instance forall a. Family (Maybe a) = FamilyNone | FamilyJust a deriving (Eq)")
+    (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | The @deriveJSON@ of @aeson@ gives a do expression in its parsers.
+statementsTest :: IO ()
+statementsTest = do
+  let apply function argument = TreeNode "AppE" [function, argument]
+      bind binder value = TreeNode "BindS" [TreeNode "VarP" [name binder], value]
+      valueDecl binder value = TreeNode "ValD" [TreeNode "VarP" [name binder], TreeNode "NormalB" [value], list []]
+      statements =
+        list
+          [ bind "x" (variable "m"),
+            TreeNode "LetS" [list [valueDecl "y" (variable "x")]],
+            TreeNode "NoBindS" [apply (variable "f") (variable "y")]
+          ]
+      chain left operator right = TreeNode "UInfixE" [left, variable operator, right]
+      convert = fmap render . expressionFromTree
+  assertEqual
+    "a do expression"
+    (Right "do x <- m let y = x f y")
+    (convert (TreeNode "DoE" [TreeNode "Nothing" [], statements]))
+  assertEqual
+    "a qualified mdo expression"
+    (Right "M.mdo x <- m let y = x f y")
+    (convert (TreeNode "MDoE" [TreeNode "Just" [TreeNode "ModName" [TreeString "M"]], statements]))
+  assertEqual
+    "a list comprehension"
+    (Right "[f x | x <- xs, p x]")
+    (convert (TreeNode "CompE" [list [bind "x" (variable "xs"), TreeNode "NoBindS" [apply (variable "p") (variable "x")], TreeNode "NoBindS" [apply (variable "f") (variable "x")]]]))
+  assertEqual
+    "an arithmetic sequence"
+    (Right "[a .. b]")
+    (convert (TreeNode "ArithSeqE" [TreeNode "FromToR" [variable "a", variable "b"]]))
+  -- The operands of a chain have no parentheses, so name resolution gives
+  -- the fixity. An operand from InfixE keeps its parentheses.
+  assertEqual
+    "an operator chain"
+    (Right "a + b * (c - d)")
+    (convert (chain (chain (variable "a") "+" (variable "b")) "*" (infixTree (Just (variable "c")) "-" (Just (variable "d")))))
+
 unsupportedTest :: IO ()
 unsupportedTest = do
   -- A unique name has its number in its text, so two names with the same
@@ -402,9 +529,9 @@ unsupportedTest = do
     (Left "The compiler does not support the name flavour NameL in a splice result.")
     (expressionFromTree (TreeNode "VarE" [TreeNode "Name" [TreeNode "OccName" [TreeString "x"], TreeNode "NameL" [TreeInteger 1]]]))
   assertEqual
-    "a do expression"
-    (Left "The compiler does not support the expression DoE in a splice result.")
-    (expressionFromTree (TreeNode "DoE" [TreeNode "Nothing" [], list []]))
+    "a static expression"
+    (Left "The compiler does not support the expression StaticE in a splice result.")
+    (expressionFromTree (TreeNode "StaticE" [variable "x"]))
 
 -- | A module with a splice in each position that matters: with and
 -- without parentheses, in a quote, in the body of a splice, and in the
@@ -474,6 +601,7 @@ spliceModuleTest = do
             spliceRequestModule = "M",
             spliceRequestStoreRoot = "store",
             spliceRequestBuildRoot = "build",
+            spliceRequestPackageRoot = ".",
             spliceRequestDependencies = [("base", [4, 21, 2, 0])],
             spliceRequestExtensions = [],
             spliceRequestLanguage = Nothing,
@@ -482,7 +610,9 @@ spliceModuleTest = do
             spliceRequestPackageFiles = mempty,
             spliceRequestOwnModules = [],
             spliceRequestUnavailableImports = [],
-            spliceRequestSplices = moduleSplices modu
+            spliceRequestSplices = moduleSplices modu,
+            spliceRequestSourceFile = "Main.hs",
+            spliceRequestSpans = []
           }
   assertEqual
     "one closure for each splice"

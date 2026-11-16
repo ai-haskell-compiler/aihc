@@ -2047,6 +2047,31 @@ evalPrimitive "readWordArray#" [value, index] = do
 evalPrimitive "indexCharArray#" [value, index] = do
   byte <- readByteArrayElement "indexCharArray#" 1 1 readAddressWord8 value index
   pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger byte)))]
+evalPrimitive name [value, offset]
+  | Just (rep, size, readElement) <- lookup name unalignedByteArrayReads =
+      (: []) . RuntimeLit . GrinLitInt rep <$> readByteArrayElement name 1 size readElement value offset
+evalPrimitive name [value, offset, element]
+  | Just (rep, size, writeElement) <- lookup name unalignedByteArrayWrites =
+      writeByteArrayElement name 1 size rep writeElement value offset element
+evalPrimitive name [address, offset]
+  | Just (rep, size, readElement) <- lookup name unalignedAddressReads =
+      (: []) . RuntimeLit . GrinLitInt rep <$> readAddressPrimitive name 1 size readElement address offset
+evalPrimitive name [address, offset, element]
+  | Just (rep, writeElement) <- lookup name unalignedAddressWrites =
+      writeAddressPrimitive name 1 rep writeElement address offset element
+evalPrimitive name [base, offset]
+  | Just (family, (size, readElement, _, decode, _)) <- lookup name unalignedCodedReads = do
+      code <- case family of
+        UnalignedByteArray -> readByteArrayElement name 1 size readElement base offset
+        UnalignedAddress -> readAddressPrimitive name 1 size readElement base offset
+      pure [decode code]
+evalPrimitive name [base, offset, element]
+  | Just (family, (size, _, writeElement, _, encode)) <- lookup name unalignedCodedWrites = do
+      code <- encode name element
+      let word = RuntimeLit (GrinLitInt WordRep code)
+      case family of
+        UnalignedByteArray -> writeByteArrayElement name 1 size WordRep writeElement base offset word
+        UnalignedAddress -> writeAddressPrimitive name 1 WordRep writeElement base offset word
 evalPrimitive "indexWord8ArrayAsWord16#" [value, offset] =
   (: []) . RuntimeLit . GrinLitInt Word16Rep <$> readByteArrayElement "indexWord8ArrayAsWord16#" 1 2 readAddressWord16 value offset
 evalPrimitive "indexWord8ArrayAsWord32#" [value, offset] =
@@ -2585,6 +2610,91 @@ expectRuntimeRepPrimitiveArgument name expectedRep value =
     RuntimeLit (GrinLitInt actualRep intValue)
       | actualRep == expectedRep -> pure intValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+-- | The unaligned reads and writes of a numeric element at a byte offset.
+-- Each entry gives the representation of the element, its size in bytes,
+-- and the memory access. The element types are those of GHC that have no
+-- clause of their own.
+unalignedNumericElements :: [(Text, GrinRep, Int, Ptr () -> Int -> IO Integer, Ptr () -> Int -> Integer -> IO ())]
+unalignedNumericElements =
+  [ ("Int", IntRep, 8, readAddressInt64, writeAddressWord64),
+    ("Word", WordRep, 8, readAddressWord64, writeAddressWord64),
+    ("Int16", Int16Rep, 2, readAddressInt16, writeAddressWord16),
+    ("Int32", Int32Rep, 4, readAddressInt32, writeAddressWord32)
+  ]
+
+unalignedByteArrayReads, unalignedAddressReads :: [(Text, (GrinRep, Int, Ptr () -> Int -> IO Integer))]
+unalignedByteArrayReads =
+  [ (prefix <> "Word8ArrayAs" <> suffix <> "#", (rep, size, readElement))
+  | (suffix, rep, size, readElement, _) <- unalignedNumericElements <> unalignedFloatingElements,
+    prefix <- ["index", "read"]
+  ]
+unalignedAddressReads =
+  [ (prefix <> "Word8OffAddrAs" <> suffix <> "#", (rep, size, readElement))
+  | (suffix, rep, size, readElement, _) <- unalignedNumericElements,
+    prefix <- ["index", "read"]
+  ]
+
+unalignedByteArrayWrites :: [(Text, (GrinRep, Int, Ptr () -> Int -> Integer -> IO ()))]
+unalignedByteArrayWrites =
+  [ ("writeWord8ArrayAs" <> suffix <> "#", (rep, size, writeElement))
+  | (suffix, rep, size, _, writeElement) <- unalignedNumericElements <> unalignedFloatingElements
+  ]
+
+unalignedAddressWrites :: [(Text, (GrinRep, Ptr () -> Int -> Integer -> IO ()))]
+unalignedAddressWrites =
+  [ ("writeWord8OffAddrAs" <> suffix <> "#", (rep, writeElement))
+  | (suffix, rep, _, _, writeElement) <- unalignedNumericElements
+  ]
+
+-- | The memory that an unaligned access of a coded element uses.
+data UnalignedFamily = UnalignedByteArray | UnalignedAddress
+
+-- | An element that memory keeps as an integer code: a character or an
+-- address. Each entry gives the size in bytes, the memory access, and the
+-- conversions between the code and the runtime value.
+type UnalignedCoded =
+  ( Int,
+    Ptr () -> Int -> IO Integer,
+    Ptr () -> Int -> Integer -> IO (),
+    Integer -> RuntimeValue,
+    Text -> RuntimeValue -> EvalM Integer
+  )
+
+unalignedCodedElements :: [(Text, UnalignedCoded)]
+unalignedCodedElements =
+  [ ("Char", (1, readAddressWord8, writeAddressWord8, characterValue, characterCode)),
+    ("WideChar", (4, readAddressWord32, writeAddressWord32, characterValue, characterCode)),
+    ("Addr", (8, readAddressWord64, writeAddressWord64, RuntimeAddress . intPtrToPtr . IntPtr . fromInteger, addressCode))
+  ]
+  where
+    characterValue code = RuntimeLit (GrinLitChar WordRep (Char.chr (fromInteger code)))
+    characterCode symbol value = toInteger . Char.ord <$> expectCharPrimitiveArgument symbol value
+    addressCode symbol value = addressOrdinal <$> expectAddress symbol value
+
+unalignedFamilies :: [(Text, UnalignedFamily)]
+unalignedFamilies = [("Word8ArrayAs", UnalignedByteArray), ("Word8OffAddrAs", UnalignedAddress)]
+
+unalignedCodedReads, unalignedCodedWrites :: [(Text, (UnalignedFamily, UnalignedCoded))]
+unalignedCodedReads =
+  [ (prefix <> middle <> suffix <> "#", (family, element))
+  | (middle, family) <- unalignedFamilies,
+    (suffix, element) <- unalignedCodedElements,
+    prefix <- ["index", "read"]
+  ]
+unalignedCodedWrites =
+  [ ("write" <> middle <> suffix <> "#", (family, element))
+  | (middle, family) <- unalignedFamilies,
+    (suffix, element) <- unalignedCodedElements
+  ]
+
+-- | The floating point elements. The address family has its own clauses
+-- for them.
+unalignedFloatingElements :: [(Text, GrinRep, Int, Ptr () -> Int -> IO Integer, Ptr () -> Int -> Integer -> IO ())]
+unalignedFloatingElements =
+  [ ("Float", FloatRep, 4, readAddressWord32, writeAddressWord32),
+    ("Double", DoubleRep, 8, readAddressWord64, writeAddressWord64)
+  ]
 
 -- | The combining operations of the fetch-and-modify Int# array
 -- primitives, each taking the value the element holds and the operand.

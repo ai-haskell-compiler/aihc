@@ -1,0 +1,39 @@
+extensions:
+  - DataKinds
+  - ScopedTypeVariables
+  - TypeApplications
+modules:
+  - |
+    {-# LANGUAGE DataKinds, ScopedTypeVariables, TypeApplications #-}
+    module Test where
+    data Tag = A | B
+    data Named (n :: Tag) a = Named a
+    data Proxy (t :: Tag) = Proxy
+    fixed (Named @'A x) = x
+    bound (Named @n @a x) = (Proxy :: Proxy n, x :: a)
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, ScopedTypeVariables, TypeApplications #-}
+    module Test where
+    data Tag = A | B
+         │     │   └─ type: Tag
+         │     └─ type: Tag
+         └─ type: Type
+    data Named (n :: Tag) a = Named a
+         │                    └─ type: ∀ n a. a → Named n a
+         └─ type: Tag → Type → Type
+    data Proxy (t :: Tag) = Proxy
+         │                  └─ type: ∀ t. Proxy t
+         └─ type: Tag → Type
+    fixed (Named @'A x) = x
+    │      │         └─ type: a
+    │      └─ type: Named 'A a
+    └─ type: ∀ a. Named 'A a → a
+    bound (Named @n @a x) = (Proxy :: Proxy n, x :: a)
+    │      │           │    │└─ type: Proxy a; type-args: a
+    │      │           │    └─ type: (Proxy a, b); type-args: Proxy a, b
+    │      │           └─ type: b
+    │      └─ type: Named a b
+    └─ type: ∀ a b. Named a b → (Proxy a, b)
+status: pass
+reason: The type arguments of a constructor pattern instantiate its specified type variables.

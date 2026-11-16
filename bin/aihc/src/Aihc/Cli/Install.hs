@@ -254,7 +254,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, renameQuotedPackage)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSplices, replaceFirstSplice, splicePackageId)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -1286,10 +1286,15 @@ prepareExecutable shared graph slot = do
 preparePackage :: InstallShared -> TaskGraph -> PackageSlot -> IO ()
 preparePackage shared graph slot = do
   prepared <- mapM (atomically . readTMVar . slotPrepared) (slotDependencies slot)
+  below <- mapM (atomically . readTMVar . slotPrepared) (slotClosure slot)
   let config = slotConfig shared slot
       locations = sharedLocations shared
       plan = slotPlan slot
       dependencies = map preparedPackage prepared
+      -- The C code of the package sees the headers of every package below
+      -- it, as GHC gives the include directories of the whole dependency
+      -- closure. The direct dependencies come first.
+      headerPackages = dependencies <> map preparedPackage below
       -- Only the package the user named is reinstalled.
       reinstall = slotRoot slot && locationReinstall locations
       order = slotOrder slot
@@ -1299,8 +1304,8 @@ preparePackage shared graph slot = do
   (inputs, configured) <- atomically (readTMVar (slotConfigured slot))
   (installed, build) <-
     if storeBound locations plan
-      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies plan inputs configured
-      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies plan inputs configured
+      then prepareStorePackage shared config (slotRoot slot) reinstall dependencies headerPackages plan inputs configured
+      else prepareLocalPackage config reinstall (locationBuildRoot locations) dependencies headerPackages plan inputs configured
   let identity = PackageId (packageManifestUnitId (installedManifest installed))
       package = Package (installedName installed) identity
       source = case build of
@@ -1535,8 +1540,8 @@ readPackageInputs config plan = do
       }
 
 -- | Prepare an immutable package for the store, unless the store has it.
-prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
-prepareStorePackage shared config named reinstall dependencies plan inputs configured = do
+prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareStorePackage shared config named reinstall dependencies headerPackages plan inputs configured = do
   let storeRoot = locationStoreRoot (sharedLocations shared)
   (packageDirectory, unitIdentity) <- storePackageIdentity config dependencies inputs
   forM_ dependencies $ \dependency ->
@@ -1561,7 +1566,7 @@ prepareStorePackage shared config named reinstall dependencies plan inputs confi
       createDirectoryIfMissing True storeRoot
       temporaryRoot <- createTemporaryStoreRoot storeRoot packageDirectory
       atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.insert temporaryRoot roots, ()))
-      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies plan inputs configured
+      preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies headerPackages plan inputs configured
 
 -- | Move a built package from its temporary root to its store entry.
 publishStorePackage :: InstallShared -> PackageBuild -> InstalledPackage -> IO InstalledPackage
@@ -1582,14 +1587,14 @@ publishStorePackage shared build built = do
   pure package
 
 -- | Prepare a local package to build in place under the build root.
-prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
-prepareLocalPackage config reinstall buildRoot dependencies plan inputs configured = do
+prepareLocalPackage :: ModuleCompileConfig -> Bool -> FilePath -> [InstalledPackage] -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+prepareLocalPackage config reinstall buildRoot dependencies headerPackages plan inputs configured = do
   let (packageDirectory, unitIdentity) = localPackageIdentity inputs
       buildPath = buildRoot </> packageDirectory
   exists <- doesDirectoryExist buildPath
   when (exists && reinstall) (removeDirectoryRecursive buildPath)
   createDirectoryIfMissing True buildPath
-  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies plan inputs configured
+  preparePackageBuild config packageDirectory unitIdentity False buildPath buildPath False dependencies headerPackages plan inputs configured
 
 -- | The flags the store entry was built with must cover the flags of this
 -- install: the entry is never changed, so a missing output stays missing.
@@ -1625,15 +1630,15 @@ requireInstalledFlags config named package = do
 -- | Apply the answers of the configure script, preprocess a package, and
 -- record what its finish needs. The package is returned as its dependents
 -- see it while it builds.
-preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
-preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies plan inputs configured = do
+preparePackageBuild :: ModuleCompileConfig -> FilePath -> Text -> Bool -> FilePath -> FilePath -> Bool -> [InstalledPackage] -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
+preparePackageBuild config packageDirectory unitIdentity immutable buildPath publishPath replaces dependencies headerPackages plan inputs configured = do
   let root = planSourcePath plan
       verbose = compileVerbose config
   verbose ("Read Cabal package: " <> root)
   let gpd = inputDescription inputs
       packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
   (configuredFiles, configuredCInfo) <- configurePackage root packageNameText inputs configured
-  headerDirs <- dependencyIncludeDirs dependencies
+  headerDirs <- dependencyIncludeDirs headerPackages
   headerHash <- includeDirectoriesHash headerDirs
   let dependencyVersions =
         dependencyVersionsFromManifests
@@ -1968,6 +1973,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestModule = sourceModuleName source,
                   spliceRequestStoreRoot = takeDirectory (locationStoreRoot locations),
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
+                  spliceRequestPackageRoot = moduleBuildPackageRoot build,
                   spliceRequestDependencies = packageFileDependencies (packageFile file),
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
@@ -1976,7 +1982,9 @@ moduleSpliceRequest shared build file source =
                   spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
                   spliceRequestOwnModules = [],
                   spliceRequestUnavailableImports = [],
-                  spliceRequestSplices = []
+                  spliceRequestSplices = [],
+                  spliceRequestSourceFile = makeRelative (moduleBuildPackageRoot build) (HackageCabal.fileInfoPath file),
+                  spliceRequestSpans = []
                 }
     _ -> pure Nothing
   where
@@ -3012,6 +3020,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
               request =
                 template
                   { spliceRequestSplices = desugaredSplices,
+                    spliceRequestSpans = moduleSpliceSpans bound,
                     spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
                     spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
@@ -4815,12 +4824,21 @@ readHookedBuildInfo buildDirectory packageName = do
 -- of the emulation, the C compiler gets the macro and a link gets the
 -- archive. The code of a splice has no files to map, so the emulation is
 -- sufficient.
+--
+-- The compiler of the WASI target defines no operating system macro other
+-- than @__wasi__@. It does not define @__unix__@. Some packages identify a
+-- POSIX system before they include a libc header, and stop with an error
+-- for an unknown system. An example is @foundation_system.h@ of
+-- @basement@, which tests @_POSIX_VERSION@ last. The libc is POSIX, and its
+-- @unistd.h@ defines @_POSIX_VERSION@ as @200809L@. Thus the C compiler gets
+-- the same definition before any header. The definition in @unistd.h@ is
+-- identical, so it is not a redefinition error.
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
-      pure (["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"] <> ["-D_WASI_EMULATED_MMAN" | isJust (wasmSysrootEmulatedMman sysroot)])
+      pure (["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1", "-D_POSIX_VERSION=200809L"] <> ["-D_WASI_EMULATED_MMAN" | isJust (wasmSysrootEmulatedMman sysroot)])
     _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath

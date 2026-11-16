@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: consumer
+version: 0.1.0.0
+
+library
+  exposed-modules: Consumer
+  hs-source-dirs: src
+  build-depends: middle
+  c-sources: cbits/consumer.c
+  default-language: Haskell2010
+  default-extensions: NoImplicitPrelude

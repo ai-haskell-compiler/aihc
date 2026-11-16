@@ -1,0 +1,49 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - PatternSynonyms
+  - PolyKinds
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, PatternSynonyms, PolyKinds, ViewPatterns #-}
+    module Test where
+    data List a = Nil | Cons a (List a)
+    data Elem e r = MkElem
+    data MatchHere e r where
+      MHYes :: MatchHere e (Cons e r)
+      MHNo :: MatchHere e r
+    matchHere :: Elem e r -> MatchHere e r
+    matchHere _ = MHNo
+    pattern Here :: () => (r ~ Cons e r') => Elem e r
+    pattern Here <- (matchHere -> MHYes)
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTs, PatternSynonyms, PolyKinds, ViewPatterns #-}
+    module Test where
+    data List a = Nil | Cons a (List a)
+         │        │     └─ type: ∀ a. a → List a → List a
+         │        └─ type: ∀ a. List a
+         └─ type: Type → Type
+    data Elem e r = MkElem
+         │          └─ type: ∀ k0 k1 e r. Elem e r
+         └─ type: k0 → k1 → Type
+    data MatchHere e r where
+         └─ type: k0 → List k0 → Type
+      MHYes :: MatchHere e (Cons e r)
+      └─ type: ∀ k0 e r r. (r ~ ('Cons e r)) ⇒ MatchHere e r
+      MHNo :: MatchHere e r
+      └─ type: ∀ k0 e r. MatchHere e r
+    matchHere :: Elem e r -> MatchHere e r
+    matchHere _ = MHNo
+    │         │   └─ type: MatchHere e r; type-args: k0, e, r
+    │         └─ type: Elem e r
+    └─ type: ∀ k0 e r. Elem e r → MatchHere e r
+    pattern Here :: () => (r ~ Cons e r') => Elem e r
+    pattern Here <- (matchHere -> MHYes)
+    │                ││            └─ type: MatchHere e r; type-args: k0, e, r, r; evidence: given r ~ 'Cons e r
+    │                └─ type: Elem e r → MatchHere e r; type-args: k0, e, r
+    │                └─ type: Elem e r
+    └─ type: ∀ k0 r e r'. (r ~ ('Cons e r')) ⇒ Elem e r
+status: pass
+reason: A pattern synonym can provide an equality on its result type.

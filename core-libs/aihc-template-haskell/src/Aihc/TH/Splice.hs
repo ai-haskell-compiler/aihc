@@ -54,7 +54,7 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, Exp, Info, Name, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, Exp, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -118,6 +118,9 @@ data Request
   | -- | Give the roles of the parameters of a type constructor. The reply
     -- is an @Either String [Role]@ value.
     ReifyRoles Name
+  | -- | Give the source location of the splice. The reply is a 'Loc'
+    -- value.
+    Location
   deriving (Data)
 
 -- | Send a request and give the bytes of the reply.
@@ -219,7 +222,14 @@ instance Quasi Splice where
   qReifyAnnotations _ = unsupported "reifyAnnotations"
   qReifyModule _ = unsupported "reifyModule"
   qReifyConStrictness _ = unsupported "reifyConStrictness"
-  qLocation = unsupported "location"
+  qLocation =
+    Splice $ do
+      reply <- sendRequest Location
+      case decodeValue reply of
+        Just location -> pure (location :: Loc)
+        Nothing -> do
+          report (Report True "The reply of the compiler to `location' is not valid.")
+          fail "Template Haskell failure"
   qGetPackageRoot = unsupported "getPackageRoot"
 
   -- The build does not record the file as a dependency of the module. A
