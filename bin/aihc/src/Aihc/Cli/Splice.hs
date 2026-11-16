@@ -44,8 +44,8 @@ import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
-import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
+import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Reify (reifyInfo, reifyRoles)
