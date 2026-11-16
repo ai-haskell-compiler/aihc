@@ -48,6 +48,7 @@ import Aihc.Resolve.Types (GlobalName)
 import Aihc.Tc.Interface (TcInterface)
 import Aihc.Th.Quote (quoteImports)
 import Aihc.Th.Wire (Tree)
+import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (evalState, execState, modify', state)
 import Data.Char (isAlphaNum, toLower)
 import Data.Data (Data, gmapM)
@@ -268,7 +269,7 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
       case decl of
         DeclAnn annotation _ -> annotationSpan here annotation
         _ -> here
-    annotationSpan here annotation = maybe here Just (fromAnnotation annotation)
+    annotationSpan here annotation = fromAnnotation annotation <|> here
     declarationSpliceBody decl =
       case decl of
         DeclAnn _ inner -> declarationSpliceBody inner
