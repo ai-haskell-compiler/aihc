@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE NoMonomorphismRestriction #-}
+  module Test where
+  class Conv a where
+  └─ class methods: conv ∷ ∀ a. (Conv a) ⇒ a → a
+    conv :: a -> a
+  data A = A
+       │   └─ type: A
+       └─ type: Type
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  instance Conv A where
+  └─ $fConvA ∷ () ⇒ Conv A
+    conv x = x
+    │    └─ type: A
+    └─ conv ∷ A → A
+  instance Conv B where
+  └─ $fConvB ∷ () ⇒ Conv B
+    conv x = x
+    │    └─ type: B
+    └─ conv ∷ B → B
+  pair :: (A, B)
+  pair = (c A, c B)
+  │      ││    └─ type: B → B; type-args: B; evidence: $fConvB
+  │      │└─ type: A → A; type-args: A; evidence: $fConvA
+  │      └─ type: (A, B); type-args: A, B
+  └─ type: (A, B)
+    where
+      c = conv
+      │   └─ type: a → a; type-args: a; evidence: given Conv a
+      └─ type: ∀ a. (Conv a) ⇒ a → a
+extensions: []
+modules:
+- |
+  {-# LANGUAGE NoMonomorphismRestriction #-}
+  module Test where
+  class Conv a where
+    conv :: a -> a
+  data A = A
+  data B = B
+  instance Conv A where
+    conv x = x
+  instance Conv B where
+    conv x = x
+  pair :: (A, B)
+  pair = (c A, c B)
+    where
+      c = conv
+status: pass
+reason: With NoMonomorphismRestriction, a local binding without arguments
+  abstracts over its class constraints. Thus, the program can use it at two types.

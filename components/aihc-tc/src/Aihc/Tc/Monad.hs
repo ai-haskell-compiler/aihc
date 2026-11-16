@@ -104,6 +104,7 @@ module Aihc.Tc.Monad
     getDataTypes,
     lookupDataType,
     tcMonoLocalBinds,
+    tcMonomorphismRestriction,
     tcPostfixOperators,
     localDefaultTypes,
     getDefaultTypes,
@@ -1336,6 +1337,9 @@ getTyVarTypes = asks tcEnvTyVarTypes
 
 tcMonoLocalBinds :: TcM Bool
 tcMonoLocalBinds = asks tcEnvMonoLocalBinds
+
+tcMonomorphismRestriction :: TcM Bool
+tcMonomorphismRestriction = asks tcEnvMonomorphismRestriction
 
 tcPostfixOperators :: TcM Bool
 tcPostfixOperators = asks tcEnvPostfixOperators

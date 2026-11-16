@@ -772,9 +772,32 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
 
 -- | Binders that the monomorphism restriction applies to: pattern bindings
 -- and function bindings without arguments.
+--
+-- With @NoMonomorphismRestriction@, GHC generalizes a binding without
+-- arguments like a function binding. In @jose@, @reconsIso = iso (view
+-- recons) (view recons)@ is used at two types in one expression. Only a
+-- pattern binding with a pattern that is not a variable stays restricted.
 restrictedBinderKeys :: [DeclGroup] -> TcM (Set.Set Entity)
-restrictedBinderKeys groups = Set.fromList . concat <$> mapM restrictedKeys groups
+restrictedBinderKeys groups = do
+  restriction <- tcMonomorphismRestriction
+  if restriction
+    then Set.fromList . concat <$> mapM restrictedKeys groups
+    else Set.fromList . concat <$> mapM complexPatternKeys groups
   where
+    complexPatternKeys group =
+      case group of
+        SingleDecl decl ->
+          case peelDeclAnn decl of
+            DeclValue (PatternBind _ pat _)
+              | not (isVariablePattern pat) -> patternBinderKeyList pat
+            _ -> pure []
+        MergedFunctionBind {} -> pure []
+    isVariablePattern pat =
+      case pat of
+        PAnn _ inner -> isVariablePattern inner
+        PParen inner -> isVariablePattern inner
+        PVar {} -> True
+        _ -> False
     restrictedKeys group =
       case group of
         MergedFunctionBind name _ (match : _)
