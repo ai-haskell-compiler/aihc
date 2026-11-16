@@ -217,7 +217,7 @@ rewriteDepth = 3
 allGivenEqualities :: [Pred] -> TcM [(TcType, TcType, Coercion)]
 allGivenEqualities predicates = do
   let roots = [(predicate, EvGiven predicate) | predicate <- predicates]
-  equalities <- concat <$> traverse (givenEqualities []) roots
+  equalities <- sharedVariableEqualities <$> (concat <$> traverse (givenEqualities []) roots)
   stuck <- concat <$> traverse (stuckGivenConstraints []) roots
   if null stuck
     then pure equalities
@@ -246,6 +246,30 @@ allGivenEqualities predicates = do
                     _ -> pure []
           )
           (directReductions <> rewritten)
+
+-- | Two given equalities with the same rigid variable on one side also
+-- give the equality of their other sides, as in GHC. Two GADT matches on
+-- one index give @as ~ (bs ':> a)@ and @as ~ (cs ':> b)@. Their other sides
+-- are equal, thus a later decomposition gives @a ~ b@. The proof goes
+-- through the variable.
+sharedVariableEqualities :: [(TcType, TcType, Coercion)] -> [(TcType, TcType, Coercion)]
+sharedVariableEqualities equalities =
+  equalities
+    <> [ (first, second, Trans (Sym firstProof) secondProof)
+       | (variable, first, firstProof) : rest <- List.tails oriented,
+         (otherVariable, second, secondProof) <- rest,
+         variable == otherVariable,
+         not (sameType first second)
+       ]
+  where
+    oriented =
+      [ (tvUnique tyVar, other, proof)
+      | (left, right, leftProof) <- equalities,
+        (tyVar, other, proof) <- case (left, right) of
+          (TcTyVar tyVar, _) -> [(tyVar, right, leftProof)]
+          (_, TcTyVar tyVar) -> [(tyVar, left, Sym leftProof)]
+          _ -> []
+      ]
 
 -- | The given constraints, with their evidence, that are neither an
 -- equality nor a class: a family application that does not reduce yet.
