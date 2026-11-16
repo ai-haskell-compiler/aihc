@@ -1617,10 +1617,121 @@ void aihc_thread_pause(AihcCapability *capability, AihcValue *continuation) {
 
 /* The remembered set. */
 
-static int aihc_compare_addresses(const void *left, const void *right) {
-  uintptr_t first = (uintptr_t)*(AihcValue *const *)left;
-  uintptr_t second = (uintptr_t)*(AihcValue *const *)right;
-  return first < second ? -1 : first > second;
+/* Sort a list of objects by address. The C library qsort is not used: it
+   calls a comparison function for each step, and the qsort of musl swaps
+   each pair with memcpy. With musl, the sort took one quarter of the
+   collection time. This sort is an introsort. It does a quicksort, an
+   insertion sort for short ranges, and a heapsort when a quicksort is too
+   deep. */
+
+static void aihc_addresses_insertion_sort(AihcValue **items, uint64_t count) {
+  for (uint64_t index = 1; index < count; ++index) {
+    AihcValue *item = items[index];
+    uint64_t hole = index;
+    while (hole > 0 && (uintptr_t)items[hole - 1] > (uintptr_t)item) {
+      items[hole] = items[hole - 1];
+      --hole;
+    }
+    items[hole] = item;
+  }
+}
+
+static void aihc_addresses_sift_down(AihcValue **items, uint64_t root,
+                                     uint64_t count) {
+  AihcValue *item = items[root];
+  for (;;) {
+    uint64_t child = root * 2 + 1;
+    if (child >= count) {
+      break;
+    }
+    if (child + 1 < count &&
+        (uintptr_t)items[child + 1] > (uintptr_t)items[child]) {
+      ++child;
+    }
+    if ((uintptr_t)items[child] <= (uintptr_t)item) {
+      break;
+    }
+    items[root] = items[child];
+    root = child;
+  }
+  items[root] = item;
+}
+
+static void aihc_addresses_heap_sort(AihcValue **items, uint64_t count) {
+  for (uint64_t root = count / 2; root > 0; --root) {
+    aihc_addresses_sift_down(items, root - 1, count);
+  }
+  for (uint64_t end = count; end > 1; --end) {
+    AihcValue *largest = items[0];
+    items[0] = items[end - 1];
+    items[end - 1] = largest;
+    aihc_addresses_sift_down(items, 0, end - 1);
+  }
+}
+
+static void aihc_addresses_sort_range(AihcValue **items, uint64_t count,
+                                      unsigned depth) {
+  while (count > 16) {
+    if (depth == 0) {
+      aihc_addresses_heap_sort(items, count);
+      return;
+    }
+    --depth;
+    /* The pivot is the median of the first, middle, and last items. */
+    uintptr_t low_item = (uintptr_t)items[0];
+    uintptr_t pivot = (uintptr_t)items[count / 2];
+    uintptr_t high_item = (uintptr_t)items[count - 1];
+    if (low_item > high_item) {
+      uintptr_t swap = low_item;
+      low_item = high_item;
+      high_item = swap;
+    }
+    if (pivot < low_item) {
+      pivot = low_item;
+    } else if (pivot > high_item) {
+      pivot = high_item;
+    }
+    /* Hoare partition: items below low are at most the pivot, and items
+       above high are at least the pivot. */
+    uint64_t low = 0;
+    uint64_t high = count - 1;
+    for (;;) {
+      while ((uintptr_t)items[low] < pivot) {
+        ++low;
+      }
+      while ((uintptr_t)items[high] > pivot) {
+        --high;
+      }
+      if (low >= high) {
+        break;
+      }
+      AihcValue *swap = items[low];
+      items[low] = items[high];
+      items[high] = swap;
+      ++low;
+      --high;
+    }
+    uint64_t split = high + 1;
+    /* Sort the smaller part first, so that the stack depth is a logarithm
+       of the count. */
+    if (split < count - split) {
+      aihc_addresses_sort_range(items, split, depth);
+      items += split;
+      count -= split;
+    } else {
+      aihc_addresses_sort_range(items + split, count - split, depth);
+      count = split;
+    }
+  }
+  aihc_addresses_insertion_sort(items, count);
+}
+
+static void aihc_addresses_sort(AihcValue **items, uint64_t count) {
+  unsigned depth = 0;
+  for (uint64_t rest = count; rest > 1; rest >>= 1) {
+    depth += 2;
+  }
+  aihc_addresses_sort_range(items, count, depth);
 }
 
 static void aihc_remembered_grow(AihcCapability *capability) {
@@ -1645,12 +1756,7 @@ static void aihc_remembered_compact(AihcCapability *capability) {
     return;
   }
   capability->remembered_repeatable = 0;
-  if (capability->remembered_count == 0) {
-    /* qsort takes no null list, and an empty list has nothing to sort. */
-    return;
-  }
-  qsort(capability->remembered, capability->remembered_count,
-        sizeof(*capability->remembered), aihc_compare_addresses);
+  aihc_addresses_sort(capability->remembered, capability->remembered_count);
   uint64_t kept = 0;
   for (uint64_t index = 0; index < capability->remembered_count; ++index) {
     if (kept == 0 ||
