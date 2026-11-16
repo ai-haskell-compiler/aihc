@@ -44,6 +44,7 @@ import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
+import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
@@ -53,7 +54,7 @@ import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), S
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, join, when)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
@@ -114,7 +115,8 @@ runSplices request action =
           splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
           requests <- newIORef []
-          outcome <- try (runClosure engine (answerRequest packageIds reify requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+          let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
+          outcome <- try (runClosure engine (answerRequest packageIds reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -208,13 +210,15 @@ describeRequests made =
         RequestReify name _ -> Just name
         RequestReifyRoles name _ -> Just name
         RequestReport {} -> Nothing
+        RequestLocation -> Nothing
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
 -- to @reify@ is an @Either String Info@ value, and the reply to
--- @reifyRoles@ is an @Either String [Role]@ value.
-answerRequest :: (Text, Text) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest packageIds reify requests bytes =
+-- @reifyRoles@ is an @Either String [Role]@ value. The reply to
+-- @location@ is the @Loc@ value of the splice.
+answerRequest :: (Text, Text) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest packageIds reify location requests bytes =
   case decodeTree bytes >>= requestFromTree . fromSplice packageIds of
     Right made -> do
       modifyIORef' requests (made :)
@@ -222,6 +226,7 @@ answerRequest packageIds reify requests bytes =
         RequestReport {} -> pure BS.empty
         RequestReify name global -> facts reifyInfo name global
         RequestReifyRoles name global -> facts reifyRoles name global
+        RequestLocation -> pure (encodeTree location)
     Left message -> ioError (userError (T.unpack message))
   where
     facts question name global = do
@@ -229,6 +234,27 @@ answerRequest packageIds reify requests bytes =
       pure . encodeTree . toSplice packageIds $ case answer of
         Right value -> TreeNode "Right" [value]
         Left message -> TreeNode "Left" [TreeString message]
+
+-- | The @Loc@ value of a splice: the source file, the package id, the
+-- module, and the start and the end of the splice. A splice with no source
+-- span gets the position 1:1. GHC gives the column after the last
+-- character as the end, as the source span does.
+spliceLocation :: SpliceRequest -> Maybe Syntax.SourceSpan -> Tree
+spliceLocation request span' =
+  TreeNode
+    "Loc"
+    [ TreeString (T.pack (spliceRequestSourceFile request)),
+      TreeString (spliceRequestPackageId request),
+      TreeString (spliceRequestModule request),
+      position start,
+      position end
+    ]
+  where
+    (start, end) =
+      case span' of
+        Just (Syntax.SourceSpan _ startLine startColumn endLine endColumn _ _) -> ((startLine, startColumn), (endLine, endColumn))
+        Nothing -> ((1, 1), (1, 1))
+    position (line, column) = TreeNode "(,)" [TreeInteger (toInteger line), TreeInteger (toInteger column)]
 
 -- | The store directory of each package below a package, by the package
 -- id that names of the package have. The manifest of a package names the
