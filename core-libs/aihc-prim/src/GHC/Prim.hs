@@ -444,6 +444,60 @@ module GHC.Prim
     writeWord8ArrayAsWord16#,
     writeWord8ArrayAsWord32#,
     writeWord8ArrayAsWord64#,
+    indexWord8ArrayAsChar#,
+    readWord8ArrayAsChar#,
+    writeWord8ArrayAsChar#,
+    indexWord8ArrayAsWideChar#,
+    readWord8ArrayAsWideChar#,
+    writeWord8ArrayAsWideChar#,
+    indexWord8ArrayAsInt#,
+    readWord8ArrayAsInt#,
+    writeWord8ArrayAsInt#,
+    indexWord8ArrayAsWord#,
+    readWord8ArrayAsWord#,
+    writeWord8ArrayAsWord#,
+    indexWord8ArrayAsInt16#,
+    readWord8ArrayAsInt16#,
+    writeWord8ArrayAsInt16#,
+    indexWord8ArrayAsInt32#,
+    readWord8ArrayAsInt32#,
+    writeWord8ArrayAsInt32#,
+    indexWord8ArrayAsFloat#,
+    readWord8ArrayAsFloat#,
+    writeWord8ArrayAsFloat#,
+    indexWord8ArrayAsDouble#,
+    readWord8ArrayAsDouble#,
+    writeWord8ArrayAsDouble#,
+    indexWord8ArrayAsAddr#,
+    readWord8ArrayAsAddr#,
+    writeWord8ArrayAsAddr#,
+    indexWord8ArrayAsStablePtr#,
+    readWord8ArrayAsStablePtr#,
+    writeWord8ArrayAsStablePtr#,
+    indexWord8OffAddrAsChar#,
+    readWord8OffAddrAsChar#,
+    writeWord8OffAddrAsChar#,
+    indexWord8OffAddrAsWideChar#,
+    readWord8OffAddrAsWideChar#,
+    writeWord8OffAddrAsWideChar#,
+    indexWord8OffAddrAsInt#,
+    readWord8OffAddrAsInt#,
+    writeWord8OffAddrAsInt#,
+    indexWord8OffAddrAsWord#,
+    readWord8OffAddrAsWord#,
+    writeWord8OffAddrAsWord#,
+    indexWord8OffAddrAsInt16#,
+    readWord8OffAddrAsInt16#,
+    writeWord8OffAddrAsInt16#,
+    indexWord8OffAddrAsInt32#,
+    readWord8OffAddrAsInt32#,
+    writeWord8OffAddrAsInt32#,
+    indexWord8OffAddrAsAddr#,
+    readWord8OffAddrAsAddr#,
+    writeWord8OffAddrAsAddr#,
+    indexWord8OffAddrAsStablePtr#,
+    readWord8OffAddrAsStablePtr#,
+    writeWord8OffAddrAsStablePtr#,
     uncheckedIShiftL#,
     uncheckedIShiftRA#,
     uncheckedIShiftRL#,
@@ -2006,3 +2060,111 @@ addWeakCellFinalizer weak action state = case readMutVar# weak state of
     WeakDead -> (# next, 0# #)
 
 foreign import prim newDelayTVar# :: Int# -> a -> a -> State# RealWorld -> (# State# RealWorld, TVar# RealWorld a #)
+
+foreign import prim indexWord8ArrayAsChar# :: ByteArray# -> Int# -> Char#
+
+foreign import prim readWord8ArrayAsChar# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeWord8ArrayAsChar# :: MutableByteArray# d -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsWideChar# :: ByteArray# -> Int# -> Char#
+
+foreign import prim readWord8ArrayAsWideChar# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeWord8ArrayAsWideChar# :: MutableByteArray# d -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsInt# :: ByteArray# -> Int# -> Int#
+
+foreign import prim readWord8ArrayAsInt# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim writeWord8ArrayAsInt# :: MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsWord# :: ByteArray# -> Int# -> Word#
+
+foreign import prim readWord8ArrayAsWord# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word# #)
+
+foreign import prim writeWord8ArrayAsWord# :: MutableByteArray# d -> Int# -> Word# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsInt16# :: ByteArray# -> Int# -> Int16#
+
+foreign import prim readWord8ArrayAsInt16# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int16# #)
+
+foreign import prim writeWord8ArrayAsInt16# :: MutableByteArray# d -> Int# -> Int16# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsInt32# :: ByteArray# -> Int# -> Int32#
+
+foreign import prim readWord8ArrayAsInt32# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Int32# #)
+
+foreign import prim writeWord8ArrayAsInt32# :: MutableByteArray# d -> Int# -> Int32# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsFloat# :: ByteArray# -> Int# -> Float#
+
+foreign import prim readWord8ArrayAsFloat# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Float# #)
+
+foreign import prim writeWord8ArrayAsFloat# :: MutableByteArray# d -> Int# -> Float# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsDouble# :: ByteArray# -> Int# -> Double#
+
+foreign import prim readWord8ArrayAsDouble# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Double# #)
+
+foreign import prim writeWord8ArrayAsDouble# :: MutableByteArray# d -> Int# -> Double# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsAddr# :: ByteArray# -> Int# -> Addr#
+
+foreign import prim readWord8ArrayAsAddr# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Addr# #)
+
+foreign import prim writeWord8ArrayAsAddr# :: MutableByteArray# d -> Int# -> Addr# -> State# d -> State# d
+
+foreign import prim indexWord8ArrayAsStablePtr# :: ByteArray# -> Int# -> StablePtr# a
+
+foreign import prim readWord8ArrayAsStablePtr# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, StablePtr# a #)
+
+foreign import prim writeWord8ArrayAsStablePtr# :: MutableByteArray# d -> Int# -> StablePtr# a -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsChar# :: Addr# -> Int# -> Char#
+
+foreign import prim readWord8OffAddrAsChar# :: Addr# -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeWord8OffAddrAsChar# :: Addr# -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsWideChar# :: Addr# -> Int# -> Char#
+
+foreign import prim readWord8OffAddrAsWideChar# :: Addr# -> Int# -> State# d -> (# State# d, Char# #)
+
+foreign import prim writeWord8OffAddrAsWideChar# :: Addr# -> Int# -> Char# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsInt# :: Addr# -> Int# -> Int#
+
+foreign import prim readWord8OffAddrAsInt# :: Addr# -> Int# -> State# d -> (# State# d, Int# #)
+
+foreign import prim writeWord8OffAddrAsInt# :: Addr# -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsWord# :: Addr# -> Int# -> Word#
+
+foreign import prim readWord8OffAddrAsWord# :: Addr# -> Int# -> State# d -> (# State# d, Word# #)
+
+foreign import prim writeWord8OffAddrAsWord# :: Addr# -> Int# -> Word# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsInt16# :: Addr# -> Int# -> Int16#
+
+foreign import prim readWord8OffAddrAsInt16# :: Addr# -> Int# -> State# d -> (# State# d, Int16# #)
+
+foreign import prim writeWord8OffAddrAsInt16# :: Addr# -> Int# -> Int16# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsInt32# :: Addr# -> Int# -> Int32#
+
+foreign import prim readWord8OffAddrAsInt32# :: Addr# -> Int# -> State# d -> (# State# d, Int32# #)
+
+foreign import prim writeWord8OffAddrAsInt32# :: Addr# -> Int# -> Int32# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsAddr# :: Addr# -> Int# -> Addr#
+
+foreign import prim readWord8OffAddrAsAddr# :: Addr# -> Int# -> State# d -> (# State# d, Addr# #)
+
+foreign import prim writeWord8OffAddrAsAddr# :: Addr# -> Int# -> Addr# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddrAsStablePtr# :: Addr# -> Int# -> StablePtr# a
+
+foreign import prim readWord8OffAddrAsStablePtr# :: Addr# -> Int# -> State# d -> (# State# d, StablePtr# a #)
+
+foreign import prim writeWord8OffAddrAsStablePtr# :: Addr# -> Int# -> StablePtr# a -> State# d -> State# d
