@@ -4,6 +4,13 @@
 -- time.
 module WasiHeaders (wasiDeclarations) where
 
+-- The compiler of the WASI target does not define @__unix__@. A package
+-- such as @basement@ identifies a POSIX system by @_POSIX_VERSION@ before
+-- it includes a libc header.
+#if !defined(_POSIX_VERSION)
+#error "_POSIX_VERSION is not defined before the first header"
+#endif
+
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
