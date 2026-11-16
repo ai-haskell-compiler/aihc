@@ -250,8 +250,11 @@ foldr combine initial values = go values
 infixr 0 $
 
 -- | Strict function application. The argument is evaluated before the call.
-($!) :: (a -> b) -> a -> b
-function $! argument = argument `seq` function argument
+-- As in GHC, the result can have any runtime representation. @flatparse@
+-- gives an unboxed sum result with @Err# st' $! merge e' e@.
+($!) :: forall (r :: RuntimeRep) (a :: Type) (b :: TYPE r). (a -> b) -> a -> b
+function $! argument = case argument of
+  !value -> function value
 
 infixr 0 $!
 
