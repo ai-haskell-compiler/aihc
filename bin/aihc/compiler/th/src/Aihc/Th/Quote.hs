@@ -326,6 +326,12 @@ quotedType = go
             _ -> Nothing
         TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
         TApp function argument -> applied <$> go function <*> go argument
+        -- GHC gives an application of the operator, not an infix type.
+        TInfix left operator promotion right -> do
+          operator' <- go (TCon operator promotion)
+          left' <- go left
+          right' <- go right
+          Just (applied (applied operator' left') right')
         TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
         TList Unpromoted [element] -> applied (library "listT") <$> go element
         TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
@@ -411,12 +417,24 @@ quoted dynamic binders = go
           pure (call "tupE" [EList fields'])
         EList elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
         EIf condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
+        ECase scrutinee alternatives -> do
+          scrutinee' <- go scrutinee
+          alternatives' <- mapM alternative alternatives
+          pure (call "caseE" [scrutinee', EList alternatives'])
         -- A splice in a quote gives the syntax tree itself. A quote in the
         -- body of the splice also changes, with the binders of this quote.
         ETHSplice resolvedBody ->
           StateT $ \case
             body : rest -> Just (EParen (desugarQuotes dynamic binders body resolvedBody), rest)
             [] -> Nothing
+        _ -> lift Nothing
+    -- An alternative with no guard and no where clause.
+    alternative (CaseAlt _ pattern' rhs) =
+      case rhs of
+        UnguardedRhs _ body Nothing -> do
+          pattern'' <- lift (quotedPattern pattern')
+          body' <- go body
+          pure (call "match" [pattern'', call "normalB" [body'], EList []])
         _ -> lift Nothing
     variable name =
       case nameEntity name of
@@ -426,6 +444,12 @@ quoted dynamic binders = go
         Just entity@(EntityLocal _)
           | entity `Set.member` binders -> Just (call "varE" [dynamicName (nameText name)])
           | otherwise -> Just (call "lift" [EVar (mkName (nameQualifier name) (nameType name) (nameText name))])
+        -- The resolver accepts a variable that is not in scope in a quote.
+        -- The variable becomes an unbound variable of the syntax tree.
+        Nothing
+          | isNothing (nameQualifier name),
+            nameType name == NameVarId ->
+              Just (call "unboundVarE" [dynamicName (nameText name)])
         _ -> Nothing
     quotedPattern pattern' =
       case pattern' of
@@ -433,12 +457,26 @@ quoted dynamic binders = go
         PParen inner -> quotedPattern inner
         PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
         PWildcard -> Just (library "wildP")
+        PLit literal' -> patternLiteral literal'
         PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
         -- A constructor pattern with no type arguments.
         PCon name [] arguments
           | Just (EntityGlobal global) <- nameEntity name ->
               (\arguments' -> call "conP" [globalName name global, EList arguments']) <$> mapM quotedPattern arguments
         _ -> Nothing
+
+-- | The syntax tree of a literal pattern. A literal with an unboxed type
+-- or a fractional literal is outside the subset.
+patternLiteral :: Literal -> Maybe Expr
+patternLiteral literal' =
+  case literal' of
+    LitAnn _ inner -> patternLiteral inner
+    LitInt number TInteger _ -> Just (pattern' "integerL" (integer number))
+    LitChar char source -> Just (pattern' "charL" (EChar char source))
+    LitString string _ -> Just (pattern' "stringL" (stringLiteral string))
+    _ -> Nothing
+  where
+    pattern' constructor value = call "litP" [call constructor [value]]
 
 -- | The Template Haskell name of a top-level term.
 globalName :: Name -> GlobalName -> Expr

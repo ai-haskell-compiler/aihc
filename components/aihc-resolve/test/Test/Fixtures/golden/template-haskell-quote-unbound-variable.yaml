@@ -1,0 +1,13 @@
+extensions:
+  - TemplateHaskellQuotes
+modules:
+  - |
+    module Main where
+    hole = [| case _ of x -> missing x |]
+annotated:
+  - |
+    module Main where
+    hole = [| case _ of x -> missing x |]
+    └─ v Main           └─ v 0       └─ v 0
+status: pass
+reason: GHC accepts a variable that is not in scope in an expression quote. The variables _ and missing have no resolution and no error

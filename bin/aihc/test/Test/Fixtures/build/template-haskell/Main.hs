@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Main (main) where
 
@@ -31,6 +32,29 @@ showTriple =
 -- outer quote binds.
 nested :: Q Exp
 nested = [|\y -> $([|y|])|]
+
+-- | A case quote with variables that are not in scope. GHC accepts them,
+-- and the syntax tree has unbound variables.
+holeCase :: Q Exp
+holeCase = [|case _ of { "a" -> missing; _ -> 'c' }|]
+
+-- | A type operator of this module.
+type a :+ b = Either a b
+
+infixr 5 :+
+
+-- | A type quote with a type operator. GHC gives an application of the
+-- operator.
+operatorQuote :: Q Type
+operatorQuote = [t|Int :+ Bool :+ Char|]
+
+-- | Whether the tree of 'operatorQuote' has the expected form.
+operatorQuoteForm :: Type -> Bool
+operatorQuoteForm ty =
+  case ty of
+    AppT (AppT (ConT plus) (ConT int)) (AppT (AppT (ConT plus') (ConT bool)) (ConT char)) ->
+      plus == ''(:+) && plus' == ''(:+) && int == ''Int && bool == ''Bool && char == ''Char
+    _ -> False
 
 -- | A type quote with a forall, a context, and a type variable that the
 -- forall binds. The names of the tree are the names of the program.
@@ -225,6 +249,7 @@ main = do
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
   runQ nested >>= print
+  runQ holeCase >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))
@@ -240,6 +265,7 @@ main = do
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
   runQ promotedQuote >>= print . promotedQuoteForm
+  runQ operatorQuote >>= print . operatorQuoteForm
   -- A quote in a splice body names a value and a constructor of this
   -- module that the module does not export, and a constructor in a
   -- pattern.
