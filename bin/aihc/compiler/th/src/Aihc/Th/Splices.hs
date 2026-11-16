@@ -26,6 +26,7 @@ module Aihc.Th.Splices
     Splice (..),
     SpliceResult (..),
     moduleSplices,
+    moduleSpliceSpans,
     replaceModuleSplices,
     replaceFirstSplice,
     firstSplicePosition,
@@ -47,6 +48,7 @@ import Aihc.Resolve.Types (GlobalName)
 import Aihc.Tc.Interface (TcInterface)
 import Aihc.Th.Quote (quoteImports)
 import Aihc.Th.Wire (Tree)
+import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (evalState, execState, modify', state)
 import Data.Char (isAlphaNum, toLower)
 import Data.Data (Data, gmapM)
@@ -94,7 +96,12 @@ data SpliceRequest = SpliceRequest
     -- The splice module does not import them.
     spliceRequestUnavailableImports :: ![Text],
     -- | Each splice, in the order of 'moduleSplices'.
-    spliceRequestSplices :: ![Splice]
+    spliceRequestSplices :: ![Splice],
+    -- | The path of the source file of the module, relative to the root
+    -- directory of the package, as GHC gives it to @location@.
+    spliceRequestSourceFile :: !FilePath,
+    -- | The source span of each splice, in the order of 'moduleSplices'.
+    spliceRequestSpans :: ![Maybe SourceSpan]
   }
 
 -- | The settings of the component of a source file of a package.
@@ -203,39 +210,70 @@ type RunSplice = Int -> LocalFacts -> IO SpliceResult
 -- function for a declaration splice gets the declaration and its body, and
 -- it gives the declarations that take the position of the splice.
 traverseSplices :: forall m. (Monad m) => (Expr -> m Expr) -> (Expr -> m Type) -> (Decl -> Expr -> m [Decl]) -> Module -> m Module
-traverseSplices onExpression onType onDeclaration = go
+traverseSplices onExpression onType onDeclaration =
+  traverseSplicesAt (const onExpression) (const onType) (const onDeclaration)
+
+-- | The source span of each splice of 'moduleSplices', in the same order.
+-- The span is the span of the syntax node of the splice, or of the
+-- nearest node around it that has a span.
+moduleSpliceSpans :: Module -> [Maybe SourceSpan]
+moduleSpliceSpans modu = reverse (execState (traverseSplicesAt expression typeSplice declaration modu) [])
   where
-    go :: forall value. (Data value) => value -> m value
-    go value =
+    expression here body = do
+      modify' (here :)
+      pure (ETHSplice body)
+    typeSplice here body = do
+      modify' (here :)
+      pure (TSplice body)
+    declaration here decl _ = do
+      modify' (here :)
+      pure [decl]
+
+-- | 'traverseSplices', and each function also gets the source span of the
+-- splice.
+traverseSplicesAt :: forall m. (Monad m) => (Maybe SourceSpan -> Expr -> m Expr) -> (Maybe SourceSpan -> Expr -> m Type) -> (Maybe SourceSpan -> Decl -> Expr -> m [Decl]) -> Module -> m Module
+traverseSplicesAt onExpression onType onDeclaration = go Nothing
+  where
+    go :: forall value. (Data value) => Maybe SourceSpan -> value -> m value
+    go here value =
       case eqT @value @Expr of
-        Just Refl -> expression value
+        Just Refl -> expression here value
         Nothing ->
           case eqT @value @Type of
-            Just Refl -> typ value
+            Just Refl -> typ here value
             Nothing ->
               case eqT @value @[Decl] of
-                Just Refl -> concat <$> mapM declaration value
-                Nothing -> gmapM go value
-    expression :: Expr -> m Expr
-    expression expr =
+                Just Refl -> concat <$> mapM (declaration here) value
+                Nothing -> gmapM (go here) value
+    expression :: Maybe SourceSpan -> Expr -> m Expr
+    expression here expr =
       case expr of
-        ETHSplice body -> onExpression body
+        EAnn annotation inner -> EAnn annotation <$> expression (annotationSpan here annotation) inner
+        ETHSplice body -> onExpression here body
         ETHExpQuote {} -> pure expr
         ETHTypedQuote {} -> pure expr
         ETHDeclQuote {} -> pure expr
         ETHTypeQuote {} -> pure expr
         ETHPatQuote {} -> pure expr
-        _ -> gmapM go expr
-    typ :: Type -> m Type
-    typ ty =
+        _ -> gmapM (go here) expr
+    typ :: Maybe SourceSpan -> Type -> m Type
+    typ here ty =
       case ty of
-        TSplice body -> onType body
-        _ -> gmapM go ty
-    declaration :: Decl -> m [Decl]
-    declaration decl =
-      case declarationSpliceBody decl of
-        Just body -> onDeclaration decl body
-        Nothing -> pure <$> gmapM go decl
+        TAnn annotation inner -> TAnn annotation <$> typ (annotationSpan here annotation) inner
+        TSplice body -> onType here body
+        _ -> gmapM (go here) ty
+    declaration :: Maybe SourceSpan -> Decl -> m [Decl]
+    declaration here decl =
+      let here' = declarationSpan here decl
+       in case declarationSpliceBody decl of
+            Just body -> onDeclaration here' decl body
+            Nothing -> pure <$> gmapM (go here') decl
+    -- The span of the outermost annotation of a declaration.
+    declarationSpan here decl =
+      case decl of
+        DeclAnn annotation _ -> annotationSpan here annotation
+        _ -> here
+    annotationSpan here annotation = fromAnnotation annotation <|> here
     declarationSpliceBody decl =
       case decl of
         DeclAnn _ inner -> declarationSpliceBody inner
