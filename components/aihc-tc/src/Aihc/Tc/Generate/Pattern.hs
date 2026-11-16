@@ -66,6 +66,8 @@ import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
@@ -508,10 +510,11 @@ checkPatternCore sp pat scrutTy =
 -- where-bound signature is this @a@, and the equality with the argument
 -- type makes it the @a@ of the outer signature.
 --
--- When the signature binds a type variable, the equality is solved at the
--- pattern if it can be, as GHC binds the variable at the pattern. Otherwise
--- a GADT match in the body can solve the meta variable from its own givens,
--- and the equality then fails outside that match.
+-- The equality is solved at the pattern if it can be, as GHC unifies a
+-- pattern signature at the pattern. Otherwise a GADT match in the body or
+-- in the inner pattern can solve a meta variable from its own givens, and
+-- the equality then fails outside that match. In sbv, the lambda pattern
+-- @(SBVsCons as a :: SBVs (as :> a))@ is an example.
 checkTypeSigPattern :: Maybe SourceSpan -> Pattern -> Type -> TcType -> TcM PatternCheck
 checkTypeSigPattern sp inner tyAnn scrutTy = do
   scoped <- getScopedTyVars
@@ -523,12 +526,12 @@ checkTypeSigPattern sp inner tyAnn scrutTy = do
     scrutKind <- tcTypeKind =<< zonkType scrutTy
     sigTy <- checkSurfaceType scoped' tyAnn scrutKind
     eqCt <- wantedEq sp scrutTy sigTy
+    before <- lift get
+    result <- solveEquality eqCt
     solved <-
-      if null boundTyVars
-        then pure False
-        else do
-          result <- solveEquality eqCt
-          pure (case result of EqSolved -> True; _ -> False)
+      case result of
+        EqSolved -> pure True
+        _ -> False <$ lift (put before)
     innerCheck <- checkPattern sp inner sigTy
     pure
       innerCheck

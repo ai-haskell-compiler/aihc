@@ -1,0 +1,55 @@
+extensions:
+  - DataKinds
+  - GADTs
+  - ScopedTypeVariables
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, ScopedTypeVariables, TypeOperators #-}
+    module Test where
+    data RList a = RNil | RList a :> a
+    data Box a = Box
+    data Boxes as where
+      BoxesCons :: Boxes as -> Box a -> Boxes (as ':> a)
+    class Vals as
+    instance Vals as => Vals (as ':> a)
+    run :: Vals as => (Boxes as -> ()) -> ()
+    run _ = ()
+    step :: forall as a. Vals as => (Boxes as -> Box a -> ()) -> ()
+    step fn = run (\((BoxesCons bs b) :: Boxes (as ':> a)) -> fn bs b)
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTs, ScopedTypeVariables, TypeOperators #-}
+    module Test where
+    data RList a = RNil | RList a :> a
+         │         │      └─ type: ∀ a. RList a → a → RList a
+         │         └─ type: ∀ a. RList a
+         └─ type: Type → Type
+    data Box a = Box
+         │       └─ type: ∀ a. Box a
+         └─ type: Type → Type
+    data Boxes as where
+         └─ type: RList Type → Type
+      BoxesCons :: Boxes as -> Box a -> Boxes (as ':> a)
+      └─ type: ∀ as as a. (as ~ (':> as a)) ⇒ Boxes as → Box a → Boxes as
+    class Vals as
+    └─ class methods:
+    instance Vals as => Vals (as ':> a)
+    └─ $fVals:>asa ∷ ∀ as a. (Vals as) ⇒ Vals (':> as a)
+    run :: Vals as => (Boxes as -> ()) -> ()
+    run _ = ()
+    │   │   └─ type: ()
+    │   └─ type: Boxes as → ()
+    └─ type: ∀ as. (Vals as) ⇒ (Boxes as → ()) → ()
+    step :: forall as a. Vals as => (Boxes as -> Box a -> ()) -> ()
+    step fn = run (\((BoxesCons bs b) :: Boxes (as ':> a)) -> fn bs b)
+    │    │    │    ││ │         │  └─ type: Box a
+    │    │    │    ││ │         └─ type: Boxes as
+    │    │    │    ││ └─ type: Boxes as → Box a → Boxes (':> as a); type-args: ':> as a, as, a; evidence: given ':> as a ~ ':> as a
+    │    │    │    │└─ type: Boxes (':> as a)
+    │    │    │    └─ type: Boxes (':> as a) → ()
+    │    │    └─ type: (Boxes (':> as a) → ()) → (); type-args: ':> as a; evidence: $fVals:>asa @as @a (given Vals as)
+    │    └─ type: Boxes as → Box a → ()
+    └─ type: ∀ as a. (Vals as) ⇒ (Boxes as → Box a → ()) → ()
+status: pass
+reason: A pattern signature over a GADT pattern gives its type to the scrutinee before the match.
