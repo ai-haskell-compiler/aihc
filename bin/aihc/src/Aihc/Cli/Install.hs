@@ -4820,12 +4820,21 @@ readHookedBuildInfo buildDirectory packageName = do
 -- of the emulation, the C compiler gets the macro and a link gets the
 -- archive. The code of a splice has no files to map, so the emulation is
 -- sufficient.
+--
+-- The compiler of the WASI target defines no operating system macro other
+-- than @__wasi__@. It does not define @__unix__@. Some packages identify a
+-- POSIX system before they include a libc header, and stop with an error
+-- for an unknown system. An example is @foundation_system.h@ of
+-- @basement@, which tests @_POSIX_VERSION@ last. The libc is POSIX, and its
+-- @unistd.h@ defines @_POSIX_VERSION@ as @200809L@. Thus the C compiler gets
+-- the same definition before any header. The definition in @unistd.h@ is
+-- identical, so it is not a redefinition error.
 wasmSysrootIncludeArguments :: NativeTarget -> IO [String]
 wasmSysrootIncludeArguments target =
   case target of
     Wasm32Wasip3 -> do
       sysroot <- wasmSysroot
-      pure (["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1"] <> ["-D_WASI_EMULATED_MMAN" | isJust (wasmSysrootEmulatedMman sysroot)])
+      pure (["-isystem" <> wasmSysrootInclude sysroot, "-DHAVE_DLFCN_H=1", "-D_POSIX_VERSION=200809L"] <> ["-D_WASI_EMULATED_MMAN" | isJust (wasmSysrootEmulatedMman sysroot)])
     _ -> pure []
 
 cObjectFileName :: FilePath -> FilePath
