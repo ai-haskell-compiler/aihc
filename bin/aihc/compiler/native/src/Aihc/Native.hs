@@ -402,7 +402,7 @@ backendCompiler target =
     -- containers spent 32.7 s of a 39.8 s install in Clang at -O2, against
     -- 8.1 s through the in-house arm64 backend. Handwritten C is a separate
     -- case; see handwrittenCArguments.
-    Llvm -> pure ("clang", ["-Wno-override-module"] <> llvmCodeGenerationArguments <> (if System.os == "darwin" then [] else elfSectionArguments))
+    Llvm -> pure ("clang", ["-Wno-override-module"] <> llvmCodeGenerationArguments <> (if System.os == "darwin" then [] else elfCodeArguments))
     Wasm32Wasip3 -> do
       compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
       pure
@@ -426,7 +426,7 @@ backendCompiler target =
     -- An ELF linker removes unreachable code one section at a time, so
     -- Clang puts each function and each variable in its own section. A
     -- Mach-O object is divided at its symbols instead.
-    nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target] <> elfSectionArguments)
+    nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target] <> elfCodeArguments)
 
 -- | The oldest macOS that the objects of the Apple target run on. The triple
 -- has no macOS version. On a macOS host, Clang then uses the version of the
@@ -435,6 +435,17 @@ backendCompiler target =
 -- arm64, so the objects are the same on each host.
 appleMinimumVersionArgument :: String
 appleMinimumVersionArgument = "-mmacos-version-min=11.0"
+
+-- | The Clang arguments of all code for an ELF target.
+--
+-- An ELF executable links as a PIE by default, so the objects must be
+-- position independent. The default of Clang is not the same on all
+-- systems. Upstream Clang compiles position-independent code by default,
+-- but the Clang of Fedora does not (#3317). Thus the arguments set @-fPIE@
+-- explicitly. An object with @-fPIE@ also links into an executable that
+-- is not a PIE.
+elfCodeArguments :: [String]
+elfCodeArguments = "-fPIE" : elfSectionArguments
 
 -- | The Clang arguments that give each function and each variable its own
 -- ELF section.
