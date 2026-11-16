@@ -3545,9 +3545,9 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   then do
                     kinds <- getKinds
                     unitTyCon <- flip mkWiredTyCon (typeKind kinds) =<< wiredTupleTyCon Boxed 0
-                    let Scheme inferred specified predicates body = scheme
+                    let Scheme inferred specified predicates body = patSynLayoutBuilderScheme layout
                     pure (Scheme inferred specified predicates (TcFunTy (TcTyCon unitTyCon []) body))
-                  else pure scheme
+                  else pure (patSynLayoutBuilderScheme layout)
               let builderSig = CheckedSig builderName builderScheme nameSpan [] False
                   withVoidArgument matches
                     | voidBuilder = [match {matchPats = PWildcard : matchPats match} | match <- matches]
@@ -3661,7 +3661,12 @@ data PatSynLayout = PatSynLayout
     patSynLayoutRequired :: ![Pred],
     patSynLayoutProvided :: ![Pred],
     patSynLayoutArgTypes :: ![TcType],
-    patSynLayoutResultType :: !TcType
+    patSynLayoutResultType :: !TcType,
+    -- | All type variables in the order of the signature. An expression
+    -- use instantiates them in this order, thus the builder takes them in
+    -- this order too. Without a signature, the universal variables come
+    -- first.
+    patSynLayoutSignatureOrder :: ![TyVarId]
   }
 
 -- | The constructor-like scheme of a pattern synonym. The predicates are
@@ -3670,6 +3675,16 @@ patSynLayoutScheme :: PatSynLayout -> TypeScheme
 patSynLayoutScheme layout =
   specifiedScheme
     (patSynLayoutUniversals layout <> patSynLayoutExistentials layout)
+    (patSynLayoutRequired layout <> patSynLayoutProvided layout)
+    (foldr TcFunTy (patSynLayoutResultType layout) (patSynLayoutArgTypes layout))
+
+-- | The scheme of the builder of a pattern synonym. It is the
+-- constructor-like scheme with the type variables in the order of the
+-- signature, because an expression use instantiates the signature.
+patSynLayoutBuilderScheme :: PatSynLayout -> TypeScheme
+patSynLayoutBuilderScheme layout =
+  specifiedScheme
+    (patSynLayoutSignatureOrder layout)
     (patSynLayoutRequired layout <> patSynLayoutProvided layout)
     (foldr TcFunTy (patSynLayoutResultType layout) (patSynLayoutArgTypes layout))
 
@@ -3703,7 +3718,8 @@ patSynLayoutFromSig name arity sig = do
                 patSynLayoutRequired = required,
                 patSynLayoutProvided = provided,
                 patSynLayoutArgTypes = argTys,
-                patSynLayoutResultType = resultType
+                patSynLayoutResultType = resultType,
+                patSynLayoutSignatureOrder = tyVars <> explicitExistentials
               }
         )
 
@@ -3744,7 +3760,8 @@ inferPatSynLayout sp name pat argBinders = do
                 patSynLayoutRequired = required,
                 patSynLayoutProvided = provided,
                 patSynLayoutArgTypes = argTys',
-                patSynLayoutResultType = resultType
+                patSynLayoutResultType = resultType,
+                patSynLayoutSignatureOrder = universals <> pcSkolems patCheck
               }
         )
   where

@@ -66,6 +66,8 @@ import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (get, put)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
@@ -468,10 +470,22 @@ checkPatternCore sp pat scrutTy =
       (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
       innerTy <- freshMetaTv
       eqCt <- wantedEq viewSpan viewTy (TcFunTy scrutTy innerTy)
+      -- GHC unifies the type of the view function with the scrutinee type
+      -- before it checks the inner pattern. Then a constructor pattern
+      -- reads its universal arguments from the known result type. Thus, a
+      -- GADT constructor gives its equalities in terms of these types, and
+      -- not in terms of meta variables that the branch cannot solve. If
+      -- the equality is not solved here, it stays a wanted of the pattern.
+      before <- lift get
+      result <- solveEquality eqCt
+      solved <-
+        case result of
+          EqSolved -> pure True
+          _ -> False <$ lift (put before)
       innerCheck <- checkPattern sp inner innerTy
       pure
         innerCheck
-          { pcWantedCts = eqCt : viewCts <> pcWantedCts innerCheck,
+          { pcWantedCts = [eqCt | not solved] <> viewCts <> pcWantedCts innerCheck,
             pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
           }
     PTuple flavor items -> checkTuplePattern sp flavor items scrutTy
@@ -1040,9 +1054,9 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
   mBinder <- lookupResolvedTerm conName target
   mPatSyn <- lookupPatSynTarget target
   case mBinder of
-    Just (TcIdBinder scheme _)
+    Just (TcIdBinder _ _)
       | Just info <- mPatSyn ->
-          checkPatSynPattern sp originalPat conName info scheme subPats scrutTy
+          checkPatSynPattern sp originalPat conName info (psiScheme info) subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
