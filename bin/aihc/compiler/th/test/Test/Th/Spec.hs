@@ -474,6 +474,7 @@ spliceModuleTest = do
             spliceRequestModule = "M",
             spliceRequestStoreRoot = "store",
             spliceRequestBuildRoot = "build",
+            spliceRequestPackageRoot = ".",
             spliceRequestDependencies = [("base", [4, 21, 2, 0])],
             spliceRequestExtensions = [],
             spliceRequestLanguage = Nothing,

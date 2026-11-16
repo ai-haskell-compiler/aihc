@@ -1968,6 +1968,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestModule = sourceModuleName source,
                   spliceRequestStoreRoot = takeDirectory (locationStoreRoot locations),
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
+                  spliceRequestPackageRoot = moduleBuildPackageRoot build,
                   spliceRequestDependencies = packageFileDependencies (packageFile file),
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,

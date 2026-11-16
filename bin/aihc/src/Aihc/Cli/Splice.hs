@@ -16,8 +16,8 @@
 --    answers its requests, and converts its result to the surface syntax.
 --    The caller runs the splices in source order.
 --
--- The splice code has no access to the build machine. See
--- "Aihc.Wasm.Engine".
+-- The splice code has no access to the build machine, apart from read
+-- access to the directory of the package. See "Aihc.Wasm.Engine".
 --
 -- The body of a splice can use the modules of its own package that the
 -- module imports. The splice package has a copy of each of these modules,
@@ -80,10 +80,22 @@ withSplices config = config {compileSplices = Just runSplices}
 -- splice to the action. The action runs the splices in the order of the
 -- request.
 runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
-runSplices request action =
+runSplices = runSplicesFor Nothing
+
+-- | 'runSplices' for the build of a splice package. The splice package has
+-- copies of modules of an original package. A splice in such a copy reads
+-- the files of the original package. Thus, a request of the splice package
+-- gets the directory of the original package. The first argument has the
+-- name of the splice package and that directory.
+runSplicesFor :: Maybe (Text, FilePath) -> SpliceRequest -> (RunSplice -> IO a) -> IO a
+runSplicesFor original given action =
   run `catch` \failure ->
     ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure <> unavailableNote))
   where
+    request =
+      case original of
+        Just (name, directory) | spliceRequestPackage given == name -> given {spliceRequestPackageRoot = directory}
+        _ -> given
     root = spliceRequestBuildRoot request
     -- A splice cannot use a module of the same dependency cycle. A failure
     -- names these modules, because the failure is often an unbound name of
@@ -102,12 +114,14 @@ runSplices request action =
       writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription absolute)
       TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
       mapM_ (copyOwnModule absolute (packageDirectory </> "src")) (spliceRequestOwnModules absolute)
-      installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withSplices
+      packageRoot <- makeAbsolute (spliceRequestPackageRoot request)
+      let withOriginalFiles config = config {compileSplices = Just (runSplicesFor (Just (package, packageRoot)))}
+      installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withOriginalFiles
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
       storeFacts <- newReifier packages
-      withEngine image $ \engine -> do
+      withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
         action $ \index localFacts -> do
