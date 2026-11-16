@@ -38,6 +38,7 @@ tests =
       testCase "converts a data and a newtype declaration" dataDeclarationTest,
       testCase "converts a type synonym" typeSynonymTest,
       testCase "converts a data and a newtype family instance" dataInstanceTest,
+      testCase "converts a do expression, a comprehension, and an operator chain" statementsTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
       testCase "finds and replaces the splices of a module" splicesTest,
@@ -478,6 +479,43 @@ dataInstanceTest = do
     (Right "instance Unbox Point where newtype Vector Point = V_Point (Vector Int) data instance forall a. Family (Maybe a) = FamilyNone | FamilyJust a deriving (Eq)")
     (T.unwords . map render <$> declarationsFromTree tree)
 
+-- | The @deriveJSON@ of @aeson@ gives a do expression in its parsers.
+statementsTest :: IO ()
+statementsTest = do
+  let apply function argument = TreeNode "AppE" [function, argument]
+      bind binder value = TreeNode "BindS" [TreeNode "VarP" [name binder], value]
+      valueDecl binder value = TreeNode "ValD" [TreeNode "VarP" [name binder], TreeNode "NormalB" [value], list []]
+      statements =
+        list
+          [ bind "x" (variable "m"),
+            TreeNode "LetS" [list [valueDecl "y" (variable "x")]],
+            TreeNode "NoBindS" [apply (variable "f") (variable "y")]
+          ]
+      chain left operator right = TreeNode "UInfixE" [left, variable operator, right]
+      convert = fmap render . expressionFromTree
+  assertEqual
+    "a do expression"
+    (Right "do x <- m let y = x f y")
+    (convert (TreeNode "DoE" [TreeNode "Nothing" [], statements]))
+  assertEqual
+    "a qualified mdo expression"
+    (Right "M.mdo x <- m let y = x f y")
+    (convert (TreeNode "MDoE" [TreeNode "Just" [TreeNode "ModName" [TreeString "M"]], statements]))
+  assertEqual
+    "a list comprehension"
+    (Right "[f x | x <- xs, p x]")
+    (convert (TreeNode "CompE" [list [bind "x" (variable "xs"), TreeNode "NoBindS" [apply (variable "p") (variable "x")], TreeNode "NoBindS" [apply (variable "f") (variable "x")]]]))
+  assertEqual
+    "an arithmetic sequence"
+    (Right "[a .. b]")
+    (convert (TreeNode "ArithSeqE" [TreeNode "FromToR" [variable "a", variable "b"]]))
+  -- The operands of a chain have no parentheses, so name resolution gives
+  -- the fixity. An operand from InfixE keeps its parentheses.
+  assertEqual
+    "an operator chain"
+    (Right "a + b * (c - d)")
+    (convert (chain (chain (variable "a") "+" (variable "b")) "*" (infixTree (Just (variable "c")) "-" (Just (variable "d")))))
+
 unsupportedTest :: IO ()
 unsupportedTest = do
   -- A unique name has its number in its text, so two names with the same
@@ -491,9 +529,9 @@ unsupportedTest = do
     (Left "The compiler does not support the name flavour NameL in a splice result.")
     (expressionFromTree (TreeNode "VarE" [TreeNode "Name" [TreeNode "OccName" [TreeString "x"], TreeNode "NameL" [TreeInteger 1]]]))
   assertEqual
-    "a do expression"
-    (Left "The compiler does not support the expression DoE in a splice result.")
-    (expressionFromTree (TreeNode "DoE" [TreeNode "Nothing" [], list []]))
+    "a static expression"
+    (Left "The compiler does not support the expression StaticE in a splice result.")
+    (expressionFromTree (TreeNode "StaticE" [variable "x"]))
 
 -- | A module with a splice in each position that matters: with and
 -- without parentheses, in a quote, in the body of a splice, and in the
