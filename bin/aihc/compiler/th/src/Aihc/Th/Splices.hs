@@ -68,6 +68,10 @@ data SpliceRequest = SpliceRequest
     spliceRequestStoreRoot :: !FilePath,
     -- | A directory for the files of this module.
     spliceRequestBuildRoot :: !FilePath,
+    -- | The directory of the Cabal file of the package. A splice can read
+    -- the files in it, and a relative path in a splice starts at it, as
+    -- with GHC.
+    spliceRequestPackageRoot :: !FilePath,
     -- | The name and the version of each package that the module can
     -- import, apart from its own package.
     spliceRequestDependencies :: ![(Text, [Int])],

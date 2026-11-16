@@ -16,8 +16,8 @@
 --    answers its requests, and converts its result to the surface syntax.
 --    The caller runs the splices in source order.
 --
--- The splice code has no access to the build machine. See
--- "Aihc.Wasm.Engine".
+-- The splice code has no access to the build machine, apart from read
+-- access to the directory of the package. See "Aihc.Wasm.Engine".
 --
 -- The body of a splice can use the modules of its own package that the
 -- module imports. The splice package has a copy of each of these modules,
@@ -107,7 +107,8 @@ runSplices request action =
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
       storeFacts <- newReifier packages
-      withEngine image $ \engine -> do
+      packageRoot <- makeAbsolute (spliceRequestPackageRoot request)
+      withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
         action $ \index localFacts -> do

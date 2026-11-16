@@ -162,7 +162,7 @@ sharedModuleTest tools = do
         linkImage image [imageObject] [] []
         linkSharedModule first [firstObject] []
         linkSharedModule second [secondObject] []
-        results <- withEngine image $ \engine -> do
+        results <- withEngine Nothing image $ \engine -> do
           loadSharedModule engine first
           loadSharedModule engine second
           sequence
@@ -254,7 +254,7 @@ imageThreadTest tools = do
         runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-isystem", wasmSysrootInclude sysroot, "-c", source, "-o", object])
         runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-c", runtimeRoot </> "wasm" </> "aihc_wasip3_libc.c", "-o", shimObject])
         linkImage image [object, shimObject] [] []
-        result <- withEngine image $ \engine -> callFunction engine "image_thread" []
+        result <- withEngine Nothing image $ \engine -> callFunction engine "image_thread" []
         assertEqual "the thread of the engine" (Just 1) result
     _ -> pure ()
 
@@ -280,7 +280,7 @@ imageEnvironmentTest tools = do
         linkImage image [object, shimObject] [] []
         -- The constructors of the libc read the environment, as at the
         -- start of the guest.
-        result <- withEngine image $ \engine -> do
+        result <- withEngine Nothing image $ \engine -> do
           _ <- callFunction engine "__wasm_call_ctors" []
           callFunction engine "image_environment" []
         assertEqual "an empty environment" (Just 1) result

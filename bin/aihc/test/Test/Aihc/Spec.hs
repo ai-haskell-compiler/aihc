@@ -733,6 +733,13 @@ test_engineSplice getStore =
     -- for each byte, also for a byte above 127.
     bytesLiteral <- splice "bytes"
     assertEqual "a bytes literal" (Right (Syntax.EStringHash "ab\233" "\"ab\\233\"#")) bytesLiteral
+    -- A splice reads a file of its package with a relative path. A read
+    -- outside the package directory and a write fail.
+    packageFile <- splice "packageFile"
+    assertEqual
+      "the file, a read outside the package, and a write"
+      (Right (Syntax.ETuple Syntax.Boxed [Just (Syntax.EString "one\ntwo\n" "\"one\\ntwo\\n\""), Just (Syntax.EString "denied" "\"denied\""), Just (Syntax.EString "denied" "\"denied\"")]))
+      packageFile
 
 -- | The answer to a closure that must not send a request.
 noRequest :: BS.ByteString -> IO BS.ByteString
@@ -775,7 +782,8 @@ test_buildSplices getStore getEngineStore = do
 -- engine that has the two. The image is the guest program with the image
 -- link and the packages of the constraints. The shared module has the
 -- modules of the fixture package @engine-NAME@, with the
--- position-independent code model. The action does not run when the
+-- position-independent code model. The engine can read the files of the
+-- fixture package. The action does not run when the
 -- WebAssembly toolchain or Node.js is not installed.
 withEngineFixture :: IO (Maybe SeedStore) -> [String] -> String -> (Engine -> Assertion) -> Assertion
 withEngineFixture getStore constraints name action = do
@@ -805,7 +813,7 @@ withEngineFixture getStore constraints name action = do
             { installPositionIndependent = True
             }
       linkSharedModule shared [] [installStorePath result </> "lib" </> "libengine-" <> name <> ".a"]
-      withEngine image $ \engine -> do
+      withEngine (Just fixtureRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
         action engine
