@@ -1054,9 +1054,9 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
   mBinder <- lookupResolvedTerm conName target
   mPatSyn <- lookupPatSynTarget target
   case mBinder of
-    Just (TcIdBinder scheme _)
+    Just (TcIdBinder _ _)
       | Just info <- mPatSyn ->
-          checkPatSynPattern sp originalPat conName info scheme subPats scrutTy
+          checkPatSynPattern sp originalPat conName info (psiScheme info) subPats scrutTy
     Just (TcIdBinder scheme _) -> do
       (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scrutTy scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
