@@ -790,8 +790,10 @@ targetTypeArguments mechanism dataType plan =
           Right arguments
     _ -> Left (mechanism <> " target does not match its checked datatype metadata")
 
--- | Standalone Eq, Ord, Show, and Lift methods use constructor evidence
--- through the ordinary instance checker. Standalone Functor, Foldable, and Traversable
+-- | Standalone Eq, Ord, Show, Read, and Lift methods use constructor evidence
+-- through the ordinary instance checker. A standalone Read instance builds
+-- each value at the instance head, so the checker also proves the
+-- constructor equalities, as GHC does. Standalone Functor, Foldable, and Traversable
 -- methods do the same for existential and constrained constructors. A
 -- refined GADT result stays unsupported for them, because a derived method
 -- cannot change a refined index. Other plans keep the constructor
@@ -816,7 +818,7 @@ validateStockDataType plan dataType
     mechanism = "stock " <> T.unpack (tcDerivingClassName plan) <> " deriving"
     checksConstructorEvidence =
       tcDerivingStandalone plan
-        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods, Just StockShowMethods, Just StockLiftMethods]
+        && stockClassMethodsOf (tcDerivingClassName plan) `elem` [Just StockEqMethods, Just StockOrdMethods, Just StockShowMethods, Just StockReadMethods, Just StockLiftMethods]
     checksExistentialEvidence =
       checksConstructorEvidence
         || ( tcDerivingStandalone plan
