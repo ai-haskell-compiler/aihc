@@ -13,9 +13,9 @@ name: Release
 # The paths of the work directory get into the executable. Thus, both stages
 # use the same WORK_DIR, and each target uses the same path.
 #
-# The release has no Linux executable at the moment. An executable that
-# links in Nix uses the program interpreter and the glibc of the Nix store,
-# so it does not start on a usual Linux distribution.
+# The release executables must run without Nix. The Linux executable is a
+# static musl executable. The macOS executable loads only libraries of macOS.
+# The release-compile-stage app supplies the toolchain for each target.
 
 on:
   push:
@@ -72,6 +72,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
           - target: apple-arm64
             runner: macos-15
     env:
@@ -92,7 +94,7 @@ jobs:
       # Without AIHC, the app uses the GHC-built aihc, which is stage 0.
       - name: Compile stage 1
         run: |
-          nix run .#self-compile-stage -- \
+          nix run .#release-compile-stage -- \
             --work-dir "$WORK_DIR" \
             --output "$RUNNER_TEMP/stages/aihc-stage1" \
             --target "$TARGET" \
@@ -105,7 +107,7 @@ jobs:
       - name: Compile stage 2
         run: |
           chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
-          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
+          AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#release-compile-stage -- \
             --work-dir "$WORK_DIR" \
             --output "$RUNNER_TEMP/stages/aihc-stage2" \
             --target "$TARGET" \
@@ -140,9 +142,39 @@ jobs:
             exit 1
           fi
 
+      # The executable must run on Linux without Nix. Thus it must have no
+      # program interpreter and no shared library. The runner has no Nix
+      # store in its library paths, so a run outside Nix is a real test.
+      - name: Check the static executable
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/stages/aihc-stage2"
+          chmod +x "$file"
+          {
+            echo "### Executable of aihc for $TARGET"
+            echo
+            echo "- $(file -b "$file")"
+          } >>"$GITHUB_STEP_SUMMARY"
+          status=0
+          if readelf -l "$file" | grep -q INTERP; then
+            echo "::error::The executable has a program interpreter."
+            status=1
+          fi
+          if readelf -d "$file" | grep -q NEEDED; then
+            echo "::error::The executable loads shared libraries: $(readelf -d "$file" | grep NEEDED | tr -s ' ')"
+            status=1
+          fi
+          env -i "$file" --help >/dev/null || {
+            echo "::error::The executable does not run outside Nix."
+            status=1
+          }
+          exit "$status"
+
       # The executable must run on a Mac without Nix. Thus it may only load
       # libraries of macOS, and it must run on macOS 11.
       - name: Check the dynamic libraries
+        if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           file="$RUNNER_TEMP/stages/aihc-stage2"
