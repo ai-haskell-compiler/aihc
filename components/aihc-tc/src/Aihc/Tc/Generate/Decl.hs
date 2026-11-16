@@ -4014,10 +4014,18 @@ patternToExpr pat =
     PBuiltinCon (BuiltinTuple flavor arity) _ items
       | length items == arity -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
+    PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
+    -- A record pattern with a wildcard has no expression: the wildcard
+    -- binds the names of the fields.
+    PRecord name fields False -> (\fields' -> ERecordCon name fields' False) <$> mapM recordField fields
     PParen inner -> EParen <$> patternToExpr inner
     PStrict inner -> patternToExpr inner
     PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
     _ -> Nothing
+  where
+    -- A punned field becomes a field with an explicit value, because the
+    -- value of the field is the converted pattern.
+    recordField field = (\value -> field {recordFieldValue = value, recordFieldPun = False}) <$> patternToExpr (recordFieldValue field)
 
 -- | An annotated literal pattern as an expression.
 --

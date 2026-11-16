@@ -1,0 +1,35 @@
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms, UnboxedSums, UnboxedTuples #-}
+  module Test where
+  data Item = Item
+       │      └─ type: Item
+       └─ type: Type
+  data Flag = On | Off
+       │      │    └─ type: Flag
+       │      └─ type: Flag
+       └─ type: Type
+  pattern Second :: Flag -> (# Item | Flag #)
+  pattern Second b = (# | b #)
+  │                  │    └─ type: Flag
+  │                  └─ type: GHC.Types.Sum2# Item Flag
+  └─ type: Flag → GHC.Types.Sum2# Item Flag
+  sample :: Flag -> (# Item | Flag #)
+  sample = Second
+  └─ type: Flag → GHC.Types.Sum2# Item Flag
+extensions:
+- PatternSynonyms
+- UnboxedSums
+- UnboxedTuples
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms, UnboxedSums, UnboxedTuples #-}
+  module Test where
+  data Item = Item
+  data Flag = On | Off
+  pattern Second :: Flag -> (# Item | Flag #)
+  pattern Second b = (# | b #)
+  sample :: Flag -> (# Item | Flag #)
+  sample = Second
+reason: the builder of an implicitly bidirectional pattern synonym with an unboxed sum pattern is an unboxed sum expression
+status: pass
