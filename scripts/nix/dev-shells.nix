@@ -12,6 +12,8 @@ in {
       pkgs.ormolu
       pkgs.haskellPackages.cabal-gild
       pkgs.alejandra
+      # scripts/repository-files.sh lists the files of the repository with git.
+      pkgs.git
       pkgs.hlint
       pkgs.clang-tools
       (pkgs.writeShellScriptBin "wasm-ld" ''
