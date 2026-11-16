@@ -81,6 +81,7 @@ compilerHeaderTexts target =
     -- GHC uses this header to include both target configuration headers.
     ("ghcconfig.h", header "GHCCONFIG_H" ["#include \"ghcautoconf.h\"", "#include \"ghcplatform.h\""] []),
     ("HsBaseConfig.h", header "HSBASECONFIG_H" ["#include \"ghcautoconf.h\""] (baseTypeMacros target)),
+    ("EventConfig.h", header "EVENTCONFIG_H" ["#include \"ghcautoconf.h\""] (eventMacros target)),
     ("ghcplatform.h", ghcplatformHeader target),
     ("MachDeps.h", machDepsHeader target),
     ("HsFFI.h", hsFfiHeader),
@@ -284,6 +285,21 @@ ghcautoconfHeader target =
         "__STDC_WANT_MATH_SPEC_FUNCS__",
         "_TANDEM_SOURCE"
       ]
+
+-- | The I/O event facilities of the target, as the configure script of
+-- GHC's @ghc-internal@ writes them to @EventConfig.h@. Some packages, such
+-- as @usb@, include the header to select an event backend. The header
+-- tells what the operating system has. It does not tell that the runtime
+-- has an event manager: 'GHC.Event.getSystemEventManager' tells that.
+eventMacros :: HeaderTarget -> [(Text, Text)]
+eventMacros target =
+  [(name, "1") | name <- ["HAVE_POLL", "HAVE_POLL_H"] <> osMacros]
+  where
+    osMacros =
+      case headerOs target of
+        "darwin" -> ["HAVE_KQUEUE", "HAVE_KEVENT", "HAVE_KEVENT64", "HAVE_SYS_EVENT_H"]
+        "linux" -> ["HAVE_EPOLL", "HAVE_EPOLL_CREATE1", "HAVE_EPOLL_CTL", "HAVE_EVENTFD", "HAVE_SYS_EPOLL_H", "HAVE_SYS_EVENTFD_H"]
+        _ -> []
 
 -- | The platform macros, C sizes, and byte order of the target.
 ghcplatformHeader :: HeaderTarget -> Text
