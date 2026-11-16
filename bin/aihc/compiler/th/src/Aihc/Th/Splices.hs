@@ -268,10 +268,7 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
       case decl of
         DeclAnn annotation _ -> annotationSpan here annotation
         _ -> here
-    annotationSpan here annotation =
-      case fromAnnotation annotation of
-        Just span' -> Just span'
-        Nothing -> here
+    annotationSpan here annotation = maybe here Just (fromAnnotation annotation)
     declarationSpliceBody decl =
       case decl of
         DeclAnn _ inner -> declarationSpliceBody inner
