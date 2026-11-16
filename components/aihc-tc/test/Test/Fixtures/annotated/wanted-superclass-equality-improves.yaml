@@ -1,0 +1,128 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, FlexibleContexts, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  type family Elem s
+              └─ type: Type → Type
+  type family Storage c
+              └─ type: Type → Type
+  class (Elem (Storage c) ~ c) => Component c
+  └─ class methods:
+  newtype Sys w a = Sys a
+          │         └─ type: ∀ w a. a → Sys w a
+          └─ type: Type → Type → Type
+  mapSys :: (a -> b) -> Sys w a -> Sys w b
+  mapSys f (Sys a) = Sys (f a)
+  │      │  │   │    └─ type: b → Sys w b; type-args: w, b
+  │      │  │   └─ type: a
+  │      │  └─ type: Sys w a
+  │      └─ type: a → b
+  └─ type: ∀ a b w. (a → b) → Sys w a → Sys w b
+  class Component c => Has w c where
+  └─ class methods: getStore ∷ ∀ w c. (Has w c) ⇒ w → Sys w (Storage c)
+    getStore :: w -> Sys w (Storage c)
+  newtype Global c = Global c
+          │          └─ type: ∀ c. c → Global c
+          └─ type: Type → Type
+  type instance Elem (Global c) = c
+  data Counter = Counter
+       │         └─ type: Counter
+       └─ type: Type
+  instance Component Counter
+  └─ $fComponentCounter ∷ () ⇒ Component Counter [superclasses: refl Counter]
+  type instance Storage Counter = Global Counter
+  next :: Has w Counter => w -> Counter
+  next w = case getStore w of
+  │    │   │    └─ type: w → Sys w (Storage Counter); type-args: w, Counter; evidence: given Has w Counter
+  │    │   └─ type: Counter
+  │    └─ type: w
+  └─ type: ∀ w. (Has w Counter) ⇒ w → Counter
+    Sys (Global c) -> use c
+    │    │      └─ type: Counter
+    │    └─ type: Global Counter
+    └─ type: Sys w (Storage Counter)
+  use :: Counter -> Counter
+  use c = c
+  │   └─ type: Counter
+  └─ type: Counter → Counter
+  data Redirect c = Redirect c
+       │            └─ type: ∀ c. c → Redirect c
+       └─ type: Type → Type
+  newtype RedirectStore s = RedirectStore s
+          │                 └─ type: ∀ s. s → RedirectStore s
+          └─ type: Type → Type
+  type instance Elem (RedirectStore s) = Redirect (Elem s)
+  type instance Storage (Redirect c) = RedirectStore (Storage c)
+  instance Component c => Component (Redirect c)
+  └─ $fComponentRedirectc ∷ ∀ c. (Component c) ⇒ Component (Redirect c) [superclasses: trans (Elem Storage Redirect sym (super[0](given Component c))) (sym (Redirect trans (sym (super[0](given Component c))) (Elem Storage sym (super[0](given Component c)))))]
+  instance Has w c => Has w (Redirect c) where
+  └─ $fHaswRedirectc ∷ ∀ w c. (Has w c) ⇒ Has w (Redirect c) [superclasses: $fComponentRedirectc @c (super[0](given Has w c))]
+    getStore w = mapSys RedirectStore (getStore w)
+    │        │   │      │              └─ type: w → Sys w (Storage c); type-args: w, c; evidence: given Has w c
+    │        │   │      └─ type: Storage c → RedirectStore (Storage c); type-args: Storage c
+    │        │   └─ type: (Storage c → RedirectStore (Storage c)) → Sys w (Storage c) → Sys w (RedirectStore (Storage c)); type-args: Storage c, RedirectStore (Storage c), w
+    │        └─ type: w
+    └─ getStore ∷ w → Sys w (Storage (Redirect c))
+  newtype ReadOnly s = ReadOnly s
+          │            └─ type: ∀ s. s → ReadOnly s
+          └─ type: Type → Type
+  type instance Elem (ReadOnly s) = Elem s
+  class Set s where
+  └─ class methods: set ∷ ∀ s. (Set s) ⇒ s → Elem s → ()
+    set :: s -> Elem s -> ()
+  setReadOnly :: (Has w c, Storage c ~ ReadOnly s, Elem s ~ c, Set s) => w -> c -> ()
+  setReadOnly w c = case getStore w of
+  │           │ │   │    └─ type: w → Sys w (Storage c); type-args: w, c; evidence: given Has w c
+  │           │ │   └─ type: ()
+  │           │ └─ type: c
+  │           └─ type: w
+  └─ type: ∀ w c s. (Has w c, (Storage c) ~ (ReadOnly s), (Elem s) ~ c, Set s) ⇒ w → c → ()
+    Sys (ReadOnly s) -> set s c
+    │    │        │     └─ type: s → Elem s → (); type-args: s; evidence: given Set s
+    │    │        └─ type: s
+    │    └─ type: ReadOnly s
+    └─ type: Sys w (Storage c)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, FlexibleContexts, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  type family Elem s
+  type family Storage c
+  class (Elem (Storage c) ~ c) => Component c
+  newtype Sys w a = Sys a
+  mapSys :: (a -> b) -> Sys w a -> Sys w b
+  mapSys f (Sys a) = Sys (f a)
+  class Component c => Has w c where
+    getStore :: w -> Sys w (Storage c)
+  newtype Global c = Global c
+  type instance Elem (Global c) = c
+  data Counter = Counter
+  instance Component Counter
+  type instance Storage Counter = Global Counter
+  next :: Has w Counter => w -> Counter
+  next w = case getStore w of
+    Sys (Global c) -> use c
+  use :: Counter -> Counter
+  use c = c
+  data Redirect c = Redirect c
+  newtype RedirectStore s = RedirectStore s
+  type instance Elem (RedirectStore s) = Redirect (Elem s)
+  type instance Storage (Redirect c) = RedirectStore (Storage c)
+  instance Component c => Component (Redirect c)
+  instance Has w c => Has w (Redirect c) where
+    getStore w = mapSys RedirectStore (getStore w)
+  newtype ReadOnly s = ReadOnly s
+  type instance Elem (ReadOnly s) = Elem s
+  class Set s where
+    set :: s -> Elem s -> ()
+  setReadOnly :: (Has w c, Storage c ~ ReadOnly s, Elem s ~ c, Set s) => w -> c -> ()
+  setReadOnly w c = case getStore w of
+    Sys (ReadOnly s) -> set s c
+status: pass
+reason: A stuck wanted equality rewrites a family application in another wanted
+  equality, as in GHC. In next, Storage t0 ~ Global Counter rewrites the entailed
+  Elem (Storage t0) ~ t0 to Counter ~ t0. In the Redirect instance, Storage t0 ~
+  Storage c rewrites it to Elem (Storage c) ~ t0, and the given gives t0 ~ c. In
+  setReadOnly, Elem t1 ~ c rewrites Storage (Elem t1) ~ ReadOnly t1, and the
+  given Storage c ~ ReadOnly s gives t1 ~ s.

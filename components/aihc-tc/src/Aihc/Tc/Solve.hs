@@ -27,7 +27,7 @@ import Aihc.Tc.Solve.Congruence (applyGivenSubst)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Dict (DictResult (..), reportUnsolvedDict, solveDict, solveDictWithGivens, splitTypeable)
 import Aihc.Tc.Solve.Equality (EqResult (..), givenRewrites, solveEquality)
-import Aihc.Tc.Solve.Family (reducePredFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reducePredFamilies, reduceTypeFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
 import Aihc.Tc.Solve.InertSet (InertSet (..), addInertDict, addInertEq, emptyInertSet)
 import Aihc.Tc.Solve.Injective (improveInjectivity)
@@ -115,27 +115,31 @@ improveDictionaries inerts = do
 improveSuperClassEqualities :: [Ct] -> TcM Bool
 improveSuperClassEqualities dictionaries = do
   entailed <- superClassEqualities dictionaries
-  or <$> mapM improveOne entailed
-  where
-    improveOne predicate =
-      case predicate of
-        EqPred left right -> do
-          left' <- zonkType left
-          right' <- zonkType right
-          if sameType left' right' || not (typeMentionsMeta left' || typeMentionsMeta right')
-            then pure False
-            else do
-              saved <- lift get
-              result <- unifyTypes left' right'
-              case result of
-                Right () -> do
-                  left'' <- zonkType left'
-                  right'' <- zonkType right'
-                  pure (left'' /= left' || right'' /= right')
-                Left _ -> do
-                  lift (put saved)
-                  pure False
-        _ -> pure False
+  or <$> mapM improveEntailedEquality entailed
+
+-- | Unify the two sides of an equality that a wanted entails. The equality
+-- carries no evidence. A side that does not unify leaves every meta
+-- variable as it was.
+improveEntailedEquality :: Pred -> TcM Bool
+improveEntailedEquality predicate =
+  case predicate of
+    EqPred left right -> do
+      left' <- zonkType left
+      right' <- zonkType right
+      if sameType left' right' || not (typeMentionsMeta left' || typeMentionsMeta right')
+        then pure False
+        else do
+          saved <- lift get
+          result <- unifyTypes left' right'
+          case result of
+            Right () -> do
+              left'' <- zonkType left'
+              right'' <- zonkType right'
+              pure (left'' /= left' || right'' /= right')
+            Left _ -> do
+              lift (put saved)
+              pure False
+    _ -> pure False
 
 -- | No work is left. An equality that waits on a type family application
 -- gets another attempt when a solved meta variable changed it. Failing
@@ -174,12 +178,100 @@ improveStuckEqualities givens entailed stuck = do
     else do
       rewrites <- givenRewrites givens
       rewritten <- mapM (fmap (rewriteEquality rewrites) . zonkPred) (stuck <> entailed)
-      improveSharedFamilyApplications rewritten
+      shared <- improveSharedFamilyApplications rewritten
+      if shared
+        then pure True
+        else improveFromWantedFamilyEqualities rewrites rewritten
   where
     rewriteEquality rewrites predicate =
       case predicate of
         EqPred left right -> EqPred (applyGivenSubst rewrites left) (applyGivenSubst rewrites right)
         _ -> predicate
+
+-- | Improve the stuck equalities from each other, as GHC lets one wanted
+-- equality rewrite another. A wanted that equates a family application with
+-- another type rewrites that application in the other equalities. The
+-- givens and the family instances then rewrite the result again. When the
+-- two sides of the result unify, the unification is an improvement.
+--
+-- The class @(Elem (Storage c) ~ c) => Component c@ of @apecs@ is an
+-- example. The wanted @Has w t0@ entails @Elem (Storage t0) ~ t0@. The
+-- stuck wanted @Storage t0 ~ Global Counter@ rewrites it to @Elem (Global
+-- Counter) ~ t0@, which reduces to @Counter ~ t0@ and gives @t0 := Counter@.
+--
+-- The rewrites of an equality do not apply to that equality itself, because
+-- each equality would then become trivial.
+improveFromWantedFamilyEqualities :: [(TcType, TcType)] -> [Pred] -> TcM Bool
+improveFromWantedFamilyEqualities givenRewriteList predicates = do
+  rewriteSets <- mapM wantedRewrites predicates
+  let indexed = zip [0 :: Int ..] predicates
+      othersOf index = concat [rewrites | (other, rewrites) <- zip [0 ..] rewriteSets, other /= index]
+  if all null rewriteSets
+    then pure False
+    else or <$> mapM (\(index, predicate) -> improveOne (othersOf index) predicate) indexed
+  where
+    improveOne [] _ = pure False
+    improveOne rewrites predicate =
+      case predicate of
+        EqPred left right -> do
+          left' <- zonkType left >>= rewriteType rewrites maxRewriteRounds
+          right' <- zonkType right >>= rewriteType rewrites maxRewriteRounds
+          left0 <- zonkType left
+          right0 <- zonkType right
+          if left' == left0 && right' == right0
+            then pure False
+            else improveEntailedEquality (EqPred left' right')
+        _ -> pure False
+    -- A rewrite can uncover a family application that a given or another
+    -- wanted rewrites. The number of rounds is small, because each round
+    -- only follows one more step of such a chain.
+    maxRewriteRounds = 4 :: Int
+    rewriteType :: [(TcType, TcType)] -> Int -> TcType -> TcM TcType
+    rewriteType rewrites rounds ty
+      | rounds <= 0 = pure ty
+      | otherwise = do
+          ty' <- reduceTypeFamilies (applyGivenSubst givenRewriteList (applyGivenSubst rewrites ty))
+          if ty' == ty then pure ty else rewriteType rewrites (rounds - 1) ty'
+
+-- | The rewrites that one wanted equality gives: each family application
+-- that the equality equates with another type, after the decomposition of
+-- the outer structure. When both sides are family applications, the side
+-- with meta variables rewrites to the side without them.
+wantedRewrites :: Pred -> TcM [(TcType, TcType)]
+wantedRewrites predicate =
+  case predicate of
+    EqPred left right -> do
+      left' <- zonkType left
+      right' <- zonkType right
+      sidesOf left' right'
+    _ -> pure []
+  where
+    sidesOf left right
+      | sameType left right = pure []
+      | otherwise = do
+          leftIsFamily <- isTypeFamilyApplication left
+          rightIsFamily <- isTypeFamilyApplication right
+          case (leftIsFamily, rightIsFamily) of
+            (True, False) -> pure [(left, right) | not (occursIn left right)]
+            (False, True) -> pure [(right, left) | not (occursIn right left)]
+            (True, True)
+              | typeMentionsMeta left && not (typeMentionsMeta right) -> pure [(left, right)]
+              | typeMentionsMeta right && not (typeMentionsMeta left) -> pure [(right, left)]
+              | otherwise -> pure []
+            (False, False) -> do
+              children <- decomposeNominalEquality left right
+              case children of
+                Just pairs -> concat <$> mapM (uncurry sidesOf) pairs
+                Nothing -> pure []
+    occursIn = containsType
+    containsType needle ty
+      | ty == needle = True
+      | otherwise =
+          case ty of
+            TcTyConApp _ kindArgs args -> any (containsType needle) (kindArgs <> args)
+            TcFunTy a b -> containsType needle a || containsType needle b
+            TcAppTy f a -> containsType needle f || containsType needle a
+            _ -> False
 
 -- | Separate constraints that changed after a meta variable received a
 -- solution. A change of a given that the constraint keeps from its scope
