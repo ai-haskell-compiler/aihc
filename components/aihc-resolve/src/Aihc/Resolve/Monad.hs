@@ -14,6 +14,8 @@ module Aihc.Resolve.Monad
     withPushedSpan,
     freshLocal,
     withResetLocalSupply,
+    inExpressionQuote,
+    withExpressionQuote,
   )
 where
 
@@ -31,7 +33,10 @@ import Control.Applicative ((<|>))
 data ResolveEnv = ResolveEnv
   { envScope :: !Scope,
     envModuleInfo :: !ModuleInfo,
-    envSpan :: !(Maybe SourceSpan)
+    envSpan :: !(Maybe SourceSpan),
+    -- | Whether the resolver is in the body of an expression quote, and not
+    -- in a splice in that body.
+    envInExpressionQuote :: !Bool
   }
 
 data ModuleInfo = ModuleInfo
@@ -76,7 +81,7 @@ instance Monad ResolveM where
 -- unused local number and every resolution that failed, in source order.
 runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, [ResolveError], a)
 runResolveM scope moduleInfo nextLocal action =
-  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing}
+  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing, envInExpressionQuote = False}
       initialState = ResolveState {stateNextLocal = nextLocal, stateErrors = []}
       (result, finalState) = unResolveM action initialEnv initialState
    in (stateNextLocal finalState, reverse (stateErrors finalState), result)
@@ -142,6 +147,16 @@ currentModuleInfo = asks envModuleInfo
 
 currentSpan :: ResolveM (Maybe SourceSpan)
 currentSpan = asks envSpan
+
+-- | Whether the resolver is in the body of an expression quote, and not in
+-- a splice in that body.
+inExpressionQuote :: ResolveM Bool
+inExpressionQuote = asks envInExpressionQuote
+
+-- | Resolve the body of an expression quote (with 'True'), or a splice in
+-- that body (with 'False').
+withExpressionQuote :: Bool -> ResolveM a -> ResolveM a
+withExpressionQuote inQuote = local (\env -> env {envInExpressionQuote = inQuote})
 
 withScope :: Scope -> ResolveM a -> ResolveM a
 withScope scope = local (\env -> env {envScope = scope})

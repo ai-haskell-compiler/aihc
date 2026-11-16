@@ -32,6 +32,11 @@ showTriple =
 nested :: Q Exp
 nested = [|\y -> $([|y|])|]
 
+-- | A case quote with variables that are not in scope. GHC accepts them,
+-- and the syntax tree has unbound variables.
+holeCase :: Q Exp
+holeCase = [|case _ of { "a" -> missing; _ -> 'c' }|]
+
 -- | A type quote with a forall, a context, and a type variable that the
 -- forall binds. The names of the tree are the names of the program.
 forallQuote :: Q Type
@@ -225,6 +230,7 @@ main = do
   print (sameBox (Pair 1 2) (Pair 1 2), sameBox (Box 1) (Pair 1 1), sameBox (Pair 1 2) (Pair 1 3))
   showTriple
   runQ nested >>= print
+  runQ holeCase >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))
