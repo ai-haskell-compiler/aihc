@@ -1510,7 +1510,7 @@ readPackageInputs config plan = do
       cabalFile = planCabalFile plan
       gpd = planDescription plan
   let context = planBuildContext (cabalPlatformForTarget (compileTarget config)) plan
-  files <- HackageCabal.collectLibraryFilesIn context gpd root
+  files0 <- HackageCabal.collectLibraryFilesIn context gpd root
   configureScript <- case HackageCabal.packageBuildType gpd of
     HackageCabal.Configure -> do
       let script = root </> "configure"
@@ -1519,7 +1519,8 @@ readPackageInputs config plan = do
         ioError (userError ("The package has build-type Configure but no configure script: " <> script))
       pure (Just script)
     _ -> pure Nothing
-  cCompileInfo <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
+  cCompileInfo0 <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
+  (files, cCompileInfo) <- applyPkgConfigDepends (compileTarget config) cabalFile files0 cCompileInfo0
   -- A core library counts as one also when the plan installs it from its
   -- directory, as @aihc install core-libs/aihc-prim@ does.
   sourceDigest <-
@@ -1538,6 +1539,38 @@ readPackageInputs config plan = do
         inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd,
         inputSourceDigest = sourceDigest
       }
+
+-- | Add the flags of the @pkgconfig-depends@ packages to the C inputs and
+-- to the include directories of the sources, as Cabal does.
+--
+-- pkg-config describes the libraries of the host. Thus only a target whose
+-- code runs on the host gets the flags. If pkg-config is not available, or
+-- it does not know a package, the build continues without the flags and a
+-- warning tells why. The headers can then come from @CPATH@, and a missing
+-- header stops the build with its own error. Cabal also continues when a
+-- flag of the package can turn off the dependency.
+applyPkgConfigDepends :: NativeTarget -> FilePath -> [HackageCabal.FileInfo] -> HackageCabal.CCompileInfo -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
+applyPkgConfigDepends target cabalFile files cInfo
+  | null packages || not (targetRunsOnHost target) = pure (files, cInfo)
+  | otherwise = do
+      cflags <- query "--cflags"
+      libs <- query "--libs"
+      case (cflags, libs) of
+        (Right compileFlags, Right linkFlags) ->
+          pure (HackageCabal.applyPkgConfigFlags compileFlags linkFlags files cInfo)
+        (Left problem, _) -> warn problem
+        (_, Left problem) -> warn problem
+  where
+    packages = HackageCabal.cCompilePkgconfigDepends cInfo
+    query option = do
+      result <- try (readCreateProcessWithExitCode (proc "pkg-config" (option : packages)) "")
+      pure $ case result of
+        Left err -> Left (show (err :: IOException))
+        Right (ExitSuccess, output, _) -> Right (words output)
+        Right (ExitFailure _, _, errors) -> Left (unwords (lines errors))
+    warn problem = do
+      hPutStrLn stderr (cabalFile <> ": warning: pkg-config gave no flags for " <> unwords packages <> ": " <> problem)
+      pure (files, cInfo)
 
 -- | Prepare an immutable package for the store, unless the store has it.
 prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)

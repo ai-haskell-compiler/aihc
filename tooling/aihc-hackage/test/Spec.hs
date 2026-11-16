@@ -33,6 +33,7 @@ main =
       testCase "reports source lines unshifted by the synthetic macro header" test_diagnosticsUseSourceLineNumbers,
       testCase "uses target byte order through ghcconfig.h" test_ghcconfigByteOrder,
       testCase "names the C type representations of the target in HsBaseConfig.h" test_hsBaseConfigTypes,
+      testCase "names the event backends of the target in EventConfig.h" test_eventConfigBackends,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -41,6 +42,7 @@ main =
       testCase "turns text's simdutf flag off for wasm32" test_wasmTextSimdutfOverride,
       testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
       testCase "finds preprocessor sources by suffix after the plain ones" test_findsPreprocessorSources,
+      testCase "adds the pkg-config flags of pkgconfig-depends" test_pkgconfigDepends,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -229,6 +231,31 @@ test_hsBaseConfigTypes = do
         (BSC.words (BSC.pack expected))
         (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
 
+-- usb includes EventConfig.h, which a GHC installation ships. Without the
+-- header, the CPP pass stops with a missing include. The header tells the
+-- event backend of the operating system of the target.
+test_eventConfigBackends :: Assertion
+test_eventConfigBackends = do
+  check (HeaderTarget 8 8 False (T.pack "darwin") (T.pack "aarch64")) "kqueue"
+  check (HeaderTarget 8 8 False (T.pack "linux") (T.pack "x86_64")) "epoll"
+  check (HeaderTarget 4 4 False (T.pack "wasi") (T.pack "wasm32")) "poll"
+  where
+    check target expected = do
+      let headers = compilerHeaderTexts target
+          source = BSC.pack "#include \"EventConfig.h\"\n#if defined(HAVE_KQUEUE)\nkqueue\n#elif defined(HAVE_EPOLL)\nepoll\n#elif defined(HAVE_POLL)\npoll\n#endif\n"
+          drive step = case step of
+            Cpp.Done result -> pure result
+            Cpp.NeedInclude request resume ->
+              case lookup (Cpp.includePath request) headers of
+                Just content -> drive (resume (Just (TE.encodeUtf8 content)))
+                Nothing -> assertFailure ("missing include: " <> Cpp.includePath request)
+      result <- drive (Cpp.preprocess Cpp.defaultConfig source)
+      assertEqual "CPP diagnostics" [] (Cpp.resultDiagnostics result)
+      assertEqual
+        "event backend"
+        [BSC.pack expected]
+        (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
+
 test_extractsBuildToolDependencyNames :: Assertion
 test_extractsBuildToolDependencyNames = do
   gpd <- parseTestCabal buildToolDependsCabal
@@ -333,6 +360,45 @@ test_configureBuildInfo = do
   assertEqual "cc options" ["-DHOOKED", "-std=c11"] (HC.cCompileCcOptions cInfo')
   assertEqual "C include dirs" ["/build/generated", "/pkg/include"] (HC.cCompileIncludeDirs cInfo')
   assertEqual "C sources" ["/pkg/cbits/helper.c"] (HC.cCompileSources cInfo')
+
+-- The packages of @pkgconfig-depends@ give their flags as Cabal gives them.
+-- An @-I@ directory reaches the CPP pass of the Haskell sources and the C
+-- compiles. The link flags become libraries, library directories and
+-- linker options. Before the change, aihc ignored the field, so the header
+-- of a library such as @libusb-1.0@ was not found.
+test_pkgconfigDepends :: Assertion
+test_pkgconfigDepends = do
+  gpd <- parseTestCabal pkgconfigDependsCabal
+  cInfo <- expectRight (HC.collectLibraryCCompileInfo gpd "/pkg")
+  assertEqual "pkg-config packages" ["libusb-1.0", "zlib"] (HC.cCompilePkgconfigDepends cInfo)
+  let file = HC.FileInfo "/pkg/src/Demo.hs" [] [] ["/pkg/include"] Nothing [T.pack "base"] Nothing
+      (files, cInfo') =
+        HC.applyPkgConfigFlags
+          ["-I/usr/include/libusb-1.0", "-DUSB"]
+          ["-L/usr/lib", "-lusb-1.0", "-pthread"]
+          [file]
+          cInfo
+  assertEqual "Haskell include dirs" [["/pkg/include", "/usr/include/libusb-1.0"]] (map HC.fileInfoIncludeDirs files)
+  assertEqual "C include dirs" ["/pkg/include", "/usr/include/libusb-1.0"] (HC.cCompileIncludeDirs cInfo')
+  assertEqual "cc options" ["-DUSB"] (HC.cCompileCcOptions cInfo')
+  assertEqual "extra libraries" ["usb-1.0"] (HC.cCompileExtraLibraries cInfo')
+  assertEqual "extra library dirs" ["/usr/lib"] (HC.cCompileExtraLibDirs cInfo')
+  assertEqual "ld options" ["-pthread"] (HC.cCompileLdOptions cInfo')
+
+pkgconfigDependsCabal :: String
+pkgconfigDependsCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: demo",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: Demo",
+      "  hs-source-dirs: src",
+      "  include-dirs: include",
+      "  pkgconfig-depends: libusb-1.0 >= 1.0.16, zlib",
+      "  default-language: Haskell2010"
+    ]
 
 -- A module found as @.hsc@ is marked for hsc2hs, one found as @.x@ for
 -- alex, and one found as @.y@ for happy; one that also ships as
