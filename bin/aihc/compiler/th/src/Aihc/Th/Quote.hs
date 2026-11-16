@@ -326,6 +326,12 @@ quotedType = go
             _ -> Nothing
         TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
         TApp function argument -> applied <$> go function <*> go argument
+        -- GHC gives an application of the operator, not an infix type.
+        TInfix left operator promotion right -> do
+          operator' <- go (TCon operator promotion)
+          left' <- go left
+          right' <- go right
+          Just (applied (applied operator' left') right')
         TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
         TList Unpromoted [element] -> applied (library "listT") <$> go element
         TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
