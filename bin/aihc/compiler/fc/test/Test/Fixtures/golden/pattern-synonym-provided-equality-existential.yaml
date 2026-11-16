@@ -17,6 +17,10 @@ modules:
   matchThere _ = MTNo
   pattern There :: () => (r' ~ 'Cons e' r) => Elem e r -> Elem e r'
   pattern There e <- (matchThere -> MTYes e)
+    where
+      There _ = MkElem
+  weaken :: Elem e r -> Elem e ('Cons x r)
+  weaken e = There e
   isThere :: Elem e r -> Bool
   isThere (There _) = True
   isThere _ = False
@@ -73,9 +77,18 @@ expected: |-
           z c()
       }
 
+  pub val 1.v$bThere :: ∀(r' : tList sType) (e' : sType) (r : tList sType) (e : sType). FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (r' ~ cCons sType e' r) (tElem e r → tElem e r')
+    = Λ(r' : tList sType) (e' : sType) (r : tList sType) (e : sType). λ($co : r' ~ cCons sType e' r)
+    (unused x : tElem e r).
+      (cMkElem @e @(cCons sType e' r)) ▷ sym (tycon-co tElem (refl e) ($co))
+
   pub val 1.vmatchThere :: ∀(e : sType) (r : tList sType). tElem e r → tMatchThere e r
     = Λ(e : sType) (r : tList sType). λ(unused x : tElem e r).
       cMTNo @e @r
+
+  pub val 1.vweaken :: ∀(e : sType) (r : tList sType) (x : sType). tElem e r → tElem e (cCons sType x r)
+    = Λ(e : sType) (r : tList sType) (x : sType). λ(x{1} : tElem e r).
+      v$bThere @(cCons sType x r) @x @r @e (coercion (refl (cCons sType x r))) x{1}
 
   pub val 1.visThere :: ∀(e : sType) (r : tList sType). tElem e r → tBool
     = Λ(e : sType) (r : tList sType). λ(x : tElem e r).
