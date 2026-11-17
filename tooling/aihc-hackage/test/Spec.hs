@@ -34,6 +34,7 @@ main =
       testCase "uses target byte order through ghcconfig.h" test_ghcconfigByteOrder,
       testCase "names the C type representations of the target in HsBaseConfig.h" test_hsBaseConfigTypes,
       testCase "names the event backends of the target in EventConfig.h" test_eventConfigBackends,
+      testCase "defines the pointer tag macros in MachDeps.h" test_machDepsTagBits,
       testCase "extracts active build tool dependency names" test_extractsBuildToolDependencyNames,
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
@@ -254,6 +255,30 @@ test_eventConfigBackends = do
       assertEqual
         "event backend"
         [BSC.pack expected]
+        (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
+
+-- ghc-heap reads TAG_BITS from MachDeps.h in an hsc2hs file. Without the
+-- macro, the C compiler stops on Constants.hsc. The Haskell word is eight
+-- bytes on each target, thus the value is 3 also on wasm32.
+test_machDepsTagBits :: Assertion
+test_machDepsTagBits = do
+  check (HeaderTarget 8 8 False (T.pack "darwin") (T.pack "aarch64"))
+  check (HeaderTarget 4 4 False (T.pack "wasi") (T.pack "wasm32"))
+  where
+    check target = do
+      let headers = compilerHeaderTexts target
+          source = BSC.pack "#include \"MachDeps.h\"\nTAG_BITS\n#if TAG_MASK == 7\nmask7\n#endif\n"
+          drive step = case step of
+            Cpp.Done result -> pure result
+            Cpp.NeedInclude request resume ->
+              case lookup (Cpp.includePath request) headers of
+                Just content -> drive (resume (Just (TE.encodeUtf8 content)))
+                Nothing -> assertFailure ("missing include: " <> Cpp.includePath request)
+      result <- drive (Cpp.preprocess Cpp.defaultConfig source)
+      assertEqual "CPP diagnostics" [] (Cpp.resultDiagnostics result)
+      assertEqual
+        "pointer tag macros"
+        (BSC.words (BSC.pack "3 mask7"))
         (concatMap BSC.words (filter (not . BSC.isPrefixOf (BSC.pack "#line ")) (BSC.lines (Cpp.resultOutput result))))
 
 test_extractsBuildToolDependencyNames :: Assertion
