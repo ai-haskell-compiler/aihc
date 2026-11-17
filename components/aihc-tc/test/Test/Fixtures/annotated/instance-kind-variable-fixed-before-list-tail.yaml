@@ -1,0 +1,40 @@
+extensions:
+- DataKinds
+- FlexibleInstances
+- KindSignatures
+- PolyKinds
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, PolyKinds, TypeOperators #-}
+  module Test where
+  import GHC.Types (Type)
+  data T = T
+  class C (xs :: [k])
+  instance C (x ': xs)
+  f :: C '[T] => ()
+  f = ()
+  g :: ()
+  g = f
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, PolyKinds, TypeOperators #-}
+  module Test where
+  import GHC.Types (Type)
+  data T = T
+       │   └─ type: T
+       └─ type: Type
+  class C (xs :: [k])
+  └─ class methods:
+  instance C (x ': xs)
+  └─ $fC:xxs ∷ ∀ k0 x xs. () ⇒ C (': x xs)
+  f :: C '[T] => ()
+  f = ()
+  │   └─ type: ()
+  └─ type: (C ('GHC.Types.: T 'GHC.Types.[])) ⇒ ()
+  g :: ()
+  g = f
+  │   └─ type: (); evidence: $fC:xxs @Type @T @'[]
+  └─ type: ()
+status: pass
+reason: the head variable x fixes the kind variable k, and the tail '[] of the list literal has the kind [k0] with an unsolved meta; the kind [k] of xs must then settle k0 and must not reject the instance

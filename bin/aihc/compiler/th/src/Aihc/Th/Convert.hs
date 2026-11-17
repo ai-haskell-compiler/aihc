@@ -289,9 +289,19 @@ typeFromTree tree =
     (TreeNode "EqualityT" [], [left, right]) -> (\left' right' -> TParen (TInfix left' equality Unpromoted right')) <$> typeFromTree left <*> typeFromTree right
     (TreeNode "EqualityT" [], arguments) -> foldl TApp (TCon equality Unpromoted) <$> mapM typeFromTree arguments
     (TreeNode "ForallVisT" [binders, body], []) -> TForall . ForallTelescope ForallVisible <$> (list binders >>= mapM typeVariableBinder) <*> typeFromTree body
+    -- A promoted list. A cons onto a promoted list literal becomes one
+    -- literal, as in the source text @'[a, b]@.
+    (TreeNode "PromotedNilT" [], []) -> Right (TList Promoted [])
+    (TreeNode "PromotedConsT" [], [first, rest]) -> do
+      first' <- typeFromTree first
+      rest' <- typeFromTree rest
+      pure $ case rest' of
+        TList Promoted items -> TList Promoted (first' : items)
+        _ -> TParen (TInfix first' cons Promoted rest')
     (other, _) -> unsupported "type" other
   where
     equality = mkName Nothing NameVarSym "~"
+    cons = mkName Nothing NameConSym ":"
     -- The head of a chain of type applications, and its arguments.
     typeApplication applied arguments =
       case applied of

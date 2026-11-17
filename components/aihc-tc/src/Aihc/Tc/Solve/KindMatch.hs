@@ -32,7 +32,12 @@ matchInstanceKinds variables substitution = do
       Nothing -> pure (Just (current, kindMetas))
       Just target -> do
         targetKind <- tcTypeKind target >>= zonkKind
-        patternKind <- zonkKind (tvKind variable)
+        -- A kind variable that an earlier variable fixed has its binding
+        -- in the kind of this variable. In @instance C (x ': xs)@ the
+        -- wanted @C '[T]@ fixes @k := Type@ through @x :: k@. The tail
+        -- @'[]@ can have the kind @[k0]@ with an unsolved meta. Then the
+        -- kind @[Type]@ of @xs@ settles @k0@ and does not conflict.
+        patternKind <- zonkKind (applySubst current (tvKind variable))
         pure $ do
           (inferred, metas) <- matchKinds patternKind targetKind
           merged <- foldM merge current (Map.toList inferred)

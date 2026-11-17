@@ -3089,7 +3089,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     checked <- case known of
                       Just result -> pure result
                       Nothing -> do
-                        exactTyped <- exactTypedFacts (taskModuleProvider context) (exactModuleKeys resolvePackage prefix)
+                        exactTyped <- unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage [sourceModuleName source] prefix)
                         let types = mergeTcInterfaces TrustMergedFacts (importedTypes : map (typedModuleInterface . snd) exactTyped)
                         result <- evaluate (checkPrefix types moduleUnit bound prefix)
                         modifyIORef' prefixFacts (Map.insert (length prefix) result)
@@ -3135,15 +3135,18 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     then Right interface
                     else Left (T.pack ("The compiler cannot check the declarations above the splice. " <> renderTypeErrors mempty errors))
 
--- | The modules of the other packages that the names of a syntax tree name
--- with an exact mark, as the result of a splice names them.
-exactModuleKeys :: (Data syntax) => Package -> syntax -> [ModuleKey]
-exactModuleKeys own syntax =
+-- | The modules that the names of a syntax tree name with an exact mark, as
+-- the result of a splice names them. The result does not have the modules
+-- of the own package that are in the list: the unit checks these modules
+-- itself. A different module of the own package is in the result, because
+-- a splice can name a module of its package that the unit does not import.
+exactModuleKeys :: (Data syntax) => Package -> [Text] -> syntax -> [ModuleKey]
+exactModuleKeys own checked syntax =
   nub
     [ ModuleKey (packageOfId (globalNamePackage global)) (globalNameModule global)
     | name <- names syntax,
       Just global <- [exactTerm name, exactType name],
-      globalNamePackage global /= packageId own
+      globalNamePackage global /= packageId own || globalNameModule global `notElem` checked
     ]
   where
     names :: forall value. (Data value) => value -> [Syntax.Name]
@@ -3160,6 +3163,35 @@ exactModuleKeys own syntax =
             T.all (\char -> isDigit char || char == '.') version ->
               Package (T.dropEnd 1 prefix) identity
         _ -> Package (packageIdText identity) identity
+
+-- | The type facts of the modules of the keys. A module of the own package
+-- comes from the result of its unit. A module of a different package comes
+-- from the provider. A module of a unit that has no result yet is not in
+-- the result.
+unitExactTypedFacts :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> [ModuleKey] -> IO [(ModuleKey, TypedModuleFacts)]
+unitExactTypedFacts context runtimes keys = do
+  let own = taskResolvePackage context
+      (ownKeys, otherKeys) = partition ((== packageId own) . packageId . moduleKeyPackage) keys
+  other <- exactTypedFacts (taskModuleProvider context) otherKeys
+  ownFacts <- fmap catMaybes . forM ownKeys $ \key ->
+    case [runtime | runtime <- Map.elems runtimes, moduleKeyName key `elem` map sourceName (sourceUnitSources (runtimeUnit runtime))] of
+      runtime : _ -> do
+        finished <- atomically (tryReadTMVar (runtimeTypeResult runtime))
+        pure $ do
+          result <- finished
+          interface <- lookup own (byModuleLookupName (moduleKeyName key) (typeUnitTypes result))
+          Just
+            ( key,
+              TypedModuleFacts
+                { typedModuleInterface = interface,
+                  typedModuleTypeDigest = fromMaybe "" (lookup own (byModuleLookupName (moduleKeyName key) (typeUnitHashes result))),
+                  typedModuleFactsDigest = typeUnitFactsDigest result,
+                  typedModuleInstanceProviders = typeUnitInstanceProviders result,
+                  typedModuleSuccess = typeUnitSuccess result
+                }
+            )
+      [] -> pure Nothing
+  pure (other <> ownFacts)
 
 -- | The type facts of modules that the provider has. A module that the
 -- provider does not have is not in the result.
@@ -3256,7 +3288,7 @@ runTypeUnit context runtimes runtime = do
   -- import, with its package. The check needs the facts of that module.
   exactTyped <-
     if any (isJust . sourceModuleSpliceRequest) sources
-      then exactTypedFacts provider (exactModuleKeys resolvePackage (typeInputModules typeInput))
+      then unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage unitNames (typeInputModules typeInput))
       else pure []
   let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
