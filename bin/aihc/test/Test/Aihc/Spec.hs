@@ -41,6 +41,7 @@ import Data.Functor ((<&>))
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
 import System.Directory
@@ -49,12 +50,16 @@ import System.Directory
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    emptyPermissions,
     getCurrentDirectory,
     getModificationTime,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setOwnerExecutable,
+    setOwnerReadable,
+    setPermissions,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -143,6 +148,7 @@ tests =
                 testCase "resolves an include of an RTS header" (test_installRtsHeaderInclude coreStore),
                 testCase "wraps a capi import of an RTS entry point" (test_installRtsCapi coreStore),
                 testCase "defines MIN_VERSION macros from the installed dependency versions" (test_installMinVersionMacros coreStore),
+                testCase "installs a package again when pkg-config gives new flags" (test_installPkgConfigFlags coreStore),
                 testCase "core-libs versions match the emulated GHC release" test_coreLibsMatchRelease,
                 testCase "selects Cabal source dirs by target architecture" (test_installArchSourceDirs primStore),
                 -- This one installs aihc-prim into an empty store on purpose: it is
@@ -1648,6 +1654,46 @@ test_buildExtraLibraries getStore = do
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
     assertEqual "linked executable exit status" ExitSuccess linkedStatus
     assertEqual "linked executable stdout" "42\n" linkedStdout
+
+-- | The store key of a package includes what pkg-config gives for its
+-- @pkgconfig-depends@. The first install runs when pkg-config does not know
+-- the library, so the store entry records no link arguments. The second
+-- install runs when pkg-config gives the flags. It must not use the store
+-- entry of the first install, because then an executable does not link.
+test_installPkgConfigFlags :: IO SeedStore -> Assertion
+test_installPkgConfigFlags getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/pkgconfig-depends"
+  withSandbox getStore "aihc-install-pkgconfig-depends" $ \sandbox -> do
+    store <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox
+        toolDirectory = root </> "tools"
+        flagsFile = toolDirectory </> "answer.libs"
+        libraryDirectory = root </> "lib"
+        options =
+          (InstallOptions fixtureRoot (Just store) (Just (root </> "build")) False False False False False False False O0 False True False False False buildHostTarget Nothing defaultPlanOptions)
+            { installImmutable = True
+            }
+    createDirectoryIfMissing True toolDirectory
+    -- A pkg-config that knows the library only when the flags file exists.
+    let tool = toolDirectory </> "pkg-config"
+    writeFile
+      tool
+      ( unlines
+          [ "#!/bin/sh",
+            "if [ ! -f '" <> flagsFile <> "' ]; then echo 'Package answer was not found' >&2; exit 1; fi",
+            "if [ \"$1\" = --libs ]; then cat '" <> flagsFile <> "'; else echo; fi"
+          ]
+      )
+    setPermissions tool (setOwnerExecutable True (setOwnerReadable True emptyPermissions))
+    path <- fromMaybe "" <$> lookupEnv "PATH"
+    withEnvironment [("PATH", toolDirectory <> ":" <> path)] $ do
+      first <- install options
+      firstManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath (installStorePath first))
+      assertEqual "no link arguments without pkg-config" [] (packageManifestLinkArguments firstManifest)
+      writeFile flagsFile ("-L" <> libraryDirectory <> " -lanswer\n")
+      second <- install options
+      secondManifest <- either assertFailure pure =<< readPackageManifest (packageManifestPath (installStorePath second))
+      assertEqual "the link arguments from pkg-config" (map T.pack ["-L" <> libraryDirectory, "-lanswer"]) (packageManifestLinkArguments secondManifest)
 
 -- | The @--keep-*@ flags of @build@ keep the output of each phase beside
 -- the object of the module. They name the modules of the executable alone:
