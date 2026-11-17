@@ -1,0 +1,43 @@
+annotated:
+- |-
+  module Test where
+  data Whole = Whole
+       │       └─ type: Whole
+       └─ type: Type
+  data Part = Part
+       │      └─ type: Part
+       └─ type: Type
+  split :: Whole -> (Whole, Part)
+  split whole = (whole, Part)
+  │     │       └─ type: (Whole, Part); type-args: Whole, Part
+  │     └─ type: Whole
+  └─ type: Whole → (Whole, Part)
+  part :: Whole -> Part
+  part whole = result
+  │    └─ type: Whole
+  └─ type: Whole → Part
+    where
+      int :: Whole
+      (int, frac) = split whole
+      │││    └─ type: Part
+      │└─ type: Whole
+      └─ type: (Whole, Part)
+      └─ type: (Whole, Part)
+      result = frac
+      └─ type: Part
+extensions: []
+modules:
+- |
+  module Test where
+  data Whole = Whole
+  data Part = Part
+  split :: Whole -> (Whole, Part)
+  split whole = (whole, Part)
+  part :: Whole -> Part
+  part whole = result
+    where
+      int :: Whole
+      (int, frac) = split whole
+      result = frac
+status: pass
+reason: A signature for only one binder of a pattern binding does not give the types of the other binders. Thus, the use of frac depends on the pattern binding.

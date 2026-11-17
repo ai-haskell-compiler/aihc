@@ -207,8 +207,13 @@ localDeclComponents decls = do
   signatureNodes <- concat <$> mapM signatureOwners infos
   let attached = Map.fromListWith (<>) [(node, [index]) | (index, key, _) <- signatureNodes, Just node <- [Map.lookup key owners]]
       -- A partial signature does not give a complete type, so its binder
-      -- stays in the component of the bindings it depends on.
-      signedNodes = Set.fromList [node | (_, key, True) <- signatureNodes, Just node <- [Map.lookup key owners]]
+      -- stays in the component of the bindings it depends on. A pattern
+      -- binding has a node for all of its binders. Thus, the node is signed
+      -- only when each binder has a complete signature. In @int :: Integer;
+      -- (int, frac) = properFraction n@, a use of @frac@ is an edge.
+      signedKeys = Set.fromList [key | (_, key, True) <- signatureNodes]
+      nodeKeys = Map.fromListWith (<>) [(node, [key]) | (key, node) <- Map.toList owners]
+      signedNodes = Map.keysSet (Map.filter (all (`Set.member` signedKeys)) nodeKeys)
       graph = [(node, node, [dep | dep <- Set.toList (Set.fromList (Map.findWithDefault [] node nodeDeps)), not (Set.member dep signedNodes)]) | node <- Map.keys valueNodes]
       componentIndices component =
         let nodes = Graph.flattenSCC component
