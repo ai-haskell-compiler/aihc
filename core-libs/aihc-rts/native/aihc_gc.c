@@ -2089,22 +2089,24 @@ static int aihc_follows_to_field_zero(const AihcValue *value) {
 /* The words of an object. The kinds that compiled code allocates are read
    from the info table here, and the runtime records go to
    aihc_value_words. The collector asks once for each copy and once for
-   each scanned gen1 object. */
+   each scanned gen1 object. A node, a closure, and a thunk come first in
+   the kinds, so one comparison selects the fast path. A thunk under
+   evaluation keeps its thunk table and has the same size. A thunk needs one
+   field even without free variables. */
+_Static_assert(AIHC_OBJECT_NODE == 0 && AIHC_OBJECT_CLOSURE == 1 &&
+                   AIHC_OBJECT_THUNK == 2,
+               "aihc_gc_words fast path");
 static inline uint64_t aihc_gc_words(const AihcValue *value) {
-  unsigned cached = aihc_value_info_table(value)->gc_words;
-  if (cached != 0) {
-    return cached;
+  const AihcInfo *info = aihc_value_info_table(value);
+  AihcObjectKind table_kind = info->object_kind;
+  if (table_kind <= AIHC_OBJECT_THUNK) {
+    uint64_t fields = info->field_count;
+    return 1 + fields + (fields == 0 && table_kind == AIHC_OBJECT_THUNK);
   }
   AihcObjectKind kind = aihc_value_kind(value);
-  if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
-      kind == AIHC_OBJECT_THUNK || kind == AIHC_OBJECT_INDIRECTION ||
-      kind == AIHC_OBJECT_BLACKHOLE) {
-    uint64_t fields = aihc_value_info_table(value)->field_count;
-    if (fields == 0 && kind != AIHC_OBJECT_NODE &&
-        kind != AIHC_OBJECT_CLOSURE) {
-      fields = 1;
-    }
-    return 1 + fields;
+  if (kind == AIHC_OBJECT_INDIRECTION || kind == AIHC_OBJECT_BLACKHOLE) {
+    uint64_t fields = info->field_count;
+    return 1 + (fields == 0 ? 1 : fields);
   }
   return aihc_value_words(value);
 }

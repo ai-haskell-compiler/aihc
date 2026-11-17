@@ -84,8 +84,8 @@ entry:
 
 inline func @aihc_info_count(%header: ptr) -> i64 {
 entry:
-  %count_byte = load.invariant i8 [%header + @AIHC_INFO_COUNT_OFFSET] align 1
-  %count = zext i8 %count_byte to i64
+  %count_half = load.invariant i16 [%header + @AIHC_INFO_COUNT_OFFSET] align 2
+  %count = zext i16 %count_half to i64
   return %count
 }
 

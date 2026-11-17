@@ -174,8 +174,8 @@ struct AihcInfo {
      constructor give the full width of the saturated object. Every partial
      stage shares one info table, so a partial constructor keeps the count of
      the slots filled so far in field zero. See aihc_value_count. The lowering
-     rejects an object with more than 255 slots. */
-  uint8_t field_count;
+     rejects an object with more than 65535 slots. */
+  uint16_t field_count;
   /* The lowering rejects a function that takes more than 255 arguments. */
   uint8_t remaining_arity;
   /* Continuation closures have their parent in field zero. This kind is
@@ -187,12 +187,8 @@ struct AihcInfo {
      AIHC_NEEDS_EVAL_NONE for every other kind. The inline evaluation check
      of compiled code reads only this byte. A thunk under evaluation keeps
      its thunk table, and an update changes the header to the indirection
-     table. Thus the table always gives the correct value. On 64-bit targets
-     the byte uses padding, so the table stays 48 bytes. */
+     table. Thus the table always gives the correct value. */
   uint8_t needs_eval;
-  /* The fixed object size in words, or zero for the general size path.
-     This byte replaces padding and does not change the table size. */
-  uint8_t gc_words;
   /* The index of a constructor in its data declaration, and zero for every
      other kind. A case with many alternatives selects its alternative from
      this field. The field uses padding, so the table stays 48 bytes on a
