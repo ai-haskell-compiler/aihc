@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), deriveDescribe, helperValue, isMode, plusHelper) where
+module Helper (Describe (..), deriveDescribe, helperValue, isMode, plusHelper, twiceHelper) where
 
 import Language.Haskell.TH
 import Lower (Mode, lowerValue)
@@ -12,6 +12,15 @@ helperValue = lowerValue + 3
 -- | A quote that names a value of this module.
 plusHelper :: Int -> Q Exp
 plusHelper n = [|helperValue + n|]
+
+-- | A function that this module does not export. A quote of this module
+-- names it, so the code from the quote in a different module calls it.
+privateTwice :: Int -> Int
+privateTwice n = n * 2
+
+-- | A quote that names a function that this module does not export.
+twiceHelper :: Q Exp
+twiceHelper = [|privateTwice|]
 
 class Describe a where
   describe :: a -> String
