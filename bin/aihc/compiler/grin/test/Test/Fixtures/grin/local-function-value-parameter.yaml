@@ -1,0 +1,44 @@
+source: |
+  module Test where
+  data Nat = Zero | Succ Nat
+  data List = Nil | Cons !List
+  size :: List -> Nat
+  size list = go list Zero
+    where
+      go Nil total = total
+      go (Cons rest) total = go rest (Succ total)
+status: pass
+reason: The local function evaluates its first parameter before it does anything else. Thus each call gives a value, and the function does not evaluate the parameter. The first call evaluates the argument. The recursive call gives a strict field, which is a value.
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Zero []
+
+  pub constructor 1.Succ%1 [BoxedRep Lifted]
+
+  pub constructor 1.Nil []
+
+  pub constructor 1.Cons%1 [BoxedRep Lifted]
+
+  pub global 1.$WCons = (P1.$$WCons$p$p/1)
+
+  pub global 1.size = (P1.$size$p$p/1)
+
+  pub 1.$$WCons$p$p (_strict_field :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (_strict_field :: BoxedRep Lifted)
+    store (C1.Cons (case_value :: BoxedRep Lifted))
+
+  1.$size_loop (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (x :: BoxedRep Lifted) as case_value :: BoxedRep Lifted of
+      data 1.Nil ->
+        eval @(BoxedRep Lifted) (y :: BoxedRep Lifted)
+      data 1.Cons%1 (rest :: BoxedRep Lifted) ->
+        argument :: BoxedRep Lifted <-
+          store (C1.Succ (y :: BoxedRep Lifted))
+        call @(BoxedRep Lifted) 1.$size_loop (rest :: BoxedRep Lifted) (argument :: BoxedRep Lifted)
+
+  pub 1.$size$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    argument :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) 1.$size_loop (argument :: BoxedRep Lifted) global-ref 1.Zero

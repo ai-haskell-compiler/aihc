@@ -654,6 +654,14 @@ A frame, an info table, and a record of the C runtime are never tagged.
 The C runtime entries mask the tag of each value that compiled code hands them.
 The stable-name table keys a name by the raw reference without its tag.
 
+A lifted strict field of a constructor always holds a pointer to a value in
+weak-head normal form. It never holds a pointer to a thunk or to an
+indirection. The GRIN lowering evaluates the operand of such a field where
+it builds the object, unless the operand is known to point to a value. Thus
+the code that reads the field does not evaluate it. A partial application of
+a constructor that does not have the operand of such a field is a closure:
+its function evaluates the operand and builds the object.
+
 ```text
 saturated constructor: [header] [fields...]
 thunk:                 [header] [owner] [environment...]
