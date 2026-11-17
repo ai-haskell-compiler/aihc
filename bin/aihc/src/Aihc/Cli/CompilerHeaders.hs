@@ -14,7 +14,7 @@ where
 
 import Aihc.Cli.ArtifactCache (hashChunks)
 import Aihc.Hackage.Headers (HeaderTarget (..), compilerHeaderTexts, writeCompilerHeaders)
-import Aihc.Hackage.Package (Arch (..), OS (..), archName, buildArch, buildOS, osName)
+import Aihc.Hackage.Package (Arch (..), OS (..), buildArch, buildOS, platformCppOptions, platformMacroNames)
 import Aihc.Native (NativeTarget (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -32,17 +32,10 @@ cabalPlatformForTarget target =
 -- | The @-D@ flags that name the platform a target's code runs on, in the
 -- spelling GHC and Cabal use: @darwin_HOST_OS@, not @osx@.
 hostPlatformMacros :: NativeTarget -> [String]
-hostPlatformMacros target =
-  let (os, arch) = platformNames target
-   in ["-D" <> os <> "_HOST_OS=1", "-D" <> arch <> "_HOST_ARCH=1"]
+hostPlatformMacros = uncurry platformCppOptions . cabalPlatformForTarget
 
 platformNames :: NativeTarget -> (String, String)
-platformNames target =
-  let (os, arch) = cabalPlatformForTarget target
-      macroOsName = case os of
-        OSX -> "darwin"
-        other -> osName other
-   in (macroOsName, archName arch)
+platformNames = uncurry platformMacroNames . cabalPlatformForTarget
 
 -- | What the headers of a target say.
 --

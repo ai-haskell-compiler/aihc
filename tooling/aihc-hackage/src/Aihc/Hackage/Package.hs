@@ -32,6 +32,8 @@ module Aihc.Hackage.Package
     buildArch,
     osName,
     archName,
+    platformMacroNames,
+    platformCppOptions,
 
     -- * Versions
     Version,
@@ -162,6 +164,28 @@ archName arch =
     Wasm32 -> "wasm32"
     JavaScript -> "javascript"
     OtherArch name -> name
+
+-- | The names that GHC gives to a platform in the @<os>_HOST_OS@ and
+-- @<arch>_HOST_ARCH@ macros. Cabal and hsc2hs use the same names. GHC uses
+-- @darwin@ where Cabal uses @osx@, and @mingw32@ where Cabal uses
+-- @windows@.
+platformMacroNames :: OS -> Arch -> (String, String)
+platformMacroNames os arch = (macroOsName, archName arch)
+  where
+    macroOsName =
+      case os of
+        OSX -> "darwin"
+        Windows -> "mingw32"
+        other -> osName other
+
+-- | The @-D@ options that GHC gives to each Haskell source that it
+-- preprocesses, to name the platform: for example @-Ddarwin_HOST_OS=1@ and
+-- @-Daarch64_HOST_ARCH=1@.
+platformCppOptions :: OS -> Arch -> [String]
+platformCppOptions os arch =
+  ["-D" <> osMacro <> "_HOST_OS=1", "-D" <> archMacro <> "_HOST_ARCH=1"]
+  where
+    (osMacro, archMacro) = platformMacroNames os arch
 
 -- | The operating system that this program runs on. "Aihc.Cabal" applies
 -- the Cabal aliases for host names when it compares names, so only the
