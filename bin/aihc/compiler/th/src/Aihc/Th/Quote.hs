@@ -492,6 +492,18 @@ quoted dynamic binders = go
           scrutinee' <- go scrutinee
           alternatives' <- mapM alternative alternatives
           pure (call "caseE" [scrutinee', EList alternatives'])
+        -- The resolver gives the selector of each field of a record
+        -- update.
+        ERecordUpd record fields -> do
+          record' <- go record
+          fields' <- mapM (recordField updateFieldName) fields
+          pure (call "recUpdE" [record', EList fields'])
+        -- The resolver gives only the constructor of a record construction.
+        -- A field selector is in the module of its constructor.
+        ERecordCon name fields False
+          | Just (EntityGlobal global) <- nameEntity name -> do
+              fields' <- mapM (recordField (constructionFieldName global)) fields
+              pure (call "recConE" [globalName name global, EList fields'])
         -- A type signature. The type can have splices too.
         ETypeSig inner signature -> do
           inner' <- go inner
@@ -499,6 +511,16 @@ quoted dynamic binders = go
           pure (call "sigE" [inner', signature'])
         ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
         _ -> lift Nothing
+    recordField fieldName field = do
+      name <- lift (fieldName (recordFieldName field))
+      value <- go (recordFieldValue field)
+      pure (call "fieldExp" [name, value])
+    updateFieldName name =
+      case nameEntity name of
+        Just (EntityGlobal global) -> Just (call "mkNameG_v" (globalNameParts global))
+        _ -> Nothing
+    constructionFieldName constructor name =
+      Just (call "mkNameG_v" (map stringLiteral [packageIdText (globalNamePackage constructor), globalNameModule constructor, nameText name]))
     -- An alternative with no guard and no where clause.
     alternative (CaseAlt _ pattern' rhs) =
       case rhs of

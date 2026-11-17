@@ -7,7 +7,7 @@ module Main (main) where
 
 import qualified Data.Kind as Kind
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
@@ -328,3 +328,6 @@ main = do
   -- A quote of a different module names a function that its module does
   -- not export.
   print ($twiceHelper (21 :: Int))
+  -- A quote with a record construction and a record update.
+  let size = $([|(Size {width = 1, height = 2}) {height = 5}|])
+  print (width size, height size)

@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), deriveDescribe, deriveLabel, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
 
 import Data.Proxy (Proxy)
 import Language.Haskell.TH
@@ -24,6 +24,9 @@ privateTwice n = n * 2
 -- | A quote that names a function that this module does not export.
 twiceHelper :: Q Exp
 twiceHelper = [|privateTwice|]
+
+-- | A record type of a different module than the quotes that use it.
+data Size = Size {width :: Int, height :: Int}
 
 class Describe a where
   describe :: a -> String
