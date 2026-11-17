@@ -19,8 +19,17 @@
   unicode = import ./unicode.nix {inherit pkgs;};
   # The C libraries that packages of docs/self-hosting-packages.md bind to:
   # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
-  # CPATH for headers and LIBRARY_PATH for libraries.
+  # CPATH for headers and LIBRARY_PATH for libraries. aihc runs pkg-config
+  # for pkgconfig-depends, and pkg-config reads PKG_CONFIG_PATH.
   selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
+
+  # The PKG_CONFIG_PATH of some C libraries. A library puts its .pc file in
+  # lib/pkgconfig or in share/pkgconfig. zlib uses share/pkgconfig.
+  pkgConfigPath = libraries:
+    pkgs.lib.concatStringsSep ":" [
+      (pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" libraries)
+      (pkgs.lib.makeSearchPathOutput "dev" "share/pkgconfig" libraries)
+    ];
 
   # The C libraries of a self-compiled aihc executable. They are the same as
   # selfHostingCLibraries, but staticZlib replaces the shared zlib.
@@ -398,6 +407,7 @@ in {
       pkgs.gzip
       pkgs.gawk
       pkgs.gnused
+      pkgs.pkg-config
       pkgs.llvmPackages.bintools
       pkgs.llvmPackages.clang
       pkgs.haskellPackages.hsc2hs
@@ -413,6 +423,7 @@ in {
       export AIHC=${aihcExe}
       export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
       export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+      export PKG_CONFIG_PATH="${pkgConfigPath selfHostingCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/self-hosting-progress.sh "$@"
     '';
@@ -453,7 +464,7 @@ in {
       export AIHC="''${AIHC:-${aihcExe}}"
       export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" surveyCLibraries}''${CPATH:+:$CPATH}"
       export LIBRARY_PATH="${pkgs.lib.makeLibraryPath surveyCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-      export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" surveyCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export PKG_CONFIG_PATH="${pkgConfigPath surveyCLibraries}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
       exec bash ./scripts/hackage-survey.sh "$@"
     '';
