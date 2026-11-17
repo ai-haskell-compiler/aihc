@@ -1280,7 +1280,11 @@ unionScope left right =
       scopeMethods = scopeMethods left `Map.union` scopeMethods right,
       scopeAssociatedTypes = scopeAssociatedTypes left `Map.union` scopeAssociatedTypes right,
       scopeFixities = scopeFixities left `Map.union` scopeFixities right,
-      scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
+      -- Two scopes can have the same qualifier. For example, the module
+      -- @Koji@ can have @import qualified Api as Koji@. Then @Koji.x@ names
+      -- the names of the module and the names of the import (Haskell 2010
+      -- 5.5.1), thus merge the two qualified scopes.
+      scopeQualifiedModules = Map.unionWith unionScope (scopeQualifiedModules left) (scopeQualifiedModules right)
     }
   where
     -- Two scopes can have constructors for the same data family, for
