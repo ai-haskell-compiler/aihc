@@ -64,7 +64,7 @@ linkCompiledExecutable compileConfig independence wasmImage noLink buildRoot out
   createDirectoryIfMissing True buildRoot
   let entry = buildRoot </> "entry.o"
       lto = compileLto compileConfig
-  compileEntryObject lto (compileProfileAllocations compileConfig) (compileProfileTime compileConfig) target buildRoot entry
+  compileEntryObject lto (compileProfileAllocations compileConfig) (compileProfileTime compileConfig) (compiledRuntimeOptions executable) target buildRoot entry
   -- A @--lto@ build compiles the System FC of every module of the program,
   -- from the packages and the executable alike, into one object. The
   -- package archives then hold only their C and capi wrapper objects.

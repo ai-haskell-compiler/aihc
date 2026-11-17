@@ -137,7 +137,7 @@ import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFile
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.List (isPrefixOf, nub)
+import Data.List (isPrefixOf, nub, stripPrefix)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -518,7 +518,10 @@ data ExecutableInfo = ExecutableInfo
     executableInfoCCompileInfo :: CCompileInfo,
     -- | The @main-is@ file of the executable, when it exists. It is also in
     -- 'executableInfoFiles'.
-    executableInfoMainFile :: Maybe FileInfo
+    executableInfoMainFile :: Maybe FileInfo,
+    -- | The RTS options that the @-with-rtsopts@ option in the
+    -- @ghc-options@ of the executable gives, one option in each element.
+    executableInfoRuntimeOptions :: [String]
   }
   deriving (Show)
 
@@ -563,7 +566,8 @@ programInfo context package packageRoot suffix exeName tree = do
           executableInfoFiles = files,
           executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
           executableInfoCCompileInfo = cInfo,
-          executableInfoMainFile = listToMaybe mainFiles
+          executableInfoMainFile = listToMaybe mainFiles,
+          executableInfoRuntimeOptions = ghcOptionsRuntimeOptions (map T.unpack (ghcOptions build))
         }
     | isBuildable build
     ]
@@ -686,6 +690,20 @@ ghcOptionsUseCustomPreprocessor opts =
   "-F" `elem` opts && any isPgmFOption opts
   where
     isPgmFOption opt = "-pgmF" `isPrefixOf` opt
+
+-- | The RTS options that @-with-rtsopts@ gives, one option in each element.
+-- GHC accepts @-with-rtsopts=<options>@ and @-with-rtsopts <options>@. The
+-- last @-with-rtsopts@ replaces each earlier one, as in GHC.
+ghcOptionsRuntimeOptions :: [String] -> [String]
+ghcOptionsRuntimeOptions = go []
+  where
+    flag = "-with-rtsopts"
+    go found opts = case opts of
+      [] -> found
+      opt : rest
+        | Just value <- stripPrefix (flag <> "=") opt -> go (words value) rest
+        | opt == flag, value : after <- rest -> go (words value) after
+        | otherwise -> go found rest
 
 generatedPathsFileInfo :: FilePath -> FileInfo
 generatedPathsFileInfo path =
