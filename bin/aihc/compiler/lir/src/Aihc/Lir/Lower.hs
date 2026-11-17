@@ -93,7 +93,7 @@ import Aihc.Native
     renderLinkedPartialConstructorInfoSymbol,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM, forM_, mfilter, unless, when, zipWithM)
+import Control.Monad (foldM, forM, forM_, mfilter, unless, void, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -223,15 +223,22 @@ lowerModule target settings =
 
 -- | Lower the fixed executable entry unit. With the flags, @main@ registers
 -- the allocation counters and the time profile tables of the program with
--- the runtime.
-lowerEntry :: LowerTarget -> Bool -> Bool -> Either LowerError Module
-lowerEntry target profileAllocations profileTime = do
+-- the runtime. The list holds the default RTS options of the executable,
+-- one option in each element. The @main@ of a POSIX host gives them to the
+-- runtime before the arguments. The WASI P3 entry does not use them: its
+-- driver gives the arguments to the runtime before the entry starts.
+lowerEntry :: LowerTarget -> Bool -> Bool -> [Text] -> Either LowerError Module
+lowerEntry target profileAllocations profileTime runtimeOptions = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} gcProgram
+  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
-lowerProgramWith options gcProgram =
-  Module . snd <$> runLower options gcProgram (lowerProgramItems options gcProgram)
+lowerProgramWith options = lowerProgramWithEntry options []
+
+-- | 'lowerProgramWith' with the default RTS options of an executable unit.
+lowerProgramWithEntry :: LowerOptions -> [Text] -> GcGrinProgram -> Either LowerError Module
+lowerProgramWithEntry options runtimeOptions gcProgram =
+  Module . snd <$> runLower options gcProgram (lowerProgramItems options runtimeOptions gcProgram)
 
 -- | Supply each complete item to the consumer before conversion proceeds.
 lowerModuleTo :: (Monad m) => LowerTarget -> ModuleSettings -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
@@ -252,12 +259,12 @@ lowerModuleTo target settings output gcProgram =
               then mapM_ (output (stateCallSignatures state)) (externItems state) >> pure (Right ())
               else consume state (done <> pending) (map (generateHelper env) (Set.toAscList pending))
 
-lowerProgramItems :: LowerOptions -> GcGrinProgram -> LowerUnit -> LowerM ()
-lowerProgramItems options gcProgram env = do
+lowerProgramItems :: LowerOptions -> [Text] -> GcGrinProgram -> LowerUnit -> LowerM ()
+lowerProgramItems options runtimeOptions gcProgram env = do
   lowerUnitItems env
   when (lowerUnitKind options == ExecutableUnit) $
     case lowerHost (lowerTarget options) of
-      PosixHost -> lowerExecutableMain gcProgram
+      PosixHost -> lowerExecutableMain runtimeOptions gcProgram
       Wasip3Host -> lowerWasip3Entry gcProgram
 
 -- Types
@@ -4728,13 +4735,25 @@ constructorSwitchThreshold = 4
 -- and the environment to the runtime before the capability starts, and it
 -- reports the runtime statistics when the capability halts. An exit through
 -- @aihc_exit_process@ reports them itself.
-lowerExecutableMain :: GcGrinProgram -> LowerM ()
-lowerExecutableMain gcProgram = do
+--
+-- The default RTS options of the executable are data of the entry unit:
+-- one string for each option, each ended by a zero byte. @main@ gives them
+-- to the runtime before the arguments, thus an option of the command line
+-- replaces a default option. An executable without default options has no
+-- such data and no such call.
+lowerExecutableMain :: [Text] -> GcGrinProgram -> LowerM ()
+lowerExecutableMain runtimeOptions gcProgram = do
   entryItems gcProgram
+  let optionBytes = BS.concat [TE.encodeUtf8 option <> BS.singleton 0 | option <- runtimeOptions]
+      optionsSymbol = Symbol "aihc_lir_default_rts_options"
+  unless (null runtimeOptions) $
+    emitItem (ItemData (DataItem optionsSymbol Internal False 1 [DataBytes optionBytes]))
   argc <- fresh "argc"
   argv <- fresh "argv"
   beginBlock (Label "entry") []
   capability <- callRuntime "aihc_machine_initialize" [] [Ptr] []
+  unless (null runtimeOptions) $
+    void (callRuntime "aihc_runtime_default_options" [Ptr, I64] [] [OperandLiteral (LitSymbol optionsSymbol), OperandLiteral (LitInt (toInteger (BS.length optionBytes)))])
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   profiling <- gets stateProfileAllocations

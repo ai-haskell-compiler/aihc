@@ -602,6 +602,9 @@ data ExecutableComponent = ExecutableComponent
     componentDependencies :: ![PackagePlan],
     -- | What the progress names the executable.
     componentItem :: !ProgressItem,
+    -- | The default RTS options of the executable, one option in each
+    -- element. The runtime applies them before the options of the command line.
+    componentRuntimeOptions :: ![Text],
     -- | The source files and the C inputs of the executable, given every
     -- package below it as it builds.
     componentInputs :: [InstalledPackage] -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
@@ -620,7 +623,9 @@ data CompiledExecutable = CompiledExecutable
     -- | Every package below the executable, each once.
     compiledPackages :: ![InstalledPackage],
     -- | The identity of the @aihc-prim@ package that the executable builds against.
-    compiledPrimPackage :: !PackageId
+    compiledPrimPackage :: !PackageId,
+    -- | See 'componentRuntimeOptions'.
+    compiledRuntimeOptions :: ![Text]
   }
 
 data CompiledPackageModules = CompiledPackageModules
@@ -1252,7 +1257,8 @@ prepareExecutable shared graph slot = do
                 compiledCObjects = cObjects,
                 compiledCCompileInfo = cCompileInfo,
                 compiledPackages = [],
-                compiledPrimPackage = dependencyPrimIdentity package dependencies
+                compiledPrimPackage = dependencyPrimIdentity package dependencies,
+                compiledRuntimeOptions = componentRuntimeOptions component
               }
         releaseReaders closure
   addModuleBuild

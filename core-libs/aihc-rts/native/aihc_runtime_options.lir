@@ -14,6 +14,13 @@
 ; option is -M<size>, a heap limit with an optional K, M, G, or T suffix.
 ; Static reference tables always determine static object liveness.
 ;
+; The executable can hold default RTS options: the options that the
+; -with-rtsopts option of its Cabal stanza gives. The entry unit gives them
+; to the runtime before the arguments. The parser applies them first, thus
+; an option of the command line replaces a default option. A package writes
+; its default options for the GHC runtime, so the parser applies only the
+; ones that mean the same here (-N, -maxN, -M, and -A) and ignores the others.
+;
 ; The environment arrives the same way: one buffer of NAME=VALUE strings,
 ; each ended by a zero byte. The one recognized variable is AIHC_RTS_STATS,
 ; whose value names the file that receives the runtime statistics on exit.
@@ -31,10 +38,16 @@ extern func @aihc_host_byte_array(ptr, ptr, i64) -> ptr cc c
 extern func @aihc_byte_array_contents(ptr) -> ptr cc c
 extern func @aihc_byte_array_get_size(ptr) -> i64 cc c
 extern func @aihc_memory_copy(ptr, ptr, i64) cc c
+extern func @aihc_host_processor_count() -> i64 cc c
 
 ; The kept arguments, and the number of bytes they occupy.
 global @aihc_program_argument_buffer: ptr
 global @aihc_program_argument_bytes: i64
+; The default RTS options of the executable, and the number of bytes they
+; occupy: one string for each option, each ended by a zero byte. The data
+; belongs to the entry unit, so the collector does not move it.
+global @aihc_rts_default_options: ptr
+global @aihc_rts_default_options_bytes: i64
 ; The kept environment, and the number of bytes it occupies. The host hands
 ; it over once, before the machine starts, and nothing replaces it later.
 global @aihc_program_environment_buffer: ptr
@@ -52,7 +65,9 @@ global @aihc_rts_option_nursery_block_bytes: i64
 ; -R sets the budget of barrier work between two collections. Zero selects
 ; the nursery size.
 global @aihc_rts_option_barrier_budget_bytes: i64
-; -N sets the number of capabilities. Zero selects one.
+; -N sets the number of capabilities. Zero selects one. -N without a number
+; selects the number of processors, and -maxN sets the number of processors
+; with the given number as the maximum.
 global @aihc_rts_option_capabilities: i64
 ; -B sets the number of collections that a survivor stays in gen1. Zero is a
 ; valid count, so a second global records that the option is present.
@@ -67,6 +82,7 @@ global @aihc_rts_option_stats_path: ptr
 data @aihc_rts_start_marker align 1 = { bytes "+RTS", zero 1 }
 data @aihc_rts_end_marker align 1 = { bytes "-RTS", zero 1 }
 data @aihc_rts_stop_marker align 1 = { bytes "--RTS", zero 1 }
+data @aihc_rts_max_capabilities_prefix align 1 = { bytes "-maxN", zero 1 }
 data @aihc_rts_stats_variable align 1 = { bytes "AIHC_RTS_STATS=", zero 1 }
 
 data @aihc_rts_missing_size_message align 1 = {
@@ -83,6 +99,15 @@ data @aihc_rts_invalid_size_message align 1 = {
 
 data @aihc_rts_unknown_option_message align 1 = {
   bytes "unknown RTS option", zero 1
+}
+
+; Keep the default RTS options of the executable. The entry unit calls this
+; before the host initializes the arguments.
+export func @aihc_runtime_default_options(%buffer: ptr, %length: i64) cc c {
+entry:
+  global.set @aihc_rts_default_options, %buffer
+  global.set @aihc_rts_default_options_bytes, %length
+  return
 }
 
 export func @aihc_rts_heap_max_bytes() -> i64 cc c {
@@ -371,11 +396,37 @@ mark_option:
 
 capabilities_option:
   %is_capabilities = eq i8 %second, 'N'
-  br %is_capabilities, capabilities, unknown
+  br %is_capabilities, capabilities, maximum_option
 
+; -N without a number selects one capability for each processor.
 capabilities:
+  %count_first = load i8 [%size_text] align 1
+  %no_count = eq i8 %count_first, 0
+  br %no_count, all_processors, counted_capabilities
+
+all_processors:
+  %all = call @aihc_host_processor_count()
+  global.set @aihc_rts_option_capabilities, %all
+  return
+
+counted_capabilities:
   %capability_count = call @aihc_rts_parse_heap_size(%size_text)
   global.set @aihc_rts_option_capabilities, %capability_count
+  return
+
+; -maxN<n> selects one capability for each processor, and not more than n.
+maximum_option:
+  %maximum = call @aihc_rts_text_starts_with(%argument, @aihc_rts_max_capabilities_prefix)
+  %is_maximum = ne i64 %maximum, 0
+  br %is_maximum, maximum_capabilities, unknown
+
+maximum_capabilities:
+  %maximum_text = ptr.add %argument, 5
+  %maximum_count = call @aihc_rts_parse_heap_size(%maximum_text)
+  %processors = call @aihc_host_processor_count()
+  %below_maximum = lt.u i64 %processors, %maximum_count
+  %limited = select i64 %below_maximum, %processors, %maximum_count
+  global.set @aihc_rts_option_capabilities, %limited
   return
 
 mark:
@@ -386,6 +437,128 @@ mark:
 unknown:
   call @aihc_fail(@aihc_rts_unknown_option_message)
   trap "unknown RTS option"
+}
+
+; One when the string at %text is a size that cannot fail: one to seven
+; digits, an optional unit suffix, and the end. Seven digits and the largest
+; unit fit 64 bits.
+func @aihc_rts_size_is_plain(%text: ptr) -> i64 {
+entry:
+  jump digit(0)
+
+digit(%index: i64):
+  %address = ptr.add %text, %index
+  %byte = load i8 [%address] align 1
+  %under = lt.u i8 %byte, '0'
+  %over = gt.u i8 %byte, '9'
+  %done = or i1 %under, %over
+  br %done, suffix, more
+
+more:
+  %next = add i64 %index, 1
+  %long = gt.u i64 %next, 7
+  br %long, rejected, digit(%next)
+
+suffix:
+  %none = eq i64 %index, 0
+  br %none, rejected, unit
+
+unit:
+  switch i8 %byte {
+    0 -> accepted
+    'K', 'k', 'M', 'm', 'G', 'g', 'T', 't' -> last
+    default -> rejected
+  }
+
+; The text must end after the suffix.
+last:
+  %end_offset = add i64 %index, 1
+  %end_address = ptr.add %text, %end_offset
+  %end = load i8 [%end_address] align 1
+  %junk = ne i8 %end, 0
+  br %junk, rejected, accepted
+
+rejected:
+  return 0
+
+accepted:
+  return 1
+}
+
+; One when the runtime applies the default option at %argument. A package
+; writes its default options for the GHC runtime. Only -N, -maxN, -M, and -A
+; mean the same here, and only a size that cannot fail is applied. The
+; runtime ignores each other default option, so no package fails at its
+; start because of one.
+func @aihc_rts_default_option_applies(%argument: ptr) -> i64 {
+entry:
+  %first = load i8 [%argument] align 1
+  %is_dash = eq i8 %first, '-'
+  br %is_dash, maximum_option, ignored
+
+maximum_option:
+  %maximum = call @aihc_rts_text_starts_with(%argument, @aihc_rts_max_capabilities_prefix)
+  %is_maximum = ne i64 %maximum, 0
+  br %is_maximum, maximum_size, letter
+
+maximum_size:
+  %maximum_text = ptr.add %argument, 5
+  %maximum_valid = call @aihc_rts_size_is_plain(%maximum_text)
+  return %maximum_valid
+
+letter:
+  %second = load i8 [%argument + 1] align 1
+  %size_text = ptr.add %argument, 2
+  switch i8 %second {
+    'N' -> capabilities
+    'M', 'A' -> sized
+    default -> ignored
+  }
+
+; -N without a number is valid.
+capabilities:
+  %count_first = load i8 [%size_text] align 1
+  %no_count = eq i8 %count_first, 0
+  br %no_count, applied, sized
+
+sized:
+  %valid = call @aihc_rts_size_is_plain(%size_text)
+  return %valid
+
+applied:
+  return 1
+
+ignored:
+  return 0
+}
+
+; Apply the default RTS options of the executable.
+func @aihc_rts_apply_default_options() {
+entry:
+  %buffer = global.get @aihc_rts_default_options
+  %length = global.get @aihc_rts_default_options_bytes
+  jump option(0)
+
+; %input is the offset of the next option.
+option(%input: i64):
+  %exhausted = ge.u i64 %input, %length
+  br %exhausted, done, examine
+
+examine:
+  %argument = ptr.add %buffer, %input
+  %applies = call @aihc_rts_default_option_applies(%argument)
+  %text_length = call @aihc_rts_text_length(%argument)
+  %size = add i64 %text_length, 1
+  %next = add i64 %input, %size
+  %skip = eq i64 %applies, 0
+  br %skip, option(%next), apply
+
+apply:
+  call @aihc_rts_parse_option(%argument)
+  jump option(%next)
+
+done:
+  return
 }
 
 ; One when %length bytes at %buffer are a well-formed argument buffer: a
@@ -447,6 +620,8 @@ rejected:
 reset:
   global.set @aihc_rts_option_heap_max_bytes, 0
   global.set @aihc_rts_option_heap_limit_enabled, 0
+  ; The default options come first, so the options of the buffer replace them.
+  call @aihc_rts_apply_default_options()
   ; An empty argument list still owns one byte, so the buffer is never null.
   %empty = eq i64 %length, 0
   %capacity = select i64 %empty, 1, %length
