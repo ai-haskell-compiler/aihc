@@ -50,7 +50,7 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Reify (reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
+import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
@@ -66,7 +66,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, removePathForcibly)
 import System.FilePath (replaceExtension, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr, stdout)
 import System.IO.Error (ioeGetErrorString, isUserError)
@@ -83,21 +83,37 @@ withSplices config = config {compileSplices = Just runSplices}
 runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
 runSplices = runSplicesFor Nothing
 
--- | 'runSplices' for the build of a splice package. The splice package has
--- copies of modules of an original package. A splice in such a copy reads
--- the files of the original package. Thus, a request of the splice package
--- gets the directory of the original package. The first argument has the
--- name of the splice package and that directory.
-runSplicesFor :: Maybe (Text, FilePath) -> SpliceRequest -> (RunSplice -> IO a) -> IO a
-runSplicesFor original given action =
+-- | The original package of a splice package. The splice package has
+-- copies of modules of the original package.
+data SpliceOrigin = SpliceOrigin
+  { -- | The name of the splice package.
+    originSplicePackage :: !Text,
+    -- | The directory of the original package. A splice in a copy reads the
+    -- files of the original package.
+    originPackageRoot :: !FilePath,
+    -- | The package id of the names of the original package.
+    originPackageId :: !Text,
+    -- | The file with the splice results of each copied module that has
+    -- splices, from the build of the original package.
+    originResults :: !(Map Text FilePath)
+  }
+
+-- | 'runSplices' for the build of a splice package. A request of the
+-- splice package gets the directory of the original package. If the build
+-- of the original package ran the splices of the module, the copy gets
+-- the same results. Thus, the copy does not make a splice package of its
+-- own, and splice packages do not go in each other.
+runSplicesFor :: Maybe SpliceOrigin -> SpliceRequest -> (RunSplice -> IO a) -> IO a
+runSplicesFor origin given action =
   run `catch` \failure ->
     ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure <> unavailableNote))
   where
-    request =
-      case original of
-        Just (name, directory) | spliceRequestPackage given == name -> given {spliceRequestPackageRoot = directory}
-        _ -> given
+    ownOrigin = case origin of
+      Just found | spliceRequestPackage given == originSplicePackage found -> Just found
+      _ -> Nothing
+    request = maybe given (\found -> given {spliceRequestPackageRoot = originPackageRoot found}) ownOrigin
     root = spliceRequestBuildRoot request
+    resultsPath = spliceResultsPath request
     -- A splice cannot use a module of the same dependency cycle. A failure
     -- names these modules, because the failure is often an unbound name of
     -- such a module.
@@ -109,6 +125,33 @@ runSplicesFor original given action =
     package = splicePackageName request
     packageIds = (splicePackageId request, spliceRequestPackageId request)
     run = do
+      createDirectoryIfMissing True root
+      removePathForcibly resultsPath
+      recorded <- case ownOrigin >>= Map.lookup (spliceRequestModule request) . originResults of
+        Just path -> do
+          exists <- doesFileExist path
+          pure (if exists then Just path else Nothing)
+        Nothing -> pure Nothing
+      results <- newIORef Map.empty
+      outcome <- maybe (runEngine results) (replay results) recorded
+      trees <- readIORef results
+      BS.writeFile resultsPath (encodeTree (TreeNode "Results" [TreeNode "Result" [TreeInteger (toInteger index), tree] | (index, tree) <- Map.toList trees]))
+      pure outcome
+    -- The splice results of the build of the original package, with the
+    -- package id of this package in place of the id of that package.
+    replay results path = do
+      bytes <- BS.readFile path
+      recorded <- either (ioError . userError . T.unpack) pure (decodeTree bytes >>= resultTrees)
+      let from = maybe (spliceRequestPackageId request) originPackageId ownOrigin
+          renamed = Map.map (renamePackageId from (spliceRequestPackageId request)) recorded
+      action $ \index _ -> do
+        splice <- spliceAt index
+        tree <- maybe (ioError (userError ("The recorded results in " <> path <> " have no result for splice " <> show index <> "."))) pure (Map.lookup index renamed)
+        modifyIORef' results (Map.insert index tree)
+        either (ioError . userError . T.unpack) pure (convertResult splice tree)
+    spliceAt index =
+      maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
+    runEngine results = do
       absolute <- absoluteRequest request
       image <- buildImage request
       createDirectoryIfMissing True (packageDirectory </> "src")
@@ -116,7 +159,14 @@ runSplicesFor original given action =
       TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
       mapM_ (copyOwnModule absolute (packageDirectory </> "src")) (spliceRequestOwnModules absolute)
       packageRoot <- makeAbsolute (spliceRequestPackageRoot request)
-      let withOriginalFiles config = config {compileSplices = Just (runSplicesFor (Just (package, packageRoot)))}
+      let nested =
+            SpliceOrigin
+              { originSplicePackage = package,
+                originPackageRoot = packageRoot,
+                originPackageId = spliceRequestPackageId request,
+                originResults = Map.fromList (spliceRequestOwnResults absolute)
+              }
+          withOriginalFiles config = config {compileSplices = Just (runSplicesFor (Just nested))}
       installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withOriginalFiles
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
@@ -128,7 +178,7 @@ runSplicesFor original given action =
         startGuest engine
         loadSharedModule engine shared
         action $ \index localFacts -> do
-          splice <- maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
+          splice <- spliceAt index
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
           requests <- newIORef []
           let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
@@ -136,18 +186,36 @@ runSplicesFor original given action =
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
-          let convert tree =
-                case splice of
-                  ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
-                  TypeSplice _ -> TypeResult <$> typeResultFromTree tree
-                  DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
           -- A report of an error is the cause of a failure of the closure,
           -- so the report comes before the failure itself.
           case (reportedFailure made, outcome) of
             (Just message, _) -> ioError (userError (T.unpack message))
             (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
-            (Nothing, Right [message]) -> either (ioError . userError . T.unpack) pure (decodeTree message >>= convert . fromGuest)
+            (Nothing, Right [message]) -> do
+              tree <- either (ioError . userError . T.unpack) (pure . fromGuest) (decodeTree message)
+              modifyIORef' results (Map.insert index tree)
+              either (ioError . userError . T.unpack) pure (convertResult splice tree)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+
+-- | The result of a splice from its tree.
+convertResult :: Splice -> Tree -> Either Text SpliceResult
+convertResult splice tree =
+  case splice of
+    ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
+    TypeSplice _ -> TypeResult <$> typeResultFromTree tree
+    DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
+
+-- | The trees of a file of splice results, by the position of the splice.
+resultTrees :: Tree -> Either Text (Map Int Tree)
+resultTrees tree =
+  case tree of
+    TreeNode "Results" entries -> Map.fromList <$> mapM entry entries
+    _ -> Left "The file of splice results is not correct."
+  where
+    entry value =
+      case value of
+        TreeNode "Result" [TreeInteger index, result] -> Right (fromInteger index, result)
+        _ -> Left "The file of splice results is not correct."
 
 -- | The request with absolute paths for the source files and the include
 -- directories of the package. The Cabal file of the splice package names
@@ -155,6 +223,7 @@ runSplicesFor original given action =
 absoluteRequest :: SpliceRequest -> IO SpliceRequest
 absoluteRequest request = do
   ownModules <- mapM (\(name, path) -> (name,) <$> makeAbsolute path) (spliceRequestOwnModules request)
+  ownResults <- mapM (\(name, path) -> (name,) <$> makeAbsolute path) (spliceRequestOwnResults request)
   files <-
     Map.fromList
       <$> mapM
@@ -164,7 +233,7 @@ absoluteRequest request = do
             pure (absolute, file {packageFileIncludeDirs = includeDirs})
         )
         [entry | entry@(path, _) <- Map.toList (spliceRequestPackageFiles request), path `elem` map snd (spliceRequestOwnModules request)]
-  pure request {spliceRequestOwnModules = ownModules, spliceRequestPackageFiles = files}
+  pure request {spliceRequestOwnModules = ownModules, spliceRequestOwnResults = ownResults, spliceRequestPackageFiles = files}
 
 -- | Change the package id of the splice package to the package id of the
 -- original package, in each name of a tree from the splice. The first id
