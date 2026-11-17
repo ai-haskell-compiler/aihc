@@ -343,10 +343,26 @@ ghcplatformHeader target =
 
 -- | The sizes and alignments of the Haskell types.  A pointer follows the
 -- target and everything else follows the Haskell word.
+--
+-- The pointer tag macros also follow the Haskell word, as in GHC.  The
+-- @ghc-heap@ package reads them in an hsc2hs file.  A package can set its own
+-- @TAG_BITS@ before the include.
 machDepsHeader :: HeaderTarget -> Text
 machDepsHeader target =
-  header "MACHDEPS_H" ["#include \"ghcplatform.h\""] (M.toList (M.union haskellWordCppMacros pointerMacros))
+  headerLines
+    "MACHDEPS_H"
+    ["#include \"ghcplatform.h\""]
+    ( map define (M.toList (M.union haskellWordCppMacros pointerMacros))
+        <> [ "#if !defined(TAG_BITS)",
+             "#define TAG_BITS " <> tshow tagBits,
+             "#endif",
+             "#define TAG_MASK ((1 << TAG_BITS) - 1)"
+           ]
+    )
   where
+    define (name, value) = "#define " <> name <> " " <> value
+    tagBits :: Int
+    tagBits = if haskellWordBytes == 4 then 2 else 3
     pointerMacros =
       M.fromList
         ( concatMap
