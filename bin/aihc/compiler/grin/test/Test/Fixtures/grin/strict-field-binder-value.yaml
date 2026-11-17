@@ -1,0 +1,43 @@
+source: |
+  module Test where
+  data Colour = Red | Green
+  data Pair = Pair !Colour Colour
+  strict :: Pair -> Colour
+  strict (Pair colour _) = colour
+  lazy :: Pair -> Colour
+  lazy (Pair _ colour) = colour
+status: pass
+reason: The binder of a lifted strict field points to a value, and the code does not evaluate it. The binder of a lazy field is evaluated.
+expected: |-
+  scope 1 = "" Test
+
+  pub constructor 1.Red []
+
+  pub constructor 1.Green%1 []
+
+  pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global 1.$WPair = (P1.$$WPair$p_p$p/2)
+
+  pub global 1.strict = (P1.$strict$p$p/1)
+
+  pub global 1.lazy = (P1.$lazy$p$p/1)
+
+  pub 1.$$WPair$p_p$p (_strict_field :: BoxedRep Lifted) (_field :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (_strict_field :: BoxedRep Lifted)
+    store (C1.Pair (case_value :: BoxedRep Lifted) (_field :: BoxedRep Lifted))
+
+  pub 1.$strict$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    colour :: BoxedRep Lifted, _pat :: BoxedRep Lifted <-
+      fetch (C1.Pair) (case_value :: BoxedRep Lifted)
+    constant (colour :: BoxedRep Lifted)
+
+  pub 1.$lazy$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    _pat :: BoxedRep Lifted, colour :: BoxedRep Lifted <-
+      fetch (C1.Pair) (case_value :: BoxedRep Lifted)
+    eval @(BoxedRep Lifted) (colour :: BoxedRep Lifted)
