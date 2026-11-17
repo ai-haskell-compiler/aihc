@@ -1,0 +1,34 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, PolyKinds, KindSignatures, RankNTypes, ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+    HRefl :: HEq a a
+  data Rep (a :: k) = Rep
+  data AppView (t :: k2) where
+    IsApp :: forall k2 (t :: k2) k1 (f :: k1 -> k2) (x :: k1). (t ~ f x) => Rep f -> Rep x -> AppView t
+    NotApp :: AppView t
+  splitApp :: forall k (a :: k). Rep a -> AppView a
+  splitApp _ = NotApp
+  data Maybe a = Nothing | Just a
+  data Unit = Unit
+  data Either a b = Left a | Right b
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  data SomeRep where
+    SomeRep :: forall k (a :: k). Rep a -> SomeRep
+  marker :: forall (x :: Type). Unit
+  marker = Unit
+  data Box (a :: Type) = Box
+  use :: SomeRep -> Maybe (Unit, Box (Unit -> Unit))
+  use (SomeRep (rep :: Rep t)) = case splitApp rep of
+    IsApp (f :: Rep f) (b :: Rep b) -> case splitApp f of
+      IsApp (tup :: Rep tup) (a :: Rep a) -> case eqRep tup (Rep :: Rep Either) of
+        Just HRefl -> Just (marker @b, case (Box :: Box (b -> Unit)) of Box -> Box)
+        Nothing -> Nothing
+      NotApp -> Nothing
+    NotApp -> Nothing
+status: pass
+reason: a match on HRefl gives a kind equality, and the FC conversion and the FC lint use it for a type application and an arrow argument whose kind is a variable
