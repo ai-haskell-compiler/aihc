@@ -1,10 +1,13 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), deriveDescribe, helperValue, isMode, plusHelper) where
+module Helper (Describe (..), deriveDescribe, deriveLabel, helperValue, isMode, labelText, plusHelper, warmType) where
 
+import Data.Proxy (Proxy)
 import Language.Haskell.TH
 import Lower (Mode, lowerValue)
+import Tone (Label (..), Tone (..))
 
 helperValue :: Int
 helperValue = lowerValue + 3
@@ -34,3 +37,23 @@ deriveDescribe name = do
 -- and the name quote of the caller must give the same name.
 isMode :: Name -> Q Exp
 isMode name = if name == ''Mode then [|True|] else [|False|]
+
+-- | A type with a promoted constructor of "Tone". The module of the splice
+-- does not import "Tone".
+warmType :: Q Type
+warmType = [t|Proxy 'Warm|]
+
+-- | An instance of the class of "Tone" for a data type. The module of the
+-- splice does not import "Tone".
+deriveLabel :: Name -> Q [Dec]
+deriveLabel name =
+  pure
+    [ InstanceD
+        Nothing
+        []
+        (AppT (ConT ''Label) (ConT name))
+        [FunD 'label [Clause [WildP] (NormalB (LitE (StringL (nameBase name)))) []]]
+    ]
+
+labelText :: (Label a) => a -> String
+labelText = label

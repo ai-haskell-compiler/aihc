@@ -2879,14 +2879,15 @@ resolveTypeConstructorUse promotion name =
       case maybe (resolveTypeName scope name) (Resolved . EntityGlobal) (exactType name) of
         unresolved@(Unresolved _)
           | DataKinds `elem` moduleInfoExtensions info ->
-              case resolveTermName scope name of
+              case termUseResolution scope name of
                 Unresolved _ -> resolveNameTo sp ResolutionNamespaceType unresolved name
                 resolved -> resolveNameTo sp ResolutionNamespaceTerm resolved name
         resolved -> resolveNameTo sp ResolutionNamespaceType resolved name
+    -- A promoted constructor of a splice result has an 'ExactTerm' mark.
     Promoted -> do
       sp <- currentSpan
       scope <- currentScope
-      resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name
+      resolveNameTo sp ResolutionNamespaceTerm (termUseResolution scope name) name
 
 typePromotionNamespace :: TypePromotion -> ResolutionNamespace
 typePromotionNamespace promotion =

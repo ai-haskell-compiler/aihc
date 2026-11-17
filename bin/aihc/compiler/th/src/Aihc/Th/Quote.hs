@@ -179,7 +179,8 @@ desugarQuotes dynamic outerBinders parsed resolved
             evalStateT (quoted dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           (_, NameQuote expr) -> quotedName dynamic expr
           (_, TypeNameQuote ty) -> quotedTypeName ty
-          (_, TypeQuote ty) -> quotedType ty
+          (TypeQuote parsedBody, TypeQuote resolvedBody) ->
+            evalStateT (quotedType dynamic outerBinders resolvedBody) (quoteSplices parsedBody)
           _ -> Nothing
     replace original _ =
       state $ \case
@@ -304,13 +305,16 @@ quotedTypeName ty =
 -- | The expression that builds the syntax tree of a resolved type quote
 -- body. A type constructor becomes a name that is bound to its package and
 -- its module, and a data constructor becomes a promoted name. A type
--- variable becomes a name with no module. A kind signature, a binder of a
--- forall with a kind, a splice, and other constructs are outside the
--- subset: the quote stays as it is. The library function @sigT@ takes the
--- kind as a value and not as a computation, so a kind signature needs a
--- different form of the result.
-quotedType :: Type -> Maybe Expr
-quotedType = go
+-- variable becomes a name with no module. A splice gives the syntax tree
+-- itself, as in an expression quote. A kind signature, a binder of a
+-- forall with a kind, and other constructs are outside the subset: the
+-- quote stays as it is. The library function @sigT@ takes the kind as a
+-- value and not as a computation, so a kind signature needs a different
+-- form of the result.
+--
+-- The sets and the state are the same as for 'quoted'.
+quotedType :: Set Text -> Set Entity -> Type -> StateT [Expr] Maybe Expr
+quotedType dynamic binders = go
   where
     go ty =
       case ty of
@@ -321,34 +325,35 @@ quotedType = go
         TCon name _ ->
           case nameEntity name of
             Just (EntityGlobal global)
-              | globalNameNamespace global == ResolutionNamespaceTerm -> Just (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
-              | globalNameNamespace global == ResolutionNamespaceType -> Just (call "conT" [call "mkNameG_tc" (globalNameParts global)])
-            _ -> Nothing
-        TVar name -> Just (call "varT" [dynamicName (unqualifiedNameText name)])
+              | globalNameNamespace global == ResolutionNamespaceTerm -> pure (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
+              | globalNameNamespace global == ResolutionNamespaceType -> pure (call "conT" [call "mkNameG_tc" (globalNameParts global)])
+            _ -> lift Nothing
+        TVar name -> pure (call "varT" [dynamicName (unqualifiedNameText name)])
         TApp function argument -> applied <$> go function <*> go argument
         -- GHC gives an application of the operator, not an infix type.
         TInfix left operator promotion right -> do
           operator' <- go (TCon operator promotion)
           left' <- go left
           right' <- go right
-          Just (applied (applied operator' left') right')
+          pure (applied (applied operator' left') right')
         TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
         TList Unpromoted [element] -> applied (library "listT") <$> go element
         TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
-        TTypeLit (TypeLitInteger number _) -> Just (call "litT" [call "numTyLit" [integer number]])
-        TTypeLit (TypeLitSymbol string _) -> Just (call "litT" [call "strTyLit" [stringLiteral string]])
+        TTypeLit (TypeLitInteger number _) -> pure (call "litT" [call "numTyLit" [integer number]])
+        TTypeLit (TypeLitSymbol string _) -> pure (call "litT" [call "strTyLit" [stringLiteral string]])
         TContext constraints inner -> quantified [] constraints inner
-        TForall (ForallTelescope ForallInvisible binders) inner ->
+        TForall (ForallTelescope ForallInvisible binders') inner ->
           case withoutTypeAnnotations inner of
-            TContext constraints body -> quantified binders constraints body
-            body -> quantified binders [] body
-        _ -> Nothing
+            TContext constraints body -> quantified binders' constraints body
+            body -> quantified binders' [] body
+        TSplice resolvedBody -> spliced dynamic binders resolvedBody
+        _ -> lift Nothing
     applied function argument = call "appT" [function, argument]
-    quantified binders constraints body = do
-      binders' <- mapM binder binders
+    quantified tyVarBinders constraints body = do
+      binders' <- lift (mapM binder tyVarBinders)
       constraints' <- mapM go constraints
       body' <- go body
-      Just (call "forallT" [EList binders', call "cxt" [EList constraints'], body'])
+      pure (call "forallT" [EList binders', call "cxt" [EList constraints'], body'])
     binder tyVarBinder =
       case tyVarBinderKind tyVarBinder of
         Nothing -> Just (foldl EApp (libraryConstructor "PlainTV") [dynamicName (tyVarBinderName tyVarBinder), libraryConstructor (specificity (tyVarBinderSpecificity tyVarBinder))])
@@ -362,9 +367,9 @@ quotedType = go
         TAnn _ inner -> withoutTypeAnnotations inner
         _ -> ty
 
--- | The body of each splice of a quote body, in source order. A splice in
--- the body of a splice is not in the result.
-quoteSplices :: Expr -> [Expr]
+-- | The body of each expression splice and type splice of a quote body, in
+-- source order. A splice in the body of a splice is not in the result.
+quoteSplices :: (Data syntax) => syntax -> [Expr]
 quoteSplices = go
   where
     go :: forall value. (Data value) => value -> [Expr]
@@ -374,7 +379,23 @@ quoteSplices = go
           case value of
             ETHSplice body -> [body]
             _ -> concat (gmapQ go value)
-        Nothing -> concat (gmapQ go value)
+        Nothing ->
+          case eqT @value @Type of
+            Just Refl ->
+              case value of
+                TSplice body -> [body]
+                _ -> concat (gmapQ go value)
+            Nothing -> concat (gmapQ go value)
+
+-- | The syntax tree of a splice in a quote: the body of the splice itself.
+-- The state has the parsed splice bodies, and the first one is the body of
+-- this splice. A quote in the body also changes, with the binders of the
+-- quote that contains the splice.
+spliced :: Set Text -> Set Entity -> Expr -> StateT [Expr] Maybe Expr
+spliced dynamic binders resolvedBody =
+  StateT $ \case
+    body : rest -> Just (EParen (desugarQuotes dynamic binders body resolvedBody), rest)
+    [] -> Nothing
 
 -- | The local binders of a syntax tree.
 localBinders :: (Data syntax) => syntax -> Set Entity
@@ -421,12 +442,12 @@ quoted dynamic binders = go
           scrutinee' <- go scrutinee
           alternatives' <- mapM alternative alternatives
           pure (call "caseE" [scrutinee', EList alternatives'])
-        -- A splice in a quote gives the syntax tree itself. A quote in the
-        -- body of the splice also changes, with the binders of this quote.
-        ETHSplice resolvedBody ->
-          StateT $ \case
-            body : rest -> Just (EParen (desugarQuotes dynamic binders body resolvedBody), rest)
-            [] -> Nothing
+        -- A type signature. The type can have splices too.
+        ETypeSig inner signature -> do
+          inner' <- go inner
+          signature' <- quotedType dynamic binders signature
+          pure (call "sigE" [inner', signature'])
+        ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
         _ -> lift Nothing
     -- An alternative with no guard and no where clause.
     alternative (CaseAlt _ pattern' rhs) =
