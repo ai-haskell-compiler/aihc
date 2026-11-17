@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), deriveDescribe, helperValue, isMode, plusHelper) where
+module Helper (Describe (..), Size (..), deriveDescribe, helperValue, isMode, plusHelper) where
 
 import Language.Haskell.TH
 import Lower (Mode, lowerValue)
@@ -12,6 +12,9 @@ helperValue = lowerValue + 3
 -- | A quote that names a value of this module.
 plusHelper :: Int -> Q Exp
 plusHelper n = [|helperValue + n|]
+
+-- | A record type of a different module than the quotes that use it.
+data Size = Size {width :: Int, height :: Int}
 
 class Describe a where
   describe :: a -> String
