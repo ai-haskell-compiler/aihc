@@ -85,7 +85,10 @@ writeGrinObjectWith backend lint settings dumpPath gcProgram path = do
     -- and emits its items on one thread. A producer thread and a consumer
     -- thread for each module moved each item between capabilities, and
     -- the shared object buffers became global objects.
-    lowerItems output = Lower.lowerModuleTo (obLowerTarget backend) settings output gcProgram >>= checked
+    lowerItems output = Lower.lowerModuleTo (obLowerTarget backend) settings output gcProgram >>= checkedIn
+    -- A lowering error names the object file, because the error itself
+    -- does not name the module.
+    checkedIn = either (\err -> ioError (userError (path <> ": " <> show err))) pure
     declarations = do
       items <- newIORef []
       references <- newIORef Set.empty

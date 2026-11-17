@@ -1725,7 +1725,7 @@ lowerInfo info = do
   let fields = infoFields info
       byte = DataInt I8 . toInteger
   when (length fields > infoByteFieldLimit) $
-    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info)))
+    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info) <> T.pack (" (" <> show (length fields) <> " fields)") <> maybe "" ((" for " <>) . unSymbol . enterTarget) (infoEnter info)))
   when (infoRemainingArity info > infoByteFieldLimit) $
     failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
