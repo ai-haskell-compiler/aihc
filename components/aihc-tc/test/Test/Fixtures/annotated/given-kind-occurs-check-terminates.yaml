@@ -1,0 +1,45 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, FlexibleContexts, GADTs, PolyKinds, TypeFamilies, TypeOperators #-}
+  module Test where
+  import GHC.Types (Type)
+  data KProxy (t :: Type) = KProxy
+       └─ type: Type → Type └─ type: ∀ t. KProxy t
+  data family Sing (x :: k)
+              └─ type: k → Type
+  data instance Sing (x :: [k]) where
+  └─ error: kind mismatch: expected k, got [k]
+    Cons :: (k ~ [k]) => Sing (x :: k) -> Sing (x ': xs)
+    └─ type: ∀ k x x xs. ([k] ~ [[k]], x ~ ('GHC.Types.: x xs), k ~ [k]) ⇒ Sing x → Sing x
+  class (kparam ~ 'KProxy) => SingKind (kparam :: KProxy k) where
+  └─ class methods: fromSing ∷ ∀ k kparam a. (SingKind kparam) ⇒ Sing a → ()
+    fromSing :: Sing (a :: k) -> ()
+  instance SingKind ('KProxy :: KProxy [a]) where
+  └─ $fSingKindKProxy ∷ ∀ a. () ⇒ SingKind 'KProxy [superclasses: refl 'KProxy]
+    fromSing (Cons x) = fromSing x
+    │         │    │    └─ type: Sing x → (); type-args: [a], 'KProxy, x; evidence: $fSingKindKProxy @a
+    │         │    └─ type: Sing x
+    │         └─ type: Sing x → Sing a; type-args: a, a, x, xs; evidence: given [a] ~ [[a]], given a ~ ': x xs, given a ~ [a]
+    └─ fromSing ∷ ∀ a. Sing a → ()
+extensions:
+- DataKinds
+- FlexibleContexts
+- GADTs
+- PolyKinds
+- TypeFamilies
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE DataKinds, FlexibleContexts, GADTs, PolyKinds, TypeFamilies, TypeOperators #-}
+  module Test where
+  import GHC.Types (Type)
+  data KProxy (t :: Type) = KProxy
+  data family Sing (x :: k)
+  data instance Sing (x :: [k]) where
+    Cons :: (k ~ [k]) => Sing (x :: k) -> Sing (x ': xs)
+  class (kparam ~ 'KProxy) => SingKind (kparam :: KProxy k) where
+    fromSing :: Sing (a :: k) -> ()
+  instance SingKind ('KProxy :: KProxy [a]) where
+    fromSing (Cons x) = fromSing x
+status: pass
+reason: The given k ~ [k] has no solution. A kind refinement with it made the kind larger at each improvement of the wanteds, so the type checker did not stop.

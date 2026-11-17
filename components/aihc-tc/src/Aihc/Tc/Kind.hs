@@ -1315,7 +1315,7 @@ refineGivenKind kind = do
     givenEqualities -> do
       equalities <- mapM zonkEquality givenEqualities
       kindEqualities <- concat <$> mapM givenKindEqualities givenEqualities
-      pure (rewrite (equalities <> kindEqualities) Set.empty kind)
+      pure (rewrite (acyclicRewrites (equalities <> kindEqualities)) Set.empty kind)
   where
     zonkEquality (left, right) = (,) <$> zonkKind left <*> zonkKind right
     rewrite equalities visited ty
@@ -1338,6 +1338,35 @@ refineGivenKind kind = do
     replace ty left@TcTyVar {} right | sameType ty left, not (sameType left right) = Just right
     replace ty left right@TcTyVar {} | sameType ty right, not (sameType left right) = Just left
     replace _ _ _ = Nothing
+
+-- | The given equalities that a rewrite can use. A given such as @k ~ [k]@,
+-- or the pair @k ~ [j]@ and @j ~ [k]@, has no solution. A rewrite with it
+-- makes a kind larger at each refinement, and the solver improves the
+-- wanteds again after each refinement, so the solver would not stop. Thus,
+-- an equality whose variable can reach itself through the rewrites is not
+-- a rewrite. The orientation is the one that 'refineGivenKind' uses.
+acyclicRewrites :: [(TcType, TcType)] -> [(TcType, TcType)]
+acyclicRewrites equalities =
+  [equality | (equality, source) <- zip equalities sources, maybe True (not . onCycle) source]
+  where
+    sources = map rewriteSource equalities
+    rewriteSource (left, right)
+      | sameType left right = Nothing
+    rewriteSource (TcTyVar a, TcTyVar b)
+      | tvUnique a > tvUnique b = Just (a, TcTyVar b)
+      | otherwise = Just (b, TcTyVar a)
+    rewriteSource (TcTyVar a, right) = Just (a, right)
+    rewriteSource (left, TcTyVar b) = Just (b, left)
+    rewriteSource _ = Nothing
+    rewrites = [source | Just source <- sources]
+    successors (_, target) = [source | source@(variable, _) <- rewrites, typeMentionsTyVar variable target]
+    onCycle start = go Set.empty (successors start)
+      where
+        go _ [] = False
+        go seen (next@(variable, _) : rest)
+          | tvUnique variable == tvUnique (fst start) = True
+          | tvUnique variable `Set.member` seen = go seen rest
+          | otherwise = go (Set.insert (tvUnique variable) seen) (successors next <> rest)
 
 -- | The kind equalities that a given equality with a type variable on one
 -- side implies, split into the equalities of their parts. The kind of a
