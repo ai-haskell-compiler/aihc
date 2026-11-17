@@ -611,6 +611,7 @@ spliceModuleTest = do
             spliceRequestOwnModules = [],
             spliceRequestUnavailableImports = [],
             spliceRequestSplices = moduleSplices modu,
+            spliceRequestOwnResults = [],
             spliceRequestSourceFile = "Main.hs",
             spliceRequestSpans = []
           }

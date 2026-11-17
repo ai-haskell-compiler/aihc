@@ -37,6 +37,7 @@ module Aihc.Th.Splices
     splicePackageName,
     splicePackageVersion,
     splicePackageId,
+    spliceResultsPath,
     spliceClosureName,
     spliceModuleText,
   )
@@ -58,6 +59,7 @@ import Data.Text qualified as T
 import Data.Typeable (eqT, (:~:) (Refl))
 import Prettyprinter (LayoutOptions (..), PageWidth (..), hardline, indent, layoutPretty, pretty, vsep)
 import Prettyprinter.Render.Text (renderStrict)
+import System.FilePath ((</>))
 
 -- | What the compiler needs to run the splices of one module.
 data SpliceRequest = SpliceRequest
@@ -91,6 +93,12 @@ data SpliceRequest = SpliceRequest
     -- module imports, directly or through a different module of the
     -- package. The splice package compiles these modules again.
     spliceRequestOwnModules :: ![(Text, FilePath)],
+    -- | The file with the splice results of each module of
+    -- 'spliceRequestOwnModules' that has splices. The build of the package
+    -- writes this file when it runs the splices of that module. The splice
+    -- package then uses these results again for its copy of the module.
+    -- Thus, it does not make a splice package of its own for the copy.
+    spliceRequestOwnResults :: ![(Text, FilePath)],
     -- | The modules of its own package that the module imports, and that
     -- the splice package cannot have: modules of the same dependency cycle.
     -- The splice module does not import them.
@@ -310,6 +318,10 @@ splicePackageVersion = "0"
 -- have this id in the splice package.
 splicePackageId :: SpliceRequest -> Text
 splicePackageId request = splicePackageName request <> "-" <> splicePackageVersion
+
+-- | The file with the results of the splices of the module of a request.
+spliceResultsPath :: SpliceRequest -> FilePath
+spliceResultsPath request = spliceRequestBuildRoot request </> "results.tree"
 
 -- | The name of the splice module. The package of the splice module is
 -- different for each original module, so one name is sufficient.

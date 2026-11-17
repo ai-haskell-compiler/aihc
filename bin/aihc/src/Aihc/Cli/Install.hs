@@ -254,7 +254,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -2048,6 +2048,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestImports = Syntax.moduleImports modu,
                   spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
                   spliceRequestOwnModules = [],
+                  spliceRequestOwnResults = [],
                   spliceRequestUnavailableImports = [],
                   spliceRequestSplices = [],
                   spliceRequestSourceFile = makeRelative (moduleBuildPackageRoot build) (HackageCabal.fileInfoPath file),
@@ -3094,6 +3095,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
                     spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
+                    spliceRequestOwnResults = [(sourceModuleName below, spliceResultsPath belowRequest) | below <- belowSources, Just belowRequest <- [sourceModuleSpliceRequest below]],
                     spliceRequestDependencies =
                       importedDependencies
                         (source : belowSources)
