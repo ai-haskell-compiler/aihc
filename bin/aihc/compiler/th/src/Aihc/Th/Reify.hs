@@ -27,6 +27,7 @@
 -- A type family and a data family give an error.
 module Aihc.Th.Reify
   ( reifyInfo,
+    reifyConStrictness,
     reifyRoles,
   )
 where
@@ -39,11 +40,14 @@ import Aihc.Tc.Env
     DataConInfo (..),
     DataConSourceForm (..),
     DataTypeInfo (..),
+    FieldRep,
     FunDep (..),
     InstanceInfo (..),
     TyConFlavor (..),
     TyConInfo (..),
     TypeSynonymInfo (..),
+    repHasUnpack,
+    repLeaves,
   )
 import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataTypes, tcInterfaceInstances)
 import Aihc.Tc.Roles (Role (..), RoleFacts (..), tyConRoles)
@@ -108,6 +112,30 @@ reifyRoles interface global
         RepresentationalRole -> node "RepresentationalR" []
         PhantomRole -> node "PhantomR" []
 
+-- | The strictness that the compiler decided for each field of a data
+-- constructor, as a list of @DecidedStrictness@ trees. The field layouts
+-- of the type facts give the strictness. A field with an unpacked product
+-- is unpacked. A different field is strict when its value is in weak-head
+-- normal form, and lazy if not.
+reifyConStrictness :: TcInterface -> GlobalName -> Either Text Tree
+reifyConStrictness interface global
+  | globalNameNamespace global /= ResolutionNamespaceTerm = Left ("The name " <> globalNameText global <> " is not the name of a data constructor.")
+  | Just (_, constructor) <- dataConstructorWithType interface global = Right (list (map (decided . dcfiRep) (dciFields constructor)))
+  | otherwise = Left ("The module " <> globalNameModule global <> " of the package " <> packageIdText (globalNamePackage global) <> " does not declare the data constructor " <> globalNameText global <> ".")
+  where
+    decided :: FieldRep -> Tree
+    decided rep
+      | repHasUnpack rep = node "DecidedUnpack" []
+      | all snd (repLeaves rep) = node "DecidedStrict" []
+      | otherwise = node "DecidedLazy" []
+
+-- | The data type and the facts of a data constructor.
+dataConstructorWithType :: TcInterface -> GlobalName -> Maybe (DataTypeInfo, DataConInfo)
+dataConstructorWithType interface global =
+  find
+    (\(_, constructor) -> dciName constructor == globalNameText global && dciOrigin constructor == (globalNamePackage global, globalNameModule global))
+    [(dataType, constructor) | dataType <- tcInterfaceDataTypes interface, constructor <- dtiConstructors dataType]
+
 typeInfo :: TcInterface -> GlobalName -> Either Text Tree
 typeInfo interface global
   | Just dataType <- Map.lookup global (tcInterfaceDataTypeMap interface) = node "TyConI" . pure <$> dataDeclaration dataType
@@ -143,10 +171,7 @@ termInfo interface global
       Right (node "VarI" [globalNameTree "VarName" global, variableType, node "Nothing" []])
   | otherwise = Left (notDeclared global)
   where
-    dataConstructor =
-      find
-        (\(_, constructor) -> dciName constructor == globalNameText global && dciOrigin constructor == (globalNamePackage global, globalNameModule global))
-        [(dataType, constructor) | dataType <- tcInterfaceDataTypes interface, constructor <- dtiConstructors dataType]
+    dataConstructor = dataConstructorWithType interface global
     classMethod =
       listToMaybe
         [ (classInfo, scheme)
