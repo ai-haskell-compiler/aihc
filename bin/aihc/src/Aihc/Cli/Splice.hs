@@ -48,7 +48,7 @@ import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStore
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
-import Aihc.Th.Reify (reifyInfo, reifyRoles)
+import Aihc.Th.Reify (reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
@@ -223,14 +223,16 @@ describeRequests made =
       case request of
         RequestReify name _ -> Just name
         RequestReifyRoles name _ -> Just name
+        RequestReifyConStrictness name _ -> Just name
         RequestReport {} -> Nothing
         RequestLocation -> Nothing
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
--- to @reify@ is an @Either String Info@ value, and the reply to
--- @reifyRoles@ is an @Either String [Role]@ value. The reply to
--- @location@ is the @Loc@ value of the splice.
+-- to @reify@ is an @Either String Info@ value. The reply to @reifyRoles@ is
+-- an @Either String [Role]@ value. The reply to @reifyConStrictness@ is an
+-- @Either String [DecidedStrictness]@ value. The reply to @location@ is the
+-- @Loc@ value of the splice.
 answerRequest :: (Text, Text) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
 answerRequest packageIds reify location requests bytes =
   case decodeTree bytes >>= requestFromTree . fromSplice packageIds of
@@ -240,6 +242,7 @@ answerRequest packageIds reify location requests bytes =
         RequestReport {} -> pure BS.empty
         RequestReify name global -> facts reifyInfo name global
         RequestReifyRoles name global -> facts reifyRoles name global
+        RequestReifyConStrictness name global -> facts reifyConStrictness name global
         RequestLocation -> pure (encodeTree location)
     Left message -> ioError (userError (T.unpack message))
   where
