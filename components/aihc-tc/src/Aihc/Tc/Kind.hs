@@ -87,7 +87,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (catMaybes, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -1358,7 +1358,7 @@ acyclicRewrites equalities =
     rewriteSource (TcTyVar a, right) = Just (a, right)
     rewriteSource (left, TcTyVar b) = Just (b, left)
     rewriteSource _ = Nothing
-    rewrites = [source | Just source <- sources]
+    rewrites = catMaybes sources
     successors (_, target) = [source | source@(variable, _) <- rewrites, typeMentionsTyVar variable target]
     onCycle start = go Set.empty (successors start)
       where
