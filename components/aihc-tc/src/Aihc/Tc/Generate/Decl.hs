@@ -5042,11 +5042,11 @@ registerDataFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl = do
 
 registerDataFamilyInstance :: (Text, Text) -> DataFamilyInst -> TcM [TcBindingResult]
 registerDataFamilyInstance (packageName, moduleName') familyInst = do
-  paramInfos <- dataFamilyInstanceParams familyInst
+  (kindParams, paramInfos) <- dataFamilyInstanceParams familyInst
   let tvEnv =
         Map.fromList
           [ (paramName param, (paramTyVar param, paramKind param))
-          | param <- paramInfos
+          | param <- kindParams <> paramInfos
           ]
   constructorNames <- concat <$> mapM dataConNames (dataFamilyInstConstructors familyInst)
   kinds <- getKinds
@@ -5058,7 +5058,11 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
       case maybeFamilyInfo of
         Just familyInfo
           | tciFlavor familyInfo == DataFamilyTyCon -> do
-              bindings <- mapM (registerDataConWithResult [] paramInfos familyType) (dataFamilyInstConstructors familyInst)
+              -- The head variables do not scope over a GADT constructor
+              -- signature. Thus, the @x@ of @Cons :: Sing x -> Sing (x ': xs)@
+              -- is a new variable, also in @data instance Sing (x :: [k])@.
+              let headParams = kindParams <> paramInfos
+              bindings <- mapM (registerDataConWithResult (map paramName headParams) headParams familyType) (dataFamilyInstConstructors familyInst)
               -- Under PolyKinds the head and the fields can leave the kind
               -- of a parameter open, as @b@ in @Vector (Const a b)@. GHC
               -- quantifies such a kind for each instance, so the instance,
@@ -5068,13 +5072,17 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
               polyKinds <- isPolyKindOrigin (packageName, moduleName')
               when polyKinds (generalizeTyVarKinds (map paramTyVar paramInfos))
               representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst) >>= zonkKind
+              -- A kind variable that the head names, as the @k@ of
+              -- @Sing (x :: [k])@, is a kind variable of the representation
+              -- type constructor, and not one of its type parameters.
               let representationKindVariables =
-                    if polyKinds
-                      then
-                        filter
-                          (\variable -> tvUnique variable `notElem` map (tvUnique . paramTyVar) paramInfos)
-                          (uniqueKindVariables (freeKindVariables representationKind))
-                      else []
+                    filter
+                      (\variable -> tvUnique variable `notElem` map (tvUnique . paramTyVar) paramInfos)
+                      ( uniqueKindVariables
+                          ( map paramTyVar kindParams
+                              <> if polyKinds then freeKindVariables representationKind else []
+                          )
+                      )
                   familyName = tciName familyInfo
                   representationName = dataFamilyRepresentationName familyName instanceTag
                   representationTyCon =
@@ -5141,14 +5149,33 @@ dataFamilyInstHeadTyCon familyInst = go (dataFamilyInstHead familyInst)
       info <- lookupResolvedTyCon name
       maybe (missingTypeInfo ("data family " <> T.unpack (nameText name))) (pure . tciTyCon) info
 
-dataFamilyInstanceParams :: DataFamilyInst -> TcM [ParamInfo]
+-- | The kind variables and the type parameters of a data-family instance.
+-- An implicit variable that occurs only in the kind annotations of the head
+-- is a kind variable. Thus, @data instance Sing (x :: [k])@ has the kind
+-- variable @k@ and the type parameter @x@.
+dataFamilyInstanceParams :: DataFamilyInst -> TcM ([ParamInfo], [ParamInfo])
 dataFamilyInstanceParams familyInst = do
   explicitParams <- makeParamEnv (dataFamilyInstForall familyInst)
   let explicitNames = map paramName explicitParams
       implicitNames = freeTypeVars (dataFamilyInstHead familyInst) \\ explicitNames
-  implicitParams <- mapM makeImplicitParam implicitNames
-  pure (explicitParams <> implicitParams)
+      typeLevelNames = typeLevelVars (dataFamilyInstHead familyInst)
+      (implicitTypeNames, implicitKindNames) = partition (`elem` typeLevelNames) implicitNames
+  kindParams <- mapM makeImplicitParam implicitKindNames
+  implicitParams <- mapM makeImplicitParam implicitTypeNames
+  pure (kindParams, explicitParams <> implicitParams)
   where
+    -- The variables of a type outside of its kind annotations.
+    typeLevelVars ty =
+      case ty of
+        TKindSig inner _ -> typeLevelVars inner
+        TVar name -> [unqualifiedNameText name]
+        TApp function argument -> typeLevelVars function <> typeLevelVars argument
+        TTypeApp function argument -> typeLevelVars function <> typeLevelVars argument
+        TParen inner -> typeLevelVars inner
+        TAnn _ inner -> typeLevelVars inner
+        -- The other forms do not occur in an instance head, or they cannot
+        -- have a kind annotation. All of their variables are type parameters.
+        _ -> freeTypeVars ty
     makeImplicitParam name = do
       rawTyVar <- freshSkolemTv name
       kind <- freshKindMeta
