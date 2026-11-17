@@ -7,7 +7,7 @@ module Main (main) where
 
 import qualified Data.Kind as Kind
 import Data.Proxy (Proxy)
-import Helper (Describe (..), deriveDescribe, isMode, plusHelper)
+import Helper (Describe (..), deriveDescribe, isMode, plusHelper, twiceHelper)
 import Language.Haskell.TH
 import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
@@ -294,3 +294,6 @@ main = do
   -- dollar sign. The directory of the file depends on the build, so the
   -- program only shows the file name.
   putStrLn $(do loc <- location; litE (stringL (unwords [reverse (takeWhile (/= '/') (reverse (loc_filename loc))), loc_module loc, show (loc_start loc), show (loc_end loc)])))
+  -- A quote of a different module names a function that its module does
+  -- not export.
+  print ($twiceHelper (21 :: Int))

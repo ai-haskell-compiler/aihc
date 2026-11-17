@@ -253,7 +253,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, renameQuotedPackage)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
@@ -3426,9 +3426,26 @@ runTypeUnit context runtimes runtime = do
           else do
             let desugarConfigs =
                   Map.fromList
-                    [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
+                    [ (name, withQuotedNames name (Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput)))
                     | name <- unitNames
                     ]
+                -- A quote can name a top-level name that the module does
+                -- not export. The code that a splice makes from the quote
+                -- refers to that name from a different module. Thus, the
+                -- name must be public.
+                quotedNames =
+                  Map.fromListWith
+                    Set.union
+                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home checked)
+                    | checked <- checkedModules,
+                      let home = fromMaybe "Main" (moduleName checked)
+                    ]
+                withQuotedNames name desugarConfig =
+                  case Map.lookup name quotedNames of
+                    Just names
+                      | not (Set.null names) ->
+                          desugarConfig {exportedNames = Set.union names <$> exportedNames desugarConfig}
+                    _ -> desugarConfig
             (fcModules, desugarNs) <-
               measureTime
                 ( desugarCheckedModules
