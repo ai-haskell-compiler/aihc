@@ -1,0 +1,31 @@
+extensions: []
+modules:
+  - |
+    module Api (Host (..), getHost) where
+    data Host = Host
+    getHost = Host
+  - |
+    module Koji (local) where
+    import qualified Api as Koji
+    local = Koji.getHost
+    other = Koji.local
+annotated:
+  - |-
+    module Api (Host (..), getHost) where
+    data Host = Host
+         │      └─ v Api
+         └─ t Api
+    getHost = Host
+    └─ v Api  └─ v Api
+  - |-
+    module Koji (local) where
+    import qualified Api as Koji
+    local = Koji.getHost
+    │       └─ v Api
+    └─ v Koji
+    other = Koji.local
+    │       └─ v Koji
+    └─ v Koji
+status: pass
+reason: A module name and an import alias can be the same qualifier. Then the
+  qualifier names the names of both.
