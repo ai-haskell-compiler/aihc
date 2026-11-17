@@ -5572,7 +5572,10 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
           resultType' <- convertCheckedType resultType
           trueName <- primitiveName "GHC.Types" "True" SortDataConstructor
           falseName <- primitiveName "GHC.Types" "False" SortDataConstructor
-          success' <- success
+          -- An as-pattern around the literal, as @flag\@1@, binds the
+          -- scrutinee.
+          extra <- patternMatchBindings pattern' binder ty
+          success' <- withMatchLocals (matchBinderLocals extra) success
           failure' <-
             case failure of
               Just failureExpression -> pure failureExpression
