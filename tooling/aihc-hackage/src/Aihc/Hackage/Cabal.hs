@@ -58,6 +58,7 @@ module Aihc.Hackage.Cabal
     extractExtensions,
     extractLanguage,
     extractDependencies,
+    extractPkgconfigDepends,
     packageDefaultsToHaskell98,
   )
 where

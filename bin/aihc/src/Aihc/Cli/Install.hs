@@ -141,7 +141,7 @@ import Aihc.Fc.Imports (declTopReferences)
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
-import Aihc.Hackage.Package (Arch, OS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
+import Aihc.Hackage.Package (Arch, OS, buildArch, buildOS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), c2hsImports, preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
@@ -894,6 +894,11 @@ planRequestFor hackage options platform project workspaces lockDirectory verbose
       (False, False, []) -> pure LockNormal
       (False, False, names) -> pure (LockUpdate (map mkPackageName names))
       _ -> ioError (userError "--locked, --update, and --update-package exclude one another")
+  -- pkg-config describes the host, so only a plan for the host reads it.
+  pkgConfigModules <-
+    if platform == (buildOS, buildArch)
+      then hostPkgConfigModules
+      else pure Nothing
   pure . maybe id withProject project $
     PlanRequest
       { requestRoots = [],
@@ -908,8 +913,20 @@ planRequestFor hackage options platform project workspaces lockDirectory verbose
         requestConstraints = concat constraints,
         requestLockFile = if planUseLock options then (</> lockFileName) <$> lockDirectory else Nothing,
         requestLockMode = lockMode,
+        requestPkgConfigModules = pkgConfigModules,
         requestVerbose = verbose
       }
+
+-- | The modules that @pkg-config --list-all@ names. When the program is
+-- not available, no module is, as for cabal-install. When the program
+-- fails, the plan does not examine the modules.
+hostPkgConfigModules :: IO (Maybe (Set.Set String))
+hostPkgConfigModules = do
+  result <- try (readCreateProcessWithExitCode (proc "pkg-config" ["--list-all"]) "")
+  pure $ case result of
+    Left (_ :: IOException) -> Just Set.empty
+    Right (ExitSuccess, output, _) -> Just (Set.fromList [name | name : _ <- map words (lines output)])
+    Right (ExitFailure _, _, _) -> Nothing
 
 -- | Where the packages of a plan go.
 --

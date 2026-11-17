@@ -38,6 +38,7 @@ import Data.Functor.Identity (Identity (..))
 import Data.List (intercalate, isInfixOf, isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.String (fromString)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, assert, cover, forAll, property, success, (===))
@@ -55,6 +56,7 @@ main :: IO ()
 main =
   defaultMain . testGroup "aihc-package-plan" $
     [ testCase "flips an automatic flag when its default branch cannot be satisfied" test_flipsFlagUnderConflict,
+      testCase "turns off an automatic flag that needs a missing pkg-config module" test_pkgConfigFlag,
       testCase "backtracks to an older version when the newest conflicts" test_backtracksOnVersionConflict,
       testCase "backjumps past choices a failure does not blame" test_backjumpsPastIrrelevantChoices,
       testCase "learns a conflict once under a chain of dependents" test_learnsConflictUnderDependentChain,
@@ -252,6 +254,7 @@ configFor roots =
       configRoots = Map.fromList [(mkPackageName root, noStanzas) | root <- roots],
       configGoals = [],
       configUnsupported = Map.empty,
+      configPkgConfigModules = Nothing,
       configMaxConflicts = 100
     }
 
@@ -329,6 +332,44 @@ test_flipsFlagUnderConflict = do
   assertEqual "unix flips os-string" [("os-string", True)] (flagsOf solution "unix")
   assertEqual "filepath has no decided flags" [] (flagsOf solution "filepath")
   assertEqual "the root is local" (CandidateLocal "/work/root") (assignmentSource (solution Map.! mkPackageName "root"))
+
+-- The zlib case: the automatic flag pkg-config is on by default and
+-- selects pkgconfig-depends: zlib. The other branch links the library with
+-- extra-libraries. When the host has no zlib module, cabal-install selects
+-- the other branch, so the solver does that too. A missing module only
+-- changes the first value: when the other branch cannot be satisfied, the
+-- plan keeps the default.
+test_pkgConfigFlag :: Assertion
+test_pkgConfigFlag = do
+  let packages otherBranch =
+        universe
+          [ baseEntry,
+            ("root", "0.1", False, local, cabalFile "root" "0.1" [] ["build-depends: base, zlib"]),
+            ( "zlib",
+              "0.7.1.1",
+              False,
+              hackage,
+              cabalFile
+                "zlib"
+                "0.7.1.1"
+                ["flag pkg-config", "  default: True", "  manual: False"]
+                ( [ "build-depends: base",
+                    "if flag(pkg-config)",
+                    "  pkgconfig-depends: zlib",
+                    "else",
+                    "  extra-libraries: z"
+                  ]
+                    <> ["  build-depends: " <> dependency | Just dependency <- [otherBranch]]
+                )
+            )
+          ]
+      withModules modules = (configFor ["root"]) {configPkgConfigModules = Just (Set.fromList modules)}
+  missing <- expectSolution (solveWith (packages Nothing) (withModules []))
+  assertEqual "the flag selects the branch without the module" [("pkg-config", False)] (flagsOf missing "zlib")
+  present <- expectSolution (solveWith (packages Nothing) (withModules ["zlib"]))
+  assertEqual "the flag keeps its default" [] (flagsOf present "zlib")
+  blocked <- expectSolution (solveWith (packages (Just "unknown-package")) (withModules []))
+  assertEqual "the other branch cannot be satisfied" [("pkg-config", True)] (flagsOf blocked "zlib")
 
 -- The process case: the root's automatic os-string flag defaults to off,
 -- its default branch pins filepath below 1.5, and directory needs 1.5 or
@@ -787,6 +828,7 @@ test_plansLocalPackages =
               requestConstraints = [],
               requestLockFile = Just lockFile,
               requestLockMode = mode,
+              requestPkgConfigModules = Nothing,
               requestVerbose = const (pure ())
             }
     planned <- planPackages (request LockNormal)
@@ -862,6 +904,7 @@ test_packageLockFixtures =
                   RootLocal _ -> Just lockFile
                   RootHackage _ _ -> Nothing,
                 requestLockMode = mode,
+                requestPkgConfigModules = Nothing,
                 requestVerbose = const (pure ())
               }
       forM_ [Nothing, Just (version "1.0")] $ \requestedVersion -> do
@@ -937,6 +980,7 @@ checkHackageBootLibraryVersion directory queries = do
           requestConstraints = [],
           requestLockFile = Nothing,
           requestLockMode = LockNormal,
+          requestPkgConfigModules = Nothing,
           requestVerbose = const (pure ())
         }
   assertEqual
@@ -1038,6 +1082,7 @@ test_plansProject =
               requestConstraints = [],
               requestLockFile = Nothing,
               requestLockMode = LockNormal,
+              requestPkgConfigModules = Nothing,
               requestVerbose = const (pure ())
             }
     planned <- planPackages (withProject project request)
