@@ -40,6 +40,11 @@
 -- Only automatic flags that guard a @build-depends@ clause are searched.
 -- Every other flag takes its default or its constraint, since no assignment
 -- of it can make the plan fail.
+--
+-- An automatic flag that guards a @pkgconfig-depends@ module that the host
+-- does not have is searched too, as cabal-install does. Its first value is
+-- the one with fewer missing modules. The missing modules do not make an
+-- incompatibility, so a dependency can still select the other value.
 module Aihc.PackagePlan.Solver
   ( -- * Inputs
     SolverInputs (..),
@@ -89,7 +94,7 @@ import Aihc.Cabal
     packageComponents,
     packageFlags,
   )
-import Aihc.Hackage.Cabal (BuildContext (..), collectMergedBuildInfo, conditionEvaluatorIn, installedLibraryTrees, isBuildable, targetFlagOverrides)
+import Aihc.Hackage.Cabal (BuildContext (..), collectMergedBuildInfo, conditionEvaluatorIn, extractPkgconfigDepends, installedLibraryTrees, isBuildable, targetFlagOverrides)
 import Aihc.Hackage.Package
   ( Arch,
     FlagAssignment,
@@ -233,6 +238,10 @@ data SolverConfig = SolverConfig
     -- solver gives them no candidates, so that a plan avoids them, and a
     -- failed solve names them.
     configUnsupported :: !(Map PackageName String),
+    -- | The @pkg-config@ modules of the host. 'Nothing' when the solver
+    -- does not examine them, for example for a target that does not run on
+    -- the host.
+    configPkgConfigModules :: !(Maybe (Set String)),
     -- | Give up after this many conflicts. A normal solve resolves a few
     -- conflicts at most, so the limit is a guard against a search that
     -- does not end.
@@ -555,7 +564,7 @@ flagSetup :: SolverConfig -> PackageName -> Maybe Stanzas -> Package -> FlagSetu
 flagSetup config name root gpd =
   FlagSetup
     { setupFixed = fixed,
-      setupSearched = take maxSearchedFlags [flag | flag <- searchableFlags (configPlatform config) root gpd, not (Map.member flag fixed)],
+      setupSearched = take maxSearchedFlags [flag | flag <- nub (searchableFlags (configPlatform config) root gpd <> pkgConfigFlags config root gpd), not (Map.member flag fixed)],
       setupDefaults = Map.fromList [(flagName flag, flagDefault flag) | flag <- packageFlags gpd]
     }
   where
@@ -885,12 +894,28 @@ chooseVersion inputs config var allowed =
       preferred <- case Map.lookup name (configPreferences config) >>= lookupFlagAssignment flag . preferredFlags of
         Just value -> pure value
         Nothing -> do
-          -- The default of the flag in the decided version of the package.
+          -- The default of the flag in the decided version of the package,
+          -- unless the other value needs fewer missing pkg-config modules.
           case Map.lookup (VarPackage name) decisions of
             Just version -> do
               candidate <- candidateAt inputs config name version
               (_, gpd) <- descriptionOf inputs candidate
-              pure (fromMaybe True (lookup flag [(flagName f, flagDefault f) | f <- packageFlags gpd]))
+              let defaultValue = fromMaybe True (lookup flag [(flagName f, flagDefault f) | f <- packageFlags gpd])
+                  setup = flagSetup config name (Map.lookup name (configRoots config)) gpd
+                  missingWith value =
+                    length
+                      ( missingPkgConfigModules
+                          config
+                          ( completeFlags
+                              setup
+                              [ (searched, if searched == flag then value else maybe (setupDefaults setup Map.! searched) (== flagOn) (Map.lookup (VarFlag name searched) decisions))
+                              | searched <- setupSearched setup
+                              ]
+                          )
+                          (Map.lookup name (configRoots config))
+                          gpd
+                      )
+              pure (if missingWith (not defaultValue) < missingWith defaultValue then not defaultValue else defaultValue)
             Nothing -> pure True
       pure (if Set.member (flagVersion preferred) allowed then flagVersion preferred else flagVersion (not preferred))
     VarPackage name -> do
@@ -1264,18 +1289,53 @@ searchableFlags _ root gpd =
 -- | The flags in the conditions of the branches under which some node
 -- states a dependency.
 guardingFlags :: Conditional BuildInfo -> Set.Set FlagName
-guardingFlags tree =
+guardingFlags = guardingFlagsOf (not . null . dependencies)
+
+-- | The flags in the conditions of the branches under which some node has
+-- the property.
+guardingFlagsOf :: (BuildInfo -> Bool) -> Conditional BuildInfo -> Set.Set FlagName
+guardingFlagsOf property tree =
   Set.unions (map branch (branches tree))
   where
     branch (Branch condition thenTree elseTree) =
       Set.unions
-        ( [conditionFlags condition | hasDependencies thenTree || maybe False hasDependencies elseTree]
-            <> [guardingFlags thenTree]
-            <> [guardingFlags subtree | Just subtree <- [elseTree]]
+        ( [conditionFlags condition | holds thenTree || maybe False holds elseTree]
+            <> [guardingFlagsOf property thenTree]
+            <> [guardingFlagsOf property subtree | Just subtree <- [elseTree]]
         )
-    hasDependencies subtree =
-      not (null (dependencies (unconditional subtree)))
-        || any (\(Branch _ t e) -> hasDependencies t || maybe False hasDependencies e) (branches subtree)
+    holds subtree =
+      property (unconditional subtree)
+        || any (\(Branch _ t e) -> holds t || maybe False holds e) (branches subtree)
+
+-- | The automatic flags of a package that guard a @pkgconfig-depends@
+-- module that the host does not have. The solver searches them, so that it
+-- can select the branch without the module.
+pkgConfigFlags :: SolverConfig -> Maybe Stanzas -> Package -> [FlagName]
+pkgConfigFlags config root gpd =
+  case configPkgConfigModules config of
+    Nothing -> []
+    Just available ->
+      let missing build = any (`Set.notMember` available) (extractPkgconfigDepends build)
+          guarding =
+            Set.unions
+              ( map (guardingFlagsOf missing) (allLibraryTrees gpd)
+                  <> [guardingFlagsOf missing tree | Just stanzas <- [root], tree <- selectedExecutableTrees stanzas gpd]
+              )
+       in [flagName flag | flag <- packageFlags gpd, not (flagManual flag), flagName flag `Set.member` guarding]
+
+-- | The @pkgconfig-depends@ modules that a candidate names under one flag
+-- assignment and that the host does not have.
+missingPkgConfigModules :: SolverConfig -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
+missingPkgConfigModules config flags root gpd =
+  case configPkgConfigModules config of
+    Nothing -> []
+    Just available ->
+      nub
+        [ module'
+        | build <- contributingBuildInfos (configPlatform config) flags root gpd,
+          module' <- extractPkgconfigDepends build,
+          module' `Set.notMember` available
+        ]
 
 conditionFlags :: Condition -> Set.Set FlagName
 conditionFlags condition =

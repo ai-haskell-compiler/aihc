@@ -191,6 +191,10 @@ data PlanRequest = PlanRequest
     requestHackage :: !(Maybe HackageSource),
     requestPlatform :: !(OS, Arch),
     requestConstraints :: ![Constraint],
+    -- | The @pkg-config@ modules of the host, which select the automatic
+    -- flags that guard @pkgconfig-depends@. 'Nothing' leaves those flags
+    -- at their defaults.
+    requestPkgConfigModules :: !(Maybe (Set.Set String)),
     -- | The local lock file. Hackage targets have no lock file.
     requestLockFile :: !(Maybe FilePath),
     requestLockMode :: !LockMode,
@@ -276,6 +280,7 @@ planPackages request = do
               requestGoals request
                 <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
             configUnsupported = unsupportedPackages,
+            configPkgConfigModules = requestPkgConfigModules request,
             configMaxConflicts = 10000
           }
       inputs = solverInputs request descriptions localRoots localDirectories

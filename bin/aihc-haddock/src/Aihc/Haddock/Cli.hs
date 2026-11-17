@@ -135,6 +135,7 @@ runBuild options = do
           requestConstraints = [],
           requestLockFile = Just (lockDirectory </> lockFileName),
           requestLockMode = LockNormal,
+          requestPkgConfigModules = Nothing,
           requestVerbose = say
         }
   plan <- case plannedRoots planned of
