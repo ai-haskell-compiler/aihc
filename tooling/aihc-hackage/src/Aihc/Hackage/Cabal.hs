@@ -126,6 +126,7 @@ import Aihc.Hackage.Package
     mkPackageName,
     osName,
     packageNameOf,
+    platformCppOptions,
     unFlagAssignment,
     unPackageName,
     versionFromList,
@@ -137,7 +138,7 @@ import Aihc.Hackage.Util (existingPaths, moduleFilesForBuildInfo, moduleNameFile
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.List (isPrefixOf, nub)
+import Data.List (isPrefixOf, nub, stripPrefix)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -154,7 +155,8 @@ data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
     -- | Extension names as strings (e.g. @\"OverloadedStrings\"@, @\"NoImplicitPrelude\"@).
     fileInfoExtensions :: [String],
-    -- | CPP options from the @cpp-options@ field.
+    -- | CPP options from the @cpp-options@ field. For a file of a build
+    -- context, the platform macros of the context come first.
     fileInfoCppOptions :: [String],
     -- | Include search directories from the @include-dirs@ field.
     fileInfoIncludeDirs :: [FilePath],
@@ -239,7 +241,7 @@ collectLibraryFilesIn context package packageRoot = do
   let evalCond = conditionEvaluatorIn context package
       libraryTrees = installedLibraryTrees evalCond package
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor package evalCond packageRoot)) libraryTrees)
-  pure (dedupeFiles libraryFiles)
+  pure (map (withPlatformCppOptions context) (dedupeFiles libraryFiles))
 
 -- | Collect C compile inputs from buildable library components for the host.
 -- The result is an error when a field of the inputs is not valid.
@@ -518,7 +520,10 @@ data ExecutableInfo = ExecutableInfo
     executableInfoCCompileInfo :: CCompileInfo,
     -- | The @main-is@ file of the executable, when it exists. It is also in
     -- 'executableInfoFiles'.
-    executableInfoMainFile :: Maybe FileInfo
+    executableInfoMainFile :: Maybe FileInfo,
+    -- | The RTS options that the @-with-rtsopts@ option in the
+    -- @ghc-options@ of the executable gives, one option in each element.
+    executableInfoRuntimeOptions :: [String]
   }
   deriving (Show)
 
@@ -560,13 +565,23 @@ programInfo context package packageRoot suffix exeName tree = do
   pure
     [ ExecutableInfo
         { executableInfoName = T.unpack exeName,
-          executableInfoFiles = files,
+          executableInfoFiles = map (withPlatformCppOptions context) files,
           executableInfoDependencies = [mkPackageName (T.unpack (dependencyPackage dependency)) | dependency <- dependencies build],
           executableInfoCCompileInfo = cInfo,
-          executableInfoMainFile = listToMaybe mainFiles
+          executableInfoMainFile = withPlatformCppOptions context <$> listToMaybe mainFiles,
+          executableInfoRuntimeOptions = ghcOptionsRuntimeOptions (map T.unpack (ghcOptions build))
         }
     | isBuildable build
     ]
+
+-- | Put the platform macros of a build context before the @cpp-options@
+-- of a file. GHC defines @<os>_HOST_OS@ and @<arch>_HOST_ARCH@ for each
+-- Haskell source that it preprocesses. Packages use them to select code for
+-- one operating system. A @-U@ in the @cpp-options@ of the package comes
+-- after them, so it can still remove them.
+withPlatformCppOptions :: BuildContext -> FileInfo -> FileInfo
+withPlatformCppOptions context file =
+  file {fileInfoCppOptions = platformCppOptions (contextOs context) (contextArch context) <> fileInfoCppOptions file}
 
 -- | Keep the first 'FileInfo' of each path, in order.
 --
@@ -686,6 +701,20 @@ ghcOptionsUseCustomPreprocessor opts =
   "-F" `elem` opts && any isPgmFOption opts
   where
     isPgmFOption opt = "-pgmF" `isPrefixOf` opt
+
+-- | The RTS options that @-with-rtsopts@ gives, one option in each element.
+-- GHC accepts @-with-rtsopts=<options>@ and @-with-rtsopts <options>@. The
+-- last @-with-rtsopts@ replaces each earlier one, as in GHC.
+ghcOptionsRuntimeOptions :: [String] -> [String]
+ghcOptionsRuntimeOptions = go []
+  where
+    flag = "-with-rtsopts"
+    go found opts = case opts of
+      [] -> found
+      opt : rest
+        | Just value <- stripPrefix (flag <> "=") opt -> go (words value) rest
+        | opt == flag, value : after <- rest -> go (words value) after
+        | otherwise -> go found rest
 
 generatedPathsFileInfo :: FilePath -> FileInfo
 generatedPathsFileInfo path =

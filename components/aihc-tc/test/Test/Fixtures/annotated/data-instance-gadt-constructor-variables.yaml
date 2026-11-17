@@ -1,0 +1,41 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, GADTs, PolyKinds, TypeFamilies, TypeOperators #-}
+  module Test where
+  data family Sing (x :: k)
+              └─ type: k → Type
+  class SingI t where
+  └─ class methods: sing ∷ ∀ k0 t. (SingI t) ⇒ Sing t
+    sing :: Sing t
+  data instance Sing (x :: [k]) where
+    Nil :: Sing '[]
+    └─ type: ∀ k x. (x ~ 'GHC.Types.[]) ⇒ Sing x
+    Cons :: Sing x -> Sing xs -> Sing (x ': xs)
+    └─ type: ∀ k x x xs. (x ~ ('GHC.Types.: x xs)) ⇒ Sing x → Sing xs → Sing x
+  instance (SingI x, SingI xs) => SingI (x ': xs) where
+  └─ $fSingI:xxs ∷ ∀ k0 x xs. (SingI x, SingI xs) ⇒ SingI (': x xs)
+    sing = Cons sing sing
+    │      │    │    └─ type: Sing xs; type-args: [k0], xs; evidence: given SingI xs
+    │      │    └─ type: Sing x; type-args: k0, x; evidence: given SingI x
+    │      └─ type: Sing x → Sing xs → Sing ('GHC.Types.: x xs); type-args: k0, ': x xs, x, xs; evidence: refl ': x xs
+    └─ sing ∷ Sing (': x xs)
+extensions:
+- DataKinds
+- GADTs
+- PolyKinds
+- TypeFamilies
+- TypeOperators
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, PolyKinds, TypeFamilies, TypeOperators #-}
+  module Test where
+  data family Sing (x :: k)
+  class SingI t where
+    sing :: Sing t
+  data instance Sing (x :: [k]) where
+    Nil :: Sing '[]
+    Cons :: Sing x -> Sing xs -> Sing (x ': xs)
+  instance (SingI x, SingI xs) => SingI (x ': xs) where
+    sing = Cons sing sing
+status: pass
+reason: The variables of a GADT constructor signature are new variables. The x of Cons is not the x of the instance head, which has the kind [k].

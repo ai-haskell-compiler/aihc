@@ -52,6 +52,8 @@ extra-source-files:
   test/Test/Fixtures/build/main-module/app/App/Cpp.hs
   test/Test/Fixtures/build/main-module/app/App/Run.hs
   test/Test/Fixtures/build/main-module/main-module.cabal
+  test/Test/Fixtures/build/runtime-options/app/Main.hs
+  test/Test/Fixtures/build/runtime-options/runtime-options.cabal
   test/Test/Fixtures/build/shared-module-name/app/Main.hs
   test/Test/Fixtures/build/shared-module-name/shared-module-name.cabal
   test/Test/Fixtures/build/source-directories/BlackholeChecks.hs

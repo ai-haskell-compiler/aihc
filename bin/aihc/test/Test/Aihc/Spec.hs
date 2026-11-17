@@ -112,6 +112,7 @@ tests =
                 testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
                 testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
                 testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
+                testCase "gives the -with-rtsopts options of a Cabal executable to the runtime" (test_buildRuntimeOptions coreStore),
                 testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
                 testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
                 -- The --lto builds need core libraries built with the flag,
@@ -1457,6 +1458,57 @@ test_buildAsmSources getStore = do
     assertEqual "answer exit status" ExitSuccess status
     assertEqual "answer stdout" "42\n" stdout
     assertEqual "answer stderr" "" stderr
+
+-- The @ghc-options@ of a Cabal executable can give default RTS options
+-- with @-with-rtsopts@. The runtime applies them before the options of the
+-- command line, and it ignores a default option that it does not know. The
+-- fixture asks for three capabilities and gives two GHC options that the
+-- runtime does not have.
+test_buildRuntimeOptions :: IO SeedStore -> Assertion
+test_buildRuntimeOptions getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/runtime-options"
+  withSandbox getStore "aihc-build-runtime-options" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox
+        buildRoot = root </> "build"
+        targetRoot = buildRoot </> nativeTargetStoreDirectory buildHostTarget
+        options =
+          BuildOptions
+            { buildInput = fixtureRoot,
+              buildSourceDirectories = [],
+              buildPackageConstraints = [],
+              buildTarget = buildHostTarget,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Just buildRoot,
+              buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
+              buildLint = False,
+              buildCheckPrimBounds = False,
+              buildProfileAllocations = False,
+              buildProfileTime = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildOnlyDependencies = False,
+              buildNoPie = False,
+              buildWasmImage = False,
+              buildVerbose = False,
+              buildPrintTimings = False,
+              buildOutput = Nothing,
+              buildExecutables = [],
+              buildPlanOptions = defaultPlanOptions
+            }
+    outputs <- build options
+    let executable = targetRoot </> "bin" </> "capabilities"
+    assertEqual "built executables" [executable] outputs
+    forM_ [([], "3\n"), (["+RTS", "-N2", "-RTS"], "2\n")] $ \(arguments, expected) -> do
+      (status, stdout, stderr) <- readProcessWithExitCode executable arguments ""
+      assertEqual "capabilities exit status" ExitSuccess status
+      assertEqual "capabilities stdout" expected stdout
+      assertEqual "capabilities stderr" "" stderr
 
 -- A package with @cxx-sources@ compiles them as C++ with its
 -- @cxx-options@, records in its manifest that its objects need the C++

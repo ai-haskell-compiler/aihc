@@ -22,9 +22,9 @@ import Aihc.Grin.Tidy (tidyGrinProgram)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (forM_, mfilter, unless, when, zipWithM)
+import Control.Monad (forM, forM_, mfilter, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, mapStateT, modify', put, runStateT)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -52,7 +52,13 @@ data LowerEnv = LowerEnv
     -- with a top-level name is imported.
     lowerDeclaredValues :: !(Set Fc.Name),
     -- | The entry of each public value of the program. See 'PublicEntry'.
-    lowerPublicEntries :: !(Map Fc.Name PublicEntry)
+    lowerPublicEntries :: !(Map Fc.Name PublicEntry),
+    -- | The local variables that point to a value in weak-head normal
+    -- form: the binder of a case, the binder of a strict field of a
+    -- constructor, and a recursive binding whose node is a value. Such a
+    -- variable never points to a thunk or to an indirection. See
+    -- 'strictOperand'.
+    lowerValueVars :: !(Set GrinVar)
   }
 
 -- | The function that another unit calls directly for a saturated use of a
@@ -84,7 +90,11 @@ data LocalFunction = LocalFunction
     -- | Whether another module can name this function. Only an exported
     -- function gets a global; see 'privateFunctionNode'.
     localFunctionExported :: !Bool,
-    localFunctionCaptures :: ![Fc.Name]
+    localFunctionCaptures :: ![Fc.Name],
+    -- | For each logical parameter, whether each call gives a pointer to a
+    -- value in weak-head normal form. See 'valueParameters'. A top-level
+    -- function has no such parameter: an unknown call can enter it.
+    localFunctionValueParameters :: ![Bool]
   }
 
 localFunctionArity :: LocalFunction -> Int
@@ -108,7 +118,10 @@ data LowerState = LowerState
     -- a value, by the name of its global. See 'valueGlobalName'.
     lowerValueGlobals :: !(Map Text GrinNode),
     -- | The entries of other units that the module calls, by name.
-    lowerExternFunctions :: !(Map FunctionName GrinExternFunction)
+    lowerExternFunctions :: !(Map FunctionName GrinExternFunction),
+    -- | The top-level values of the module whose global is a static node
+    -- in weak-head normal form. See 'valueGlobalNames'.
+    lowerValueGlobalNames :: !(Set Fc.Name)
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -134,7 +147,7 @@ lowerProgram primPackage program = do
       globals = globalNameTable types
       constructorArities = constructorArityTable types
       declaredValues = Set.fromList [Fc.valName declaration | Fc.DeclVal declaration <- Fc.programDecls program]
-      typeEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors (constructorIndexTable types) declaredValues Map.empty
+      typeEnv = LowerEnv types Map.empty Map.empty globals constructorArities Map.empty declaredConstructors (constructorIndexTable types) declaredValues Map.empty Set.empty
       publicEntries =
         Map.fromList
           [ (Fc.valName declaration, entry)
@@ -144,13 +157,15 @@ lowerProgram primPackage program = do
           ]
       baseEnv = typeEnv {lowerPublicEntries = publicEntries}
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
-      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty
+      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty Set.empty
   (parts, finalState) <- flip runStateT initialState $ do
     -- The public entries take their names first: another unit spells the
     -- same names, so no other function of the module can have one.
     mapM_ (claimExactFunctionName . publicEntryName) (Map.elems publicEntries)
     localFunctions <- localFunctionTable baseEnv program
     let env = baseEnv {lowerLocalFunctions = localFunctions}
+    valueGlobals <- valueGlobalNames env [declaration | Fc.DeclVal declaration <- Fc.programDecls program]
+    modify' (\state -> state {lowerValueGlobalNames = valueGlobals})
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
   finishGrinProgram
     GrinProgram
@@ -248,6 +263,48 @@ lowerTypeDecl env declaration = do
           case resultRep of
             TupleRep {} -> pure []
             _ -> pure [GrinConstructorDecl (constructorTag name) fieldLayouts index (lowerVis (Fc.conVis constructor))]
+
+-- | The top-level values whose global is a static node in weak-head normal
+-- form: a function, or a constructor application that 'lazyNode' does not
+-- suspend. A strict field of a static node can name such a global. See
+-- 'strictOperand'.
+--
+-- A constructor application with a strict field is such a value only when
+-- the operand of the field is one. Thus the set grows until no more
+-- declaration joins it. Each check runs the classification of 'lazyNode'
+-- and then puts the state back, so it emits no code.
+valueGlobalNames :: LowerEnv -> [Fc.ValDecl] -> LowerM (Set Fc.Name)
+valueGlobalNames env declarations = grow functions [declaration | declaration <- declarations, not (isFunction declaration)]
+  where
+    isFunction declaration = Map.member (Fc.valName declaration) (lowerLocalFunctions env)
+    functions = Set.fromList [Fc.valName declaration | declaration <- declarations, isFunction declaration]
+    grow known pending = do
+      saved <- get
+      put saved {lowerValueGlobalNames = known}
+      results <- mapM (lazyNodeIsValue env . Fc.valBody) pending
+      put saved
+      let found = [Fc.valName declaration | (declaration, True) <- zip pending results]
+          rest = [declaration | (declaration, False) <- zip pending results]
+      if null found
+        then pure known
+        else grow (foldr Set.insert known found) rest
+
+-- | Whether 'lazyNode' gives a node in weak-head normal form for an
+-- expression.
+lazyNodeIsValue :: LowerEnv -> Fc.Expr -> LowerM Bool
+lazyNodeIsValue env0 expression0 =
+  case expression of
+    Fc.ExLam {} -> pure True
+    _ -> do
+      shape <- lazyNodeShape env expression
+      case shape of
+        Just (tag, operands)
+          | isValueNodeTag tag -> do
+              classified <- mapM (classifyOperand env) operands
+              pure (isJust (traverse (settledOperand =<<) classified))
+        _ -> pure False
+  where
+    (env, expression) = stripLazyWrappers env0 expression0
 
 lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
@@ -927,7 +984,10 @@ lowerVariable env name = do
     Just variables ->
       if isLiftedRuntimeRep representation
         then case variables of
-          [variable] -> pure (GrinEval EvalUpdate representation (GrinVarValue variable))
+          -- A variable that points to a value needs no evaluation.
+          [variable]
+            | Set.member variable (lowerValueVars env) -> pure (GrinConstant [GrinVarValue variable])
+            | otherwise -> pure (GrinEval EvalUpdate representation (GrinVarValue variable))
           _ -> throwLower ("GRIN expected one lifted local value: " <> show name)
         else pure (GrinConstant (map GrinVarValue variables))
     Nothing
@@ -1153,19 +1213,124 @@ lowerTupleArguments env = go []
       lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
 
 lowerConstructorApplication :: LowerEnv -> Fc.Name -> Int -> [Fc.Expr] -> LowerM GrinExpr
-lowerConstructorApplication env name remaining = go []
+lowerConstructorApplication env name remaining arguments =
+  lowerCallArguments env "strict_field" (strictOperands env name arguments) $ \groups -> do
+    tag <- constructorNodeTag env name (length arguments + remaining) (length arguments)
+    pure (GrinStore (GrinNode tag (concat groups)))
+
+-- | Lower the arguments of a constructor or of a local function. Each
+-- argument has a flag. With the flag, the argument must point to a value
+-- in weak-head normal form: it goes to a strict field, or to a parameter of
+-- 'valueParameters'. Such an argument is evaluated here, unless it is known
+-- to point to a value. See 'strictOperand'.
+lowerCallArguments :: LowerEnv -> Text -> [(Bool, Fc.Expr)] -> ([[GrinValue]] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerCallArguments env hint = go []
   where
-    go values [] = pure (GrinStore (GrinNode (GrinConstructor (constructorTag name) remaining) values))
-    go values (argument : arguments) =
-      lowerArgument env argument (\newValues -> go (values <> newValues) arguments)
+    go groups [] continuation = continuation (reverse groups)
+    go groups ((isValue, argument) : arguments) continuation = do
+      let continue values = go (values : groups) arguments continuation
+      operand <- if isValue then strictOperand env argument else pure Nothing
+      case operand of
+        Just (SettledOperand values) -> continue values
+        Just (EagerOperand expression) -> bindExpression env hint expression continue
+        _ -> lowerArgument env argument continue
+
+-- | The arguments of a constructor application, each with whether its
+-- field is strict.
+strictOperands :: LowerEnv -> Fc.Name -> [Fc.Expr] -> [(Bool, Fc.Expr)]
+strictOperands env name arguments =
+  [(position `elem` strict, argument) | (position, argument) <- zip [0 :: Int ..] arguments]
+  where
+    strict = Map.findWithDefault [] name (TypeOf.teConStrictFields (lowerTypes env))
+
+-- | The operand of a lifted strict field of a constructor, or 'Nothing' for
+-- an operand that is not lifted.
+--
+-- A lifted strict field of a node always holds a pointer to a value in
+-- weak-head normal form: not a thunk, and not an indirection. Thus the code
+-- that reads the field does not evaluate it. See 'lowerAlt'. System FC
+-- gives a value to each strict field, but the pointer of that value can
+-- be the pointer of an updated thunk, and a top-level value can be a
+-- thunk here. Thus the node is built from an operand that points to a
+-- value: a variable of 'lowerValueVars', a nullary constructor, the static
+-- closure of a private function, or a global whose node is a value. Any
+-- other operand is evaluated where the node is built. That evaluation only
+-- reads the object when System FC gave a value.
+strictOperand :: LowerEnv -> Fc.Expr -> LowerM (Maybe LazyOperand)
+strictOperand env expression = do
+  representation <- expressionRuntimeRep env expression
+  if not (isLiftedRuntimeRep representation)
+    then pure Nothing
+    else case stripValueWrappers expression of
+      Fc.ExVar name
+        | Just [variable] <- Map.lookup name (lowerLocals env),
+          Set.member variable (lowerValueVars env) ->
+            pure (Just (SettledOperand [GrinVarValue variable]))
+        | Map.notMember name (lowerLocals env),
+          hasValueGlobal env name -> do
+            valueGlobals <- gets lowerValueGlobalNames
+            if isNullaryConstructor env name || isJust (privateFunctionNode env name) || Set.member name valueGlobals
+              then Just . SettledOperand . pure . GrinGlobalValue <$> valueGlobalName env name
+              else pure (Just (EagerOperand expression))
+      _ -> pure (Just (EagerOperand expression))
+
+-- | The tag of the node of a constructor application that has a number of
+-- its arguments.
+--
+-- A partial application that does not have the argument of a lifted strict
+-- field cannot be a constructor node: the application that gives the
+-- argument later does not evaluate it. Such an application is the closure
+-- of a function that evaluates those arguments and builds the node.
+constructorNodeTag :: LowerEnv -> Fc.Name -> Int -> Int -> LowerM GrinNodeTag
+constructorNodeTag env name arity supplied
+  | supplied >= arity || not (any (>= supplied) strict) = pure (GrinConstructor tag (arity - supplied))
+  | otherwise = do
+      constructorType <- lookupNameType env name
+      let (typeBinders, monotype) = splitForAlls constructorType
+          constructorEnv = foldl extendTypeBinder env typeBinders
+      fieldTypes <- liftEither (constructorArgumentTypes monotype)
+      layouts <- mapM (liftEither . runtimeComponents constructorEnv) fieldTypes
+      let isStrictLifted position layout =
+            position >= supplied && position `elem` strict && not (null layout) && all isLiftedRuntimeRep layout
+      if length layouts /= arity || not (or (zipWith isStrictLifted [0 ..] layouts))
+        then pure (GrinConstructor tag (arity - supplied))
+        else do
+          entry <- freshFunction (Fc.nameText name <> "_strict")
+          fields <- mapM (mapM (freshVar "field")) layouts
+          values <- forM (zip [0 ..] fields) $ \(position, variables) ->
+            if isStrictLifted position (map grinVarRuntimeRep variables)
+              then mapM (freshVar "strict_field" . grinVarRuntimeRep) variables
+              else pure variables
+          let store = GrinStore (GrinNode (GrinConstructor tag 0) (map GrinVarValue (concat values)))
+              evaluations =
+                [ GrinBind [value] (GrinEval EvalUpdate (grinVarRuntimeRep variable) (GrinVarValue variable))
+                | (value, variable) <- zip (concat values) (concat fields),
+                  value /= variable
+                ]
+          emitFunction (GrinFunction entry (concat fields) liftedResultRep (foldr ($) store evaluations))
+          pure (GrinClosure entry (drop supplied layouts))
+  where
+    tag = constructorTag name
+    strict = Map.findWithDefault [] name (TypeOf.teConStrictFields (lowerTypes env))
+
+-- | Whether a node with this tag is a value in weak-head normal form.
+isValueNodeTag :: GrinNodeTag -> Bool
+isValueNodeTag nodeTag =
+  case nodeTag of
+    GrinThunk {} -> False
+    GrinConstructor {} -> True
+    GrinClosure {} -> True
 
 lowerLocalFunctionApplication :: LowerEnv -> GrinResultRep -> Fc.Name -> LocalFunction -> [Fc.Expr] -> LowerM GrinExpr
 lowerLocalFunctionApplication env resultRep name function arguments
+  | length arguments < arity,
+    or valueFlags =
+      throwLower ("GRIN cannot apply a local function with value parameters to too few arguments: " <> show name)
   | length arguments < arity =
       lowerArguments env arguments $ \argumentValues ->
         pure (GrinStore (GrinNode (GrinClosure entry (drop (length arguments) (localFunctionLayouts function))) (captures <> argumentValues)))
   | directCall =
-      lowerArguments env saturatedArguments $ \argumentValues ->
+      lowerCallArguments env "argument" (zip valueFlags saturatedArguments) $ \(concat -> argumentValues) ->
         case remainingArguments of
           [] -> pure (GrinCall resultRep entry (captures <> argumentValues))
           _ -> do
@@ -1173,8 +1338,9 @@ lowerLocalFunctionApplication env resultRep name function arguments
             rest <- lowerDynamicApplication env resultRep (GrinVarValue applied) remainingArguments
             pure (GrinBind [applied] (GrinCall liftedResultRep entry (captures <> argumentValues)) rest)
   | Fc.OriginLocal {} <- Fc.nameOrigin name = do
+      when (null arguments) $ throwLower "GRIN local function application needs an argument"
       closure <- freshVar "local_function" liftedGrinRep
-      body <- lowerDynamicApplication env resultRep (GrinVarValue closure) arguments
+      body <- lowerCallArguments env "argument" (zip (valueFlags <> repeat False) arguments) (applyArgumentGroups resultRep (GrinVarValue closure))
       pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure entry (localFunctionLayouts function)) captures)) body)
   | otherwise = do
       globalName <- valueGlobalName env name
@@ -1183,6 +1349,7 @@ lowerLocalFunctionApplication env resultRep name function arguments
     captures = concatMap (map GrinVarValue . (lowerLocals env Map.!)) (localFunctionCaptures function)
     entry = localFunctionEntry function
     arity = localFunctionArity function
+    valueFlags = localFunctionValueParameters function
     (saturatedArguments, remainingArguments) = splitAt arity arguments
     -- A function that forwards its result serves every call site: the
     -- value goes to the continuation this call site provides. A function
@@ -1512,11 +1679,14 @@ lazyNode env0 hint expression0 =
         Nothing -> makeThunk env hint expression
   where
     (env, expression) = stripLazyWrappers env0 expression0
-    settledOperand operand =
-      case operand of
-        SettledOperand values -> Just values
-        LazyOperand {} -> Nothing
-        EagerOperand {} -> Nothing
+
+-- | The values of an operand that needs no code.
+settledOperand :: LazyOperand -> Maybe [GrinValue]
+settledOperand operand =
+  case operand of
+    SettledOperand values -> Just values
+    LazyOperand {} -> Nothing
+    EagerOperand {} -> Nothing
 
 -- | Drop the type applications, type lambdas and casts that carry no runtime
 -- value, keeping the type environment they establish.
@@ -1533,7 +1703,7 @@ stripLazyWrappers env expression =
 -- with the operands that fill its fields: a constructor application, a
 -- saturated call of a known function with a lifted result, or a partial
 -- application of a known function.
-lazyNodeShape :: LowerEnv -> Fc.Expr -> LowerM (Maybe (GrinNodeTag, [Fc.Expr]))
+lazyNodeShape :: LowerEnv -> Fc.Expr -> LowerM (Maybe (GrinNodeTag, [(Bool, Fc.Expr)]))
 lazyNodeShape env expression =
   case collectApplications expression of
     (Fc.ExVar name, arguments)
@@ -1542,21 +1712,31 @@ lazyNodeShape env expression =
       | Just arity <- Map.lookup name (lowerConstructorArities env),
         length arguments <= arity -> do
           representation <- expressionRuntimeRep env expression
-          pure
-            ( if isLiftedRuntimeRep representation
-                then Just (GrinConstructor (constructorTag name) (arity - length arguments), arguments)
-                else Nothing
-            )
-      | Just function <- Map.lookup name (lowerLocalFunctions env) ->
+          if isLiftedRuntimeRep representation
+            then do
+              tag <- constructorNodeTag env name arity (length arguments)
+              pure (Just (tag, strictOperands env name arguments))
+            else pure Nothing
+      | Just function <- Map.lookup name (lowerLocalFunctions env) -> do
+          -- The thunk of a call enters the function with its fields as the
+          -- arguments, and nothing evaluates them first. Thus each argument
+          -- of a value parameter must already point to a value. If not, the
+          -- call is suspended in a function of its own, which evaluates the
+          -- argument when it runs.
+          settled <- forM (zip (localFunctionValueParameters function) arguments) $ \(isValue, argument) ->
+            if isValue then maybe False (isJust . settledOperand) <$> strictOperand env argument else pure True
           pure
             ( case compare (length arguments) (localFunctionArity function) of
-                LT -> Just (GrinClosure (localFunctionEntry function) (drop (length arguments) (localFunctionLayouts function)), map Fc.ExVar (localFunctionCaptures function) <> arguments)
+                _ | not (and settled) -> Nothing
+                LT -> Just (GrinClosure (localFunctionEntry function) (drop (length arguments) (localFunctionLayouts function)), map lazy (map Fc.ExVar (localFunctionCaptures function) <> arguments))
                 EQ
                   | localFunctionResultRep function == liftedResultRep ->
-                      Just (GrinThunk (localFunctionEntry function), map Fc.ExVar (localFunctionCaptures function) <> arguments)
+                      Just (GrinThunk (localFunctionEntry function), map lazy (map Fc.ExVar (localFunctionCaptures function) <> arguments))
                 _ -> Nothing
             )
     _ -> pure Nothing
+  where
+    lazy operand = (False, operand)
 
 -- | An operand of a lazily allocated node.
 data LazyOperand
@@ -1573,12 +1753,18 @@ data LazyOperand
 
 -- | Classify an operand, or fail when it is unlifted and not yet a value
 -- and computing it would run code the surrounding node must not run. A
--- safe primitive call is such a computation that can run early.
-classifyOperand :: LowerEnv -> Fc.Expr -> LowerM (Maybe LazyOperand)
-classifyOperand env expression = do
+-- safe primitive call is such a computation that can run early. The flag
+-- tells that the operand goes to a strict field of a constructor. See
+-- 'strictOperand'.
+classifyOperand :: LowerEnv -> (Bool, Fc.Expr) -> LowerM (Maybe LazyOperand)
+classifyOperand env (strict, expression) = do
   representation <- expressionRuntimeRep env expression
   case stripValueWrappers expression of
     _ | null (runtimeRepComponents representation) -> pure (Just (SettledOperand []))
+    _
+      | strict,
+        isLiftedRuntimeRep representation ->
+          strictOperand env expression
     Fc.ExVar name
       | Just variables <- Map.lookup name (lowerLocals env) -> pure (Just (SettledOperand (map GrinVarValue variables)))
       -- A partially applied constructor has no cell to settle on, so the
@@ -1633,7 +1819,7 @@ lowerLetWith env binding body continuation
           captures = [other | other <- captureNames, Map.member other (lowerLocals env)]
       entry <- freshFunction "closure"
       shape <- closureShape env rhs
-      loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
+      loweredBody <- lowerExpr (valueParameterEnv (valueParameters env rhs shape) shape) (closureBody shape)
       emitFunction
         GrinFunction
           { grinFunctionName = entry,
@@ -1641,7 +1827,7 @@ lowerLetWith env binding body continuation
             grinFunctionResultRep = closureResultRep shape,
             grinFunctionBody = loweredBody
           }
-      let function = LocalFunction entry (closureLayouts shape) (closureResultRep shape) False captures
+      let function = LocalFunction entry (closureLayouts shape) (closureResultRep shape) False captures (valueParameters env rhs shape)
           env' = extendTermBinder binder env
       continuation env' {lowerLocalFunctions = Map.insert name function (lowerLocalFunctions env')}
   | otherwise = lowerLetBinding env binding continuation
@@ -1689,13 +1875,13 @@ lowerRec env bindings body
               captures = [name | name <- captureNames, Map.member name (lowerLocals env)]
               functions =
                 Map.fromList
-                  [ (Fc.binderName (Fc.bindBinder binding), LocalFunction entry (closureLayouts shape) (closureResultRep shape) False captures)
+                  [ (Fc.binderName (Fc.bindBinder binding), LocalFunction entry (closureLayouts shape) (closureResultRep shape) False captures (valueParameters typedEnv (Fc.bindRhs binding) shape))
                   | (binding, entry, shape) <- zip3 bindings entries shapes
                   ]
               liftedEnv = typedEnv {lowerLocalFunctions = functions <> lowerLocalFunctions env}
               fields = concatMap (lowerLocals env Map.!) captures
-          forM_ (zip entries shapes) $ \(entry, shape) -> do
-            let bodyEnv = (closureBodyEnv shape) {lowerLocalFunctions = lowerLocalFunctions liftedEnv}
+          forM_ (zip3 bindings entries shapes) $ \(binding, entry, shape) -> do
+            let bodyEnv = (valueParameterEnv (valueParameters typedEnv (Fc.bindRhs binding) shape) shape) {lowerLocalFunctions = lowerLocalFunctions liftedEnv}
             lowered <- lowerExpr bodyEnv (closureBody shape)
             emitFunction (GrinFunction entry (fields <> concat (closureParameters shape)) (closureResultRep shape) lowered)
           lowerExpr liftedEnv body
@@ -1729,11 +1915,21 @@ saturatedUses arities expression =
 lowerRecBindings :: LowerEnv -> [Fc.Bind] -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerRecBindings env bindings continuation = do
   variables <- mapM makeVariables bindings
-  let recursiveEnv = foldl bindOne env (zip bindings variables)
+  let boundEnv = foldl bindOne env (zip bindings variables)
+      -- A binding of a function is a closure, and thus a value, for the
+      -- other bindings of the group. The body also sees each binding
+      -- whose node is a value.
+      functions = concat [vars | (binding, vars) <- zip bindings variables, isFunctionBinding (Fc.bindRhs binding)]
+      recursiveEnv = boundEnv {lowerValueVars = foldr Set.insert (lowerValueVars boundEnv) functions}
   nodes <- mapM (makeBindingNode recursiveEnv) bindings
-  loweredBody <- continuation recursiveEnv
+  let values = [variable | (variable, node) <- zip (concat variables) nodes, isValueNodeTag (grinNodeTag node)]
+  loweredBody <- continuation recursiveEnv {lowerValueVars = foldr Set.insert (lowerValueVars recursiveEnv) values}
   pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
   where
+    isFunctionBinding rhs =
+      case stripValueWrappers rhs of
+        Fc.ExLam {} -> True
+        _ -> False
     makeVariables binding = do
       let binder = Fc.bindBinder binding
       representation <- binderRep env binder
@@ -1762,8 +1958,12 @@ lowerCase env scrutinee binder alternatives = do
                   Just name
                     | isLiftedRuntimeRep representation,
                       Just [_] <- Map.lookup name (lowerLocals env) ->
-                        env {lowerLocals = Map.insert name [caseBinder] (lowerLocals env)}
-                  _ -> env
+                        valueEnv {lowerLocals = Map.insert name [caseBinder] (lowerLocals env)}
+                  _ -> valueEnv
+              -- The value of a lifted case is in weak-head normal form.
+              valueEnv
+                | isLiftedRuntimeRep representation = env {lowerValueVars = Set.insert caseBinder (lowerValueVars env)}
+                | otherwise = env
           scrutineeType <- expressionType env scrutinee
           case onlyConstructorAlternative env scrutineeType alternatives of
             -- The type has one constructor, so the value is that
@@ -1890,7 +2090,20 @@ lowerAlt :: LowerEnv -> Fc.Alt -> LowerM GrinAlt
 lowerAlt env alternative = do
   let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
   binderGroups <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
-  let bodyEnv = foldl bindPair typeEnv (zip (Fc.altBinders alternative) binderGroups)
+  let boundEnv = foldl bindPair typeEnv (zip (Fc.altBinders alternative) binderGroups)
+      -- The binder of a lifted strict field points to a value. See
+      -- 'strictOperand'.
+      strict = case Fc.altCon alternative of
+        Fc.AltData name
+          | not (isUnboxedConstructor env name) -> Map.findWithDefault [] name (TypeOf.teConStrictFields (lowerTypes env))
+        _ -> []
+      strictVars =
+        [ variable
+        | (position, [variable]) <- zip [0 :: Int ..] binderGroups,
+          position `elem` strict,
+          isLiftedRuntimeRep (grinVarRuntimeRep variable)
+        ]
+      bodyEnv = boundEnv {lowerValueVars = foldr Set.insert (lowerValueVars boundEnv) strictVars}
   body <- lowerExpr bodyEnv (Fc.altRhs alternative)
   alternativeConstructor <- lowerAltCon typeEnv (Fc.altCon alternative)
   pure
@@ -1947,6 +2160,60 @@ data ClosureShape = ClosureShape
 
 closureLayouts :: ClosureShape -> [[GrinRep]]
 closureLayouts = map (map grinVarRuntimeRep) . closureParameters
+
+-- | For each parameter of a local function that only has saturated direct
+-- calls, whether each call gives a pointer to a value in weak-head normal
+-- form.
+--
+-- The parameter is lifted, and the body evaluates it before it does
+-- anything else. Thus each call can evaluate the argument, and the body
+-- then does not test it. An argument that already points to a value needs
+-- no code: a loop over a structure with strict fields gives such a field
+-- to the next iteration. See 'lowerCallArguments'.
+valueParameters :: LowerEnv -> Fc.Expr -> ClosureShape -> [Bool]
+valueParameters env rhs shape
+  | length names /= Set.size (Set.fromList names) = map (const False) names
+  | otherwise = zipWith isValue names (closureParameters shape)
+  where
+    (_, binders, body) = collectLambdas env rhs
+    names = map Fc.binderName binders
+    strict = headStrictVariables body
+    isValue name group =
+      case group of
+        [variable] -> Set.member name strict && isLiftedRuntimeRep (grinVarRuntimeRep variable)
+        _ -> False
+
+-- | The environment of the body of a local function, in which each
+-- parameter of 'valueParameters' points to a value.
+valueParameterEnv :: [Bool] -> ClosureShape -> LowerEnv
+valueParameterEnv flags shape =
+  bodyEnv {lowerValueVars = foldr Set.insert (lowerValueVars bodyEnv) (concat [group | (True, group) <- zip flags (closureParameters shape)])}
+  where
+    bodyEnv = closureBodyEnv shape
+
+-- | The free variables that an expression evaluates before it does
+-- anything else: the scrutinee of its first case, and the scrutinee of
+-- the first case of the only alternative of that case, and so on.
+headStrictVariables :: Fc.Expr -> Set Fc.Name
+headStrictVariables = go Set.empty
+  where
+    go bound expression =
+      case expression of
+        Fc.ExCast inner _ -> go bound inner
+        Fc.ExCase scrutinee binder alternatives
+          | Just name <- variable scrutinee ->
+              let rest =
+                    case alternatives of
+                      alternative NE.:| [] ->
+                        go (foldr (Set.insert . Fc.binderName) bound (maybe id (:) binder (Fc.altBinders alternative))) (Fc.altRhs alternative)
+                      _ -> Set.empty
+               in if Set.member name bound then rest else Set.insert name rest
+        _ -> Set.empty
+    variable expression =
+      case expression of
+        Fc.ExVar name -> Just name
+        Fc.ExCast inner _ -> variable inner
+        _ -> Nothing
 
 closureShape :: LowerEnv -> Fc.Expr -> LowerM ClosureShape
 closureShape env expression = do
@@ -2328,7 +2595,7 @@ localFunctionTable env program =
             _ -> withCurrentValue (Fc.valName declaration) (freshFunction "")
           pure
             ( Fc.valName declaration,
-              LocalFunction entry (closureLayouts shape) (closureResultRep shape) (Fc.valVis declaration == Fc.Pub) []
+              LocalFunction entry (closureLayouts shape) (closureResultRep shape) (Fc.valVis declaration == Fc.Pub) [] (map (const False) (closureLayouts shape))
             )
       | Fc.DeclVal declaration <- Fc.programDecls program,
         isFunctionExpression (Fc.valBody declaration)

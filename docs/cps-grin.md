@@ -72,6 +72,22 @@ See "Thread stacks" in `docs/native-runtime-objects.md`.
 The runtime pushes an update frame on the stack when it enters a thunk.
 It protects the value and continuation before it allocates a blackhole waiter.
 
+### Variables that need no evaluation
+
+The lowering from System FC emits no `eval` for a variable that points to a value in weak-head normal form.
+Such a pointer is the pointer of the value itself, and not the pointer of an updated thunk.
+These variables are of three kinds:
+
+- The binder of a lifted case.
+- The binder of a lifted strict field of a constructor.
+  The lowering evaluates the operand of such a field where it builds the object, unless the operand is such a variable or a static value.
+  See the object layouts in `docs/native-runtime-objects.md`.
+- A lifted parameter of a local function, when the function has only saturated direct calls and its body evaluates the parameter before it does anything else.
+  Each call evaluates the argument, unless the argument is such a variable or a static value.
+  A loop over a structure with strict fields gives a field to the next iteration, so the loop does not test the same value again.
+  A lazy call of such a function is a thunk of the function only when each such argument points to a value.
+  If not, the call is suspended in a function of its own.
+
 ### Single-entry evaluation
 
 `eval-once` is an evaluation that no other evaluation of the same thunk can follow.

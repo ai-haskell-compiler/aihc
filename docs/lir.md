@@ -1089,7 +1089,9 @@ The units are:
   of zero-terminated strings in C, because the width of a C pointer is the
   one thing a unit does not know, and `aihc_runtime_arguments_initialize`
   removes the `+RTS` to `-RTS` options from that buffer and keeps the rest
-  for `getArgs`. The host flattens the environment the same way, and
+  for `getArgs`. The entry unit of an executable with default RTS options
+  calls `aihc_runtime_default_options` first, and the parser applies those
+  options before the options of the buffer. The host flattens the environment the same way, and
   `aihc_runtime_environment_initialize` keeps the `AIHC_RTS_STATS` value.
   The parsed settings live in globals of the unit, and the C runtime reads
   them through `aihc_rts_heap_max_bytes`, `aihc_rts_heap_limit_enabled`,
