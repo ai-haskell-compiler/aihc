@@ -6,8 +6,8 @@
 module Main (main) where
 
 import qualified Data.Kind as Kind
-import Data.Proxy (Proxy)
-import Helper (Describe (..), deriveDescribe, isMode, plusHelper, twiceHelper)
+import Data.Proxy (Proxy (..))
+import Helper (Describe (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..))
 import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
@@ -77,6 +77,26 @@ promotedQuoteForm ty =
   case ty of
     AppT (ConT proxy) (PromotedT true) -> proxy == ''Proxy && true == 'True
     _ -> False
+
+-- | A type quote with type splices. The tree has the type of each splice.
+spliceQuote :: Q Type
+spliceQuote = [t|Either $(conT ''Int) $([t|Bool|])|]
+
+-- | Whether the tree of 'spliceQuote' has the expected form.
+spliceQuoteForm :: Type -> Bool
+spliceQuoteForm ty =
+  case ty of
+    AppT (AppT (ConT either') (ConT int)) (ConT bool) -> either' == ''Either && int == ''Int && bool == ''Bool
+    _ -> False
+
+-- | A type splice gives a promoted list.
+promotedList :: Proxy $(pure (AppT (AppT PromotedConsT (ConT ''Int)) PromotedNilT))
+promotedList = Proxy
+
+-- | A type splice gives a promoted constructor of a module that this module
+-- does not import.
+warmProxy :: $(warmType)
+warmProxy = Proxy
 
 -- | Whether the tree of 'forallQuote' has the expected form.
 forallQuoteForm :: Type -> Bool
@@ -195,6 +215,10 @@ $(deriveDescribe ''Shape)
 
 $(deriveDescribe ''Mode)
 
+-- A splice makes an instance of a class of a module of the program that
+-- this module does not import.
+$(deriveLabel ''Shape)
+
 $( do
      signature <- [t|Int -> (Int, String)|]
      pure
@@ -266,6 +290,13 @@ main = do
   runQ forallQuote >>= print . forallQuoteForm
   runQ promotedQuote >>= print . promotedQuoteForm
   runQ operatorQuote >>= print . operatorQuoteForm
+  runQ spliceQuote >>= print . spliceQuoteForm
+  -- An expression quote with a type signature. The signature has a type
+  -- splice.
+  print $([|minBound :: $(conT ''Int)|])
+  print promotedList
+  print warmProxy
+  putStrLn (labelText (Square 1 2))
   -- A quote in a splice body names a value and a constructor of this
   -- module that the module does not export, and a constructor in a
   -- pattern.
