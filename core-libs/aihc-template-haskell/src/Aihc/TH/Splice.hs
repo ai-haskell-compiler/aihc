@@ -54,7 +54,7 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, Exp, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -118,6 +118,10 @@ data Request
   | -- | Give the roles of the parameters of a type constructor. The reply
     -- is an @Either String [Role]@ value.
     ReifyRoles Name
+  | -- | Give the strictness that the compiler decided for each field of a
+    -- data constructor. The reply is an @Either String [DecidedStrictness]@
+    -- value.
+    ReifyConStrictness Name
   | -- | Give the source location of the splice. The reply is a 'Loc'
     -- value.
     Location
@@ -194,34 +198,15 @@ instance Quasi Splice where
     where
       key = typeRep (Just value)
   qLookupName _ _ = unsupported "lookupName"
-  qReify name =
-    Splice $ do
-      reply <- sendRequest (Reify name)
-      case decodeValue reply of
-        Just (Right info) -> pure (info :: Info)
-        Just (Left message) -> do
-          report (Report True message)
-          fail "Template Haskell failure"
-        Nothing -> do
-          report (Report True "The reply of the compiler to `reify' is not valid.")
-          fail "Template Haskell failure"
+  qReify name = Splice (askFacts "reify" (Reify name) :: IO Info)
   qReifyFixity _ = unsupported "reifyFixity"
   qReifyType _ = unsupported "reifyType"
   qReifyInstances _ _ = unsupported "reifyInstances"
-  qReifyRoles name =
-    Splice $ do
-      reply <- sendRequest (ReifyRoles name)
-      case decodeValue reply of
-        Just (Right roles) -> pure (roles :: [Role])
-        Just (Left message) -> do
-          report (Report True message)
-          fail "Template Haskell failure"
-        Nothing -> do
-          report (Report True "The reply of the compiler to `reifyRoles' is not valid.")
-          fail "Template Haskell failure"
+  qReifyRoles name = Splice (askFacts "reifyRoles" (ReifyRoles name) :: IO [Role])
   qReifyAnnotations _ = unsupported "reifyAnnotations"
   qReifyModule _ = unsupported "reifyModule"
-  qReifyConStrictness _ = unsupported "reifyConStrictness"
+  qReifyConStrictness name =
+    Splice (askFacts "reifyConStrictness" (ReifyConStrictness name) :: IO [DecidedStrictness])
   qLocation =
     Splice $ do
       reply <- sendRequest Location
@@ -245,6 +230,20 @@ instance Quasi Splice where
   qExtsEnabled = unsupported "extsEnabled"
   qPutDoc _ _ = unsupported "putDoc"
   qGetDoc _ = unsupported "getDoc"
+
+-- | Send a request for facts and give the facts of the reply. The reply is
+-- an error message or the facts. An error message stops the splice.
+askFacts :: (Data a) => String -> Request -> IO a
+askFacts operation request = do
+  reply <- sendRequest request
+  case decodeValue reply of
+    Just (Right value) -> pure value
+    Just (Left message) -> do
+      report (Report True message)
+      fail "Template Haskell failure"
+    Nothing -> do
+      report (Report True ("The reply of the compiler to `" ++ operation ++ "' is not valid."))
+      fail "Template Haskell failure"
 
 -- | The value of the bytes of a tree. The tree must have the constructors
 -- of the type of the value.

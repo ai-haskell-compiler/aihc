@@ -211,6 +211,11 @@ $( do
 -- | A data type with a phantom parameter and a representational one.
 data Tagged tag value = Tagged value
 
+-- | A constructor with a strict field, a lazy field, and an unpacked field.
+data Fields = Fields !(Maybe Int) Bool {-# UNPACK #-} !Point
+
+data Point = Point !Int !Int
+
 $(deriveDescribe ''Shape)
 
 $(deriveDescribe ''Mode)
@@ -285,6 +290,9 @@ main = do
   -- A splice reads the roles of a type of this module and of an
   -- imported type.
   putStrLn $(do local <- reifyRoles ''Tagged; imported <- reifyRoles ''Maybe; litE (stringL (show (local, imported))))
+  -- A splice reads the decided strictness of the fields of a constructor
+  -- of this module and of an imported constructor.
+  putStrLn $(do local <- reifyConStrictness 'Fields; imported <- reifyConStrictness 'Just; litE (stringL (show (local, imported))))
   -- A type quote in a splice gives the type of a signature.
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
