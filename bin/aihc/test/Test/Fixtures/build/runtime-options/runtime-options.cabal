@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: runtime-options
+version: 0.1.0.0
+build-type: Simple
+
+executable capabilities
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends: base
+  default-language: Haskell2010
+  ghc-options:
+    -Wall
+    "-with-rtsopts=-N3 -T -I0"

@@ -527,6 +527,72 @@ enter_frame:
   tailcall.indirect %entry(%hp, %entered_sp, %base, %current, %value) : (ptr, ptr, ptr, ptr, ptr)
 }
 
+; Apply a closure that takes more than one stage to the values of one
+; stage. The result is the closure of the next stage: an object with the
+; fields of the closure and then the supplied values. The info table of a
+; stage names the table of the next stage, and each table gives the number
+; of fields of its object. The stage has no value or one value, which
+; arrives as a word.
+;
+; The helper builds the object when it fits below the heap limit. Then no
+; collection runs, and no value moves. If the object does not fit, the
+; runtime builds it.
+export func @aihc_lir_apply_partial(%hp: ptr, %sp: ptr, %base: ptr, %current: ptr, %continuation: ptr, %count: i64, %word: i64) {
+entry:
+  %arguments = stack.alloc 8 align 8
+  %slot = stack.alloc 8 align 8
+  %header = call @aihc_info_table(%current)
+  %next_header = call @aihc_info_next(%header)
+  %held = call @aihc_info_count(%header)
+  %held_bytes = mul i64 %held, 8
+  %held_end = add i64 %held_bytes, 8
+  %total = call @aihc_info_count(%next_header)
+  %total_bytes = mul i64 %total, 8
+  %size = add i64 %total_bytes, 8
+  %partial_hp = ptr.add %hp, %size
+  %hp_limit = call @aihc_heap_limit(%base)
+  %fits = le.u ptr %partial_hp, %hp_limit
+  br %fits, copy(8), slow
+
+copy(%offset: i64):
+  %copies = lt.u i64 %offset, %held_end
+  br %copies, field, done
+
+field:
+  %source = ptr.add %current, %offset
+  %field_word = load i64 [%source] align 8
+  %destination = ptr.add %hp, %offset
+  store i64 %field_word, [%destination] align 8
+  %following = add i64 %offset, 8
+  jump copy(%following)
+
+done:
+  %next_word = ptr.to_int %next_header
+  store i64 %next_word, [%hp] align 8
+  %has_value = ne i64 %count, 0
+  br %has_value, value, finish
+
+value:
+  %supplied = ptr.add %hp, %held_end
+  store i64 %word, [%supplied] align 8
+  jump finish
+
+finish:
+  tailcall @aihc_lir_continue_p(%partial_hp, %sp, %base, %continuation, %hp)
+
+; The runtime can allocate and collect, so the capability gets the context
+; first and the heap context comes back after.
+cold slow:
+  store i64 %word, [%arguments] align 8
+  store ptr %continuation, [%slot] align 8
+  store ptr %hp, [%base + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  store ptr %sp, [%base + @AIHC_CAPABILITY_STACK_NEXT_OFFSET] align 1 word
+  %result = call @aihc_apply_slow(%base, %current, 1, %count, %arguments, %slot)
+  %adjusted = load ptr [%slot] align 8
+  %applied_hp = load ptr [%base + @AIHC_CAPABILITY_HEAP_NEXT_OFFSET] align 1 word
+  tailcall @aihc_lir_continue_p(%applied_hp, %sp, %base, %adjusted, %result)
+}
+
 ; Arity counts application stages, not the number of Lir values.
 ; Each common shape below supplies one application stage.
 export func @aihc_lir_apply_(%hp: ptr, %sp: ptr, %base: ptr, %function: ptr, %continuation: ptr) {
@@ -549,11 +615,19 @@ apply:
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
-  br %fast, fast, slow
+  br %fast, fast, other
+
+other:
+  %more = gt.u i64 %arity, 1
+  %partial = and i1 %closure, %more
+  br %partial, partial, slow
 
 fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %sp, %base, %current, %continuation) : (ptr, ptr, ptr, ptr, ptr)
+
+partial:
+  tailcall @aihc_lir_apply_partial(%hp, %sp, %base, %current, %continuation, 0, 0)
 
 ; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.
@@ -588,11 +662,19 @@ apply:
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
-  br %fast, fast, slow
+  br %fast, fast, other
+
+other:
+  %more = gt.u i64 %arity, 1
+  %partial = and i1 %closure, %more
+  br %partial, partial, slow
 
 fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %sp, %base, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, i64)
+
+partial:
+  tailcall @aihc_lir_apply_partial(%hp, %sp, %base, %current, %continuation, 1, %value)
 
 ; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.
@@ -628,11 +710,20 @@ apply:
   %closure = eq i64 %kind, @AIHC_OBJECT_CLOSURE
   %saturated = eq i64 %arity, 1
   %fast = and i1 %closure, %saturated
-  br %fast, fast, slow
+  br %fast, fast, other
+
+other:
+  %more = gt.u i64 %arity, 1
+  %partial = and i1 %closure, %more
+  br %partial, partial, slow
 
 fast:
   %entry = call @aihc_info_entry(%header)
   tailcall.indirect %entry(%hp, %sp, %base, %current, %continuation, %value) : (ptr, ptr, ptr, ptr, ptr, ptr)
+
+partial:
+  %partial_word = ptr.to_int %value
+  tailcall @aihc_lir_apply_partial(%hp, %sp, %base, %current, %continuation, 1, %partial_word)
 
 ; The runtime can allocate and collect, so the capability gets the context
 ; first and the heap context comes back after.

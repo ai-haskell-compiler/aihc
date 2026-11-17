@@ -90,6 +90,8 @@ mainModuleExecutable options sourceRoot outputRoot request = do
         componentDependencies = plans,
         -- The executable is named as its file is, with the extension of
         -- the main module removed.
+        -- A main module has no Cabal stanza, thus it has no default RTS options.
+        componentRuntimeOptions = [],
         componentItem = ItemExecutable (T.pack (takeFileName (fromMaybe (dropExtension (buildInput options)) (buildOutput options)))),
         componentInputs = \packages -> do
           let moduleIndex = buildInstalledModuleIndex packages

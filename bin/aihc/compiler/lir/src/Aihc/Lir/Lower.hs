@@ -93,7 +93,7 @@ import Aihc.Native
     renderLinkedPartialConstructorInfoSymbol,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, forM, forM_, mfilter, unless, when, zipWithM)
+import Control.Monad (foldM, forM, forM_, mfilter, unless, void, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.ByteString qualified as BS
@@ -223,15 +223,22 @@ lowerModule target settings =
 
 -- | Lower the fixed executable entry unit. With the flags, @main@ registers
 -- the allocation counters and the time profile tables of the program with
--- the runtime.
-lowerEntry :: LowerTarget -> Bool -> Bool -> Either LowerError Module
-lowerEntry target profileAllocations profileTime = do
+-- the runtime. The list holds the default RTS options of the executable,
+-- one option in each element. The @main@ of a POSIX host gives them to the
+-- runtime before the arguments. The WASI P3 entry does not use them: its
+-- driver gives the arguments to the runtime before the entry starts.
+lowerEntry :: LowerTarget -> Bool -> Bool -> [Text] -> Either LowerError Module
+lowerEntry target profileAllocations profileTime runtimeOptions = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWith LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} gcProgram
+  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
-lowerProgramWith options gcProgram =
-  Module . snd <$> runLower options gcProgram (lowerProgramItems options gcProgram)
+lowerProgramWith options = lowerProgramWithEntry options []
+
+-- | 'lowerProgramWith' with the default RTS options of an executable unit.
+lowerProgramWithEntry :: LowerOptions -> [Text] -> GcGrinProgram -> Either LowerError Module
+lowerProgramWithEntry options runtimeOptions gcProgram =
+  Module . snd <$> runLower options gcProgram (lowerProgramItems options runtimeOptions gcProgram)
 
 -- | Supply each complete item to the consumer before conversion proceeds.
 lowerModuleTo :: (Monad m) => LowerTarget -> ModuleSettings -> (Map Symbol Signature -> Item -> m ()) -> GcGrinProgram -> m (Either LowerError ())
@@ -252,12 +259,12 @@ lowerModuleTo target settings output gcProgram =
               then mapM_ (output (stateCallSignatures state)) (externItems state) >> pure (Right ())
               else consume state (done <> pending) (map (generateHelper env) (Set.toAscList pending))
 
-lowerProgramItems :: LowerOptions -> GcGrinProgram -> LowerUnit -> LowerM ()
-lowerProgramItems options gcProgram env = do
+lowerProgramItems :: LowerOptions -> [Text] -> GcGrinProgram -> LowerUnit -> LowerM ()
+lowerProgramItems options runtimeOptions gcProgram env = do
   lowerUnitItems env
   when (lowerUnitKind options == ExecutableUnit) $
     case lowerHost (lowerTarget options) of
-      PosixHost -> lowerExecutableMain gcProgram
+      PosixHost -> lowerExecutableMain runtimeOptions gcProgram
       Wasip3Host -> lowerWasip3Entry gcProgram
 
 -- Types
@@ -4728,13 +4735,25 @@ constructorSwitchThreshold = 4
 -- and the environment to the runtime before the capability starts, and it
 -- reports the runtime statistics when the capability halts. An exit through
 -- @aihc_exit_process@ reports them itself.
-lowerExecutableMain :: GcGrinProgram -> LowerM ()
-lowerExecutableMain gcProgram = do
+--
+-- The default RTS options of the executable are data of the entry unit:
+-- one string for each option, each ended by a zero byte. @main@ gives them
+-- to the runtime before the arguments, thus an option of the command line
+-- replaces a default option. An executable without default options has no
+-- such data and no such call.
+lowerExecutableMain :: [Text] -> GcGrinProgram -> LowerM ()
+lowerExecutableMain runtimeOptions gcProgram = do
   entryItems gcProgram
+  let optionBytes = BS.concat [TE.encodeUtf8 option <> BS.singleton 0 | option <- runtimeOptions]
+      optionsSymbol = Symbol "aihc_lir_default_rts_options"
+  unless (null runtimeOptions) $
+    emitItem (ItemData (DataItem optionsSymbol Internal False 1 [DataBytes optionBytes]))
   argc <- fresh "argc"
   argv <- fresh "argv"
   beginBlock (Label "entry") []
   capability <- callRuntime "aihc_machine_initialize" [] [Ptr] []
+  unless (null runtimeOptions) $
+    void (callRuntime "aihc_runtime_default_options" [Ptr, I64] [] [OperandLiteral (LitSymbol optionsSymbol), OperandLiteral (LitInt (toInteger (BS.length optionBytes)))])
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
   profiling <- gets stateProfileAllocations
@@ -4972,7 +4991,13 @@ generateHelper env helper =
       isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
       isSaturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
       isFast <- emitValue "fast" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isSaturated))
-      terminate (Branch (typedOperand isFast) (Target (Label "fast") []) (Target (Label "slow") []))
+      terminate (Branch (typedOperand isFast) (Target (Label "fast") []) (Target (Label "other") []))
+      beginBlock (Label "other") []
+      isPartial <- emitValue "partial" I1 (Compare GtU I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
+      takesMore <- emitValue "takes_more" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isPartial))
+      terminate (Branch (typedOperand takesMore) (Target (Label "partial") []) (Target (Label "slow") []))
+      beginBlock (Label "partial") []
+      applyPartial context (OperandVar current) (OperandVar continuation) header 1 values (Label "slow")
       beginBlock (Label "fast") []
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
@@ -5027,8 +5052,13 @@ generateHelper env helper =
             ( SwitchCase (toInteger count) (Target (Label "exact") [])
                 : [SwitchCase (toInteger taken) (Target (overLabel taken) []) | taken <- [1 .. count - 1]]
             )
-            (Just (Target (Label "slow") []))
+            (Just (Target (Label "more") []))
         )
+      beginBlock (Label "more") []
+      takesMore <- emitValue "takes_more" I1 (Compare GtU I64 (typedOperand arity) (OperandLiteral (LitInt (toInteger count))))
+      terminate (Branch (typedOperand takesMore) (Target (Label "partial") []) (Target (Label "slow") []))
+      beginBlock (Label "partial") []
+      applyPartial context (OperandVar current) (OperandVar continuation) header count values (Label "slow")
       beginBlock (Label "exact") []
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
@@ -5175,6 +5205,57 @@ applySlow capability context current continuation continuationSlot arguments gro
   continue <- requireHelper (HelperContinue [Ptr])
   terminate (TailCall continue (contextOperands collected <> [typedOperand adjusted, applied]))
 
+-- | The block of an apply helper for a closure that takes more groups than
+-- the application supplies. The result is the closure of the next stage:
+-- an object with the fields of the closure and then the supplied values.
+-- The info table of each stage names the table of the next stage, and
+-- each table gives the number of fields of its object.
+--
+-- The block builds the object when it fits below the heap limit. Then no
+-- collection runs, and no value moves. If the object does not fit, the
+-- runtime builds it. See aihc_apply_slow.
+applyPartial :: Context -> Operand -> Operand -> Operand -> Int -> [(Var, Type)] -> Label -> LowerM ()
+applyPartial context function continuation header groups values slow = do
+  target <- targetM
+  let width = toInteger (lowerWordSize target)
+      nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (width * toInteger infoNextIndex)) (wordAlignment 1))
+  next <- foldM (\current _ -> nextStage current) header [1 .. groups]
+  held <- loadInfoByte "held" header infoFieldCountByte
+  total <- loadInfoByte "total" next infoFieldCountByte
+  heldBytes <- emitValue "held_bytes" I64 (Binary Shl I64 (typedOperand held) (OperandLiteral (LitInt 3)))
+  heldEnd <- emitValue "held_end" I64 (Binary Add I64 (typedOperand heldBytes) (OperandLiteral (LitInt 8)))
+  totalBytes <- emitValue "total_bytes" I64 (Binary Shl I64 (typedOperand total) (OperandLiteral (LitInt 3)))
+  size <- emitValue "size" I64 (Binary Add I64 (typedOperand totalBytes) (OperandLiteral (LitInt 8)))
+  end <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (typedOperand size))
+  heapLimit <- loadHeapLimit context
+  fits <- emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) heapLimit)
+  build <- freshLabel "partial_build"
+  copy <- freshLabel "partial_copy"
+  field <- freshLabel "partial_field"
+  done <- freshLabel "partial_done"
+  terminate (Branch (typedOperand fits) (Target build []) (Target slow []))
+  beginBlock build []
+  let object = contextHeap context
+  storeSlot HeapRegion Ptr next object 0
+  terminate (Jump (Target copy [OperandLiteral (LitInt 8)]))
+  offset <- fresh "offset"
+  beginBlock copy [(offset, I64)]
+  more <- emitValue "more" I1 (Compare LtU I64 (OperandVar offset) (typedOperand heldEnd))
+  terminate (Branch (typedOperand more) (Target field []) (Target done []))
+  beginBlock field []
+  source <- emitValue "source" Ptr (PtrAdd function (OperandVar offset))
+  word <- loadSlot HeapRegion "field" I64 (typedOperand source) 0
+  destination <- emitValue "destination" Ptr (PtrAdd object (OperandVar offset))
+  storeSlot HeapRegion I64 (typedOperand word) (typedOperand destination) 0
+  following <- emitValue "offset" I64 (Binary Add I64 (OperandVar offset) (OperandLiteral (LitInt 8)))
+  terminate (Jump (Target copy [typedOperand following]))
+  beginBlock done []
+  supplied <- emitValue "supplied" Ptr (PtrAdd object (typedOperand heldEnd))
+  forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
+    storeSlot HeapRegion ty (OperandVar var) (typedOperand supplied) (toInteger (8 * index))
+  continue <- requireHelper (HelperContinue [Ptr])
+  terminate (TailCall continue (contextOperands context {contextHeap = typedOperand end} <> [continuation, object]))
+
 -- | The block of an apply helper for a closure that takes fewer groups than
 -- the application supplies. It pushes a frame that holds the other groups
 -- on the stack of the thread, then enters the closure with the groups it
@@ -5199,12 +5280,14 @@ applyOverSaturated context function continuation header supplied held = do
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.
-infoWordFieldCount, infoBackendEntryIndex :: Int
+infoWordFieldCount, infoNextIndex, infoBackendEntryIndex :: Int
 infoWordFieldCount = 5
+infoNextIndex = 2
 infoBackendEntryIndex = 3
 
 -- | The byte fields of an info table, as indices from the first byte field.
-infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
+infoFieldCountByte, infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
+infoFieldCountByte = 0
 infoRemainingArityByte = 1
 infoFrameKindByte = 2
 infoObjectKindByte = 3

@@ -312,6 +312,7 @@ packageTargets kind options config storeTargetRoot = do
               componentOutputRoot = outputRoot,
               componentDependencies = rootedPlans,
               componentItem = item (T.pack name),
+              componentRuntimeOptions = map T.pack (executableInfoRuntimeOptions executable),
               componentInputs = \packages -> do
                 -- The main module is the module that the @main-is@ file
                 -- declares, as MicroHs builds it. GHC instead needs

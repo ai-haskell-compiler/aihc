@@ -774,6 +774,11 @@ void aihc_no_match(void);
    zero-terminated strings; the parser and the argument store behind the other
    four functions live in core-libs/aihc-rts/native/aihc_runtime_options.lir. */
 void aihc_program_arguments_initialize(int argc, char *const argv[]);
+/* The default RTS options of the executable: one string for each option,
+   each ended by a zero byte. The entry unit calls this before it initializes
+   the arguments, and the buffer must stay valid. The parser applies these
+   options before the options of the arguments. */
+void aihc_runtime_default_options(const void *buffer, int64_t length);
 int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
 /* The runtime settings that come from the environment. The host reads the
    process environment and flattens it like argv; the parser in
