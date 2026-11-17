@@ -340,13 +340,13 @@ is the address of its info table. GC-GRIN emits one info table per object kind
 as a read-only data object, so every backend receives the same layout and emits
 it as bytes. No backend computes an info table of its own.
 
-An info table is five word-wide fields followed by six byte-wide fields
-and one `i16` field. A
-pointer field is `ptr` and a code field is `code`; a count or a kind is an
-`i8`. Word field `k` starts at offset `k` words, byte field `j` at offset
-five words plus `j`, the `i16` field at offset five words plus six, and the table is aligned to the word size, so the same
-text suits every target. The table is 48 bytes on a 64-bit target and 28
-bytes on wasm32. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
+An info table is five word-wide fields followed by one `i16` field, four
+byte-wide fields, and one more `i16` field. A pointer field is `ptr` and a
+code field is `code`; a kind is an `i8`. Word field `k` starts at offset `k`
+words. The other fields start at offset five words plus `0`, `2`, `3`, `4`,
+`5`, and `6`. The table is aligned to the word size, so the same text suits
+every target. The table is 48 bytes on a 64-bit target and 28 bytes on
+wasm32. A unit reads `backend_entry` at `[%header + @AIHC_INFO_ENTRY_OFFSET]`.
 It reads `object_kind` at `[%header + @AIHC_INFO_KIND_OFFSET]`. A field without a value is `ptr null`, `code null`,
 or `0`. The fields are, in order:
 
@@ -357,12 +357,11 @@ or `0`. The fields are, in order:
 | `next` | `ptr` | The table of the next application stage, or, for a partial constructor, the saturated table of that constructor. Null for the last stage. |
 | `backend_entry` | `code` | The direct entry. Null when the object cannot be entered. |
 | `srt` | `ptr` | The static reference table, or null. |
-| `field_count` | `i8` | The number of payload words. A thunk counts its owner word, which is field zero and is not a pointer. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. The lowering rejects an object with more than 255 payload words. |
+| `field_count` | `i16` | The number of payload words. A thunk counts its owner word, which is field zero and is not a pointer. A partial constructor is the exception: every stage of one constructor shares a single table, so this field names the saturated width and the object stores what it holds in its own first payload word. The lowering rejects an object with more than 65535 payload words. The collector computes the size of a node, a closure, or a thunk from this field. An empty thunk has two words. |
 | `remaining_arity` | `i8` | The number of arguments the object still requires. The lowering rejects a function with more than 255 arguments. |
 | `frame_kind` | `i8` | The continuation frame kind for stack unwinding. |
 | `object_kind` | `i8` | Node, closure, thunk, partial constructor, or a runtime object kind. |
 | `needs_eval` | `i8` | `@AIHC_NEEDS_EVAL_FOLLOW` (`2`) for an indirection, `@AIHC_NEEDS_EVAL_ENTER` (`1`) for a thunk and a blackhole, and `@AIHC_NEEDS_EVAL_NONE` (`0`) for every other kind. The inline evaluation check reads only this field, at `[%header + @AIHC_INFO_NEEDS_EVAL_OFFSET]`. |
-| `gc_words` | `i8` | The fixed object size in words, or zero for the general size path. The compiler caches node, closure, and thunk sizes that fit in one byte. An empty thunk has two words. |
 | `constructor_index` | `i16` | The index of a constructor in its data declaration, from zero, and `0` for every other object. Both tables of one constructor have the same index. A case with four constructor alternatives or more loads this field at `[%header + @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET]` and selects its alternative with a `switch`. A case with fewer alternatives compares the table address in the header. The lowering rejects a data type with more than 65536 constructors. |
 
 An ordinary object uses the `backend_entry` signature

@@ -51,15 +51,14 @@ _Static_assert(offsetof(AihcInfo, backend_entry) == 24,
 _Static_assert(offsetof(AihcInfo, srt) == 32, "info-table SRT ABI");
 _Static_assert(offsetof(AihcInfo, field_count) == 40,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 41,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 42,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 42,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 43,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 43,
+_Static_assert(offsetof(AihcInfo, object_kind) == 44,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 44,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 45,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, gc_words) == 45, "info-table GC-words ABI");
 _Static_assert(offsetof(AihcInfo, constructor_index) == 46,
                "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
@@ -88,15 +87,14 @@ _Static_assert(offsetof(AihcInfo, backend_entry) == 12,
 _Static_assert(offsetof(AihcInfo, srt) == 16, "info-table SRT ABI");
 _Static_assert(offsetof(AihcInfo, field_count) == 20,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 21,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 22,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 22,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 23,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 23,
+_Static_assert(offsetof(AihcInfo, object_kind) == 24,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 24,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 25,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, gc_words) == 25, "info-table GC-words ABI");
 _Static_assert(offsetof(AihcInfo, constructor_index) == 26,
                "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");

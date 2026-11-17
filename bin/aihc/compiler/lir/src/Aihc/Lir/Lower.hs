@@ -1124,18 +1124,21 @@ loadInfoByte base header index = do
   value <- emitValue base I8 (LoadInvariant I8 (byteAddress header offset) (byteAlignment 1))
   emitValue base I64 (Convert ZExt I8 (typedOperand value) I64)
 
--- | The constructor index of an info table. It follows the byte fields
--- and one byte of padding. See 'infoConstructorIndexOffset'.
-loadInfoConstructorIndex :: Operand -> LowerM Typed
-loadInfoConstructorIndex header = do
+-- | A 16-bit field of an info table, at a byte offset after the word fields.
+loadInfoHalf :: Text -> Operand -> Int -> LowerM Typed
+loadInfoHalf base header index = do
   target <- targetM
-  value <- emitValue "constructor_index" I16 (LoadInvariant I16 (byteAddress header (toInteger (infoConstructorIndexOffset target))) (byteAlignment 2))
-  emitValue "constructor_index" I64 (Convert ZExt I16 (typedOperand value) I64)
+  let offset = toInteger (lowerWordSize target * infoWordFieldCount + index)
+  value <- emitValue base I16 (LoadInvariant I16 (byteAddress header offset) (byteAlignment 2))
+  emitValue base I64 (Convert ZExt I16 (typedOperand value) I64)
 
--- | The byte offset of the constructor index in an info table: after the
--- five word fields and the six byte fields.
-infoConstructorIndexOffset :: LowerTarget -> Int
-infoConstructorIndexOffset target = lowerWordSize target * infoWordFieldCount + infoByteFieldCount
+-- | The field count of an info table.
+loadInfoFieldCount :: Text -> Operand -> LowerM Typed
+loadInfoFieldCount base header = loadInfoHalf base header infoFieldCountOffset
+
+-- | The constructor index of an info table. It follows the byte fields.
+loadInfoConstructorIndex :: Operand -> LowerM Typed
+loadInfoConstructorIndex header = loadInfoHalf "constructor_index" header infoConstructorIndexOffset
 
 -- | A @code@ field of an info table.
 loadInfoCode :: Text -> Operand -> Int -> LowerM Typed
@@ -1724,8 +1727,8 @@ lowerInfo info = do
   target <- targetM
   let fields = infoFields info
       byte = DataInt I8 . toInteger
-  when (length fields > infoByteFieldLimit) $
-    failWith (LowerUnsupportedValue ("an object with more than 255 fields: " <> unSymbol (infoSymbol info)))
+  when (length fields > infoFieldCountLimit) $
+    failWith (LowerUnsupportedValue ("an object with more than 65535 fields: " <> unSymbol (infoSymbol info) <> T.pack (" (" <> show (length fields) <> " fields)") <> maybe "" ((" for " <>) . unSymbol . enterTarget) (infoEnter info)))
   when (infoRemainingArity info > infoByteFieldLimit) $
     failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
@@ -1745,12 +1748,11 @@ lowerInfo info = do
                 maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode entry,
                 maybe DataNull (`DataSymbol` 0) (infoSrt info),
-                byte (length fields),
+                DataInt I16 (toInteger (length fields)),
                 byte (infoRemainingArity info),
                 byte (continuationFrameKindCode (infoFrameKind info)),
                 byte (infoObjectKind info),
                 DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
-                byte (infoGcWords info),
                 DataInt I16 (toInteger (infoConstructorIndex info))
               ]
           }
@@ -2558,12 +2560,11 @@ replayInfo shape = do
                   DataNull,
                   DataCode (Just entry),
                   DataSymbol replaySrtMarker 0,
-                  byte (replayArgumentSlot - 1 + length shape),
+                  DataInt I16 (toInteger (replayArgumentSlot - 1 + length shape)),
                   byte (1 :: Int),
                   byte (0 :: Int),
                   byte runtimeObjectClosure,
                   DataInt I8 (objectKindNeedsEval runtimeObjectClosure),
-                  byte (0 :: Int),
                   DataInt I16 0
                 ]
             }
@@ -5220,8 +5221,8 @@ applyPartial context function continuation header groups values slow = do
   let width = toInteger (lowerWordSize target)
       nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (width * toInteger infoNextIndex)) (wordAlignment 1))
   next <- foldM (\current _ -> nextStage current) header [1 .. groups]
-  held <- loadInfoByte "held" header infoFieldCountByte
-  total <- loadInfoByte "total" next infoFieldCountByte
+  held <- loadInfoFieldCount "held" header
+  total <- loadInfoFieldCount "total" next
   heldBytes <- emitValue "held_bytes" I64 (Binary Shl I64 (typedOperand held) (OperandLiteral (LitInt 3)))
   heldEnd <- emitValue "held_end" I64 (Binary Add I64 (typedOperand heldBytes) (OperandLiteral (LitInt 8)))
   totalBytes <- emitValue "total_bytes" I64 (Binary Shl I64 (typedOperand total) (OperandLiteral (LitInt 3)))
@@ -5285,17 +5286,20 @@ infoWordFieldCount = 5
 infoNextIndex = 2
 infoBackendEntryIndex = 3
 
--- | The byte fields of an info table, as indices from the first byte field.
-infoFieldCountByte, infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
-infoFieldCountByte = 0
-infoRemainingArityByte = 1
-infoFrameKindByte = 2
-infoObjectKindByte = 3
-infoNeedsEvalByte = 4
+-- | The fields of an info table after the word fields, as byte offsets from
+-- the end of the word fields. The field count and the constructor index
+-- are 16-bit fields. The other fields are bytes.
+infoFieldCountOffset, infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte, infoConstructorIndexOffset :: Int
+infoFieldCountOffset = 0
+infoRemainingArityByte = 2
+infoFrameKindByte = 3
+infoObjectKindByte = 4
+infoNeedsEvalByte = 5
+infoConstructorIndexOffset = 6
 
--- | The number of byte fields of an info table.
-infoByteFieldCount :: Int
-infoByteFieldCount = 6
+-- | The largest field count that an info table holds.
+infoFieldCountLimit :: Int
+infoFieldCountLimit = 65535
 
 -- | The largest constructor index that an info table holds.
 infoConstructorIndexLimit :: Int
@@ -5313,19 +5317,6 @@ objectKindNeedsEval kind
 needsEvalEnter, needsEvalFollow :: Integer
 needsEvalEnter = 1
 needsEvalFollow = 2
-
--- | Cache a fixed object size when it fits in one byte. Zero selects the
--- general size path. A thunk needs one field even without free variables.
-infoGcWords :: RuntimeInfo -> Int
-infoGcWords info
-  | kind `elem` [runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk],
-    words' <= infoByteFieldLimit =
-      words'
-  | otherwise = 0
-  where
-    kind = infoObjectKind info
-    fields = length (infoFields info)
-    words' = 1 + if kind == runtimeObjectThunk then max 1 fields else fields
 
 -- | The largest count a byte field of an info table holds.
 infoByteFieldLimit :: Int

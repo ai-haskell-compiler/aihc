@@ -91,7 +91,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x00" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
   data @aihc_time_profile_name_0 align 1 = { bytes "$other", i8 0 }
 
@@ -111,7 +111,7 @@ expected: |
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i8 4, i8 1, i8 0, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_48: ptr, %sp_49: ptr, %base_50: ptr, %value_51: ptr, %code_52: code, %srt_53: ptr, %words_54: i64) {
   entry:

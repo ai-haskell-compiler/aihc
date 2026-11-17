@@ -1013,12 +1013,11 @@ export data @aihc_indirection_info align 8 = {
   ptr null,                          ; next
   code null,                         ; backend_entry
   ptr null,                          ; srt
-  i8 1,                              ; field_count
+  i16 1,                             ; field_count
   i8 0,                              ; remaining_arity
   i8 @AIHC_FRAME_NONE,               ; frame_kind
   i8 @AIHC_OBJECT_INDIRECTION,       ; object_kind
   i8 @AIHC_NEEDS_EVAL_FOLLOW,        ; needs_eval
-  i8 0,                              ; padding
   i16 0                              ; constructor_index
 }
 
@@ -1035,12 +1034,11 @@ export data @aihc_lir_chunk_forward_info align 8 = {
   ptr null,                          ; next
   code null,                         ; backend_entry
   ptr null,                          ; srt
-  i8 1,                              ; field_count
+  i16 1,                             ; field_count
   i8 0,                              ; remaining_arity
   i8 @AIHC_FRAME_FORWARD,            ; frame_kind
   i8 @AIHC_OBJECT_CLOSURE,           ; object_kind
   i8 @AIHC_NEEDS_EVAL_NONE,          ; needs_eval
-  i8 0,                              ; padding
   i16 0                              ; constructor_index
 }
 
@@ -1056,12 +1054,11 @@ export data @aihc_lir_cps_update_info align 8 = {
   ptr null,                               ; next
   code @aihc_lir_cps_update_entry,       ; backend_entry
   ptr null,                               ; srt
-  i8 2,                                   ; field_count
+  i16 2,                                  ; field_count
   i8 1,                                   ; remaining_arity
   i8 @AIHC_FRAME_UPDATE,                  ; frame_kind
   i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
   i8 @AIHC_NEEDS_EVAL_NONE,               ; needs_eval
-  i8 0,                                   ; padding
   i16 0                                   ; constructor_index
 }
 
@@ -1087,12 +1084,11 @@ export data @aihc_lir_restore_mask_info align 8 = {
   ptr null,                               ; next
   code @aihc_lir_restore_mask_entry,      ; backend_entry
   ptr null,                               ; srt
-  i8 2,                                   ; field_count
+  i16 2,                                  ; field_count
   i8 1,                                   ; remaining_arity
   i8 @AIHC_FRAME_RESTORE_MASK,            ; frame_kind
   i8 @AIHC_OBJECT_CLOSURE,                ; object_kind
   i8 @AIHC_NEEDS_EVAL_NONE,               ; needs_eval
-  i8 0,                                   ; padding
   i16 0                                   ; constructor_index
 }
 
@@ -1119,11 +1115,10 @@ export data @aihc_lir_ap_stack_info align 8 = {
   ptr null,                               ; next
   code @aihc_lir_ap_stack_entry,          ; backend_entry
   ptr null,                               ; srt
-  i8 5,                                   ; field_count
+  i16 5,                                  ; field_count
   i8 0,                                   ; remaining_arity
   i8 @AIHC_FRAME_NONE,                    ; frame_kind
   i8 @AIHC_OBJECT_THUNK,                  ; object_kind
   i8 @AIHC_NEEDS_EVAL_ENTER,              ; needs_eval
-  i8 0,                                   ; padding
   i16 0                                   ; constructor_index
 }

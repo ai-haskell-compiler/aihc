@@ -117,19 +117,19 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i8 1, i8 0, i8 0, i8 0, i8 0, i8 2, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i8 2, i8 0, i8 0, i8 0, i8 0, i8 3, i16 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i16 2, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x01\x01\x00" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i8 2, i8 1, i8 1, i8 1, i8 0, i8 3, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 2, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_3 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_3, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i8 4, i8 1, i8 0, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_3, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_66: ptr, %sp_67: ptr, %base_68: ptr, %value_69: ptr, %code_70: code, %srt_71: ptr, %words_72: i64) {
   entry:
@@ -161,7 +161,7 @@ expected: |
 
   data @aihc_lir_bitmap_4 align 1 = { bytes "\x00\x00\x00\x01\x00" }
 
-  data @aihc_lir_replay_info_pi align 8 = { code @aihc_lir_replay_entry_pi, ptr @aihc_lir_bitmap_4, ptr null, code @aihc_lir_replay_entry_pi, ptr @aihc_replay_srt, i8 5, i8 1, i8 0, i8 1, i8 0, i8 0, i16 0 }
+  data @aihc_lir_replay_info_pi align 8 = { code @aihc_lir_replay_entry_pi, ptr @aihc_lir_bitmap_4, ptr null, code @aihc_lir_replay_entry_pi, ptr @aihc_replay_srt, i16 5, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_pi(%hp_82: ptr, %sp_83: ptr, %base_84: ptr, %value_85: ptr, %value_86: i64, %code_87: code, %srt_88: ptr, %words_89: i64) {
   entry:
