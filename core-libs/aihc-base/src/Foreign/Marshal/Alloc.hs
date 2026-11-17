@@ -16,6 +16,8 @@ module Foreign.Marshal.Alloc
   )
 where
 
+import Foreign.C.Types (CSize (..))
+import Foreign.Ptr (nullPtr)
 import Foreign.Storable (Storable (..))
 import GHC.ForeignPtr (FinalizerPtr)
 import GHC.IO (IO (..))
@@ -23,7 +25,7 @@ import GHC.Int (Int (..))
 import GHC.Internal.Base (Monad (..))
 import GHC.Prim (MutableByteArray#, RealWorld, mutableByteArrayContents#, newAlignedPinnedByteArray#, newPinnedByteArray#, touch#)
 import GHC.Ptr (Ptr (..))
-import Prelude (error, undefined)
+import Prelude (Eq (..), Ord (..), String, error, fromIntegral, otherwise, undefined, (&&), (++))
 
 -- | A pinned scratch buffer. Boxing the raw array lets the scope of the
 -- allocation be extended past the action with 'touch#'.
@@ -90,7 +92,7 @@ mallocOf :: (Storable a) => a -> IO (Ptr a)
 mallocOf placeholder = mallocBytes (sizeOf placeholder)
 
 mallocBytes :: Int -> IO (Ptr a)
-mallocBytes _ = error "Foreign.Marshal.Alloc.mallocBytes: the C allocator is not available"
+mallocBytes size = c_malloc (fromIntegral size) >>= checkAllocation "mallocBytes" size
 
 calloc :: (Storable a) => IO (Ptr a)
 calloc = callocOf undefined
@@ -99,7 +101,7 @@ callocOf :: (Storable a) => a -> IO (Ptr a)
 callocOf placeholder = callocBytes (sizeOf placeholder)
 
 callocBytes :: Int -> IO (Ptr a)
-callocBytes _ = error "Foreign.Marshal.Alloc.callocBytes: the C allocator is not available"
+callocBytes size = c_calloc 1 (fromIntegral size) >>= checkAllocation "callocBytes" size
 
 realloc :: (Storable b) => Ptr a -> IO (Ptr b)
 realloc = reallocOf undefined
@@ -108,10 +110,24 @@ reallocOf :: (Storable b) => b -> Ptr a -> IO (Ptr b)
 reallocOf placeholder pointer = reallocBytes pointer (sizeOf placeholder)
 
 reallocBytes :: Ptr a -> Int -> IO (Ptr b)
-reallocBytes _ _ = error "Foreign.Marshal.Alloc.reallocBytes: the C allocator is not available"
+reallocBytes pointer size = c_realloc pointer (fromIntegral size) >>= checkAllocation "reallocBytes" size
 
 free :: Ptr a -> IO ()
-free _ = error "Foreign.Marshal.Alloc.free: the C allocator is not available"
+free = c_free
 
-finalizerFree :: FinalizerPtr a
-finalizerFree = error "Foreign.Marshal.Alloc.finalizerFree: the C allocator is not available"
+-- | Stop with an error when the C allocator returns a null pointer.
+-- A request for zero bytes can return a null pointer, which is not a failure.
+checkAllocation :: String -> Int -> Ptr a -> IO (Ptr a)
+checkAllocation name size pointer
+  | pointer == nullPtr && size > 0 = error ("Foreign.Marshal.Alloc." ++ name ++ ": out of memory")
+  | otherwise = return pointer
+
+foreign import ccall unsafe "stdlib.h malloc" c_malloc :: CSize -> IO (Ptr a)
+
+foreign import ccall unsafe "stdlib.h calloc" c_calloc :: CSize -> CSize -> IO (Ptr a)
+
+foreign import ccall unsafe "stdlib.h realloc" c_realloc :: Ptr a -> CSize -> IO (Ptr b)
+
+foreign import ccall unsafe "stdlib.h free" c_free :: Ptr a -> IO ()
+
+foreign import ccall unsafe "stdlib.h &free" finalizerFree :: FinalizerPtr a

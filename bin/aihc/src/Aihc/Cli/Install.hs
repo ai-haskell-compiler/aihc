@@ -253,7 +253,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, renameQuotedPackage)
+import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
@@ -1505,7 +1505,10 @@ data PackageInputs = PackageInputs
     -- | The digest of every file of a core library. A Hackage release
     -- never changes, but the sources of a core library can change while
     -- the compiler stays the same.
-    inputSourceDigest :: !(Maybe String)
+    inputSourceDigest :: !(Maybe String),
+    -- | What pkg-config gave for the @pkgconfig-depends@ of the package,
+    -- for the store key. It is empty when pkg-config did not run.
+    inputPkgConfigKey :: ![Text]
   }
 
 -- | Read what the installer needs from a planned package. The @.cabal@ file
@@ -1526,7 +1529,7 @@ readPackageInputs config plan = do
       pure (Just script)
     _ -> pure Nothing
   cCompileInfo0 <- either (ioError . userError . ((cabalFile <> ": ") <>)) pure (HackageCabal.collectLibraryCCompileInfoIn context gpd root)
-  (files, cCompileInfo) <- applyPkgConfigDepends (compileTarget config) cabalFile files0 cCompileInfo0
+  (files, cCompileInfo, pkgConfigKey) <- applyPkgConfigDepends (compileTarget config) cabalFile files0 cCompileInfo0
   -- A core library counts as one also when the plan installs it from its
   -- directory, as @aihc install core-libs/aihc-prim@ does.
   sourceDigest <-
@@ -1543,7 +1546,8 @@ readPackageInputs config plan = do
         inputCCompileInfo = cCompileInfo,
         inputConfigureScript = configureScript,
         inputAutogenIncludes = HackageCabal.collectLibraryAutogenIncludesIn context gpd,
-        inputSourceDigest = sourceDigest
+        inputSourceDigest = sourceDigest,
+        inputPkgConfigKey = pkgConfigKey
       }
 
 -- | Add the flags of the @pkgconfig-depends@ packages to the C inputs and
@@ -1555,15 +1559,21 @@ readPackageInputs config plan = do
 -- warning tells why. The headers can then come from @CPATH@, and a missing
 -- header stops the build with its own error. Cabal also continues when a
 -- flag of the package can turn off the dependency.
-applyPkgConfigDepends :: NativeTarget -> FilePath -> [HackageCabal.FileInfo] -> HackageCabal.CCompileInfo -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo)
+--
+-- The third result is for the store key. The flags change what the package
+-- compiles and links, so a store entry built without them must not serve a
+-- build that has them. The key is empty when pkg-config does not run, thus
+-- the other packages keep their store keys.
+applyPkgConfigDepends :: NativeTarget -> FilePath -> [HackageCabal.FileInfo] -> HackageCabal.CCompileInfo -> IO ([HackageCabal.FileInfo], HackageCabal.CCompileInfo, [Text])
 applyPkgConfigDepends target cabalFile files cInfo
-  | null packages || not (targetRunsOnHost target) = pure (files, cInfo)
+  | null packages || not (targetRunsOnHost target) = pure (files, cInfo, [])
   | otherwise = do
       cflags <- query "--cflags"
       libs <- query "--libs"
       case (cflags, libs) of
-        (Right compileFlags, Right linkFlags) ->
-          pure (HackageCabal.applyPkgConfigFlags compileFlags linkFlags files cInfo)
+        (Right compileFlags, Right linkFlags) -> do
+          let (flaggedFiles, flaggedInfo) = HackageCabal.applyPkgConfigFlags compileFlags linkFlags files cInfo
+          pure (flaggedFiles, flaggedInfo, [pkgConfigKey (Just (compileFlags, linkFlags))])
         (Left problem, _) -> warn problem
         (_, Left problem) -> warn problem
   where
@@ -1576,7 +1586,8 @@ applyPkgConfigDepends target cabalFile files cInfo
         Right (ExitFailure _, _, errors) -> Left (unwords (lines errors))
     warn problem = do
       hPutStrLn stderr (cabalFile <> ": warning: pkg-config gave no flags for " <> unwords packages <> ": " <> problem)
-      pure (files, cInfo)
+      pure (files, cInfo, [pkgConfigKey Nothing])
+    pkgConfigKey result = T.pack (show (packages, result :: Maybe ([String], [String])))
 
 -- | Prepare an immutable package for the store, unless the store has it.
 prepareStorePackage :: InstallShared -> ModuleCompileConfig -> Bool -> Bool -> [InstalledPackage] -> [InstalledPackage] -> PackagePlan -> PackageInputs -> Maybe FilePath -> IO (InstalledPackage, Maybe PackageBuild)
@@ -2302,7 +2313,9 @@ dependencyPrimIdentity resolvePackage dependencies =
 -- and the identities of the dependencies. It does not read the sources of
 -- a Hackage release, because a release never changes. It reads the sources
 -- of a core library, because @AIHC_CORE_LIBS_ROOT@ can give one compiler
--- different core-libs sources.
+-- different core-libs sources. It reads the flags that pkg-config gave for
+-- the @pkgconfig-depends@ of the package, because they come from the host,
+-- not from the plan.
 storePackageIdentity :: ModuleCompileConfig -> [InstalledPackage] -> PackageInputs -> IO (FilePath, Text)
 storePackageIdentity config dependencies inputs = do
   let (unitIdentity, packageNameText, packageVersionText) = packageUnitIdentity inputs
@@ -2328,7 +2341,8 @@ storePackageIdentity config dependencies inputs = do
                   : packageNameText
                   : packageVersionText
                   : packageFlagsKey inputs
-                  : maybe [] (pure . T.pack) (inputSourceDigest inputs)
+                  : inputPkgConfigKey inputs
+                    <> maybe [] (pure . T.pack) (inputSourceDigest inputs)
                     <> sortOn id (map installedIdentity dependencies)
               )
           )
@@ -3426,9 +3440,26 @@ runTypeUnit context runtimes runtime = do
           else do
             let desugarConfigs =
                   Map.fromList
-                    [ (name, Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput))
+                    [ (name, withQuotedNames name (Fc.moduleDesugarConfig (primKinds primIdentity) primIdentity resolvePackage name (resolveUnitExports resolvedOutput)))
                     | name <- unitNames
                     ]
+                -- A quote can name a top-level name that the module does
+                -- not export. The code that a splice makes from the quote
+                -- refers to that name from a different module. Thus, the
+                -- name must be public.
+                quotedNames =
+                  Map.fromListWith
+                    Set.union
+                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home checked)
+                    | checked <- checkedModules,
+                      let home = fromMaybe "Main" (moduleName checked)
+                    ]
+                withQuotedNames name desugarConfig =
+                  case Map.lookup name quotedNames of
+                    Just names
+                      | not (Set.null names) ->
+                          desugarConfig {exportedNames = Set.union names <$> exportedNames desugarConfig}
+                    _ -> desugarConfig
             (fcModules, desugarNs) <-
               measureTime
                 ( desugarCheckedModules

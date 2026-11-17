@@ -38,6 +38,7 @@ module Aihc.Th.Quote
     localBinderNames,
     renameQuotedPackage,
     bindSpliceNameQuotes,
+    quotedModuleNames,
   )
 where
 
@@ -158,6 +159,55 @@ renameQuotedPackage from to = runIdentity . go
         Nothing -> gmapM go value
     isBoundNameFunction function =
       function `elem` [library "mkNameG_v", library "mkNameG_d", library "mkNameG_tc"]
+
+-- | The top-level names of a module that the changed quotes of the module
+-- name, each with its namespace. The first argument is the package id and
+-- the second argument is the module name.
+--
+-- The splice result of a quote can refer to a name that the module does
+-- not export. GHC accepts this. Thus, the backend must give each of these
+-- names a symbol, as it does for an exported name.
+--
+-- Only a module with the imports of 'quoteImports' can have a changed
+-- quote. The function does not examine the other modules.
+quotedModuleNames :: Text -> Text -> Module -> Set (ResolutionNamespace, Text)
+quotedModuleNames package home modu
+  | any ((== Just quoteAlias) . importDeclAs) (moduleImports modu) = Set.fromList (collect select modu)
+  | otherwise = Set.empty
+  where
+    select :: Expr -> Maybe (ResolutionNamespace, Text)
+    select expr =
+      case expr of
+        EApp (EApp (EApp function packageText) homeText) nameText
+          | Just namespace <- boundNameNamespace (bare function),
+            Just package' <- stringValue packageText,
+            Just home' <- stringValue homeText,
+            Just name <- stringValue nameText,
+            package' == package,
+            home' == home ->
+              Just (namespace, name)
+        _ -> Nothing
+    -- The resolver can add annotations to the name. Thus, compare only the
+    -- qualifier and the text of the name.
+    boundNameNamespace function =
+      case function of
+        EVar name
+          | nameQualifier name == Just quoteAlias,
+            nameText name `elem` ["mkNameG_v", "mkNameG_d"] ->
+              Just ResolutionNamespaceTerm
+          | nameQualifier name == Just quoteAlias,
+            nameText name == "mkNameG_tc" ->
+              Just ResolutionNamespaceType
+        _ -> Nothing
+    stringValue expr =
+      case bare expr of
+        EString value _ -> Just value
+        _ -> Nothing
+    bare expr =
+      case expr of
+        EAnn _ inner -> bare inner
+        EParen inner -> bare inner
+        _ -> expr
 
 -- | Change each quote of a syntax tree that is in the subset, as
 -- 'desugarModuleQuotes' does. The set has the binders of the quotes that

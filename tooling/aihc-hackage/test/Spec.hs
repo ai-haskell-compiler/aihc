@@ -44,6 +44,7 @@ main =
       testCase "reads the Configure build type and merges a configure buildinfo" test_configureBuildInfo,
       testCase "finds preprocessor sources by suffix after the plain ones" test_findsPreprocessorSources,
       testCase "adds the pkg-config flags of pkgconfig-depends" test_pkgconfigDepends,
+      testCase "defines the platform macros of the target for Haskell CPP" test_platformCppMacros,
       testProperty "Hedgehog options" prop_dummy
     ]
 
@@ -422,6 +423,59 @@ pkgconfigDependsCabal =
       "  hs-source-dirs: src",
       "  include-dirs: include",
       "  pkgconfig-depends: libusb-1.0 >= 1.0.16, zlib",
+      "  default-language: Haskell2010"
+    ]
+
+-- GHC defines @<os>_HOST_OS@ and @<arch>_HOST_ARCH@ for each Haskell
+-- source that it preprocesses. @http-streams@ selects its certificate store
+-- with @#if defined(darwin_HOST_OS)@. Without the macros, the CPP pass took
+-- the branch for another system, and name resolution failed.
+test_platformCppMacros :: Assertion
+test_platformCppMacros =
+  withTempDir "aihc-hackage-platform" $ \root -> do
+    writeFile (root </> "Demo.hs") "module Demo where\n"
+    gpd <- parseTestCabal platformDemoCabal
+    selected <- mapM (selectedBranch gpd root) [(OSX, AArch64), (Linux, X86_64), (Wasi, Wasm32)]
+    assertEqual "the branch of each platform" [["darwin aarch64"], ["linux x86_64"], ["wasi wasm32"]] selected
+  where
+    source =
+      BSC.pack
+        ( unlines
+            [ "#if defined(darwin_HOST_OS) && defined(aarch64_HOST_ARCH)",
+              "darwin aarch64",
+              "#elif defined(linux_HOST_OS) && defined(x86_64_HOST_ARCH)",
+              "linux x86_64",
+              "#elif defined(wasi_HOST_OS) && defined(wasm32_HOST_ARCH)",
+              "wasi wasm32",
+              "#else",
+              "other",
+              "#endif"
+            ]
+        )
+    selectedBranch gpd root (os, arch) = do
+      files <- HC.collectLibraryFilesFor os arch gpd root
+      case files of
+        [file] -> do
+          let config =
+                Cpp.defaultConfig
+                  { Cpp.configInputFile = HC.fileInfoPath file,
+                    Cpp.configMacros = Map.mapKeys TE.encodeUtf8 (Map.map TE.encodeUtf8 (cppMacrosFromOptions (HC.fileInfoCppOptions file)))
+                  }
+          case Cpp.preprocess config source of
+            Cpp.Done result ->
+              pure [line | line <- lines (BSC.unpack (Cpp.resultOutput result)), not (null line), take 1 line /= "#"]
+            Cpp.NeedInclude request _ -> assertFailure ("unexpected include request: " <> show (Cpp.includePath request))
+        _ -> assertFailure ("expected one source file, got " <> show (length files))
+
+platformDemoCabal :: String
+platformDemoCabal =
+  unlines
+    [ "cabal-version: 3.0",
+      "name: demo",
+      "version: 0.1.0.0",
+      "",
+      "library",
+      "  exposed-modules: Demo",
       "  default-language: Haskell2010"
     ]
 
