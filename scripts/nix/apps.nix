@@ -21,6 +21,24 @@
   # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
   # CPATH for headers and LIBRARY_PATH for libraries.
   selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
+
+  # The C libraries of a self-compiled aihc executable. They are the same as
+  # selfHostingCLibraries, but staticZlib replaces the shared zlib.
+  selfCompileCLibraries = [pkgs.libffi pkgs.ncurses];
+
+  # The aihc executable links zlib statically. A shared zlib from the Nix
+  # store would make the release executable fail on a computer without that
+  # store path. The macOS SDK of Nix has no zlib that a program can link.
+  # On macOS, the library is for macOS 11, the oldest version of the Apple
+  # target.
+  staticZlib =
+    if pkgs.stdenv.hostPlatform.isDarwin
+    then
+      pkgs.zlib.overrideAttrs (old: {
+        buildInputs = (old.buildInputs or []) ++ [(pkgs.darwinMinVersionHook "11.0")];
+      })
+    else pkgs.zlib;
+
   # The C libraries of the Hackage survey. Many Hackage packages bind to one
   # of these libraries. Without the library, GHC cannot compile the package.
   surveyCLibraries =
@@ -80,10 +98,62 @@
     export GHCRTS=-N
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
-    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" selfHostingCLibraries}''${CPATH:+:$CPATH}"
-    export LIBRARY_PATH="${pkgs.lib.makeLibraryPath selfHostingCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfCompileCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfCompileCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
   '';
+
+  # The Linux release executable is a static musl executable. It has no
+  # program interpreter and loads no shared library, so it runs on each
+  # Linux distribution. The Nix glibc is not usable for this: an executable
+  # that links it needs the program interpreter of the Nix store.
+  #
+  # aihc runs `clang` with --target=x86_64-unknown-linux-gnu, and with -pie
+  # or -no-pie. This clang replaces the target with musl and links
+  # statically. Static linking with libc++ needs the unwinder of LLVM.
+  muslStatic = pkgs.pkgsStatic;
+  muslClang = muslStatic.buildPackages.llvmPackages.clang;
+  releaseMuslClang = pkgs.writeShellApplication {
+    name = "clang";
+    text = ''
+      link=1
+      arguments=()
+      for argument in "$@"; do
+        case "$argument" in
+        -c | -S | -E | -M | -MM | -fsyntax-only | --version | -### | -print-* | --print-*) link=0 ;;
+        esac
+        case "$argument" in
+        --target=x86_64-unknown-linux-gnu | -pie | -no-pie) ;;
+        *) arguments+=("$argument") ;;
+        esac
+      done
+      if [ "$link" -eq 1 ]; then
+        arguments+=(-static --rtlib=compiler-rt --unwindlib=libunwind "-L${muslStatic.llvmPackages.libunwind}/lib")
+      fi
+      exec ${muslClang}/bin/${muslClang.targetPrefix}clang "''${arguments[@]}"
+    '';
+  };
+
+  # The tools and the environment of a release build. On Linux, the static
+  # musl clang comes first on PATH, and the C libraries are the static musl
+  # libraries. On macOS, a release build is the same as a self-compile.
+  releaseCompileInputs =
+    if pkgs.stdenv.hostPlatform.isLinux
+    then [releaseMuslClang] ++ selfCompileInputs
+    else selfCompileInputs;
+  releaseCompileEnvironment =
+    if pkgs.stdenv.hostPlatform.isLinux
+    then ''
+      set -euo pipefail
+      ${repoRootGuard}
+      export GHCRTS=-N
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      export CPATH="${muslStatic.zlib.dev}/include"
+      export LIBRARY_PATH="${muslStatic.zlib}/lib"
+      export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+    ''
+    else selfCompileEnvironment;
 
   mkAppWithInputs = name: runtimeInputs: text: {
     type = "app";
@@ -392,6 +462,14 @@ in {
   # defaults to it. To build a later stage, set AIHC to the previous stage.
   self-compile-stage = mkAppWithInputs "self-compile-stage" selfCompileInputs ''
     ${selfCompileEnvironment}
+    export AIHC="''${AIHC:-${aihcExe}}"
+    exec bash ./scripts/self-compile-stage.sh "$@"
+  '';
+
+  # Build one stage of a release executable. The options are the options of
+  # self-compile-stage. On Linux, the executable is a static musl executable.
+  release-compile-stage = mkAppWithInputs "release-compile-stage" releaseCompileInputs ''
+    ${releaseCompileEnvironment}
     export AIHC="''${AIHC:-${aihcExe}}"
     exec bash ./scripts/self-compile-stage.sh "$@"
   '';
