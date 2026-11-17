@@ -190,7 +190,7 @@ runSplicesFor origin given action =
             (Just message, _) -> ioError (userError (T.unpack message))
             (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
             (Nothing, Right [message]) -> do
-              tree <- either (ioError . userError . T.unpack) pure (fromSplice packageIds <$> decodeTree message)
+              tree <- either (ioError . userError . T.unpack) (pure . fromSplice packageIds) (decodeTree message)
               modifyIORef' results (Map.insert index tree)
               either (ioError . userError . T.unpack) pure (convertResult splice tree)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
