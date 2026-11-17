@@ -4991,7 +4991,13 @@ generateHelper env helper =
       isClosure <- emitValue "closure" I1 (Compare Eq I64 (typedOperand kind) (OperandLiteral (LitInt (toInteger runtimeObjectClosure))))
       isSaturated <- emitValue "saturated" I1 (Compare Eq I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
       isFast <- emitValue "fast" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isSaturated))
-      terminate (Branch (typedOperand isFast) (Target (Label "fast") []) (Target (Label "slow") []))
+      terminate (Branch (typedOperand isFast) (Target (Label "fast") []) (Target (Label "other") []))
+      beginBlock (Label "other") []
+      isPartial <- emitValue "partial" I1 (Compare GtU I64 (typedOperand arity) (OperandLiteral (LitInt 1)))
+      takesMore <- emitValue "takes_more" I1 (Binary And I1 (typedOperand isClosure) (typedOperand isPartial))
+      terminate (Branch (typedOperand takesMore) (Target (Label "partial") []) (Target (Label "slow") []))
+      beginBlock (Label "partial") []
+      applyPartial context (OperandVar current) (OperandVar continuation) header 1 values (Label "slow")
       beginBlock (Label "fast") []
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
@@ -5046,8 +5052,13 @@ generateHelper env helper =
             ( SwitchCase (toInteger count) (Target (Label "exact") [])
                 : [SwitchCase (toInteger taken) (Target (overLabel taken) []) | taken <- [1 .. count - 1]]
             )
-            (Just (Target (Label "slow") []))
+            (Just (Target (Label "more") []))
         )
+      beginBlock (Label "more") []
+      takesMore <- emitValue "takes_more" I1 (Compare GtU I64 (typedOperand arity) (OperandLiteral (LitInt (toInteger count))))
+      terminate (Branch (typedOperand takesMore) (Target (Label "partial") []) (Target (Label "slow") []))
+      beginBlock (Label "partial") []
+      applyPartial context (OperandVar current) (OperandVar continuation) header count values (Label "slow")
       beginBlock (Label "exact") []
       entry <- loadInfoCode "entry" header infoBackendEntryIndex
       terminate
@@ -5194,6 +5205,57 @@ applySlow capability context current continuation continuationSlot arguments gro
   continue <- requireHelper (HelperContinue [Ptr])
   terminate (TailCall continue (contextOperands collected <> [typedOperand adjusted, applied]))
 
+-- | The block of an apply helper for a closure that takes more groups than
+-- the application supplies. The result is the closure of the next stage:
+-- an object with the fields of the closure and then the supplied values.
+-- The info table of each stage names the table of the next stage, and
+-- each table gives the number of fields of its object.
+--
+-- The block builds the object when it fits below the heap limit. Then no
+-- collection runs, and no value moves. If the object does not fit, the
+-- runtime builds it. See aihc_apply_slow.
+applyPartial :: Context -> Operand -> Operand -> Operand -> Int -> [(Var, Type)] -> Label -> LowerM ()
+applyPartial context function continuation header groups values slow = do
+  target <- targetM
+  let width = toInteger (lowerWordSize target)
+      nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (width * toInteger infoNextIndex)) (wordAlignment 1))
+  next <- foldM (\current _ -> nextStage current) header [1 .. groups]
+  held <- loadInfoByte "held" header infoFieldCountByte
+  total <- loadInfoByte "total" next infoFieldCountByte
+  heldBytes <- emitValue "held_bytes" I64 (Binary Shl I64 (typedOperand held) (OperandLiteral (LitInt 3)))
+  heldEnd <- emitValue "held_end" I64 (Binary Add I64 (typedOperand heldBytes) (OperandLiteral (LitInt 8)))
+  totalBytes <- emitValue "total_bytes" I64 (Binary Shl I64 (typedOperand total) (OperandLiteral (LitInt 3)))
+  size <- emitValue "size" I64 (Binary Add I64 (typedOperand totalBytes) (OperandLiteral (LitInt 8)))
+  end <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (typedOperand size))
+  heapLimit <- loadHeapLimit context
+  fits <- emitValue "heap_fits" I1 (Compare LeU Ptr (typedOperand end) heapLimit)
+  build <- freshLabel "partial_build"
+  copy <- freshLabel "partial_copy"
+  field <- freshLabel "partial_field"
+  done <- freshLabel "partial_done"
+  terminate (Branch (typedOperand fits) (Target build []) (Target slow []))
+  beginBlock build []
+  let object = contextHeap context
+  storeSlot HeapRegion Ptr next object 0
+  terminate (Jump (Target copy [OperandLiteral (LitInt 8)]))
+  offset <- fresh "offset"
+  beginBlock copy [(offset, I64)]
+  more <- emitValue "more" I1 (Compare LtU I64 (OperandVar offset) (typedOperand heldEnd))
+  terminate (Branch (typedOperand more) (Target field []) (Target done []))
+  beginBlock field []
+  source <- emitValue "source" Ptr (PtrAdd function (OperandVar offset))
+  word <- loadSlot HeapRegion "field" I64 (typedOperand source) 0
+  destination <- emitValue "destination" Ptr (PtrAdd object (OperandVar offset))
+  storeSlot HeapRegion I64 (typedOperand word) (typedOperand destination) 0
+  following <- emitValue "offset" I64 (Binary Add I64 (OperandVar offset) (OperandLiteral (LitInt 8)))
+  terminate (Jump (Target copy [typedOperand following]))
+  beginBlock done []
+  supplied <- emitValue "supplied" Ptr (PtrAdd object (typedOperand heldEnd))
+  forM_ (zip [0 :: Int ..] values) $ \(index, (var, ty)) ->
+    storeSlot HeapRegion ty (OperandVar var) (typedOperand supplied) (toInteger (8 * index))
+  continue <- requireHelper (HelperContinue [Ptr])
+  terminate (TailCall continue (contextOperands context {contextHeap = typedOperand end} <> [continuation, object]))
+
 -- | The block of an apply helper for a closure that takes fewer groups than
 -- the application supplies. It pushes a frame that holds the other groups
 -- on the stack of the thread, then enters the closure with the groups it
@@ -5218,12 +5280,14 @@ applyOverSaturated context function continuation header supplied held = do
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.
-infoWordFieldCount, infoBackendEntryIndex :: Int
+infoWordFieldCount, infoNextIndex, infoBackendEntryIndex :: Int
 infoWordFieldCount = 5
+infoNextIndex = 2
 infoBackendEntryIndex = 3
 
 -- | The byte fields of an info table, as indices from the first byte field.
-infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
+infoFieldCountByte, infoRemainingArityByte, infoFrameKindByte, infoObjectKindByte, infoNeedsEvalByte :: Int
+infoFieldCountByte = 0
 infoRemainingArityByte = 1
 infoFrameKindByte = 2
 infoObjectKindByte = 3

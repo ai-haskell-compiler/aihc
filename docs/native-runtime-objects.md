@@ -537,9 +537,10 @@ info table that allocated, the most bytes first.
   partial application also shows the number of argument groups it waits for.
 - The counts are the objects that the generated code allocates. Objects that
   the runtime allocates, such as byte arrays, buffers, and the partial
-  applications of `aihc_apply_slow`, are not in the list, so the sum of the
-  list can be less than `allocated_bytes`. Continuation frames live on thread
-  stacks, so they are not in the list either.
+  applications of the apply helpers and of `aihc_apply_slow`, are not in the
+  list, so the sum of the list can be less than `allocated_bytes`.
+  Continuation frames live on thread stacks, so they are not in the list
+  either.
 - The counters cost a load, an add, and a store for each count at each
   allocation, so a profiled program runs more slowly. Only measure the
   counts of such a program, not its time.
@@ -709,8 +710,12 @@ remaining arity of a closure with the group count:
   continuation and the other groups. Then it tail-calls the
   entry with the first `k` groups and the frame as the continuation. The
   frame applies the result to the groups it holds.
-- The arity is more than the group count, or the function is a partial
-  constructor: the shared C slow path builds one
+- The arity is more than the group count: the helper builds the partial
+  application when the object fits below the heap limit. The object has the
+  header of the stage after the supplied groups, the fields of the closure,
+  and then the supplied values. No collection runs, so no value moves. If
+  the object does not fit, the shared C slow path builds it.
+- The function is a partial constructor: the shared C slow path builds one
   partial application with all the supplied values.
 
 Primitive operations have no heap-object tag. A partially applied primitive is
