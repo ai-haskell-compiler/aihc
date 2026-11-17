@@ -216,6 +216,11 @@ data Fields = Fields !(Maybe Int) Bool {-# UNPACK #-} !Point
 
 data Point = Point !Int !Int
 
+-- | An infix constructor with a fixity declaration.
+data Joined = Int :+: Int
+
+infixr 6 :+:
+
 $(deriveDescribe ''Shape)
 
 $(deriveDescribe ''Mode)
@@ -293,6 +298,9 @@ main = do
   -- A splice reads the decided strictness of the fields of a constructor
   -- of this module and of an imported constructor.
   putStrLn $(do local <- reifyConStrictness 'Fields; imported <- reifyConStrictness 'Just; litE (stringL (show (local, imported))))
+  -- A splice reads the fixity of a constructor of this module, of an
+  -- imported operator, and of a name with no fixity declaration.
+  putStrLn $(do local <- reifyFixity '(:+:); imported <- reifyFixity '(++); none <- reifyFixity 'id; litE (stringL (show (local, imported, none))))
   -- A splice reads the facts of the unit type, a tuple type, and the list
   -- type. The name quote of a tuple type is the name that the library gives.
   putStrLn $(do TyConI (DataD _ _ unit _ _ _) <- reify ''(); TyConI (DataD _ _ pair _ _ _) <- reify ''(,); TyConI (DataD _ _ _ _ list _) <- reify ''[]; litE (stringL (show (length unit, length pair, length list, ''(,) == tupleTypeName 2))))

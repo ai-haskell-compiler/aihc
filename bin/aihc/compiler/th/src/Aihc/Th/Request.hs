@@ -33,6 +33,9 @@ data Request
   | -- | Give the decided strictness of each field of a data constructor,
     -- with the name as for 'RequestReify'.
     RequestReifyConStrictness !Text !(Maybe GlobalName)
+  | -- | Give the fixity that a declaration gives to a name, with the name
+    -- as for 'RequestReify'.
+    RequestReifyFixity !Text !(Maybe GlobalName)
   | -- | Give the source location of the splice.
     RequestLocation
   deriving (Eq, Show)
@@ -49,6 +52,8 @@ requestFromTree tree =
       Right (RequestReifyRoles occurrence (globalName occurrence flavour))
     TreeNode "ReifyConStrictness" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
       Right (RequestReifyConStrictness occurrence (globalName occurrence flavour))
+    TreeNode "ReifyFixity" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
+      Right (RequestReifyFixity occurrence (globalName occurrence flavour))
     TreeNode "Location" [] -> Right RequestLocation
     TreeNode name _ -> Left ("The compiler does not know the splice request " <> name <> ".")
     _ -> Left "A splice request is not a constructor."

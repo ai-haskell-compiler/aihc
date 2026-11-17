@@ -32,6 +32,7 @@ module Aihc.Th.Splices
     firstSplicePosition,
     FactsAnswer,
     LocalFacts,
+    LocalFixity,
     RunSplice,
     spliceModuleName,
     splicePackageName,
@@ -45,6 +46,7 @@ where
 
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
+import Aihc.Resolve (OperatorFixity)
 import Aihc.Resolve.Types (GlobalName)
 import Aihc.Tc.Interface (TcInterface)
 import Aihc.Th.Quote (quoteImports)
@@ -209,9 +211,15 @@ type FactsAnswer = TcInterface -> GlobalName -> Either Text Tree
 -- the question to the facts of the store.
 type LocalFacts = FactsAnswer -> GlobalName -> IO (Maybe (Either Text Tree))
 
+-- | The fixity that a declaration gives to a name of a module that the
+-- module of a splice can see. The inner 'Nothing' is a name with no fixity
+-- declaration. The outer 'Nothing' sends the question to the facts of the
+-- store.
+type LocalFixity = GlobalName -> IO (Maybe (Maybe OperatorFixity))
+
 -- | Run one splice of a request: its position in 'spliceRequestSplices',
--- with the local facts for that splice.
-type RunSplice = Int -> LocalFacts -> IO SpliceResult
+-- with the local facts and the local fixities for that splice.
+type RunSplice = Int -> LocalFacts -> LocalFixity -> IO SpliceResult
 
 -- | Visit each splice that 'moduleSplices' gives, and replace it. The
 -- function for a type splice gets the body of the splice. The
