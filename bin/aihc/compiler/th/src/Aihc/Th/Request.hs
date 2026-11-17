@@ -9,12 +9,15 @@
 -- module.
 module Aihc.Th.Request
   ( Request (..),
+    RequestName (..),
     requestFromTree,
     reportedFailure,
   )
 where
 
+import Aihc.Parser.Syntax (Name)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
+import Aihc.Th.Convert (nameFromTree)
 import Aihc.Th.Wire (Tree (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -24,17 +27,30 @@ data Request
   = -- | Report an error ('True') or a warning ('False') with a message.
     RequestReport !Bool !Text
   | -- | Give the facts of a name. The text is the name as the splice has
-    -- it. A name that is bound to a package and a module also has its
-    -- top-level entity. The compiler knows only such names.
-    RequestReify !Text !(Maybe GlobalName)
+    -- it.
+    RequestReify !Text !RequestName
   | -- | Give the roles of the parameters of a type constructor, with the
     -- name as for 'RequestReify'.
-    RequestReifyRoles !Text !(Maybe GlobalName)
+    RequestReifyRoles !Text !RequestName
   | -- | Give the decided strictness of each field of a data constructor,
     -- with the name as for 'RequestReify'.
-    RequestReifyConStrictness !Text !(Maybe GlobalName)
+    RequestReifyConStrictness !Text !RequestName
   | -- | Give the source location of the splice.
     RequestLocation
+  deriving (Eq, Show)
+
+-- | The name of a request for facts.
+data RequestName
+  = -- | A name that is bound to a package and a module, with its top-level
+    -- entity.
+    RequestGlobal !GlobalName
+  | -- | A name with no package, from @mkName@. It can have a module
+    -- qualifier. The compiler finds the name in the scope of the splice,
+    -- as GHC does.
+    RequestScoped !Name
+  | -- | A different name, such as a name from @newName@. The compiler does
+    -- not know its facts.
+    RequestUnknown
   deriving (Eq, Show)
 
 -- | The request of a tree.
@@ -44,22 +60,26 @@ requestFromTree tree =
     TreeNode "Report" [TreeNode "True" [], TreeString message] -> Right (RequestReport True message)
     TreeNode "Report" [TreeNode "False" [], TreeString message] -> Right (RequestReport False message)
     TreeNode "Reify" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
-      Right (RequestReify occurrence (globalName occurrence flavour))
+      Right (RequestReify occurrence (requestName occurrence flavour))
     TreeNode "ReifyRoles" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
-      Right (RequestReifyRoles occurrence (globalName occurrence flavour))
+      Right (RequestReifyRoles occurrence (requestName occurrence flavour))
     TreeNode "ReifyConStrictness" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
-      Right (RequestReifyConStrictness occurrence (globalName occurrence flavour))
+      Right (RequestReifyConStrictness occurrence (requestName occurrence flavour))
     TreeNode "Location" [] -> Right RequestLocation
     TreeNode name _ -> Left ("The compiler does not know the splice request " <> name <> ".")
     _ -> Left "A splice request is not a constructor."
 
--- | The top-level entity of a name that is bound to a package and a module.
-globalName :: Text -> Tree -> Maybe GlobalName
-globalName occurrence flavour =
+-- | The name of a request from the occurrence and the flavour of a name.
+requestName :: Text -> Tree -> RequestName
+requestName occurrence flavour =
   case flavour of
     TreeNode "NameG" [TreeNode space _, TreeNode "PkgName" [TreeString package], TreeNode "ModName" [TreeString home]] ->
-      GlobalName occurrence (PackageId package) home <$> namespace space
-    _ -> Nothing
+      maybe RequestUnknown (RequestGlobal . GlobalName occurrence (PackageId package) home) (namespace space)
+    TreeNode flavourName _
+      | flavourName `elem` ["NameS", "NameQ"],
+        Right name <- nameFromTree (TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]) ->
+          RequestScoped name
+    _ -> RequestUnknown
   where
     namespace space
       | space `elem` ["VarName", "DataName", "FldName"] = Just ResolutionNamespaceTerm

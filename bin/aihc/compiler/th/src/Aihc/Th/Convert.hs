@@ -13,6 +13,7 @@
 -- result is a message that names the construct.
 module Aihc.Th.Convert
   ( expressionFromTree,
+    nameFromTree,
     typeResultFromTree,
     declarationsFromTree,
   )
