@@ -1,20 +1,21 @@
-; expect: 252, 254, 255, 42, 1, 1, 129, 7
+; expect: 252, 254, 300, 42, 1, 1, 129, 7
 ; runtime-unit: native/aihc_constants.lir
-; Named offsets select unsigned bytes and pointer-sized fields on each target.
+; Named offsets select unsigned bytes, the 16-bit field count, and
+; pointer-sized fields on each target.
 ; The fifth result also checks the needs_eval byte of @info.
 
 data @bitmap align 1 = { bytes "\x81" }
 data @next align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
-  i8 7, i8 0, i8 0, i8 0, i8 0
+  i16 7, i8 0, i8 0, i8 0, i8 0, i16 0
 }
 data @info align 8 = {
   ptr @next, ptr @bitmap, ptr @next, code @entry, ptr @bitmap,
-  i8 255, i8 254, i8 253, i8 252, i8 251
+  i16 300, i8 254, i8 253, i8 252, i8 251, i16 0
 }
 data @empty align 8 = {
   ptr null, ptr null, ptr null, code null, ptr null,
-  i8 0, i8 0, i8 0, i8 0, i8 0
+  i16 0, i8 0, i8 0, i8 0, i8 0, i16 0
 }
 
 func @entry() -> i64 {
@@ -28,8 +29,8 @@ entry:
   %kind = zext i8 %kind_byte to i64
   %arity_byte = load i8 [@info + @AIHC_INFO_ARITY_OFFSET] align 1
   %arity = zext i8 %arity_byte to i64
-  %count_byte = load i8 [@info + @AIHC_INFO_COUNT_OFFSET] align 1
-  %count = zext i8 %count_byte to i64
+  %count_half = load i16 [@info + @AIHC_INFO_COUNT_OFFSET] align 2
+  %count = zext i16 %count_half to i64
   %needs_eval_byte = load i8 [@info + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
   %needs_eval = zext i8 %needs_eval_byte to i64
   %needs_eval_matches = eq i64 %needs_eval, 251
@@ -43,15 +44,15 @@ entry:
   %pointers_match = and i1 %next_and_bitmap_match, %needs_eval_matches
   %flag = load i8 [%bitmap] align 1
   %flag_word = zext i8 %flag to i64
-  %next_count_byte = load i8 [%next + @AIHC_INFO_COUNT_OFFSET] align 1
-  %next_count = zext i8 %next_count_byte to i64
+  %next_count_half = load i16 [%next + @AIHC_INFO_COUNT_OFFSET] align 2
+  %next_count = zext i16 %next_count_half to i64
 
   %zero_kind_byte = load i8 [@empty + @AIHC_INFO_KIND_OFFSET] align 1
   %zero_kind = zext i8 %zero_kind_byte to i64
   %zero_arity_byte = load i8 [@empty + @AIHC_INFO_ARITY_OFFSET] align 1
   %zero_arity = zext i8 %zero_arity_byte to i64
-  %zero_count_byte = load i8 [@empty + @AIHC_INFO_COUNT_OFFSET] align 1
-  %zero_count = zext i8 %zero_count_byte to i64
+  %zero_count_half = load i16 [@empty + @AIHC_INFO_COUNT_OFFSET] align 2
+  %zero_count = zext i16 %zero_count_half to i64
   %zero_needs_eval_byte = load i8 [@empty + @AIHC_INFO_NEEDS_EVAL_OFFSET] align 1
   %zero_needs_eval = zext i8 %zero_needs_eval_byte to i64
   %zero_kind_arity = or i64 %zero_kind, %zero_arity

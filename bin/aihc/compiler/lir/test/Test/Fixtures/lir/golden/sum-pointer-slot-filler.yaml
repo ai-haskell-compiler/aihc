@@ -33,7 +33,7 @@ expected: |
     br %forward_23, forward, enter
 
   cold forward:
-    %frame_24 = load.invariant i8 [%header_21 + 42] align 1
+    %frame_24 = load.invariant i8 [%header_21 + 43] align 1
     %forward_frame_26 = eq i8 %frame_24, 7
     br %forward_frame_26, parent, invalid
 

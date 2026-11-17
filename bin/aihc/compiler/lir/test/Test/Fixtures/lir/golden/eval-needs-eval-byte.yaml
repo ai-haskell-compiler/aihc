@@ -47,12 +47,12 @@ expected: |
     %header_word_21 = load.dependent i64 [%current_20] region heap
     %info_word_22 = and i64 %header_word_21, -4
     %header_23 = ptr.from_int %info_word_22
-    %needs_eval_24$load0 = load.invariant i8 [%header_23 + 44] align 1
+    %needs_eval_24$load0 = load.invariant i8 [%header_23 + 45] align 1
     %not_value_26 = ne i8 %needs_eval_24$load0, 0
     br %not_value_26, eval_not_value_27, eval_ready_18
 
   cold eval_not_value_27:
-    %needs_eval_24$load1 = load.invariant i8 [%header_23 + 44] align 1
+    %needs_eval_24$load1 = load.invariant i8 [%header_23 + 45] align 1
     %indirection_31 = eq i8 %needs_eval_24$load1, 2
     br %indirection_31, eval_follow_28, eval_thunk_29
 
@@ -66,12 +66,12 @@ expected: |
     %header_word_35 = load.dependent i64 [%word_34] region heap
     %info_word_36 = and i64 %header_word_35, -4
     %header_37 = ptr.from_int %info_word_36
-    %word_kind_38$load2 = load.invariant i8 [%header_37 + 43] align 1
+    %word_kind_38$load2 = load.invariant i8 [%header_37 + 44] align 1
     %thread_40 = eq i8 %word_kind_38$load2, 7
     br %thread_40, eval_slow_19, eval_owner_30$next0
 
   cold eval_owner_30$next0:
-    %word_kind_38$load3 = load.invariant i8 [%header_37 + 43] align 1
+    %word_kind_38$load3 = load.invariant i8 [%header_37 + 44] align 1
     %queue_41 = eq i8 %word_kind_38$load3, 15
     br %queue_41, eval_slow_19, eval_check_17(%word_34)
 
@@ -94,7 +94,7 @@ expected: |
     br %unclaimed_49, force_thunk_44, force_helper_47
 
   force_thunk_44:
-    %kind_50 = load.invariant i8 [%header_23 + 43] align 1
+    %kind_50 = load.invariant i8 [%header_23 + 44] align 1
     %thunk_52 = eq i8 %kind_50, 2
     br %thunk_52, force_stack_45, force_helper_47
 
@@ -150,7 +150,7 @@ expected: |
 
   data mut @aihc_entry_Nothing align 8 = { ptr @aihc_c_aihc_entry_Nothing_0 }
 
-  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i8 0, i8 0, i8 0, i8 0, i8 0, i8 1, i16 0 }
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i16 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x01" }
 
@@ -160,11 +160,11 @@ expected: |
     tailcall @aihc_f_aihc_entry___sentry__ucont(%hp_87, %sp_88, %base_89, %stored_93, %supplied_92)
   }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i8 1, i8 1, i8 1, i8 1, i8 0, i8 2, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_info_0_e, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00" }
 
-  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sdelayed, ptr null, i8 1, i8 0, i8 0, i8 2, i8 1, i8 2, i16 0 }
+  data @aihc_lir_info_1 align 8 = { code @aihc_f_aihc_entry___sdelayed, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sdelayed, ptr null, i16 1, i8 0, i8 0, i8 2, i8 1, i16 0 }
 
   func @aihc_lir_force_p(%hp_94: ptr, %sp_95: ptr, %base_96: ptr, %value_97: ptr, %info_98: ptr, %field_99: ptr) {
   entry:
