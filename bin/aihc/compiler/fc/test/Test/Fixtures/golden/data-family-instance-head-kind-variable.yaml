@@ -1,0 +1,44 @@
+extensions:
+  - DataKinds
+  - PolyKinds
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies #-}
+    module Test where
+    data family Sing (x :: k)
+    data instance Sing (x :: [k]) = SList
+    nil :: Sing '[]
+    nil = SList
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tSing (k : sType) (x : k) :: sType @N @N {}
+
+  type 1.t$R$Sing$SList (k : sType) (x : t[] k) :: sType {
+    pub 1.cSList :: ∀(k : sType) (x : t[] k). t$R$Sing$SList k x
+  }
+
+  axiom 1.$ax$Sing$SList (k : sType) (x : t[] k) : tSing (t[] k) x ~R t$R$Sing$SList k x
+
+  pub val 1.vnil :: ∀(k0 : sType). tSing (t[] k0) (c[] k0)
+    = Λ(k0 : sType).
+      (cSList @k0 @(c[] k0)) ▷ sym (axiom-co $ax$Sing$SList @k0 @(c[] k0))
+reason: A kind variable that only the instance head names is a kind variable of the representation type and not a type parameter. A use of the constructor gives a value for it.
+status: pass
