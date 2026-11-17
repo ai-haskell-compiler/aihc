@@ -171,7 +171,9 @@ runSplicesFor origin given action =
       let shared = root </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
-      storeFacts <- newReifier packages
+      storeFacts <- newReifier (Map.map snd packages)
+      let fromGuest = fromSplice packageIds (primPackageId packages)
+          toGuest = toSplice packageIds
       withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
@@ -180,7 +182,7 @@ runSplicesFor origin given action =
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
           requests <- newIORef []
           let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-          outcome <- try (runClosure engine (answerRequest packageIds reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest fromGuest toGuest reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -190,7 +192,7 @@ runSplicesFor origin given action =
             (Just message, _) -> ioError (userError (T.unpack message))
             (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
             (Nothing, Right [message]) -> do
-              tree <- either (ioError . userError . T.unpack) (pure . fromSplice packageIds) (decodeTree message)
+              tree <- either (ioError . userError . T.unpack) (pure . fromGuest) (decodeTree message)
               modifyIORef' results (Map.insert index tree)
               either (ioError . userError . T.unpack) pure (convertResult splice tree)
             (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
@@ -236,8 +238,22 @@ absoluteRequest request = do
 -- | Change the package id of the splice package to the package id of the
 -- original package, in each name of a tree from the splice. The first id
 -- of the pair is the id of the splice package.
-fromSplice :: (Text, Text) -> Tree -> Tree
-fromSplice (splice, original) = renamePackageId splice original
+--
+-- The library gives the package @ghc-prim@ to some built-in names, as GHC
+-- does. An example is the name that @tupleTypeName@ gives. The function
+-- changes that package to the given id of the @aihc-prim@ package, which
+-- has these names.
+fromSplice :: (Text, Text) -> Maybe PackageId -> Tree -> Tree
+fromSplice (splice, original) prim =
+  maybe id (renamePackageId "ghc-prim" . packageIdText) prim . renamePackageId splice original
+
+-- | The package id of the @aihc-prim@ package, if the splice package
+-- depends on it.
+primPackageId :: Map PackageId (Text, FilePath) -> Maybe PackageId
+primPackageId packages =
+  case [identity | (identity, (name, _)) <- Map.toList packages, name == "aihc-prim"] of
+    identity : _ -> Just identity
+    [] -> Nothing
 
 -- | Change the package id of the original package to the package id of the
 -- splice package, in each name of a tree to the splice.
@@ -302,9 +318,9 @@ describeRequests made =
 -- an @Either String [Role]@ value. The reply to @reifyConStrictness@ is an
 -- @Either String [DecidedStrictness]@ value. The reply to @location@ is the
 -- @Loc@ value of the splice.
-answerRequest :: (Text, Text) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest packageIds reify location requests bytes =
-  case decodeTree bytes >>= requestFromTree . fromSplice packageIds of
+answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest fromGuest toGuest reify location requests bytes =
+  case decodeTree bytes >>= requestFromTree . fromGuest of
     Right made -> do
       modifyIORef' requests (made :)
       case made of
@@ -317,7 +333,7 @@ answerRequest packageIds reify location requests bytes =
   where
     facts question name global = do
       answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) (reify question) global
-      pure . encodeTree . toSplice packageIds $ case answer of
+      pure . encodeTree . toGuest $ case answer of
         Right value -> TreeNode "Right" [value]
         Left message -> TreeNode "Left" [TreeString message]
 
@@ -342,11 +358,11 @@ spliceLocation request span' =
         Nothing -> ((1, 1), (1, 1))
     position (line, column) = TreeNode "(,)" [TreeInteger (toInteger line), TreeInteger (toInteger column)]
 
--- | The store directory of each package below a package, by the package
--- id that names of the package have. The manifest of a package names the
+-- | The name and the store directory of each package below a package, by
+-- the package id that names of the package have. The manifest of a package names the
 -- store directories of the packages that it depends on. A package that is
 -- not in the store, such as a local package, is not in the result.
-packageDirectories :: FilePath -> FilePath -> IO (Map PackageId FilePath)
+packageDirectories :: FilePath -> FilePath -> IO (Map PackageId (Text, FilePath))
 packageDirectories storeRoot root = do
   manifest <- readManifest root
   go Map.empty (maybe [] packageManifestDependencies manifest)
@@ -358,7 +374,7 @@ packageDirectories storeRoot root = do
       case manifest of
         Just dependency
           | not (Map.member (PackageId (packageManifestUnitId dependency)) found) ->
-              go (Map.insert (PackageId (packageManifestUnitId dependency)) directory found) (packageManifestDependencies dependency <> rest)
+              go (Map.insert (PackageId (packageManifestUnitId dependency)) (packageManifestName dependency, directory) found) (packageManifestDependencies dependency <> rest)
         _ -> go found rest
     readManifest directory = do
       let path = packageManifestPath directory

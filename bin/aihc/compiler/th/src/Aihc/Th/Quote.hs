@@ -288,7 +288,7 @@ bindSpliceNameQuotes dynamic lookupName = runIdentity . outside
         TAnn _ inner -> boundTypeName inner
         TParen inner -> boundTypeName inner
         TCon name _ -> addExprParens . call "mkNameG_tc" . globalNameParts <$> lookupName ResolutionNamespaceType name
-        _ -> Nothing
+        _ -> addExprParens <$> builtinTypeName ty
 
 -- | Each quote of a syntax tree that is not in an expression quote. The
 -- parsed form and the resolved form of a module give the quotes in the
@@ -350,7 +350,26 @@ quotedTypeName ty =
       case nameEntity name of
         Just (EntityGlobal global) -> Just (call "mkNameG_tc" (globalNameParts global))
         _ -> Nothing
+    _ -> builtinTypeName ty
+
+-- | The Template Haskell name of a built-in type constructor: a boxed
+-- tuple type, such as @()@ or @(,)@, or the list type @[]@. The resolver
+-- gives these types no package. Thus, the name is in the package
+-- @ghc-prim@, as in GHC. A tuple name comes from @tupleTypeName@ of the
+-- library. The list name has the text @[]@, because the type facts of the
+-- compiler give that text to the list type. The compiler changes the
+-- package of these names to the package that has the built-in types.
+builtinTypeName :: Type -> Maybe Expr
+builtinTypeName ty =
+  case ty of
+    TTuple Boxed Unpromoted [] -> Just (arity 0)
+    TBuiltinCon (BuiltinTuple Boxed size) Unpromoted -> Just (arity (toInteger size))
+    TList Unpromoted [] -> Just list
+    TBuiltinCon BuiltinList Unpromoted -> Just list
     _ -> Nothing
+  where
+    arity size = call "tupleTypeName" [integer size]
+    list = call "mkNameG_tc" (map stringLiteral ["ghc-prim", "GHC.Types", "[]"])
 
 -- | The expression that builds the syntax tree of a resolved type quote
 -- body. A type constructor becomes a name that is bound to its package and

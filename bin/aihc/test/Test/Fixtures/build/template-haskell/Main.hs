@@ -293,6 +293,9 @@ main = do
   -- A splice reads the decided strictness of the fields of a constructor
   -- of this module and of an imported constructor.
   putStrLn $(do local <- reifyConStrictness 'Fields; imported <- reifyConStrictness 'Just; litE (stringL (show (local, imported))))
+  -- A splice reads the facts of the unit type, a tuple type, and the list
+  -- type. The name quote of a tuple type is the name that the library gives.
+  putStrLn $(do TyConI (DataD _ _ unit _ _ _) <- reify ''(); TyConI (DataD _ _ pair _ _ _) <- reify ''(,); TyConI (DataD _ _ _ _ list _) <- reify ''[]; litE (stringL (show (length unit, length pair, length list, ''(,) == tupleTypeName 2))))
   -- A type quote in a splice gives the type of a signature.
   print (pairWithText 4)
   runQ forallQuote >>= print . forallQuoteForm
