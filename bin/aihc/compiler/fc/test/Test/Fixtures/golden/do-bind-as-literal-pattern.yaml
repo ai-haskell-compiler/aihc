@@ -1,0 +1,16 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE MagicHash #-}
+  module Test where
+  import GHC.Classes (Eq (..))
+  import GHC.Prim ((==#))
+  import GHC.Types (Bool (..), Int (..))
+  instance Eq Int where
+    I# left == I# right = case left ==# right of
+      0# -> False
+      _ -> True
+  select :: [Int] -> [Int]
+  select list = [flag | flag@1 <- list]
+status: pass
+reason: an as-pattern around a literal pattern in a generator binds the generator value
