@@ -1,0 +1,65 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, KindSignatures, DataKinds, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  data Scope = User | System
+       │       │      └─ type: Scope
+       │       └─ type: Scope
+       └─ type: Type
+  data SScope (s :: Scope) where
+       └─ type: Scope → Type
+    SUser :: SScope User
+    └─ type: ∀ s. (s ~ 'User) ⇒ SScope s
+    SSystem :: SScope System
+    └─ type: ∀ s. (s ~ 'System) ⇒ SScope s
+  data RuleData (s :: Scope) = RuleData
+       └─ type: Scope → Type   └─ type: ∀ s. RuleData s
+  ruleBinary :: RuleData User -> RuleData System
+  ruleBinary _ = RuleData
+  │          │   └─ type: RuleData 'System; type-args: 'System
+  │          └─ type: RuleData 'User
+  └─ type: RuleData 'User → RuleData 'System
+  ident :: a -> a
+  ident x = x
+  │     └─ type: a
+  └─ type: ∀ a. a → a
+  run :: forall s. SScope s -> RuleData s -> RuleData System
+  run scope r = toBinary r
+  │   │     └─ type: RuleData s
+  │   └─ type: SScope s
+  └─ type: ∀ s. SScope s → RuleData s → RuleData 'System
+    where
+      toBinary :: RuleData s -> RuleData System
+      toBinary = case scope of
+      │          └─ type: RuleData s → RuleData 'System
+      └─ type: RuleData s → RuleData 'System
+        SUser -> ruleBinary
+        └─ type: SScope s; type-args: s; evidence: given s ~ 'User
+        SSystem -> ident
+        │          └─ type: RuleData 'System → RuleData 'System; type-args: RuleData 'System
+        └─ type: SScope s; type-args: s; evidence: given s ~ 'System
+extensions:
+- GADTs
+- DataKinds
+modules:
+- |
+  {-# LANGUAGE GADTs, KindSignatures, DataKinds, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  data Scope = User | System
+  data SScope (s :: Scope) where
+    SUser :: SScope User
+    SSystem :: SScope System
+  data RuleData (s :: Scope) = RuleData
+  ruleBinary :: RuleData User -> RuleData System
+  ruleBinary _ = RuleData
+  ident :: a -> a
+  ident x = x
+  run :: forall s. SScope s -> RuleData s -> RuleData System
+  run scope r = toBinary r
+    where
+      toBinary :: RuleData s -> RuleData System
+      toBinary = case scope of
+        SUser -> ruleBinary
+        SSystem -> ident
+status: pass
+reason: a local binding with a signature and no arguments gives the type of the signature to its case expression, so a GADT branch does not fix the type of the other branch

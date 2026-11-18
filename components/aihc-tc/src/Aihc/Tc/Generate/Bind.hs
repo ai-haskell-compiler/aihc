@@ -542,22 +542,6 @@ inferRhsWithLocals inferExpr rhs =
           (decls', guardedRhss', ty, cts) <- inferLocalDecls inferExpr decls (inferGuardedRhss inferExpr guardedRhss)
           pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
 
--- | Check an RHS against a known type, processing attached @where@
--- declarations first. A guarded body is compared with the type inside its
--- guards. An unguarded body is inferred, and the caller compares it.
-checkRhsWithLocals :: InferExpr -> TcType -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
-checkRhsWithLocals inferExpr expected rhs =
-  case rhs of
-    UnguardedRhs {} -> inferRhsWithLocals inferExpr rhs
-    GuardedRhss anns guardedRhss maybeDecls ->
-      case maybeDecls of
-        Nothing -> do
-          (guardedRhss', ty, cts) <- checkGuardedRhss inferExpr inferExpr expected guardedRhss
-          pure (GuardedRhss anns guardedRhss' Nothing, ty, cts)
-        Just decls -> do
-          (decls', guardedRhss', ty, cts) <- inferLocalDecls inferExpr decls (checkGuardedRhss inferExpr inferExpr expected guardedRhss)
-          pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
-
 -- | Infer guarded alternatives. Each body has the shared result type.
 inferGuardedRhss :: InferExpr -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
 inferGuardedRhss inferExpr guardedRhss = do
@@ -1031,15 +1015,18 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       case signatureTy of
-        -- A guarded body is compared with the type of the signature inside
-        -- its guards, as at the top level. A pattern guard can bind a given
+        -- The body gets the type of the signature, as at the top level. A
+        -- case branch that a GADT match refines then does not fix the type
+        -- of the other branches: @toBinary = case scope of SUser ->
+        -- ruleBinary; SSystem -> id@ in Cabal. A guarded body is compared
+        -- with that type inside its guards. A pattern guard can bind a given
         -- equality that the comparison needs: @m | IxEq <- appendIndices =
         -- k@ with @m :: b -> Curry ks i@ and @k :: b -> Curry is (Curry js
         -- i)@.
         -- The context of the signature is a given there too.
         Just expected
           | Just (ForAll _ sigPredicates _) <- signature ->
-              withGivenPredicates sigPredicates (checkRhsWithLocals inferExpr expected rhs)
+              withGivenPredicates sigPredicates (checkRhs expected rhs)
         _ -> inferRhsWithLocals inferExpr rhs
   let ty = fromMaybe (maybe rhsTy typeSchemeBody signature) (Map.lookup key placeholders)
   ev <- freshEvVar
