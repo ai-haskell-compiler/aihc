@@ -32,6 +32,7 @@ module Aihc.Th.Splices
     firstSplicePosition,
     FactsAnswer,
     LocalFacts,
+    NameLookup,
     RunSplice,
     spliceModuleName,
     splicePackageName,
@@ -45,7 +46,7 @@ where
 
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
-import Aihc.Resolve.Types (GlobalName)
+import Aihc.Resolve.Types (GlobalName, ResolutionNamespace)
 import Aihc.Tc.Interface (TcInterface)
 import Aihc.Th.Quote (quoteImports)
 import Aihc.Th.Wire (Tree)
@@ -209,9 +210,13 @@ type FactsAnswer = TcInterface -> GlobalName -> Either Text Tree
 -- the question to the facts of the store.
 type LocalFacts = FactsAnswer -> GlobalName -> IO (Maybe (Either Text Tree))
 
+-- | The top-level entity of a name in the scope of a splice, in a
+-- namespace. The name has no package, as a name from @mkName@.
+type NameLookup = ResolutionNamespace -> Name -> Maybe GlobalName
+
 -- | Run one splice of a request: its position in 'spliceRequestSplices',
--- with the local facts for that splice.
-type RunSplice = Int -> LocalFacts -> IO SpliceResult
+-- with the scope and the local facts for that splice.
+type RunSplice = Int -> NameLookup -> LocalFacts -> IO SpliceResult
 
 -- | Visit each splice that 'moduleSplices' gives, and replace it. The
 -- function for a type splice gets the body of the splice. The
