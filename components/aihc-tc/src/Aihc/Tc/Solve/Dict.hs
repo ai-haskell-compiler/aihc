@@ -78,7 +78,13 @@ solveDict = solveDictWithGivens []
 solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
 solveDictWithGivens givens ct = do
   outerGivens <- getGivenPredicates
-  result <- solveDictWithGivensVisited [] (givens <> map ctPred (ctBranchGivens ct) <> outerGivens) ct
+  -- The kind computations of the solver read the given kind equalities
+  -- from the scope (see 'Aihc.Tc.Kind.refineGivenKind'). Thus, the givens
+  -- of the branch must be in scope too, and not only in the list.
+  let branchGivens = givens <> map ctPred (ctBranchGivens ct)
+  result <-
+    withGivenPredicates branchGivens $
+      solveDictWithGivensVisited [] (branchGivens <> outerGivens) ct
   -- A wanted that an instance candidate overflowed and another candidate
   -- solved keeps no record of the overflow.
   case result of

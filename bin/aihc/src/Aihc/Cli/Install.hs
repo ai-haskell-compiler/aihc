@@ -3143,7 +3143,11 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                       Nothing -> pure modu
                       Just (position, isDeclaration) -> do
                         let prefix = take (if isDeclaration then position else boundary) (Syntax.moduleDecls modu)
-                        result <- runSplice index (facts prefix) (pure . fixities prefix)
+                        -- A name from @mkName@ is in the scope of the
+                        -- module as it is at the splice, with the results
+                        -- of the splices above it.
+                        let lookupName = moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = modu}
+                        result <- runSplice index lookupName (facts prefix) (pure . fixities prefix)
                         let boundary'
                               | isDeclaration = position + resultLength result
                               | otherwise = boundary

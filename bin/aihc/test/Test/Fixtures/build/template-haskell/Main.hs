@@ -351,3 +351,6 @@ main = do
   let size = $([|(Size {width = 1, height = 2}) {height = 5}|])
   print (width size, height size)
   print ($(litE (stringL lowerFile)) == lowerFile)
+  -- A splice gets the facts of a name from mkName in the scope of the
+  -- splice: a type, a function, and a data constructor of the module.
+  print $(do TyConI (DataD _ _ _ _ constructors _) <- reify (mkName "Shape"); VarI _ _ _ <- reify (mkName "answer"); DataConI _ _ parent <- reify (mkName "Circle"); tupE [litE (integerL (fromIntegral (length constructors))), if parent == ''Shape then [|True|] else [|False|]])

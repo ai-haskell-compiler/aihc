@@ -9,7 +9,7 @@ import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..), exactTerm, exactType)
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
-import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
+import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (Splice (..), SpliceRequest (..), SpliceResult (..), moduleSplices, replaceModuleSplices, spliceModuleText)
 import Aihc.Th.Wire (Tree (..), decodeTree)
 import Data.ByteString qualified as BS
@@ -245,13 +245,13 @@ requestTest = do
       bound space = TreeNode "NameG" [TreeNode space [], TreeNode "PkgName" [TreeString "p-1"], TreeNode "ModName" [TreeString "M"]]
   assertEqual
     "the facts of a type"
-    (Right (RequestReify "T" (Just (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceType))))
+    (Right (RequestReify "T" (RequestGlobal (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceType))))
     (requestFromTree (reify (bound "TcClsName")))
   assertEqual
     "the facts of a data constructor"
-    (Right (RequestReify "T" (Just (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceTerm))))
+    (Right (RequestReify "T" (RequestGlobal (GlobalName "T" (PackageId "p-1") "M" ResolutionNamespaceTerm))))
     (requestFromTree (reify (bound "DataName")))
-  assertEqual "the facts of a name with no module" (Right (RequestReify "T" Nothing)) (requestFromTree (reify (TreeNode "NameS" [])))
+  assertEqual "the facts of a name with no module" (Right (RequestReify "T" (RequestScoped (mkName Nothing NameConId "T")))) (requestFromTree (reify (TreeNode "NameS" [])))
   assertEqual "only warnings" Nothing (reportedFailure [RequestReport False "w"])
   assertEqual
     "two errors and a warning"
