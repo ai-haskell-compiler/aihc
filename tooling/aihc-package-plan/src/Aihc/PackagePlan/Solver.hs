@@ -703,7 +703,7 @@ store inc = do
 indexIncompat :: (Monad m) => IncompatId -> Solve m ()
 indexIncompat incId = do
   inc <- lookupIncompat incId
-  modify' (\st -> st {stIndex = foldr (\var -> MonoidMap.adjust (IntSet.union (IntSet.singleton incId)) var) (stIndex st) (Map.keys (incTerms inc))})
+  modify' (\st -> st {stIndex = foldr (\var -> MonoidMap.adjust (IntSet.insert incId) var) (stIndex st) (Map.keys (incTerms inc))})
 
 unindexIncompat :: (Monad m) => IncompatId -> Solve m ()
 unindexIncompat incId = do
