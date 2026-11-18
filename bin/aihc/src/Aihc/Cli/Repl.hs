@@ -78,7 +78,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, getFileSize, getTemporaryDirectory, makeAbsolute, removePathForcibly)
 import System.FilePath (takeDirectory, (<.>), (</>))
-import System.IO (hFlush, hIsEOF, hIsTerminalDevice, stderr, stdin, stdout)
+import System.IO (hFlush, hIsTerminalDevice, isEOF, stderr, stdin, stdout)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Posix.Temp (mkdtemp)
 
@@ -100,7 +100,7 @@ runReplWith adjust options = do
   interactive <- hIsTerminalDevice stdin
   let readLine prompt = do
         when interactive (TIO.putStr prompt >> hFlush stdout)
-        end <- hIsEOF stdin
+        end <- isEOF
         if end then pure Nothing else Just <$> TIO.getLine
       streams =
         ReplStreams
