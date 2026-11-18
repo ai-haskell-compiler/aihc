@@ -108,7 +108,7 @@ runReplWith adjust options = do
             replWriteOutput = \bytes -> BS.hPut stdout bytes >> hFlush stdout,
             replWriteError = \bytes -> BS.hPut stderr bytes >> hFlush stderr
           }
-  withProgress stderr (\reporter -> replSession reporter adjust options streams)
+  replSession (withProgress stderr) adjust options streams
 
 -- | The state of a session.
 data Session = Session
@@ -141,9 +141,11 @@ data SessionModule = SessionModule
     sessionModuleDeclarations :: !Bool
   }
 
--- | Run a session. The reporter shows the build of the image.
-replSession :: ProgressReporter -> (ModuleCompileConfig -> ModuleCompileConfig) -> ReplOptions -> ReplStreams -> IO ()
-replSession reporter adjust options streams =
+-- | Run a session. The first argument supplies the reporter that shows the
+-- build of the image. The reporter must stop before the first prompt,
+-- because a live view erases the lines below it.
+replSession :: ((ProgressReporter -> IO FilePath) -> IO FilePath) -> (ModuleCompileConfig -> ModuleCompileConfig) -> ReplOptions -> ReplStreams -> IO ()
+replSession withReporter adjust options streams =
   case replBuildRoot options of
     Just root -> run root
     Nothing -> bracket (getTemporaryDirectory >>= \directory -> mkdtemp (directory </> "aihc-repl-")) removePathForcibly run
@@ -151,7 +153,7 @@ replSession reporter adjust options streams =
     run given = do
       root <- makeAbsolute given
       createDirectoryIfMissing True (root </> "session" </> "src")
-      image <- buildImage reporter adjust options root
+      image <- withReporter (\reporter -> buildImage reporter adjust options root)
       readable <- makeAbsolute "."
       let write stream =
             case stream of
