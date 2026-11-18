@@ -29,9 +29,13 @@ module Aihc.Th.Reify
   ( reifyInfo,
     reifyConStrictness,
     reifyRoles,
+    exportedFixity,
+    fixityTree,
   )
 where
 
+import Aihc.Parser.Syntax (FixityAssoc (..))
+import Aihc.Resolve (ExportEntry (..), Exports, OperatorFixity (..), exportsEntries)
 import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc.Env
   ( ClassInfo (..),
@@ -526,3 +530,24 @@ bool value = node (if value then "True" else "False") []
 -- | A list, as the guest encodes it: a chain of @(:)@ nodes.
 list :: [Tree] -> Tree
 list = foldr (\element rest -> node "(:)" [element, rest]) (node "[]" [])
+
+-- | The fixity that a declaration gives to a name, from the exports of the
+-- module that declares the name. A name with no fixity declaration gives
+-- 'Nothing'. The exports only have the fixities of the exported names.
+exportedFixity :: Exports -> GlobalName -> Maybe OperatorFixity
+exportedFixity exports global =
+  listToMaybe [fixity | ExportFixity name fixity <- exportsEntries exports, name == globalNameText global]
+
+-- | The tree of the @Maybe Fixity@ reply of @reifyFixity@.
+fixityTree :: Maybe OperatorFixity -> Tree
+fixityTree fixity =
+  case fixity of
+    Nothing -> node "Nothing" []
+    Just (OperatorFixity assoc precedence) ->
+      node "Just" [node "Fixity" [TreeInteger (toInteger precedence), node (direction assoc) []]]
+  where
+    direction assoc =
+      case assoc of
+        Infix -> "InfixN"
+        InfixL -> "InfixL"
+        InfixR -> "InfixR"

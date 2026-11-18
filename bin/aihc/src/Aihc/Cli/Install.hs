@@ -254,6 +254,7 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
+import Aihc.Th.Reify (exportedFixity)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
@@ -3120,6 +3121,21 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                       Left message
                         | globalNamePackage global == ownPackage -> Just (Left message)
                         | otherwise -> Nothing
+              -- The fixity of a name of this module comes from the
+              -- declarations above the splice. The fixity of a name of a
+              -- different module comes from the exports of that module.
+              fixities prefix global
+                | globalNamePackage global == ownPackage && globalNameModule global == sourceModuleName source =
+                    let prefixExports = collectUnitExports context availableExports [prefixModuleUnit moduleUnit bound prefix]
+                     in Just (lookupModuleExport (ModuleKey resolvePackage (sourceModuleName source)) prefixExports >>= (`exportedFixity` global))
+                | otherwise =
+                    case [ key
+                         | key@(ModuleKey package name) <- moduleExportKeys availableExports,
+                           packageId package == globalNamePackage global,
+                           name == globalNameModule global
+                         ] of
+                      key : _ -> Just (lookupModuleExport key availableExports >>= (`exportedFixity` global))
+                      [] -> Nothing
               loop runSplice index boundary modu
                 | index >= length splices = pure modu
                 | otherwise =
@@ -3131,7 +3147,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                         -- module as it is at the splice, with the results
                         -- of the splices above it.
                         let lookupName = moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = modu}
-                        result <- runSplice index lookupName (facts prefix)
+                        result <- runSplice index lookupName (facts prefix) (pure . fixities prefix)
                         let boundary'
                               | isDeclaration = position + resultLength result
                               | otherwise = boundary
@@ -3145,8 +3161,10 @@ expandUnitSplices context runtimes unit availableExports sources modules =
         TypeResult _ -> 0
     -- The declarations above a splice as a module of their own, with no
     -- export list: the export list can name a declaration below.
+    prefixModuleUnit moduleUnit modu prefix =
+      moduleUnit {moduleUnitAst = modu {Syntax.moduleHead = fmap (\header -> header {Syntax.moduleHeadExports = Nothing}) (Syntax.moduleHead modu), Syntax.moduleDecls = prefix}}
     checkPrefix importedTypes moduleUnit modu prefix =
-      let prefixUnit = moduleUnit {moduleUnitAst = modu {Syntax.moduleHead = fmap (\header -> header {Syntax.moduleHeadExports = Nothing}) (Syntax.moduleHead modu), Syntax.moduleDecls = prefix}}
+      let prefixUnit = prefixModuleUnit moduleUnit modu prefix
           unitExports = collectUnitExports context availableExports [prefixUnit]
           visibleExports = localReexportExports context (unitExports <> availableExports)
        in case resolveUnitQuotes (builtinFunctionScope resolvePackage visibleExports) visibleExports [prefixUnit] of

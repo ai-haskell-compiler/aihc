@@ -43,12 +43,14 @@ import Aihc.Cli.ModuleProvider (moduleNameDirectory, readTypeArtifactFile)
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
+import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Resolve (OperatorFixity)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
-import Aihc.Th.Reify (reifyConStrictness, reifyInfo, reifyRoles)
+import Aihc.Th.Reify (exportedFixity, fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
@@ -62,7 +64,7 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -145,7 +147,7 @@ runSplicesFor origin given action =
       recorded <- either (ioError . userError . T.unpack) pure (decodeTree bytes >>= resultTrees)
       let from = maybe (spliceRequestPackageId request) originPackageId ownOrigin
           renamed = Map.map (renamePackageId from (spliceRequestPackageId request)) recorded
-      action $ \index _ _ -> do
+      action $ \index _ _ _ -> do
         splice <- spliceAt index
         tree <- maybe (ioError (userError ("The recorded results in " <> path <> " have no result for splice " <> show index <> "."))) pure (Map.lookup index renamed)
         modifyIORef' results (Map.insert index tree)
@@ -173,17 +175,19 @@ runSplicesFor origin given action =
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
       storeFacts <- newReifier (Map.map snd packages)
+      storeFixity <- newFixityReader (Map.map snd packages)
       let fromGuest = fromSplice packageIds (primPackageId packages)
           toGuest = toSplice packageIds
       withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
-        action $ \index lookupName localFacts -> do
+        action $ \index lookupName localFacts localFixity -> do
           splice <- spliceAt index
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
+              fixity global = localFixity global >>= maybe (storeFixity global) (pure . Right)
           requests <- newIORef []
           let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-          outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify fixity location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -310,6 +314,7 @@ describeRequests made =
         RequestReify name _ -> Just name
         RequestReifyRoles name _ -> Just name
         RequestReifyConStrictness name _ -> Just name
+        RequestReifyFixity name _ -> Just name
         RequestReport {} -> Nothing
         RequestLocation -> Nothing
 
@@ -317,10 +322,12 @@ describeRequests made =
 -- request goes to the list. The reply to a report has no bytes. The reply
 -- to @reify@ is an @Either String Info@ value. The reply to @reifyRoles@ is
 -- an @Either String [Role]@ value. The reply to @reifyConStrictness@ is an
--- @Either String [DecidedStrictness]@ value. The reply to @location@ is the
--- @Loc@ value of the splice.
-answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest fromGuest toGuest lookupName reify location requests bytes =
+-- @Either String [DecidedStrictness]@ value. The reply to @reifyFixity@ is
+-- an @Either String (Maybe Fixity)@ value. A name that the compiler cannot
+-- find has no fixity declaration that the compiler knows, so it gives
+-- 'Nothing'. The reply to @location@ is the @Loc@ value of the splice.
+answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> (GlobalName -> IO (Either Text (Maybe OperatorFixity))) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest fromGuest toGuest lookupName reify fixity location requests bytes =
   case decodeTree bytes >>= requestFromTree . fromGuest of
     Right made -> do
       modifyIORef' requests (made :)
@@ -329,6 +336,12 @@ answerRequest fromGuest toGuest lookupName reify location requests bytes =
         RequestReify name global -> facts reifyInfo name global
         RequestReifyRoles name global -> facts reifyRoles name global
         RequestReifyConStrictness name global -> facts reifyConStrictness name global
+        RequestReifyFixity name requested -> do
+          answer <- case requested of
+            RequestGlobal global -> fixity global
+            RequestScoped scoped -> maybe (pure (Right Nothing)) fixity (scopedName name scoped)
+            RequestUnknown -> pure (Right Nothing)
+          pure (encodeReply (fixityTree <$> answer))
         RequestLocation -> pure (encodeTree location)
     Left message -> ioError (userError (T.unpack message))
   where
@@ -336,13 +349,14 @@ answerRequest fromGuest toGuest lookupName reify location requests bytes =
       case requested of
         RequestGlobal global -> reply (reify question global)
         RequestScoped scoped ->
-          case mapMaybe (`lookupName` scoped) (guessedNamespaces name) of
-            global : _ -> reply (reify question global)
-            [] -> reply (pure (Left (name <> " is not in scope at the splice.")))
+          case scopedName name scoped of
+            Just global -> reply (reify question global)
+            Nothing -> reply (pure (Left (name <> " is not in scope at the splice.")))
         RequestUnknown -> reply (pure (Left ("The compiler can only give the facts of a name with a package and a module, or of a name in scope at the splice, and " <> name <> " is not such a name.")))
-    reply ask = do
-      answer <- ask
-      pure . encodeTree . toGuest $ case answer of
+    scopedName name scoped = listToMaybe (mapMaybe (`lookupName` scoped) (guessedNamespaces name))
+    reply ask = encodeReply <$> ask
+    encodeReply answer =
+      encodeTree . toGuest $ case answer of
         Right value -> TreeNode "Right" [value]
         Left message -> TreeNode "Left" [TreeString message]
 
@@ -426,6 +440,33 @@ newReifier packages = do
         pure $ case artifact of
           Nothing -> Left ("The package " <> packageIdText (globalNamePackage global) <> " has no type facts of the module " <> globalNameModule global <> ".")
           Just found -> answer (typeArtifactInterface found) global
+
+-- | Give the fixity of a name from the resolve artifact of its module.
+-- The reader reads each artifact one time.
+newFixityReader :: Map PackageId FilePath -> IO (GlobalName -> IO (Either Text (Maybe OperatorFixity)))
+newFixityReader packages = do
+  artifacts <- newIORef Map.empty
+  let artifactOf directory home = do
+        cached <- Map.lookup (directory, home) <$> readIORef artifacts
+        case cached of
+          Just artifact -> pure artifact
+          Nothing -> do
+            let path = directory </> moduleNameDirectory home </> "resolve.cbor"
+            exists <- doesFileExist path
+            artifact <-
+              if exists
+                then either (\message -> ioError (userError ("Invalid resolve artifact " <> path <> ": " <> message))) (pure . Just) . decodeResolveArtifact =<< BS.readFile path
+                else pure Nothing
+            atomicModifyIORef' artifacts (\known -> (Map.insert (directory, home) artifact known, ()))
+            pure artifact
+  pure $ \global ->
+    case Map.lookup (globalNamePackage global) packages of
+      Nothing -> pure (Left ("The splice cannot use the package " <> packageIdText (globalNamePackage global) <> " of " <> globalNameText global <> "."))
+      Just directory -> do
+        artifact <- artifactOf directory (globalNameModule global)
+        pure $ case artifact of
+          Nothing -> Left ("The package " <> packageIdText (globalNamePackage global) <> " has no resolve facts of the module " <> globalNameModule global <> ".")
+          Just found -> Right (exportedFixity (resolveArtifactExports found) global)
 
 -- | Build the image of a request and give its path.
 buildImage :: SpliceRequest -> IO FilePath

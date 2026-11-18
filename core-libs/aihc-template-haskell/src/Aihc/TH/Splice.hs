@@ -54,7 +54,7 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -122,6 +122,10 @@ data Request
     -- data constructor. The reply is an @Either String [DecidedStrictness]@
     -- value.
     ReifyConStrictness Name
+  | -- | Give the fixity that a declaration gives to a name. The reply is
+    -- an @Either String (Maybe Fixity)@ value. A name with no fixity
+    -- declaration gives 'Nothing'.
+    ReifyFixity Name
   | -- | Give the source location of the splice. The reply is a 'Loc'
     -- value.
     Location
@@ -199,7 +203,7 @@ instance Quasi Splice where
       key = typeRep (Just value)
   qLookupName _ _ = unsupported "lookupName"
   qReify name = Splice (askFacts "reify" (Reify name) :: IO Info)
-  qReifyFixity _ = unsupported "reifyFixity"
+  qReifyFixity name = Splice (askFacts "reifyFixity" (ReifyFixity name) :: IO (Maybe Fixity))
   qReifyType _ = unsupported "reifyType"
   qReifyInstances _ _ = unsupported "reifyInstances"
   qReifyRoles name = Splice (askFacts "reifyRoles" (ReifyRoles name) :: IO [Role])
