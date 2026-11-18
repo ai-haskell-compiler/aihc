@@ -9,6 +9,7 @@ import Aihc.Cli.Install (runInstallWith)
 import Aihc.Cli.Link (runLinkExe)
 import Aihc.Cli.Options (Command (..), parseCommandIO)
 import Aihc.Cli.Plan (runPlan)
+import Aihc.Cli.Repl (runReplWith)
 import Aihc.Cli.Splice (withSplices)
 import Aihc.Cli.Test (runTest)
 import Control.Exception (IOException, displayException, try)
@@ -29,4 +30,5 @@ runCommand (CmdBuild opts) = runBuildWith withSplices opts
 runCommand (CmdInstall opts) = runInstallWith withSplices opts
 runCommand (CmdLinkExe opts) = runLinkExe opts
 runCommand (CmdPlan opts) = runPlan opts
+runCommand (CmdRepl opts) = runReplWith withSplices opts
 runCommand (CmdTest opts) = runTest opts

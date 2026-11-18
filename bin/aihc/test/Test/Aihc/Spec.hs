@@ -7,9 +7,10 @@ import Aihc.Cli.Build (BuiltProgram (..), build, buildWith, buildWithConfig)
 import Aihc.Cli.Install (InstallResult (..), install, installWith, parsePackageTarget)
 import Aihc.Cli.Link (LinkBundle (..), linkBundleManifestPath, readLinkBundle, runLinkExe)
 import Aihc.Cli.Memo (newMemo)
-import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), PlanOptions (..), TestOptions (..), defaultPlanOptions, parseCommandPure)
+import Aihc.Cli.Options (BuildOptions (..), Command (..), InstallOptions (..), LinkExeOptions (..), PlanOptions (..), ReplOptions (..), TestOptions (..), defaultPlanOptions, parseCommandPure)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Progress (quietProgress, withProgress)
+import Aihc.Cli.Repl (ReplStreams (..), replSession)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
 import Aihc.Cli.Splice (withSplices)
 import Aihc.Cli.Test (TestSuiteResult (..), buildTests, renderTestSummary, runTestSuites)
@@ -38,10 +39,10 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isSpace)
 import Data.Functor ((<&>))
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, stripPrefix)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
 import System.Directory
@@ -140,7 +141,8 @@ tests =
                     "engine"
                     [ testCase "runs closures of a position-independent package in an engine image" (test_engineClosures engineStore),
                       testCase "converts the result of a Template Haskell computation in an engine image" (test_engineSplice engineStore),
-                      testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore)
+                      testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore),
+                      testCase "evaluates the inputs of a session in one instance" (test_replSession engineStore)
                     ],
                 testCase "compiles and archives capi wrappers" (test_installCapi primStore),
                 testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
@@ -784,6 +786,38 @@ test_buildSplices getStore getEngineStore = do
       assertEqual "exit status" ExitSuccess status
       assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n([DecidedStrict,DecidedLazy,DecidedUnpack],[DecidedLazy])\n(Just (Fixity 6 InfixR),Just (Fixity 5 InfixR),Nothing)\n(0,2,2,True)\n(4,\"4\")\nTrue\nTrue\nTrue\nTrue\n-9223372036854775808\nProxy\nProxy\nShape\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (346,12) (346,177)\n42\n(1,5)\nTrue\n(2,True)\n" out
       assertEqual "stderr" "" err
+
+-- | A session evaluates each input in one instance. A later input uses the
+-- names of the earlier inputs, a new definition hides the earlier
+-- definition, and the action of a bind statement runs one time. An
+-- exception in an input is a message, and the session continues.
+test_replSession :: IO (Maybe SeedStore) -> Assertion
+test_replSession getStore = do
+  available <- getStore
+  forM_ available $ \store ->
+    withBuildModuleSandbox (pure store) "aihc-repl" $ \sandbox _fixtureRoot storeRoot _options -> do
+      inputs <-
+        newIORef
+          [ "x = 2",
+            "x + 1",
+            "y <- putStrLn \"run\" >> pure (x * 10)",
+            "y + y",
+            "x = \"new\"",
+            "x",
+            "head ([] :: [Int])",
+            "length x"
+          ]
+      out <- newIORef BS.empty
+      err <- newIORef BS.empty
+      let streams =
+            ReplStreams
+              { replReadLine = \_ -> atomicModifyIORef' inputs (\remaining -> (drop 1 remaining, listToMaybe remaining)),
+                replWriteOutput = \bytes -> modifyIORef' out (<> bytes),
+                replWriteError = \bytes -> modifyIORef' err (<> bytes)
+              }
+      replSession (quietProgress SystemIO.stdout) id (ReplOptions [] (Just storeRoot) (Just (sandboxRoot sandbox </> "session"))) streams
+      readIORef out >>= assertEqual "stdout" "3\nrun\n40\n\"new\"\n3\n"
+      readIORef err >>= assertEqual "stderr" "*** Exception: Prelude.head: empty list\n"
 
 -- | Build an engine image and a shared module, and run an action with an
 -- engine that has the two. The image is the guest program with the image

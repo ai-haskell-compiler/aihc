@@ -40,6 +40,13 @@
 // run-time system start a relative path at "/", thus a relative path
 // starts at DIRECTORY. The instance cannot write, and it cannot read a
 // file outside DIRECTORY, also through a symbolic link.
+//
+// With the option --output after the other arguments, the instance can
+// write to its standard output and to its standard error. Before the reply
+// to a command, the driver then writes "stdout BYTES" and "stderr BYTES"
+// lines, with the bytes as hexadecimal text. The standard input of the
+// instance is then at its end. Without the option, each use of these
+// streams is a denied import.
 
 import { closeSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeSync } from "node:fs";
 import { resolve as resolvePath, sep as pathSeparator } from "node:path";
@@ -109,7 +116,9 @@ function dynamicLinkInformation(module) {
   throw new Error("the shared module has no memory information");
 }
 
-const imageModule = new WebAssembly.Module(readFileSync(process.argv[2]));
+const options = process.argv.slice(2).filter((argument) => argument.startsWith("--"));
+const [imagePath, readablePath] = process.argv.slice(2).filter((argument) => !argument.startsWith("--"));
+const imageModule = new WebAssembly.Module(readFileSync(imagePath));
 let image;
 
 // The functions that the host supplies to the image and to shared modules.
@@ -157,7 +166,7 @@ const hostFunctions = {
 
 // The read-only directory of the instance, as a path without symbolic
 // links, or null.
-const readableRoot = process.argv[3] === undefined ? null : realpathSync(process.argv[3]);
+const readableRoot = readablePath === undefined ? null : realpathSync(readablePath);
 
 // The canonical ABI values of wasi:filesystem/types@0.3.0.
 const typeCodes = { blockDevice: 0, characterDevice: 1, directory: 2, fifo: 3, symbolicLink: 4, regularFile: 5, socket: 6, other: 7 };
@@ -542,6 +551,64 @@ const filesystemFunctions = {
 
 // The filesystem functions are only available with a readable root.
 if (readableRoot !== null) Object.assign(hostFunctions, filesystemFunctions);
+
+// The run-time system makes a stream, gives the readable end to the
+// standard output or to the standard error, and writes the bytes to the
+// writable end. The two ends are handles of one stream value.
+function newOutputStream() {
+  const stream = { kind: "output", target: null };
+  return (BigInt(addHandle(stream)) << 32n) | BigInt(addHandle(stream));
+}
+
+// Give the readable end of a stream to a target. The result is a future of
+// the result of the writes, which has no error.
+function writeViaStream(target) {
+  return (reader) => {
+    handleOf(reader, "output").target = target;
+    handles.delete(reader);
+    return addHandle({ kind: "future", error: null });
+  };
+}
+
+// Send the bytes to the host as one line. The host takes all the bytes at
+// once, thus the write is complete when the function returns.
+function writeOutput(writer, address, length) {
+  const stream = handleOf(writer, "output");
+  if (stream.target === null) throw new Error("a write to a stream that has no target");
+  if (length > 0) reply(stream.target + " " + Buffer.from(memoryBytes(address, length)).toString("hex"));
+  return ((length << 4) | waitableCompleted) >>> 0;
+}
+
+// The standard input has no bytes: its stream is at its end.
+function readStandardInput(result) {
+  const view = memoryView();
+  view.setUint32(result, addHandle({ kind: "stream", descriptor: null, position: 0, ended: true }), true);
+  view.setUint32(result + 4, addHandle({ kind: "future", error: null }), true);
+}
+
+const streamEnds = "wasi:cli/stdin@0.3.0 ";
+const outputFunctions = {
+  [streamEnds + "read-via-stream"]: readStandardInput,
+  [streamEnds + "[async-lower][stream-read-0]read-via-stream"]: readStream,
+  [streamEnds + "[stream-drop-readable-0]read-via-stream"]: dropHandle,
+  [streamEnds + "[async-lower][future-read-1]read-via-stream"]: readFuture,
+  [streamEnds + "[future-drop-readable-1]read-via-stream"]: dropHandle,
+  [streamEnds + "[stream-new-0]read-via-stream"]: newOutputStream,
+  [streamEnds + "[async-lower][stream-write-0]read-via-stream"]: writeOutput,
+  [streamEnds + "[stream-drop-writable-0]read-via-stream"]: dropHandle,
+  "$root [waitable-set-new]": filesystemFunctions["$root [waitable-set-new]"],
+  "$root [waitable-set-drop]": dropHandle,
+  "$root [waitable-join]": () => {},
+};
+for (const target of ["stdout", "stderr"]) {
+  const name = `wasi:cli/${target}@0.3.0 `;
+  outputFunctions[name + "write-via-stream"] = writeViaStream(target);
+  outputFunctions[name + "[async-lower][future-read-1]write-via-stream"] = readFuture;
+  outputFunctions[name + "[future-drop-readable-1]write-via-stream"] = dropHandle;
+}
+
+// The output functions are only available with the option --output.
+if (options.includes("--output")) Object.assign(hostFunctions, outputFunctions);
 
 function memoryBytes(address, length) {
   return new Uint8Array(image.memory.buffer, address, Number(length));

@@ -11,9 +11,13 @@
 -- The engine is a Node.js process that runs @driver.mjs@. The instance has
 -- no access to the host: the driver denies each import of the image, apart
 -- from a clock that gives a fixed time. As an option, the instance can read
--- the files of one directory. It cannot write to that directory.
+-- the files of one directory. It cannot write to that directory. As a
+-- second option, the instance can write to its standard output and to its
+-- standard error, and the engine gives the bytes to a function of the
+-- caller.
 module Aihc.Wasm.Engine
   ( Engine,
+    EngineStream (..),
     EngineValue (..),
     engineDriverPath,
     engineGuestPath,
@@ -21,10 +25,13 @@ module Aihc.Wasm.Engine
     linkImage,
     linkSharedModule,
     withEngine,
+    withOutputEngine,
     loadSharedModule,
     callFunction,
     startGuest,
+    guestIsRunning,
     runClosure,
+    tryRunClosure,
   )
 where
 
@@ -35,7 +42,8 @@ import Control.Monad (void)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (digitToInt, intToDigit, isHexDigit)
-import Data.Maybe (fromMaybe)
+import Data.List (isPrefixOf)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import System.Environment (lookupEnv)
@@ -47,8 +55,17 @@ import Text.Read (readMaybe)
 -- | A running driver with one instance of an image.
 data Engine = Engine
   { engineInput :: !Handle,
-    engineOutput :: !Handle
+    engineOutput :: !Handle,
+    -- | The function that gets the bytes that the instance writes to a
+    -- standard stream. An engine without this function denies the writes.
+    engineStreams :: !(Maybe (EngineStream -> ByteString -> IO ()))
   }
+
+-- | A standard stream that the instance can write to.
+data EngineStream
+  = EngineStdout
+  | EngineStderr
+  deriving (Eq, Show)
 
 -- | An argument of a function call.
 data EngineValue
@@ -148,17 +165,26 @@ runLinker arguments = do
 -- the engine. If the first argument has a directory, the instance can read
 -- the files in that directory, and a relative path starts at it.
 withEngine :: Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
-withEngine readable image action = bracket start stop (\(engine, _) -> action engine)
+withEngine = withEngineStreams Nothing
+
+-- | 'withEngine' for an instance that can write to its standard output and
+-- to its standard error. The function gets the bytes of each write, in the
+-- order of the writes, before the command that made them completes.
+withOutputEngine :: (EngineStream -> ByteString -> IO ()) -> Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
+withOutputEngine = withEngineStreams . Just
+
+withEngineStreams :: Maybe (EngineStream -> ByteString -> IO ()) -> Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
+withEngineStreams engineStreams readable image action = bracket start stop (\(engine, _) -> action engine)
   where
     start = do
       node <- engineNodeCommand
       driver <- engineDriverPath
       (input, output, _, process) <-
-        createProcess (proc node ([driver, image] <> maybe [] pure readable)) {std_in = CreatePipe, std_out = CreatePipe}
+        createProcess (proc node ([driver, image] <> maybe [] pure readable <> ["--output" | isJust engineStreams])) {std_in = CreatePipe, std_out = CreatePipe}
       case (input, output) of
         (Just engineInput, Just engineOutput) -> do
           hSetBuffering engineInput LineBuffering
-          let engine = Engine {engineInput, engineOutput}
+          let engine = Engine {engineInput, engineOutput, engineStreams}
           -- The driver writes one reply after it makes the instance.
           void (readReply engine) `onException` (hClose engineInput >> waitForProcess process)
           pure (engine, process)
@@ -195,6 +221,15 @@ callFunction engine name arguments = do
 startGuest :: Engine -> IO ()
 startGuest engine = void (request engine "start")
 
+-- | If the guest runs. The guest stops when its program returns or traps.
+-- The engine asks the guest for a closure that no module has. A guest
+-- that runs gives the error of the driver for an unknown closure.
+guestIsRunning :: Engine -> IO Bool
+guestIsRunning engine = do
+  hPutStrLn (engineInput engine) "run ?"
+  outcome <- readOutcomeWith (\_ -> ioError (userError "the engine sent a request that the command does not accept")) engine
+  pure (either ("unknown closure" `isPrefixOf`) (const False) outcome)
+
 -- | Run a closure in the guest. The closure is the static value of the type
 -- @IO ()@ that the package, the module, and the name identify, in the image
 -- or in a loaded shared module. The result has each message that the
@@ -205,10 +240,19 @@ startGuest engine = void (request engine "start")
 -- of the caller gets the bytes of each request and gives the bytes of the
 -- reply. The closure waits for the reply.
 runClosure :: Engine -> (ByteString -> IO ByteString) -> Text -> Text -> Text -> IO [ByteString]
-runClosure engine answer package moduleName name = do
+runClosure engine answer package moduleName name =
+  tryRunClosure engine answer package moduleName name >>= either (ioError . userError . ("the engine failed: " <>)) pure
+
+-- | 'runClosure' with the failure of the closure as a value. The failure
+-- is the text of the exception that the closure raised, or the text of a
+-- trap. After a trap, the guest does not run.
+tryRunClosure :: Engine -> (ByteString -> IO ByteString) -> Text -> Text -> Text -> IO (Either String [ByteString])
+tryRunClosure engine answer package moduleName name = do
   hPutStrLn (engineInput engine) ("run " <> T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
-  reply <- readReplyWith answerRequest engine
-  maybe (ioError (userError ("the engine gave the messages " <> reply))) pure (mapM decodeHexadecimal (words reply))
+  outcome <- readOutcomeWith answerRequest engine
+  case outcome of
+    Left failure -> pure (Left failure)
+    Right reply -> maybe (ioError (userError ("the engine gave the messages " <> reply))) (pure . Right) (mapM decodeHexadecimal (words reply))
   where
     answerRequest text = do
       bytes <- maybe (ioError (userError "the engine gave a request that is not valid")) pure (decodeHexadecimal text)
@@ -243,16 +287,26 @@ readReply = readReplyWith (\_ -> ioError (userError "the engine sent a request t
 -- requests. The function gets the text of a request and gives the text of
 -- its reply.
 readReplyWith :: (String -> IO String) -> Engine -> IO String
-readReplyWith answer engine = do
+readReplyWith answer engine =
+  readOutcomeWith answer engine >>= either (ioError . userError . ("the engine failed: " <>)) pure
+
+-- | 'readReplyWith' with the error of the command as a value.
+readOutcomeWith :: (String -> IO String) -> Engine -> IO (Either String String)
+readOutcomeWith answer engine = do
   end <- hIsEOF (engineOutput engine)
   if end
     then ioError (userError "the engine stopped")
     else do
       line <- hGetLine (engineOutput engine)
-      case words line of
-        "ok" : _ -> pure (drop 3 line)
-        "request" : payload -> do
+      case (words line, engineStreams engine) of
+        ("ok" : _, _) -> pure (Right (drop 3 line))
+        ("request" : payload, _) -> do
           reply <- answer (concat payload)
           hPutStrLn (engineInput engine) ("reply " <> reply)
-          readReplyWith answer engine
-        _ -> ioError (userError ("the engine failed: " <> drop 6 line))
+          readOutcomeWith answer engine
+        ([stream, payload], Just write)
+          | Just target <- lookup stream [("stdout", EngineStdout), ("stderr", EngineStderr)],
+            Just bytes <- decodeHexadecimal payload -> do
+              write target bytes
+              readOutcomeWith answer engine
+        _ -> pure (Left (drop 6 line))
