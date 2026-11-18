@@ -1,0 +1,18 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, KindSignatures, ScopedTypeVariables, TypeOperators, FlexibleInstances, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Type)
+  data Proxy (a :: k) = Proxy
+  data Unit = Unit
+  class Count (xs :: [k]) where
+    count :: Proxy xs -> Unit
+  instance Count '[] where
+    count _ = Unit
+  instance Count xs => Count (x ': xs) where
+    count _ = count (Proxy :: Proxy xs)
+  counted :: Unit
+  counted = count (Proxy :: Proxy '[ '[], '[] ])
+status: pass
+reason: the nil at the end of a promoted list literal keeps its element kind, so the instance match on the tail gets the kind of the list

@@ -520,7 +520,11 @@ convertDataConstructorList tvEnv arguments = do
   let consKind = TcFunTy elementKind (TcFunTy resultKind resultKind)
   nilTyCon <- wiredTyCon tcWiringNilDataCon resultKind
   consTyCon <- wiredTyCon tcWiringConsDataCon consKind
-  let nil = TcTyCon nilTyCon []
+  -- The nil at the end of the list has no element to give its kind. Thus
+  -- it keeps its element kind as a kind argument, as a written @'[]@ does
+  -- (see 'kindedTyConUse'). An instance match on the tail of the list, as
+  -- @C '[]@ for @'[a, b]@, gets the kind of the tail from it.
+  let nil = kindedTyCon nilTyCon [elementKind]
       cons field rest = TcTyCon consTyCon [field, rest]
   pure (foldr cons nil argumentTypes, resultKind)
 
