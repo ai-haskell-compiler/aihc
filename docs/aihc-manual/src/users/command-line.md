@@ -1,6 +1,6 @@
 # Command line
 
-The `aihc` executable has five commands.
+The `aihc` executable has six commands.
 
 | Command | Purpose |
 | --- | --- |
@@ -8,6 +8,7 @@ The `aihc` executable has five commands.
 | `aihc install PACKAGE` | Build and install one Cabal library into the store. |
 | `aihc link-exe BUNDLE` | Link one executable from a bundle that `build --no-link` wrote. |
 | `aihc plan INPUT` | Solve the dependency plan of a Cabal package and print it. |
+| `aihc repl` | Read Haskell inputs and evaluate each of them in one session. |
 | `aihc test INPUT` | Build the test suites of a Cabal package and run each of them. |
 
 Use `aihc COMMAND --help` to get the full option list of each command.
@@ -63,6 +64,46 @@ With `all`, the command tests each package of the project that has a test suite.
 | `-O LEVEL` | Select the optimization level. See [Optimization levels](#optimization-levels). |
 | `--lto` | Compile each module to System FC only, and compile the merged program once. |
 | `--verbose` | Print each build step. |
+
+## Repl
+
+```bash
+aihc repl [OPTIONS]
+```
+
+The command reads one input from each line and evaluates it.
+The command compiles each input to WebAssembly and runs it in one instance.
+The instance stays alive, thus a later input can use the names of the earlier inputs.
+The command needs the `wasm32-wasip3` toolchain and Node.js.
+
+| Input | Example | Result |
+| --- | --- | --- |
+| Declarations | `f x = x + 1` or `let y = 2` | The names are available to the subsequent inputs. |
+| Bind statement | `text <- readFile "notes.txt"` | The command runs the action one time. The names get the result. |
+| Expression | `f 2` | The command shows the value. If the expression is an action, the command runs it and shows its result. The name `it` gets the value or the result. |
+| Import | `import Data.List (sort)` | The subsequent inputs can use the names of the module. |
+| `:{` | | Start an input of more than one line. The line `:}` is its end. |
+| `:set -XNAME` | `:set -XLambdaCase` | Set a language extension for the subsequent inputs. |
+| `:help` | | Show the commands. |
+| `:quit` | | Stop the session. |
+
+A new definition of a name hides the earlier definition.
+An exception in an input is a message, and the session continues.
+The code can write to the standard output and to the standard error.
+The code can read the files of the current directory.
+The code cannot read the standard input, write files, or use the network.
+
+| Option | Meaning |
+| --- | --- |
+| `--package CONSTRAINT`, `-p` | Add a package that an input can import. The package `base` is always available. |
+| `--build-root DIR` | Keep the files of the session under `DIR`. The default is a temporary directory. |
+
+The command has these limits:
+
+- A pattern match that fails stops the session, because the compiled code traps.
+- The location in a compiler message refers to the module that the command generates for the input.
+- An expression that has no `Show` instance and is not an action compiles four times before the command shows the message.
+- An import with an import list and a later definition of the same name give an ambiguous name.
 
 ## Install
 

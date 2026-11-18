@@ -182,6 +182,7 @@ library
     Aihc.Cli.PlayBundle
     Aihc.Cli.PlayBundleStore
     Aihc.Cli.Progress
+    Aihc.Cli.Repl
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Splice
     Aihc.Cli.Store

@@ -5,6 +5,7 @@ module Aihc.Cli.Options
     LinkExeOptions (..),
     PlanCommandOptions (..),
     PlanOptions (..),
+    ReplOptions (..),
     TestOptions (..),
     defaultPlanOptions,
     parseCommandIO,
@@ -22,6 +23,7 @@ data Command
   | CmdInstall !InstallOptions
   | CmdLinkExe !LinkExeOptions
   | CmdPlan !PlanCommandOptions
+  | CmdRepl !ReplOptions
   | CmdTest !TestOptions
   deriving (Eq, Show)
 
@@ -110,6 +112,19 @@ data TestOptions = TestOptions
     -- | The arguments that each test suite receives.
     testArguments :: ![String],
     testPlanOptions :: !PlanOptions
+  }
+  deriving (Eq, Show)
+
+-- | Read Haskell inputs and evaluate each of them in one WebAssembly
+-- instance.
+data ReplOptions = ReplOptions
+  { -- | The packages that an input can import, as constraints. The package
+    -- @base@ is always available.
+    replPackageConstraints :: ![String],
+    replStoreRoot :: !(Maybe FilePath),
+    -- | The directory of the session. The default is a temporary directory
+    -- that the command removes at its end.
+    replBuildRoot :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -239,12 +254,32 @@ commandParser =
               (OA.progDesc "Solve the dependency plan of a Cabal package, and print one line for each package in dependency order")
           )
         <> OA.command
+          "repl"
+          ( OA.info
+              (CmdRepl <$> replOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Read Haskell declarations, statements, and expressions, and evaluate each of them in one WebAssembly instance")
+          )
+        <> OA.command
           "test"
           ( OA.info
               (CmdTest <$> testOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Build the test suites of a Cabal package, or of every package of the project with all, and run each of them")
           )
     )
+
+replOptionsParser :: OA.Parser ReplOptions
+replOptionsParser =
+  ReplOptions
+    <$> OA.many
+      ( OA.strOption
+          ( OA.long "package"
+              <> OA.short 'p'
+              <> OA.metavar "CONSTRAINT"
+              <> OA.help "Add a package that an input can import"
+          )
+      )
+    <*> storeRootOption "Override the aihc store root"
+    <*> buildRootOption "Keep the files of the session under DIR. The default is a temporary directory"
 
 testOptionsParser :: OA.Parser TestOptions
 testOptionsParser =
