@@ -815,7 +815,7 @@ test_replSession getStore = do
                 replWriteOutput = \bytes -> modifyIORef' out (<> bytes),
                 replWriteError = \bytes -> modifyIORef' err (<> bytes)
               }
-      replSession (quietProgress SystemIO.stdout) id (ReplOptions [] (Just storeRoot) (Just (sandboxRoot sandbox </> "session"))) streams
+      replSession (\buildImage -> buildImage (quietProgress SystemIO.stdout)) id (ReplOptions [] (Just storeRoot) (Just (sandboxRoot sandbox </> "session"))) streams
       readIORef out >>= assertEqual "stdout" "3\nrun\n40\n\"new\"\n3\n"
       readIORef err >>= assertEqual "stderr" "*** Exception: Prelude.head: empty list\n"
 
