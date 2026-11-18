@@ -32,7 +32,7 @@ annotated:
       │   │       │                              ││    │  └─ type: p i a b → p (Curry js i) u v; type-args: p, i; evidence: given Pro p
       │   │       │                              ││    └─ type: p (Curry js i) u v → p (Curry is (Curry js i)) s t; type-args: p, Curry js i; evidence: given Pro p
       │   │       │                              │└─ type: p i a b
-      │   │       │                              └─ type: p i a b → p (Curry is (Curry js i)) s t
+      │   │       │                              └─ type: p i a b → p (Curry ks i) s t
       │   │       └─ type: IxEq i (Curry is (Curry js i)) (Curry ks i); type-args: is, js, ks, i; evidence: given AppendIndices is js ks
       │   └─ type: IxEq i (Curry is (Curry js i)) (Curry ks i); type-args: i, Curry is (Curry js i), Curry ks i; evidence: given Curry ks i ~ Curry is (Curry js i)
       └─ type: ∀ p i. (Pro p) ⇒ p i a b → p (Curry ks i) s t

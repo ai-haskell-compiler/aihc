@@ -46,17 +46,18 @@ import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
+import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Reify (reifyConStrictness, reifyInfo, reifyRoles)
-import Aihc.Th.Request (Request (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
+import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
+import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
 import Control.Monad (forM_, join, when)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Char (isUpper)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, nub)
 import Data.Map.Strict (Map)
@@ -144,7 +145,7 @@ runSplicesFor origin given action =
       recorded <- either (ioError . userError . T.unpack) pure (decodeTree bytes >>= resultTrees)
       let from = maybe (spliceRequestPackageId request) originPackageId ownOrigin
           renamed = Map.map (renamePackageId from (spliceRequestPackageId request)) recorded
-      action $ \index _ -> do
+      action $ \index _ _ -> do
         splice <- spliceAt index
         tree <- maybe (ioError (userError ("The recorded results in " <> path <> " have no result for splice " <> show index <> "."))) pure (Map.lookup index renamed)
         modifyIORef' results (Map.insert index tree)
@@ -177,12 +178,12 @@ runSplicesFor origin given action =
       withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
-        action $ \index localFacts -> do
+        action $ \index lookupName localFacts -> do
           splice <- spliceAt index
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
           requests <- newIORef []
           let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-          outcome <- try (runClosure engine (answerRequest fromGuest toGuest reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+          outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
           made <- reverse <$> readIORef requests
           forM_ [message | RequestReport False message <- made] $ \message ->
             hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
@@ -318,8 +319,8 @@ describeRequests made =
 -- an @Either String [Role]@ value. The reply to @reifyConStrictness@ is an
 -- @Either String [DecidedStrictness]@ value. The reply to @location@ is the
 -- @Loc@ value of the splice.
-answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest fromGuest toGuest reify location requests bytes =
+answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest fromGuest toGuest lookupName reify location requests bytes =
   case decodeTree bytes >>= requestFromTree . fromGuest of
     Right made -> do
       modifyIORef' requests (made :)
@@ -331,11 +332,30 @@ answerRequest fromGuest toGuest reify location requests bytes =
         RequestLocation -> pure (encodeTree location)
     Left message -> ioError (userError (T.unpack message))
   where
-    facts question name global = do
-      answer <- maybe (pure (Left ("The compiler can only give the facts of a name with a package and a module, and " <> name <> " does not have them."))) (reify question) global
+    facts question name requested =
+      case requested of
+        RequestGlobal global -> reply (reify question global)
+        RequestScoped scoped ->
+          case mapMaybe (`lookupName` scoped) (guessedNamespaces name) of
+            global : _ -> reply (reify question global)
+            [] -> reply (pure (Left (name <> " is not in scope at the splice.")))
+        RequestUnknown -> reply (pure (Left ("The compiler can only give the facts of a name with a package and a module, or of a name in scope at the splice, and " <> name <> " is not such a name.")))
+    reply ask = do
+      answer <- ask
       pure . encodeTree . toGuest $ case answer of
         Right value -> TreeNode "Right" [value]
         Left message -> TreeNode "Left" [TreeString message]
+
+-- | The namespaces where the compiler looks for a name with no package, in
+-- order. As with GHC, a name that starts with an upper-case letter or a
+-- colon is first a type constructor or a class, and then a data
+-- constructor.
+guessedNamespaces :: Text -> [ResolutionNamespace]
+guessedNamespaces name =
+  case T.uncons name of
+    Just (first, _)
+      | isUpper first || first == ':' -> [ResolutionNamespaceType, ResolutionNamespaceTerm]
+    _ -> [ResolutionNamespaceTerm]
 
 -- | The @Loc@ value of a splice: the source file, the package id, the
 -- module, and the start and the end of the splice. A splice with no source

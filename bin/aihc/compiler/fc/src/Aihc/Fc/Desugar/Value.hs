@@ -7447,9 +7447,22 @@ withDictionaries additions action = do
         | dictionary <- additions,
           EqPred left right <- [dictionaryPredicate dictionary]
         ]
-  modify' (\state -> state {vsDictionaries = updated, vsGivenEqualities = equalities <> previousEqualities})
+  previousGivenKinds <- gets (ceGivenKinds . vsConvertEnv)
+  -- A given kind equality can give a runtime representation to a type
+  -- whose kind is a variable (see 'withGivenKindEqualities').
+  modify' $ \state ->
+    state
+      { vsDictionaries = updated,
+        vsGivenEqualities = equalities <> previousEqualities,
+        vsConvertEnv = withGivenKindEqualities [(left, right) | (left, right, _) <- equalities] (vsConvertEnv state)
+      }
   result <- action
-  modify' (\state -> state {vsDictionaries = previous, vsGivenEqualities = previousEqualities})
+  modify' $ \state ->
+    state
+      { vsDictionaries = previous,
+        vsGivenEqualities = previousEqualities,
+        vsConvertEnv = (vsConvertEnv state) {ceGivenKinds = previousGivenKinds}
+      }
   pure result
   where
     insertDictionary dictionary =

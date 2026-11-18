@@ -955,10 +955,14 @@ runtimeRepresentationsEqual env left right =
 -- Evidence that two type variables are equal also equates their kinds.
 -- The heterogeneous given @v ~~ v'@ with @v : k -> TYPE rep@ and
 -- @v' : Type -> Type@ gives @k ~ Type@ and @rep ~ LiftedRep@.
+--
+-- Evidence that two arrow kinds are equal also equates their parts. The
+-- kind equality @k1 -> k2 -> k ~ Type -> Type -> Type@ of a match on
+-- @HRefl@ gives @k1 ~ Type@, @k2 ~ Type@ and @k ~ Type@.
 localEqualities :: TypeEnv -> [(Type, Type)]
 localEqualities env =
   concat
-    [ (left, right) : variableKindEqualities left right
+    [ (left, right) : arrowEqualities left right <> variableKindEqualities left right
     | binderType <- Map.elems (teBinders env),
       TyEq left right <- [reduceType env binderType]
     ]
@@ -968,6 +972,8 @@ localEqualities env =
         (Just leftKind, Just rightKind) -> splitKinds (reduceType env leftKind) (reduceType env rightKind)
         _ -> []
     variableKindEqualities _ _ = []
+    arrowEqualities left@TyFun {} right@TyFun {} = splitKinds (reduceType env left) (reduceType env right)
+    arrowEqualities _ _ = []
     splitKinds first second
       | first == second = []
     splitKinds (TyFun r1 r2 argument1 result1) (TyFun r1' r2' argument2 result2) =

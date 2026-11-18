@@ -10,6 +10,7 @@ module Aihc.Fc.Convert
     withUnresolvedKindVars,
     unresolvedKindVarBinders,
     withKindEnv,
+    withGivenKindEqualities,
     withClassTyCons,
     convertNestedType,
     convertNestedTypeWithExpectedKind,
@@ -118,7 +119,12 @@ data ConvertEnv = ConvertEnv
     -- | The visible top-level names of the module, as
     -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
     -- caller that knows of no export list, and keeps every name public.
-    ceExportedNames :: !(Maybe (Set (ResolutionNamespace, Text)))
+    ceExportedNames :: !(Maybe (Set (ResolutionNamespace, Text))),
+    -- | The kinds that the given equalities in scope give to kind
+    -- variables. A match on @HRefl@ can give @k1 ~ Type@. Then a type
+    -- @x :: k1@ has a runtime representation, as in the argument of
+    -- @x -> IO ()@.
+    ceGivenKinds :: !(Map Unique TcType)
   }
 
 emptyConvertEnv :: TcKinds -> PackageId -> ConvertEnv
@@ -131,7 +137,8 @@ emptyConvertEnv kinds package =
       ceKindEnv = Map.empty,
       ceClassTyCons = Set.empty,
       ceSynonymTyCons = Set.empty,
-      ceExportedNames = Nothing
+      ceExportedNames = Nothing,
+      ceGivenKinds = Map.empty
     }
 
 withClassTyCons :: [GlobalName] -> ConvertEnv -> ConvertEnv
@@ -458,13 +465,49 @@ convertPred env predicate =
 
 typeRep :: ConvertEnv -> TcType -> Either String Type
 typeRep env ty = do
-  kind <- typeKindInEnv env ty
+  kind <- refineGivenKind env <$> typeKindInEnv env ty
   case runtimeRepFromKind kind of
     Left message -> Left (message <> " for " <> show ty)
     Right runtimeRep ->
       case convertRep env runtimeRep of
         Left message -> Left (message <> " for " <> show ty)
         Right converted -> Right converted
+
+-- | Record the kinds that given equalities give to kind variables. The
+-- type checker gives the kind equality of a GADT match as a given, as the
+-- @(k2 ~ k1, b ~ a)@ of @HRefl@. Each equality splits into the equalities
+-- of its parts. A part with a variable on one side and another type on
+-- the other side gives the kind of the variable.
+withGivenKindEqualities :: [(TcType, TcType)] -> ConvertEnv -> ConvertEnv
+withGivenKindEqualities equalities env =
+  env {ceGivenKinds = Map.union (Map.fromList (concatMap (uncurry split) equalities)) (ceGivenKinds env)}
+  where
+    split left right
+      | left == right = []
+    split (TcFunTy leftArgument leftResult) (TcFunTy rightArgument rightResult) =
+      split leftArgument rightArgument <> split leftResult rightResult
+    split (TcTyConApp left leftKinds leftArguments) (TcTyConApp right rightKinds rightArguments)
+      | left == right,
+        length leftKinds == length rightKinds,
+        length leftArguments == length rightArguments =
+          concat (zipWith split (leftKinds <> leftArguments) (rightKinds <> rightArguments))
+    split (TcTyVar _) (TcTyVar _) = []
+    split (TcTyVar variable) other = [(tvUnique variable, other)]
+    split other (TcTyVar variable) = [(tvUnique variable, other)]
+    split _ _ = []
+
+-- | Rewrite a kind variable with the kind that a given equality gives it.
+-- The number of steps has a limit, so a cyclic given cannot stop the
+-- rewrite from ending.
+refineGivenKind :: ConvertEnv -> TcType -> TcType
+refineGivenKind env = go (Map.size (ceGivenKinds env))
+  where
+    go fuel kind@(TcTyVar variable)
+      | fuel > 0,
+        Just refined <- Map.lookup (tvUnique variable) (ceGivenKinds env) =
+          go (fuel - 1) refined
+      | otherwise = kind
+    go _ kind = kind
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
 typeKindInEnv env = Tc.typeKindInEnv (ceKinds env) (ceKindEnv env)
