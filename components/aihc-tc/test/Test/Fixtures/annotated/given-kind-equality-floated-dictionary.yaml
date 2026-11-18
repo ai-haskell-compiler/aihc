@@ -1,0 +1,134 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, PatternSynonyms, ViewPatterns #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+       └─ type: k1 → k2 → Type
+    HRefl :: HEq a a
+    └─ type: ∀ k1 a k2 b. (k2 ~ k1, b ~ a) ⇒ HEq a b
+  data Rep (a :: k) = Rep
+       │              └─ type: ∀ k a. Rep a
+       └─ type: k → Type
+  data AppView (t :: k2) where
+       └─ type: k2 → Type
+    IsApp :: forall k2 (t :: k2) k1 (f :: k1 -> k2) (x :: k1). (t ~ f x) => Rep f -> Rep x -> AppView t
+    └─ type: ∀ k2 t k1 f x. (t ~ (f x)) ⇒ Rep f → Rep x → AppView t
+    NotApp :: AppView t
+    └─ type: ∀ k2 t. AppView t
+  splitApp :: forall k (a :: k). Rep a -> AppView a
+  splitApp _ = NotApp
+  │        │   └─ type: AppView a; type-args: k, a
+  │        └─ type: Rep a
+  └─ type: ∀ k a. Rep a → AppView a
+  pattern App :: forall k2 (t :: k2). () => forall k1 (f :: k1 -> k2) (x :: k1). (t ~ f x) => Rep f -> Rep x -> Rep t
+  pattern App f x <- (splitApp -> IsApp f x)
+  │                   ││           │     │ └─ type: Rep x
+  │                   ││           │     └─ type: Rep f
+  │                   ││           └─ type: Rep f → Rep x → AppView t; type-args: k2, t, k1, f, x; evidence: given t ~ f x
+  │                   └─ type: Rep t → AppView t; type-args: k2, t
+  │                   └─ type: Rep t
+  └─ type: ∀ k2 t k1 f x. (t ~ (f x)) ⇒ Rep f → Rep x → Rep t
+  data Maybe a = Nothing | Just a
+       │         │         └─ type: ∀ a. a → Maybe a
+       │         └─ type: ∀ a. Maybe a
+       └─ type: Type → Type
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  │     │ │   └─ type: Maybe (HEq a b); type-args: HEq a b
+  │     │ └─ type: Rep b
+  │     └─ type: Rep a
+  └─ type: ∀ k0 k1 a b. Rep a → Rep b → Maybe (HEq a b)
+  data SomeRep where
+       └─ type: Type
+    SomeRep :: forall k (a :: k). Rep a -> SomeRep
+    └─ type: ∀ k a. Rep a → SomeRep
+  data Box (a :: Type) = Box
+       │                 └─ type: ∀ a. Box a
+       └─ type: Type → Type
+  class Get a where
+  └─ class methods: get ∷ ∀ a. (Get a) ⇒ a
+    get :: a
+  newtype Ptr a = Ptr a
+          │       └─ type: ∀ a. a → Ptr a
+          └─ type: Type → Type
+  instance Get (Ptr a) where
+  └─ $fGetPtra ∷ ∀ a. () ⇒ Get (Ptr a)
+    get = get
+    │     └─ type: Ptr a; type-args: Ptr a; evidence: $fGetPtra @a
+    └─ get ∷ Ptr a
+  deref :: Ptr a -> a
+  deref (Ptr a) = a
+  │      │   └─ type: a
+  │      └─ type: Ptr a
+  └─ type: ∀ a. Ptr a → a
+  use :: SomeRep -> ()
+  use some = case some of
+  │   │      └─ type: ()
+  │   └─ type: SomeRep
+  └─ type: SomeRep → ()
+    SomeRep (tr :: Rep ty) -> case tr of
+    │        └─ type: Rep a   └─ type: ()
+    └─ type: Rep a → SomeRep; type-args: k, a
+      App (f :: Rep f) (r :: Rep r) -> case eqRep f (Rep :: Rep Maybe) of
+      │    │            └─ type: Rep x │    │        └─ type: Rep Maybe; type-args: Type → Type, Maybe
+      │    └─ type: Rep f              │    └─ type: Rep f → Rep Maybe → Maybe (HEq f Maybe); type-args: k1 → k, Type → Type, f, Maybe
+      │                                └─ type: ()
+      └─ type: Rep f → Rep x → Rep a; type-args: k, a, k1, f, x; evidence: given a ~ f x
+        Just HRefl -> case deref get of
+        │    │        │    │     └─ type: Ptr (Box x); type-args: Ptr (Box x); evidence: $fGetPtra @Box x
+        │    │        │    └─ type: Ptr (Box x) → Box x; type-args: Box x
+        │    │        └─ type: ()
+        │    └─ type: HEq f Maybe; type-args: k1 → k, f, Type → Type, Maybe; evidence: given Type → Type ~ k1 → k, given Maybe ~ f
+        └─ type: Maybe (HEq f Maybe)
+          (Box :: Box r) -> ()
+           └─ type: Box x   └─ type: ()
+        Nothing -> ()
+        │          └─ type: ()
+        └─ type: Maybe (HEq f Maybe)
+      _ -> ()
+      │    └─ type: ()
+      └─ type: Rep a
+extensions:
+- GADTs
+- PolyKinds
+- PatternSynonyms
+- ViewPatterns
+modules:
+- |
+  {-# LANGUAGE GADTs, KindSignatures, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, PatternSynonyms, ViewPatterns #-}
+  module Test where
+  import GHC.Types (Type)
+  data HEq (a :: k1) (b :: k2) where
+    HRefl :: HEq a a
+  data Rep (a :: k) = Rep
+  data AppView (t :: k2) where
+    IsApp :: forall k2 (t :: k2) k1 (f :: k1 -> k2) (x :: k1). (t ~ f x) => Rep f -> Rep x -> AppView t
+    NotApp :: AppView t
+  splitApp :: forall k (a :: k). Rep a -> AppView a
+  splitApp _ = NotApp
+  pattern App :: forall k2 (t :: k2). () => forall k1 (f :: k1 -> k2) (x :: k1). (t ~ f x) => Rep f -> Rep x -> Rep t
+  pattern App f x <- (splitApp -> IsApp f x)
+  data Maybe a = Nothing | Just a
+  eqRep :: Rep a -> Rep b -> Maybe (HEq a b)
+  eqRep _ _ = Nothing
+  data SomeRep where
+    SomeRep :: forall k (a :: k). Rep a -> SomeRep
+  data Box (a :: Type) = Box
+  class Get a where
+    get :: a
+  newtype Ptr a = Ptr a
+  instance Get (Ptr a) where
+    get = get
+  deref :: Ptr a -> a
+  deref (Ptr a) = a
+  use :: SomeRep -> ()
+  use some = case some of
+    SomeRep (tr :: Rep ty) -> case tr of
+      App (f :: Rep f) (r :: Rep r) -> case eqRep f (Rep :: Rep Maybe) of
+        Just HRefl -> case deref get of
+          (Box :: Box r) -> ()
+        Nothing -> ()
+      _ -> ()
+status: pass
+reason: a wanted dictionary leaves a branch with a match on HRefl, and the kind computation of its instance match uses the given kind equality of the branch
