@@ -34,6 +34,9 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum (..))
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Word (Word64)
@@ -100,8 +103,8 @@ data ReadyTask = ReadyTask !TaskKind !Int !TaskId
 
 data TaskState = TaskState
   { stateReady :: !(Set ReadyTask),
-    stateWaitCounts :: !(Map TaskId Int),
-    stateDependents :: !(Map TaskId [TaskId]),
+    stateWaitCounts :: !(MonoidMap TaskId (Sum Int)),
+    stateDependents :: !(MonoidMap TaskId [TaskId]),
     -- | The tasks that ran, which a task added later can depend on.
     stateCompleted :: !(Set TaskId),
     -- | The tasks added and not yet run, the running ones among them.
@@ -129,7 +132,7 @@ runTaskGraphWith observer requestedWorkers seed = do
   graph <-
     TaskGraph
       <$> newTVarIO Map.empty
-      <*> newTVarIO (TaskState Set.empty Map.empty Map.empty Set.empty 0)
+      <*> newTVarIO (TaskState Set.empty MonoidMap.empty MonoidMap.empty Set.empty 0)
       <*> newTVarIO 0
       <*> newIORef []
   seed graph
@@ -171,15 +174,15 @@ addTasks graph tasks = do
       let waiting = Set.size (taskDependencies task Set.\\ stateCompleted state)
        in state
             { stateReady = if waiting == 0 then Set.insert (readyTask task) (stateReady state) else stateReady state,
-              stateWaitCounts = Map.insert (taskId task) waiting (stateWaitCounts state),
+              stateWaitCounts = MonoidMap.set (taskId task) (Sum waiting) (stateWaitCounts state),
               stateDependents = addTaskDependents (stateDependents state) task,
               stateRemaining = stateRemaining state + 1
             }
 
-addTaskDependents :: Map TaskId [TaskId] -> Task -> Map TaskId [TaskId]
+addTaskDependents :: MonoidMap TaskId [TaskId] -> Task -> MonoidMap TaskId [TaskId]
 addTaskDependents dependents task =
   foldl'
-    (\result dependency -> Map.insertWith (<>) dependency [taskId task] result)
+    (flip (MonoidMap.adjust (taskId task :)))
     dependents
     (Set.toList (taskDependencies task))
 
@@ -225,20 +228,19 @@ completeTask graph (ReadyTask _ _ identifier) = do
   modifyTVar' (graphTasks graph) (Map.adjust (\task -> task {taskAction = pure ()}) identifier)
   where
     complete taskMap state =
-      let dependents = Map.findWithDefault [] identifier (stateDependents state)
+      let dependents = MonoidMap.get identifier (stateDependents state)
           (waitCounts, newlyReady) = foldl' (unlock taskMap) (stateWaitCounts state, []) dependents
        in state
             { stateReady = stateReady state <> Set.fromList newlyReady,
               stateWaitCounts = waitCounts,
-              stateDependents = Map.delete identifier (stateDependents state),
+              stateDependents = MonoidMap.nullify identifier (stateDependents state),
               stateCompleted = Set.insert identifier (stateCompleted state),
               stateRemaining = stateRemaining state - 1
             }
 
     unlock taskMap (waitCounts, ready) dependent =
-      let nextCount = Map.findWithDefault 0 dependent waitCounts - 1
-          nextWaitCounts = Map.insert dependent nextCount waitCounts
-       in if nextCount == 0
+      let nextWaitCounts = MonoidMap.adjust (subtract 1) dependent waitCounts
+       in if MonoidMap.nullKey dependent nextWaitCounts
             then case Map.lookup dependent taskMap of
               Just task -> (nextWaitCounts, readyTask task : ready)
               Nothing -> error "missing dependent task"
