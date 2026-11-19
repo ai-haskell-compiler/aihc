@@ -430,7 +430,7 @@ runAnalysis limit program = runST $ do
   functions <- readSTRef (solverFunctions solver)
   evalNodes <- readSTRef (solverEvalNodes solver)
   statics <- readSTRef (solverStatics solver)
-  let usesByFunction = Map.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program]
+  let usesByFunction = MonoidMap.fromMap (Map.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program])
       shared = sharedLocations sets locationNodes functions evalNodes variables usesByFunction (IntSet.fromList (Map.elems statics))
       captures = any (capturesContinuation . grinFunctionBody) (grinFunctions program)
       singleEntry
@@ -1148,7 +1148,7 @@ sharedLocations ::
   Map FunctionName FunctionInfo ->
   Map FunctionName Int ->
   MonoidMap FunctionName (Map GrinVar Int) ->
-  Map FunctionName (MonoidMap GrinVar (Sum Int)) ->
+  MonoidMap FunctionName (MonoidMap GrinVar (Sum Int)) ->
   IntSet ->
   IntSet
 sharedLocations sets locationNodes functions evalNodes variables uses statics =
@@ -1171,7 +1171,7 @@ sharedLocations sets locationNodes functions evalNodes variables uses statics =
                 field <- fields
               ]
             : [ setOf node
-              | (functionName, counts) <- Map.toList uses,
+              | (functionName, counts) <- MonoidMap.toList uses,
                 let nodes = MonoidMap.get functionName variables,
                 (var, count) <- MonoidMap.toList counts,
                 count >= 2,
