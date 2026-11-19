@@ -28,6 +28,7 @@ module Aihc.Cli.Install
     installPlans,
     installWith,
     installWithConfig,
+    withFileLock,
     installTargetRoot,
     TargetRoot (..),
     newModuleCompileConfig,

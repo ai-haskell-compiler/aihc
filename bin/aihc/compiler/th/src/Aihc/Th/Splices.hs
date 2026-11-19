@@ -39,6 +39,7 @@ module Aihc.Th.Splices
     splicePackageName,
     splicePackageVersion,
     splicePackageId,
+    splicePackageRoot,
     spliceResultsPath,
     spliceClosureName,
     spliceModuleText,
@@ -62,7 +63,7 @@ import Data.Text qualified as T
 import Data.Typeable (eqT, (:~:) (Refl))
 import Prettyprinter (LayoutOptions (..), PageWidth (..), hardline, indent, layoutPretty, pretty, vsep)
 import Prettyprinter.Render.Text (renderStrict)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 -- | What the compiler needs to run the splices of one module.
 data SpliceRequest = SpliceRequest
@@ -73,7 +74,8 @@ data SpliceRequest = SpliceRequest
     spliceRequestModule :: !Text,
     -- | The store without the directory of a target.
     spliceRequestStoreRoot :: !FilePath,
-    -- | A directory for the files of this module.
+    -- | A directory for the files of this module. Its parent directory is
+    -- the 'splicePackageRoot' of the package.
     spliceRequestBuildRoot :: !FilePath,
     -- | The directory of the Cabal file of the package. A splice can read
     -- the files in it, and a relative path in a splice starts at it, as
@@ -314,14 +316,24 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
         EAnn _ inner -> explicitSplice inner
         _ -> expr
 
--- | The name of the splice package. Each module has its own package, so
--- the symbols of two splice modules in one image are different.
+-- | The name of the splice package. All modules of one package use the
+-- same splice package. Thus the copies of the modules of the package have
+-- the same names for each module that has splices, and the build of the
+-- splice package compiles each copy only one time. Each engine loads the
+-- splice package of one module only, so the symbols do not collide.
 splicePackageName :: SpliceRequest -> Text
 splicePackageName request =
-  T.intercalate "-" ("aihc-splice" : map part [spliceRequestPackage request, spliceRequestModule request])
+  T.intercalate "-" ["aihc-splice", part (spliceRequestPackage request)]
   where
     -- A package name has letters, digits, and hyphens.
     part = T.map (\char -> if isAlphaNum char then toLower char else '-')
+
+-- | The directory of the splice package of the package of a request. The
+-- modules of one package share this directory, and the build of the
+-- splice package uses the units that an earlier module compiled. The
+-- build root of a request is a subdirectory of this directory.
+splicePackageRoot :: SpliceRequest -> FilePath
+splicePackageRoot request = takeDirectory (spliceRequestBuildRoot request)
 
 splicePackageVersion :: Text
 splicePackageVersion = "0"
@@ -336,8 +348,8 @@ splicePackageId request = splicePackageName request <> "-" <> splicePackageVersi
 spliceResultsPath :: SpliceRequest -> FilePath
 spliceResultsPath request = spliceRequestBuildRoot request </> "results.tree"
 
--- | The name of the splice module. The package of the splice module is
--- different for each original module, so one name is sufficient.
+-- | The name of the splice module. Each engine loads the splice package of
+-- one module only, so one name is sufficient.
 spliceModuleName :: Text
 spliceModuleName = "AihcSplice"
 

@@ -38,7 +38,7 @@ module Aihc.Cli.Splice
 where
 
 import Aihc.Cli.Build (buildWithConfig)
-import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
+import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig, withFileLock)
 import Aihc.Cli.ModuleProvider (moduleNameDirectory, readTypeArtifactFile)
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
@@ -52,7 +52,7 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace 
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
 import Aihc.Th.Reify (exportedFixity, fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
-import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
+import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageRoot, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
 import Control.Exception (IOException, catch, try)
@@ -124,7 +124,7 @@ runSplicesFor origin given action =
       case spliceRequestUnavailableImports request of
         [] -> ""
         names -> "\nThe splices of the module cannot use these modules of its own package, because they are in the same import cycle as the module: " <> intercalate ", " (map T.unpack names) <> "."
-    packageDirectory = root </> "package"
+    packageDirectory = splicePackageRoot request </> "package"
     package = splicePackageName request
     packageIds = (splicePackageId request, spliceRequestPackageId request)
     run = do
@@ -157,50 +157,55 @@ runSplicesFor origin given action =
     runEngine results = do
       absolute <- absoluteRequest request
       image <- buildImage request
-      createDirectoryIfMissing True (packageDirectory </> "src")
-      writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription absolute)
-      TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
-      mapM_ (copyOwnModule absolute (packageDirectory </> "src")) (spliceRequestOwnModules absolute)
-      packageRoot <- makeAbsolute (spliceRequestPackageRoot request)
-      let nested =
-            SpliceOrigin
-              { originSplicePackage = package,
-                originPackageRoot = packageRoot,
-                originPackageId = spliceRequestPackageId request,
-                originResults = Map.fromList (spliceRequestOwnResults absolute)
-              }
-          withOriginalFiles config = config {compileSplices = Just (runSplicesFor (Just nested))}
-      installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withOriginalFiles
-      let shared = root </> "splices.wasm"
-      linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
-      packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
-      storeFacts <- newReifier (Map.map snd packages)
-      storeFixity <- newFixityReader (Map.map snd packages)
-      let fromGuest = fromSplice packageIds (primPackageId packages)
-          toGuest = toSplice packageIds
-      withEngine (Just packageRoot) image $ \engine -> do
-        startGuest engine
-        loadSharedModule engine shared
-        action $ \index lookupName localFacts localFixity -> do
-          splice <- spliceAt index
-          let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
-              fixity global = localFixity global >>= maybe (storeFixity global) (pure . Right)
-          requests <- newIORef []
-          let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-          outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify fixity location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
-          made <- reverse <$> readIORef requests
-          forM_ [message | RequestReport False message <- made] $ \message ->
-            hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
-          -- A report of an error is the cause of a failure of the closure,
-          -- so the report comes before the failure itself.
-          case (reportedFailure made, outcome) of
-            (Just message, _) -> ioError (userError (T.unpack message))
-            (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
-            (Nothing, Right [message]) -> do
-              tree <- either (ioError . userError . T.unpack) (pure . fromGuest) (decodeTree message)
-              modifyIORef' results (Map.insert index tree)
-              either (ioError . userError . T.unpack) pure (convertResult splice tree)
-            (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
+      -- The modules of the package share the directory of the splice
+      -- package. The lock keeps the build, the link, and the reads of
+      -- @reify@ of one module from the writes of the build of another
+      -- module.
+      withFileLock (splicePackageRoot request </> "package.lock") $ do
+        createDirectoryIfMissing True (packageDirectory </> "src")
+        writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription absolute)
+        TIO.writeFile (packageDirectory </> "src" </> T.unpack spliceModuleName <> ".hs") (spliceModuleText request)
+        mapM_ (copyOwnModule absolute (packageDirectory </> "src")) (spliceRequestOwnModules absolute)
+        packageRoot <- makeAbsolute (spliceRequestPackageRoot request)
+        let nested =
+              SpliceOrigin
+                { originSplicePackage = package,
+                  originPackageRoot = packageRoot,
+                  originPackageId = spliceRequestPackageId request,
+                  originResults = Map.fromList (spliceRequestOwnResults absolute)
+                }
+            withOriginalFiles config = config {compileSplices = Just (runSplicesFor (Just nested))}
+        installed <- installWithConfig (quietProgress stdout) (packageOptions request packageDirectory) withOriginalFiles
+        let shared = root </> "splices.wasm"
+        linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack package <> ".a"]
+        packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
+        storeFacts <- newReifier (Map.map snd packages)
+        storeFixity <- newFixityReader (Map.map snd packages)
+        let fromGuest = fromSplice packageIds (primPackageId packages)
+            toGuest = toSplice packageIds
+        withEngine (Just packageRoot) image $ \engine -> do
+          startGuest engine
+          loadSharedModule engine shared
+          action $ \index lookupName localFacts localFixity -> do
+            splice <- spliceAt index
+            let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
+                fixity global = localFixity global >>= maybe (storeFixity global) (pure . Right)
+            requests <- newIORef []
+            let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
+            outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify fixity location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+            made <- reverse <$> readIORef requests
+            forM_ [message | RequestReport False message <- made] $ \message ->
+              hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
+            -- A report of an error is the cause of a failure of the closure,
+            -- so the report comes before the failure itself.
+            case (reportedFailure made, outcome) of
+              (Just message, _) -> ioError (userError (T.unpack message))
+              (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
+              (Nothing, Right [message]) -> do
+                tree <- either (ioError . userError . T.unpack) (pure . fromGuest) (decodeTree message)
+                modifyIORef' results (Map.insert index tree)
+                either (ioError . userError . T.unpack) pure (convertResult splice tree)
+              (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
 
 -- | The result of a splice from its tree.
 convertResult :: Splice -> Tree -> Either Text SpliceResult
@@ -516,7 +521,7 @@ packageOptions request directory =
   InstallOptions
     { installPackageTarget = directory,
       installStoreRoot = Just (spliceRequestStoreRoot request),
-      installBuildRoot = Just (spliceRequestBuildRoot request </> "package-build"),
+      installBuildRoot = Just (splicePackageRoot request </> "package-build"),
       installImmutable = False,
       installKeepCore = False,
       installKeepGrin = False,
