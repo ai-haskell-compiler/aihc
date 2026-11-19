@@ -107,6 +107,7 @@ const kitUrl = "http://127.0.0.1:" + kitServer.address().port + "/";
 const programs = {
   hello: await readFile(join(here, "Hello.hs"), "utf8"),
   echo: await readFile(join(here, "Echo.hs"), "utf8"),
+  count: await readFile(join(here, "Count.hs"), "utf8"),
   wrong: await readFile(join(here, "Wrong.hs"), "utf8"),
 };
 const page = `<!doctype html>
@@ -143,6 +144,12 @@ try {
   // A program can run again.
   result.helloAgain = await run(hello);
   result.echo = await run(await build("echo"), "first line\\nsecond line\\n");
+  // A program that prints many lines. Each line is one write to the host.
+  const count = await build("count");
+  const start = performance.now();
+  result.count = await run(count);
+  result.countSeconds = (performance.now() - start) / 1000;
+  await log("Count.hs ran for " + result.countSeconds.toFixed(2) + " seconds");
   result.sizeAfter = await aihc.downloadSize();
   await send("/result", { ok: true, result });
 } catch (error) {
@@ -225,6 +232,10 @@ await expect("the problem of Wrong.hs is on line 4", result.wrong.diagnostics.ma
 await expect("Hello.hs prints its greeting", result.hello, { exitCode: 0, stdout: "Hello from AIHC in the browser!\n", stderr: "" });
 await expect("Hello.hs gives the same output on a second run", result.helloAgain, result.hello);
 await expect("Echo.hs reads standard input and sets its exit code", result.echo, { exitCode: 1, stdout: "FIRST LINE\nSECOND LINE\n", stderr: "2 lines\n" });
+const numbers = Array.from({ length: 2000 }, (_, index) => index + 1 + "\n").join("");
+await expect("Count.hs prints 2000 lines", result.count, { exitCode: 0, stdout: numbers, stderr: "" });
+// With the slow timers of jco, each line took 16 ms and the run took 32 seconds.
+await expect("Count.hs prints its lines in less than 10 seconds", result.countSeconds < 10, true);
 await expect("the browser cache has all the files after the test", result.sizeAfter.missing, 0);
 await expect("the download size is the size of the glue, the compiler, and the linker", result.sizeBefore.total, manifest.files.filter((file) => file.group !== "doc").reduce((sum, file) => sum + file.bytes, 0));
 await cleanUp();

@@ -5,7 +5,7 @@
 //   { role: "program", files, stdin }    One compiled program.
 // A compiler worker does one request at a time, in the order of the
 // requests. Each program has its own worker, memory, and lifetime.
-import { createImports } from "./host.js";
+import { createImports, quickTimers } from "./host.js";
 import { createDownloads, decodePack } from "./manifest.js";
 
 const encoder = new TextEncoder();
@@ -187,6 +187,8 @@ async function runProgram({ files, stdin }) {
   const out = new TextDecoder();
   const err = new TextDecoder();
   const host = {
+    // This worker runs only the program, so its short timers can run at once.
+    wake: quickTimers(),
     nextInput: async () => input.shift() ?? new Uint8Array(),
     write: (bytes) => postMessage({ type: "stdout", text: out.decode(bytes, { stream: true }) }),
     writeErr: (bytes) => postMessage({ type: "stderr", text: err.decode(bytes, { stream: true }) }),
