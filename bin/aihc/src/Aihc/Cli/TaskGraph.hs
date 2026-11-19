@@ -240,7 +240,7 @@ completeTask graph (ReadyTask _ _ identifier) = do
 
     unlock taskMap (waitCounts, ready) dependent =
       let nextWaitCounts = MonoidMap.adjust (subtract 1) dependent waitCounts
-       in if MonoidMap.get dependent nextWaitCounts == 0
+       in if MonoidMap.nullKey dependent nextWaitCounts
             then case Map.lookup dependent taskMap of
               Just task -> (nextWaitCounts, readyTask task : ready)
               Nothing -> error "missing dependent task"
