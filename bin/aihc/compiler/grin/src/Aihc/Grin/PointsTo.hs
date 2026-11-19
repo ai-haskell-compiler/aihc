@@ -383,7 +383,7 @@ runAnalysis limit program = runST $ do
   when (unknown /= unknownLocation || unknownValue /= unknownValueLocation) (error "points-to: the unknown locations must come first")
   -- The parameters and the results of every function exist before any
   -- body refers to them.
-  functionVars <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
+  functionVars <- fmap (MonoidMap.fromMap . Map.fromList) $ forM (grinFunctions program) $ \function -> do
     parameters <- mapM (newSlot solver . grinVarRuntimeRep) (grinFunctionParameters function)
     results <-
       case resultRepComponents (grinFunctionResultRep function) of
@@ -417,7 +417,7 @@ runAnalysis limit program = runST $ do
   variables <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
     let name = grinFunctionName function
     info <- lookupFunction solver name
-    varsRef <- newSTRef (Map.findWithDefault Map.empty name functionVars)
+    varsRef <- newSTRef (MonoidMap.get name functionVars)
     for_ info $ \known -> generateExpr solver varsRef (functionResults known) (grinFunctionBody function)
     (,) name <$> readSTRef varsRef
   solve solver
