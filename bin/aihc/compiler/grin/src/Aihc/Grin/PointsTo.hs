@@ -383,7 +383,7 @@ runAnalysis limit program = runST $ do
   when (unknown /= unknownLocation || unknownValue /= unknownValueLocation) (error "points-to: the unknown locations must come first")
   -- The parameters and the results of every function exist before any
   -- body refers to them.
-  functionVars <- fmap (MonoidMap.fromMap . Map.fromList) $ forM (grinFunctions program) $ \function -> do
+  functionVars <- fmap MonoidMap.fromList $ forM (grinFunctions program) $ \function -> do
     parameters <- mapM (newSlot solver . grinVarRuntimeRep) (grinFunctionParameters function)
     results <-
       case resultRepComponents (grinFunctionResultRep function) of
@@ -414,7 +414,7 @@ runAnalysis limit program = runST $ do
     for_ known $ \info -> do
       mapM_ (unknownSlot solver) (functionParameters info)
       escapeResults solver (functionResults info)
-  variables <- fmap (MonoidMap.fromMap . Map.fromList) $ forM (grinFunctions program) $ \function -> do
+  variables <- fmap MonoidMap.fromList $ forM (grinFunctions program) $ \function -> do
     let name = grinFunctionName function
     info <- lookupFunction solver name
     varsRef <- newSTRef (MonoidMap.get name functionVars)
@@ -430,7 +430,7 @@ runAnalysis limit program = runST $ do
   functions <- readSTRef (solverFunctions solver)
   evalNodes <- readSTRef (solverEvalNodes solver)
   statics <- readSTRef (solverStatics solver)
-  let usesByFunction = MonoidMap.fromMap (Map.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program])
+  let usesByFunction = MonoidMap.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program]
       shared = sharedLocations sets locationNodes functions evalNodes variables usesByFunction (IntSet.fromList (Map.elems statics))
       captures = any (capturesContinuation . grinFunctionBody) (grinFunctions program)
       singleEntry
