@@ -49,7 +49,7 @@ import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStore
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (OperatorFixity)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
-import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, typeResultFromTree)
+import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, patternResultFromTree, typeResultFromTree)
 import Aihc.Th.Reify (exportedFixity, fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
 import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
@@ -208,6 +208,7 @@ convertResult splice tree =
   case splice of
     ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
     TypeSplice _ -> TypeResult <$> typeResultFromTree tree
+    PatternSplice _ -> PatternResult <$> patternResultFromTree tree
     DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
 
 -- | The trees of a file of splice results, by the position of the splice.

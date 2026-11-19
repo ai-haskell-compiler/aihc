@@ -585,6 +585,7 @@ splicesTest = do
       case splice of
         ExpressionSplice body -> ("expression" :: Text, render body)
         TypeSplice body -> ("type", render body)
+        PatternSplice body -> ("pattern", render body)
         DeclarationSplice body -> ("declaration", render body)
     declarationOf source =
       case parseModule defaultConfig (T.unlines ["module D where", source]) of

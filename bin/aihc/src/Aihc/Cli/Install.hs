@@ -2029,7 +2029,7 @@ addModuleBuild graph shared build = do
 moduleSpliceRequest :: InstallShared -> ModuleBuild -> HackageCabal.FileInfo -> SourceModule -> IO (Maybe SpliceRequest)
 moduleSpliceRequest shared build file source =
   case compileSplices (moduleBuildConfig build) of
-    Just _ | Syntax.TemplateHaskell `elem` sourceModuleExtensions source -> do
+    Just _ | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.QuasiQuotes] -> do
       modu <- readMVar (sourceModuleParsed source)
       pure $
         if null (moduleSplices modu)
@@ -3079,11 +3079,13 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                   ExpressionSplice body -> body
                   DeclarationSplice body -> body
                   TypeSplice body -> body
+                  PatternSplice body -> body
               withBody splice body =
                 case splice of
                   ExpressionSplice _ -> ExpressionSplice body
                   DeclarationSplice _ -> DeclarationSplice body
                   TypeSplice _ -> TypeSplice body
+                  PatternSplice _ -> PatternSplice body
               resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
               desugaredSplices =
                 zipWith
@@ -3160,6 +3162,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
         DeclarationResult decls -> length decls
         ExpressionResult _ -> 0
         TypeResult _ -> 0
+        PatternResult _ -> 0
     -- The declarations above a splice as a module of their own, with no
     -- export list: the export list can name a declaration below.
     prefixModuleUnit moduleUnit modu prefix =

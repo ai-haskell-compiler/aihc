@@ -2,10 +2,12 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
 
 import Data.Proxy (Proxy)
+import Data.Ratio ((%))
 import Language.Haskell.TH
+import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Lower (Mode, lowerValue)
 import Tone (Label (..), Tone (..))
 
@@ -69,3 +71,26 @@ deriveLabel name =
 
 labelText :: (Label a) => a -> String
 labelText = label
+
+-- | A quasi-quoter for the four positions of a quasi-quote. The text of an
+-- expression or a pattern is a fraction, such as @1/4@. The text of a
+-- declaration is a name and a fraction. Each type is 'Double'.
+fraction :: QuasiQuoter
+fraction =
+  QuasiQuoter
+    { quoteExp = litE . rationalL . parseFraction,
+      quotePat = litP . rationalL . parseFraction,
+      quoteType = const [t|Double|],
+      quoteDec = \text -> case words text of
+        [name, value] ->
+          sequence
+            [ sigD (mkName name) [t|Double|],
+              valD (varP (mkName name)) (normalB (litE (rationalL (parseFraction value)))) []
+            ]
+        _ -> fail "fraction: a declaration needs a name and a fraction"
+    }
+  where
+    parseFraction text =
+      case break (== '/') text of
+        (top, '/' : bottom) -> read top % read bottom
+        _ -> fromInteger (read text)
