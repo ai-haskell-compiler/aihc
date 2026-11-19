@@ -53,6 +53,8 @@ where
 
 import Aihc.Parser.Syntax
   ( BuiltinCon (..),
+    ForallTelescope (..),
+    ForallVis (..),
     Name (..),
     NameType (..),
     SourceSpan,
@@ -77,7 +79,7 @@ import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (normalizeFamilyPred)
+import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
@@ -270,9 +272,56 @@ standaloneKindSigToScheme ty = do
             [ (paramName param, (paramTyVar param, paramKind param))
             | param <- explicitParams
             ]
-  body <- kindFromSurfaceType tyVarEnv bodyType
-  let (nestedTyVars, body') = prenexKindForalls body
-  pure (specifiedScheme (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
+  if hasVisibleForall ty
+    then do
+      (spineTyVars, marks, body) <- visibleDependentKind implicitEnv 0 ty
+      pure (specifiedScheme (implicitTyVars <> spineTyVars) marks body)
+    else do
+      body <- kindFromSurfaceType tyVarEnv bodyType
+      let (nestedTyVars, body') = prenexKindForalls body
+      pure (specifiedScheme (implicitTyVars <> explicitTyVars <> nestedTyVars) [] body')
+  where
+    -- Whether the result spine of the signature has a visible dependent
+    -- binder, as @forall (a :: Type) -> TYPE (Rep a)@.
+    hasVisibleForall signature =
+      case peelTypeHead signature of
+        TForall (ForallTelescope ForallVisible _) _ -> True
+        TForall _ inner -> hasVisibleForall inner
+        TFun _ _ result -> hasVisibleForall result
+        _ -> False
+
+-- | The kind of a standalone kind signature with a visible dependent
+-- binder. Each binder of the result spine becomes a binder of the scheme.
+-- A visible binder is also one visible argument, and the scheme gets a
+-- mark for it (see 'visibleDependentPred'). The position is the count of
+-- the visible arguments before this part of the signature.
+visibleDependentKind :: TvKindEnv -> Int -> Type -> TcM ([TyVarId], [Pred], TcType)
+visibleDependentKind tvEnv position ty =
+  case peelTypeHead ty of
+    TForall telescope@(ForallTelescope visibility _) inner -> do
+      params <- makeParamEnvWith tvEnv (forallTelescopeBinders telescope)
+      -- A binder shadows an outer variable of the same name.
+      let tvEnv' = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params] <> tvEnv
+          tyVars = map paramTyVar params
+      case visibility of
+        ForallVisible -> do
+          (innerTyVars, marks, body) <- visibleDependentKind tvEnv' (position + length params) inner
+          pure
+            ( tyVars <> innerTyVars,
+              zipWith visibleDependentPred [position ..] tyVars <> marks,
+              foldr (KFun . paramKind) body params
+            )
+        ForallInvisible -> do
+          (innerTyVars, marks, body) <- visibleDependentKind tvEnv' position inner
+          pure (tyVars <> innerTyVars, marks, body)
+    TFun _ argument result -> do
+      argumentKind <- kindFromSurfaceType tvEnv argument
+      (tyVars, marks, body) <- visibleDependentKind tvEnv (position + 1) result
+      pure (tyVars, marks, KFun argumentKind body)
+    _ -> do
+      body <- kindFromSurfaceType tvEnv ty
+      let (nestedTyVars, body') = prenexKindForalls body
+      pure (nestedTyVars, [], body')
 
 prenexKindForalls :: TcType -> ([TyVarId], TcType)
 prenexKindForalls kind =
@@ -627,14 +676,37 @@ applyOneArgument tvEnv (functionType, functionKind) argument = do
     KFun argumentKind resultKind
       | argumentKind == constraintKind kinds || isWildcardArgument argument -> do
           argumentType <- checkSurfaceType tvEnv argument argumentKind
+          bindVisibleDependentArgument functionType argumentType
           resultKind' <- zonkKind resultKind
           pure (mkAppTy functionType argumentType, resultKind')
     _ -> do
       (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
       resultKind <- freshKindMeta
       unifyKindsAt (surfaceTypeSpan argument) functionKind' (KFun argumentKind resultKind)
+      bindVisibleDependentArgument functionType argumentType
       resultKind' <- zonkKind resultKind
       pure (mkAppTy functionType argumentType, resultKind')
+
+-- | Give a visible dependent binder of the head constructor its argument.
+-- The function is the application before this argument. @Raw :: forall (a
+-- :: Type) -> TYPE (Rep a)@ applied to @Int@ has the kind argument @Int@,
+-- so the application has the kind @TYPE (Rep Int)@.
+bindVisibleDependentArgument :: TcType -> TcType -> TcM ()
+bindVisibleDependentArgument functionType argumentType =
+  case functionType of
+    TcTyConApp tyCon kindArguments@(_ : _) arguments -> bind tyCon kindArguments (length arguments)
+    _ ->
+      case collectTypeApplications functionType of
+        (TcKindedTyCon tyCon kindArguments, arguments) -> bind tyCon kindArguments (length arguments)
+        _ -> pure ()
+  where
+    bind tyCon kindArguments position = do
+      maybeInfo <- lookupTyConByIdentity tyCon
+      forM_ maybeInfo $ \info -> do
+        let scheme@(ForAll binders _ _) = tciKindScheme info
+        forM_ (visibleDependentBinders scheme) $ \(binderPosition, binder) ->
+          when (binderPosition == position) $
+            forM_ (lookup binder (zip binders kindArguments)) (`unifyKinds` argumentType)
 
 -- | The head of a type and the visible kind arguments that follow it
 -- directly, as @T@ and @[k1, k2]@ for @T \@k1 \@k2@.
@@ -1264,7 +1336,15 @@ unifyKindsAt sp expected actual = do
       | leftVar == rightVar -> unifyKindsAt sp leftBody rightBody
     (TcQualTy leftPredicates leftBody, TcQualTy rightPredicates rightBody)
       | leftPredicates == rightPredicates -> unifyKindsAt sp leftBody rightBody
-    _ -> mismatch
+    -- A kind can have a type family application, as the @TYPE (Rep a)@ of
+    -- @Raw :: forall (a :: Type) -> TYPE (Rep a)@. The equations of the
+    -- family rewrite it before the kinds disagree.
+    _ -> do
+      reducedExpected <- reduceTypeFamilies expected'
+      reducedActual <- reduceTypeFamilies actual'
+      if reducedExpected /= expected' || reducedActual /= actual'
+        then unifyKindsAt sp reducedExpected reducedActual
+        else mismatch
   where
     mismatch = do
       expected' <- zonkKind expected >>= refineGivenKind
@@ -1809,6 +1889,19 @@ tcTypeKind ty =
       maybeInfo <- lookupTyConByIdentity tyCon
       initialKind <-
         case maybeInfo of
+          Just info
+            -- A visible dependent binder takes the argument itself.
+            | scheme@(ForAll binders _ _) <- tciKindScheme info,
+              dependent@(_ : _) <- visibleDependentBinders scheme -> do
+                (kinded, kind) <- kindedTyConUse info
+                let kindArguments = case kinded of
+                      TcKindedTyCon _ found -> found
+                      _ -> []
+                forM_ dependent $ \(position, binder) ->
+                  case (lookup binder (zip binders kindArguments), drop position arguments) of
+                    (Just kindArgument, argument : _) -> unifyKinds kindArgument argument
+                    _ -> pure ()
+                pure kind
           Just info -> instantiateTyConKind info
           Nothing -> do
             emitError Nothing (OtherError ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))

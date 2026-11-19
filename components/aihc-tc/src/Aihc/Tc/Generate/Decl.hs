@@ -5320,7 +5320,8 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
             -- own: @TypeError :: forall b. ErrorMessage -> b@ is a family
             -- at every result kind. They are binders of the declaration,
             -- as they are for a data type, so the scheme keeps them.
-            tciKindScheme = specifiedScheme (map paramTyVar kindParams) [] declaredKind,
+            -- The marks of the visible dependent binders stay with them.
+            tciKindScheme = specifiedScheme (map paramTyVar kindParams) (maybe [] visibleDependentMarks maybeKindScheme) declaredKind,
             tciFlavor = TypeFamilyTyCon,
             tciTypeSynonym = Nothing,
             tciInjectivity = typeFamilyInjectivePositions familyDecl
@@ -5653,6 +5654,11 @@ typeFamilyApplicationHead ty =
     TcKindedTyCon tyCon _ -> Just tyCon
     TcAppTy function _ -> typeFamilyApplicationHead function
     _ -> Nothing
+
+-- | The marks of the visible dependent binders of a standalone kind
+-- signature (see 'visibleDependentPred').
+visibleDependentMarks :: TypeScheme -> [Pred]
+visibleDependentMarks scheme = [visibleDependentPred position binder | (position, binder) <- visibleDependentBinders scheme]
 
 typeFamilyEquationParams :: [TyVarBinder] -> TypeFamilyEq -> TcM [ParamInfo]
 typeFamilyEquationParams extraBinders equation = do
