@@ -32,7 +32,6 @@ library
 
   other-modules:
     Aihc.PackagePlan.EmbeddedCoreLibs
-    Aihc.PackagePlan.Json
 
   hs-source-dirs: src
   build-depends:
