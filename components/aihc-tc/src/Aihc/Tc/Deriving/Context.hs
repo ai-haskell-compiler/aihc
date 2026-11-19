@@ -68,6 +68,8 @@ import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -233,8 +235,8 @@ generic1FieldShapes plan = do
 -- Instance and plan lists keep their original order, because simplification
 -- commits to the first alternative that succeeds.
 data DerivingEnv = DerivingEnv
-  { derivingEnvInstances :: !(Map GlobalName [InstanceInfo]),
-    derivingEnvPlans :: !(Map GlobalName [TcDerivingPlan]),
+  { derivingEnvInstances :: !(MonoidMap GlobalName [InstanceInfo]),
+    derivingEnvPlans :: !(MonoidMap GlobalName [TcDerivingPlan]),
     derivingEnvContexts :: !(Map PlanKey (Either Pred [Pred])),
     -- | The associated type equations that the newtype and via plans of the
     -- batch will declare. The plans register them only after context
@@ -255,7 +257,7 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
           derivingEnvContexts = Map.empty,
           derivingEnvForwarded = forwarded
         }
-    groupByClass classKey = Map.fromListWith (flip (<>)) . map (\value -> (classKey value, [value]))
+    groupByClass classKey = MonoidMap.fromMap . Map.fromListWith (flip (<>)) . map (\value -> (classKey value, [value]))
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds unlifted plan]]
     reusing = [plan | (plan, _) <- inferable, reusesInstance (tcDerivingStrategy plan)]
@@ -557,13 +559,13 @@ simplifyReducedPredicate kinds environment owner predicate
     matchingExisting =
       [ (instanceInfo, substitution)
       | classKey <- classKeys,
-        instanceInfo <- Map.findWithDefault [] classKey (derivingEnvInstances environment),
+        instanceInfo <- MonoidMap.get classKey (derivingEnvInstances environment),
         Just substitution <- [matchTypes (iiHead instanceInfo) (predArguments predicate)]
       ]
     matchingDerived =
       [ (candidate, substitution)
       | classKey <- classKeys,
-        candidate <- Map.findWithDefault [] classKey (derivingEnvPlans environment),
+        candidate <- MonoidMap.get classKey (derivingEnvPlans environment),
         Just substitution <- [matchTypes (tcDerivingHeadTypes candidate) (predArguments predicate)]
       ]
     -- The head match binds only type variables. The kinds of the matched
