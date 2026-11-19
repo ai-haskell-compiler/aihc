@@ -119,7 +119,7 @@ data PointsTo = PointsTo
     -- field of each such node.
     resultLocationNodes :: !(V.Vector (Map GrinNodeTag [Int])),
     -- | The set node of each variable of each function.
-    resultVariables :: !(Map FunctionName (Map GrinVar Int)),
+    resultVariables :: !(MonoidMap FunctionName (Map GrinVar Int)),
     -- | The thunk locations that one evaluation at most enters.
     resultSingleEntry :: !IntSet,
     resultStats :: !PointsToStats
@@ -414,7 +414,7 @@ runAnalysis limit program = runST $ do
     for_ known $ \info -> do
       mapM_ (unknownSlot solver) (functionParameters info)
       escapeResults solver (functionResults info)
-  variables <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
+  variables <- fmap (MonoidMap.fromMap . Map.fromList) $ forM (grinFunctions program) $ \function -> do
     let name = grinFunctionName function
     info <- lookupFunction solver name
     varsRef <- newSTRef (MonoidMap.get name functionVars)
@@ -1147,7 +1147,7 @@ sharedLocations ::
   V.Vector (Map GrinNodeTag [Int]) ->
   Map FunctionName FunctionInfo ->
   Map FunctionName Int ->
-  Map FunctionName (Map GrinVar Int) ->
+  MonoidMap FunctionName (Map GrinVar Int) ->
   Map FunctionName (MonoidMap GrinVar (Sum Int)) ->
   IntSet ->
   IntSet
@@ -1172,7 +1172,7 @@ sharedLocations sets locationNodes functions evalNodes variables uses statics =
               ]
             : [ setOf node
               | (functionName, counts) <- Map.toList uses,
-                let nodes = Map.findWithDefault Map.empty functionName variables,
+                let nodes = MonoidMap.get functionName variables,
                 (var, count) <- MonoidMap.toList counts,
                 count >= 2,
                 Just node <- [Map.lookup var nodes]
@@ -1260,7 +1260,7 @@ rewriteWithPointsTo analysis program =
         (RewriteState (PointsToRewrites 0 0 0 0 0) (maximumProgramVarUnique program + 1))
     declared = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
     rewriteFunction function = do
-      let vars = Map.findWithDefault Map.empty (grinFunctionName function) (resultVariables analysis)
+      let vars = MonoidMap.get (grinFunctionName function) (resultVariables analysis)
       body <- rewriteExpr analysis declared constructors vars (grinFunctionBody function)
       pure function {grinFunctionBody = body}
     constructors = Set.fromList (map grinConstructorName (grinConstructors program))
