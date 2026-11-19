@@ -15,17 +15,19 @@ module Aihc.Th.Convert
   ( expressionFromTree,
     nameFromTree,
     typeResultFromTree,
+    patternResultFromTree,
     declarationsFromTree,
   )
 where
 
-import Aihc.Parser.Parens (addDeclParens, addExprParens, addTypeParens)
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (ExactTerm (..), ExactType (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Wire (Tree (..))
 import Control.Monad ((>=>))
 import Data.Char (isAlpha, isUpper)
 import Data.Maybe (fromMaybe)
+import Data.Ratio (denominator, numerator, (%))
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -36,6 +38,10 @@ expressionFromTree = fmap addExprParens . expression
 -- | The type of a @Type@ tree, the result of a type splice.
 typeResultFromTree :: Tree -> Either Text Type
 typeResultFromTree = fmap addTypeParens . typeFromTree
+
+-- | The pattern of a @Pat@ tree, for the position of a pattern splice.
+patternResultFromTree :: Tree -> Either Text Pattern
+patternResultFromTree = fmap addPatternParens . patternFromTree
 
 -- | The declarations of a list of @Dec@ trees.
 declarationsFromTree :: Tree -> Either Text [Decl]
@@ -432,6 +438,12 @@ literal tree =
       | number < 0 -> Right (EParen (ENegate (integerLiteral (negate number))))
       | otherwise -> Right (integerLiteral number)
     TreeNode "CharL" [TreeChar char] -> Right (EChar char (T.pack (show char)))
+    TreeNode "RationalL" [ratio] -> do
+      value <- rationalFromTree ratio
+      Right $
+        if value < 0
+          then EParen (ENegate (fractionalLiteral (negate value)))
+          else fractionalLiteral value
     TreeNode "StringL" [TreeString string] -> Right (EString string (T.pack (show (T.unpack string))))
     -- A primitive literal has its sign in the literal, as @-1#@ has.
     TreeNode "IntPrimL" [TreeInteger number] -> Right (EInt number TIntHash (T.pack (show number) <> "#"))
@@ -448,6 +460,42 @@ literal tree =
     _ -> unsupported "literal" tree
   where
     integerLiteral number = EInt number TInteger (T.pack (show number))
+    fractionalLiteral value = EFloat value TFractional (rationalText value)
+
+-- | The value of a @Rational@ tree. The tree of a ratio has the
+-- constructor @:%@ with the numerator and the denominator.
+rationalFromTree :: Tree -> Either Text Rational
+rationalFromTree tree =
+  case tree of
+    TreeNode ":%" [TreeInteger top, TreeInteger bottom]
+      | bottom /= 0 -> Right (top % bottom)
+    _ -> unsupported "rational number" tree
+
+-- | The source text of a fractional literal with a value that is not
+-- negative. A value with a finite decimal expansion gets that exact text.
+-- A different value has no exact literal. Its text is then the nearest
+-- 'Double', but the syntax keeps the exact value.
+rationalText :: Rational -> Text
+rationalText value =
+  case decimalDigits (denominator value) of
+    Just places ->
+      let scaled = numerator value * 10 ^ places `div` denominator value
+          digits = T.pack (show scaled)
+          padded = T.replicate (places + 1 - T.length digits) "0" <> digits
+          (whole, fraction) = T.splitAt (T.length padded - places) padded
+       in whole <> "." <> (if T.null fraction then "0" else fraction)
+    Nothing -> T.pack (show (fromRational value :: Double))
+  where
+    -- The number of decimal places of 1/d, if that number is finite.
+    decimalDigits :: Integer -> Maybe Int
+    decimalDigits d =
+      let (twos, rest) = factor 2 d
+          (fives, rest') = factor 5 rest
+       in if rest' == 1 then Just (max twos fives) else Nothing
+    factor :: Integer -> Integer -> (Int, Integer)
+    factor base number
+      | number `mod` base == 0 = let (count, rest) = factor base (number `div` base) in (count + 1, rest)
+      | otherwise = (0, number)
 
 patternFromTree :: Tree -> Either Text Pattern
 patternFromTree tree =
@@ -471,6 +519,10 @@ patternFromTree tree =
     TreeNode "LitP" [TreeNode "IntegerL" [TreeInteger number]]
       | number >= 0 -> Right (PLit (LitInt number TInteger (T.pack (show number))))
     TreeNode "LitP" [TreeNode "CharL" [TreeChar char]] -> Right (PLit (LitChar char (T.pack (show char))))
+    TreeNode "LitP" [TreeNode "RationalL" [ratio]]
+      | Right value <- rationalFromTree ratio,
+        value >= 0 ->
+          Right (PLit (LitFloat value TFractional (rationalText value)))
     TreeNode "LitP" [TreeNode "IntPrimL" [TreeInteger number]] -> Right (PLit (LitInt number TIntHash (T.pack (show number) <> "#")))
     TreeNode "LitP" [TreeNode "WordPrimL" [TreeInteger number]]
       | number >= 0 -> Right (PLit (LitInt number TWordHash (T.pack (show number) <> "##")))

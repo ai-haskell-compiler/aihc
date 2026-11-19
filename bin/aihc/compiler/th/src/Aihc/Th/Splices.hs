@@ -132,6 +132,8 @@ data Splice
     ExpressionSplice Expr
   | -- | A splice in a type. Its body gives one type.
     TypeSplice Expr
+  | -- | A splice in a pattern. Its body gives one pattern.
+    PatternSplice Expr
   | -- | A splice in the position of a declaration. Its body gives a list
     -- of declarations.
     DeclarationSplice Expr
@@ -141,14 +143,18 @@ data Splice
 data SpliceResult
   = ExpressionResult Expr
   | TypeResult Type
+  | PatternResult Pattern
   | DeclarationResult [Decl]
   deriving (Eq, Show)
 
 -- | Each splice of a module, in source order. A splice in the body of a
 -- splice or in a quote is not in the result: the compiler does not run it
 -- for this module.
+--
+-- A quasi-quote is also a splice. The body of the splice of @[q|text|]@
+-- applies a field of the quasi-quoter @q@ to the text: 'quasiQuoteBody'.
 moduleSplices :: Module -> [Splice]
-moduleSplices modu = reverse (execState (traverseSplices expression typeSplice declaration modu) [])
+moduleSplices modu = reverse (execState (traverseSplices expression typeSplice patternSplice declaration modu) [])
   where
     expression body = do
       modify' (ExpressionSplice body :)
@@ -156,6 +162,9 @@ moduleSplices modu = reverse (execState (traverseSplices expression typeSplice d
     typeSplice body = do
       modify' (TypeSplice body :)
       pure (TSplice body)
+    patternSplice body = do
+      modify' (PatternSplice body :)
+      pure (PSplice body)
     declaration decl body = do
       modify' (DeclarationSplice body :)
       pure [decl]
@@ -166,7 +175,7 @@ moduleSplices modu = reverse (execState (traverseSplices expression typeSplice d
 -- position in the list of declarations. A splice with no result of its
 -- kind stays.
 replaceModuleSplices :: [SpliceResult] -> Module -> Module
-replaceModuleSplices results modu = evalState (traverseSplices expression typeSplice declaration modu) results
+replaceModuleSplices results modu = evalState (traverseSplices expression typeSplice patternSplice declaration modu) results
   where
     expression body =
       state $ \case
@@ -178,6 +187,11 @@ replaceModuleSplices results modu = evalState (traverseSplices expression typeSp
         TypeResult result : rest -> (TParen result, rest)
         _ : rest -> (TSplice body, rest)
         [] -> (TSplice body, [])
+    patternSplice body =
+      state $ \case
+        PatternResult result : rest -> (PParen result, rest)
+        _ : rest -> (PSplice body, rest)
+        [] -> (PSplice body, [])
     declaration decl _ =
       state $ \case
         DeclarationResult decls : rest -> (decls, rest)
@@ -227,18 +241,19 @@ type LocalFixity = GlobalName -> IO (Maybe (Maybe OperatorFixity))
 type RunSplice = Int -> NameLookup -> LocalFacts -> LocalFixity -> IO SpliceResult
 
 -- | Visit each splice that 'moduleSplices' gives, and replace it. The
--- function for a type splice gets the body of the splice. The
--- function for a declaration splice gets the declaration and its body, and
--- it gives the declarations that take the position of the splice.
-traverseSplices :: forall m. (Monad m) => (Expr -> m Expr) -> (Expr -> m Type) -> (Decl -> Expr -> m [Decl]) -> Module -> m Module
-traverseSplices onExpression onType onDeclaration =
-  traverseSplicesAt (const onExpression) (const onType) (const onDeclaration)
+-- function for a type splice or a pattern splice gets the body of the
+-- splice. The function for a declaration splice gets the declaration and
+-- its body, and it gives the declarations that take the position of the
+-- splice.
+traverseSplices :: forall m. (Monad m) => (Expr -> m Expr) -> (Expr -> m Type) -> (Expr -> m Pattern) -> (Decl -> Expr -> m [Decl]) -> Module -> m Module
+traverseSplices onExpression onType onPattern onDeclaration =
+  traverseSplicesAt (const onExpression) (const onType) (const onPattern) (const onDeclaration)
 
 -- | The source span of each splice of 'moduleSplices', in the same order.
 -- The span is the span of the syntax node of the splice, or of the
 -- nearest node around it that has a span.
 moduleSpliceSpans :: Module -> [Maybe SourceSpan]
-moduleSpliceSpans modu = reverse (execState (traverseSplicesAt expression typeSplice declaration modu) [])
+moduleSpliceSpans modu = reverse (execState (traverseSplicesAt expression typeSplice patternSplice declaration modu) [])
   where
     expression here body = do
       modify' (here :)
@@ -246,14 +261,17 @@ moduleSpliceSpans modu = reverse (execState (traverseSplicesAt expression typeSp
     typeSplice here body = do
       modify' (here :)
       pure (TSplice body)
+    patternSplice here body = do
+      modify' (here :)
+      pure (PSplice body)
     declaration here decl _ = do
       modify' (here :)
       pure [decl]
 
 -- | 'traverseSplices', and each function also gets the source span of the
 -- splice.
-traverseSplicesAt :: forall m. (Monad m) => (Maybe SourceSpan -> Expr -> m Expr) -> (Maybe SourceSpan -> Expr -> m Type) -> (Maybe SourceSpan -> Decl -> Expr -> m [Decl]) -> Module -> m Module
-traverseSplicesAt onExpression onType onDeclaration = go Nothing
+traverseSplicesAt :: forall m. (Monad m) => (Maybe SourceSpan -> Expr -> m Expr) -> (Maybe SourceSpan -> Expr -> m Type) -> (Maybe SourceSpan -> Expr -> m Pattern) -> (Maybe SourceSpan -> Decl -> Expr -> m [Decl]) -> Module -> m Module
+traverseSplicesAt onExpression onType onPattern onDeclaration = go Nothing
   where
     go :: forall value. (Data value) => Maybe SourceSpan -> value -> m value
     go here value =
@@ -263,14 +281,18 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
           case eqT @value @Type of
             Just Refl -> typ here value
             Nothing ->
-              case eqT @value @[Decl] of
-                Just Refl -> concat <$> mapM (declaration here) value
-                Nothing -> gmapM (go here) value
+              case eqT @value @Pattern of
+                Just Refl -> pattern' here value
+                Nothing ->
+                  case eqT @value @[Decl] of
+                    Just Refl -> concat <$> mapM (declaration here) value
+                    Nothing -> gmapM (go here) value
     expression :: Maybe SourceSpan -> Expr -> m Expr
     expression here expr =
       case expr of
         EAnn annotation inner -> EAnn annotation <$> expression (annotationSpan here annotation) inner
         ETHSplice body -> onExpression here body
+        EQuasiQuote quoter text -> onExpression here (quasiQuoteBody QuoteExpression quoter text)
         ETHExpQuote {} -> pure expr
         ETHTypedQuote {} -> pure expr
         ETHDeclQuote {} -> pure expr
@@ -282,7 +304,15 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
       case ty of
         TAnn annotation inner -> TAnn annotation <$> typ (annotationSpan here annotation) inner
         TSplice body -> onType here body
+        TQuasiQuote quoter text -> onType here (quasiQuoteBody QuoteType quoter text)
         _ -> gmapM (go here) ty
+    pattern' :: Maybe SourceSpan -> Pattern -> m Pattern
+    pattern' here pat =
+      case pat of
+        PAnn annotation inner -> PAnn annotation <$> pattern' (annotationSpan here annotation) inner
+        PSplice body -> onPattern here body
+        PQuasiQuote quoter text -> onPattern here (quasiQuoteBody QuotePattern quoter text)
+        _ -> gmapM (go here) pat
     declaration :: Maybe SourceSpan -> Decl -> m [Decl]
     declaration here decl =
       let here' = declarationSpan here decl
@@ -307,12 +337,41 @@ traverseSplicesAt onExpression onType onDeclaration = go Nothing
       case body of
         EAnn _ inner
           | ETHSplice _ <- explicitSplice inner -> explicitSpliceBody inner
+          | EQuasiQuote {} <- explicitSplice inner -> explicitSpliceBody inner
         ETHSplice inner -> inner
+        EQuasiQuote quoter text -> quasiQuoteBody QuoteDeclarations quoter text
         _ -> body
     explicitSplice expr =
       case expr of
         EAnn _ inner -> explicitSplice inner
         _ -> expr
+
+-- | The field of a quasi-quoter that a quasi-quote uses. The field
+-- depends on the position of the quasi-quote.
+data QuoteField
+  = QuoteExpression
+  | QuotePattern
+  | QuoteType
+  | QuoteDeclarations
+
+-- | The body of the splice of a quasi-quote: the field of the quasi-quoter,
+-- applied to the quasi-quoter and to the text. The splice module imports
+-- @Aihc.TH.Splice@, which exports the fields.
+quasiQuoteBody :: QuoteField -> Text -> Text -> Expr
+quasiQuoteBody field quoter text =
+  EApp (EApp (EVar (mkName (Just "Aihc.TH.Splice") NameVarId fieldName)) (EVar quoterName)) (EString text (T.pack (show (T.unpack text))))
+  where
+    fieldName =
+      case field of
+        QuoteExpression -> "quoteExp"
+        QuotePattern -> "quotePat"
+        QuoteType -> "quoteType"
+        QuoteDeclarations -> "quoteDec"
+    -- The name of the quasi-quoter can have a module qualifier.
+    quoterName =
+      case T.breakOnEnd "." quoter of
+        ("", name) -> mkName Nothing NameVarId name
+        (qualifier, name) -> mkName (Just (T.dropEnd 1 qualifier)) NameVarId name
 
 -- | The name of the splice package. Each module has its own package, so
 -- the symbols of two splice modules in one image are different.
@@ -392,6 +451,7 @@ spliceModuleText request =
           case splice of
             ExpressionSplice expr -> ("runExpressionSplice", expr)
             TypeSplice expr -> ("runTypeSplice", expr)
+            PatternSplice expr -> ("runPatternSplice", expr)
             DeclarationSplice expr -> ("runDeclarationsSplice", expr)
     -- The body of @$(e)@ has its parentheses, and the body of @$e@ has none.
     parenthesized body

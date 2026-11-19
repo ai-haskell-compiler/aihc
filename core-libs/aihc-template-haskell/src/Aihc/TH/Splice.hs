@@ -33,7 +33,15 @@ module Aihc.TH.Splice
   ( runSplice,
     runExpressionSplice,
     runTypeSplice,
+    runPatternSplice,
     runDeclarationsSplice,
+
+    -- * Quasi-quotes
+
+    -- | The compiler changes the quasi-quote @[q|text|]@ into a splice
+    -- that applies a field of @q@ to the text. The splice module refers to
+    -- the fields through this module.
+    QuasiQuoter (..),
   )
 where
 
@@ -54,7 +62,8 @@ import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Quote (QuasiQuoter (..))
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, runQ)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -83,6 +92,11 @@ runExpressionSplice = runSplice
 -- the body gives a type.
 runTypeSplice :: Q Type -> IO ()
 runTypeSplice = runSplice
+
+-- | 'runSplice' for the body of a pattern splice. The type makes sure
+-- that the body gives a pattern.
+runPatternSplice :: Q Pat -> IO ()
+runPatternSplice = runSplice
 
 -- | 'runSplice' for the body of a declaration splice. The type makes sure
 -- that the body gives a list of declarations.
