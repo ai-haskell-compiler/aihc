@@ -2299,7 +2299,7 @@ knownArgument env argument =
     ExVar name
       | isConstructorName name -> StrongReduction
       | Just body <- Map.lookup name (spKnown (spFixed env)), isKnownConstructor (spArity (spFixed env)) body -> StrongReduction
-      | Map.member name (spLocals env) || not (Set.null (MonoidMap.get argument (spExcluded env))) -> WeakReduction
+      | Map.member name (spLocals env) || MonoidMap.nonNullKey argument (spExcluded env) -> WeakReduction
       | otherwise -> NoReduction
     core
       | tailsAreKnown env core -> StrongReduction
