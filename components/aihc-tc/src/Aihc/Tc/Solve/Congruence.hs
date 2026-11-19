@@ -25,12 +25,14 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 
 -- | The vertices are types up to the kinds of their variable occurrences:
 -- an occurrence that a given kind refinement rewrote is the same vertex as
 -- the one in the given that mentions it.
-type ProofGraph = Map TypeShape [(TcType, Coercion)]
+type ProofGraph = MonoidMap TypeShape [(TcType, Coercion)]
 
 -- | Every graph edge proves equality between its two vertices.
 -- Closure uses only subterms of the givens and the wanted.
@@ -83,7 +85,7 @@ proveFromEqualitiesDirect equalities left right
       -- Taking a function type apart names the arrow, so the constructor
       -- has to be declared even though no source syntax mentioned it.
       _ <- arrowType
-      let graph = List.foldl' addGiven Map.empty equalities
+      let graph = List.foldl' addGiven MonoidMap.empty equalities
           vertices = Map.elems (Map.unions (map subterms (left : right : concat [[a, b] | (a, b, _) <- equalities])))
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
       projections <- traverse projection pairs
@@ -360,8 +362,8 @@ givenEqualities visited (predicate, evidence) = case predicate of
 
 addProof :: TcType -> TcType -> Coercion -> ProofGraph -> ProofGraph
 addProof left right proof =
-  Map.insertWith (<>) (typeShape left) [(right, proof)]
-    . Map.insertWith (<>) (typeShape right) [(left, Sym proof)]
+  MonoidMap.adjust ((right, proof) :) (typeShape left)
+    . MonoidMap.adjust ((left, Sym proof) :) (typeShape right)
 
 findProof :: ProofGraph -> TcType -> TcType -> Maybe Coercion
 findProof graph source target = go (Set.singleton (typeShape source)) [(source, Refl source)]
@@ -371,7 +373,7 @@ findProof graph source target = go (Set.singleton (typeShape source)) [(source, 
     go visited ((current, proof) : rest)
       | typeShape current == targetShape = Just proof
       | otherwise =
-          let edges = [(next, compose proof edge) | (next, edge) <- Map.findWithDefault [] (typeShape current) graph, typeShape next `Set.notMember` visited]
+          let edges = [(next, compose proof edge) | (next, edge) <- MonoidMap.get (typeShape current) graph, typeShape next `Set.notMember` visited]
               visited' = Set.union visited (Set.fromList (map (typeShape . fst) edges))
            in go visited' (rest <> edges)
 

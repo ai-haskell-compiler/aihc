@@ -74,6 +74,8 @@ import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -570,12 +572,12 @@ instanceIsForClass classTyCon instanceInfo =
 data InstanceEnv = InstanceEnv
   { instanceEnvSize :: !Int,
     instanceEnvAll :: ![InstanceInfo],
-    instanceEnvByClass :: !(Map GlobalName [InstanceInfo])
+    instanceEnvByClass :: !(MonoidMap GlobalName [InstanceInfo])
   }
   deriving (Show)
 
 emptyInstanceEnv :: InstanceEnv
-emptyInstanceEnv = InstanceEnv 0 [] Map.empty
+emptyInstanceEnv = InstanceEnv 0 [] MonoidMap.empty
 
 -- | Build an environment that lists the instances in the given order.
 instanceEnvFromList :: [InstanceInfo] -> InstanceEnv
@@ -586,7 +588,7 @@ addInstanceEnv instanceInfo env =
   InstanceEnv
     { instanceEnvSize = instanceEnvSize env + 1,
       instanceEnvAll = instanceInfo : instanceEnvAll env,
-      instanceEnvByClass = Map.insertWith (<>) (tyConKey (iiClass instanceInfo)) [instanceInfo] (instanceEnvByClass env)
+      instanceEnvByClass = MonoidMap.adjust (instanceInfo :) (tyConKey (iiClass instanceInfo)) (instanceEnvByClass env)
     }
 
 -- | Every instance, most recent first.
@@ -601,7 +603,7 @@ instanceEnvSince current previous =
 
 -- | The instances of the exact class, most recent first.
 instanceEnvForClass :: TyCon -> InstanceEnv -> [InstanceInfo]
-instanceEnvForClass classTyCon = Map.findWithDefault [] (tyConKey classTyCon) . instanceEnvByClass
+instanceEnvForClass classTyCon = MonoidMap.get (tyConKey classTyCon) . instanceEnvByClass
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first
