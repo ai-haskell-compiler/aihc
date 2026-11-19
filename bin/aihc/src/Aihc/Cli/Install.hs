@@ -362,8 +362,7 @@ type ByModule value = MonoidMap Text (Map.Map Package value)
 
 byModuleFromList :: [(ModuleKey, value)] -> ByModule value
 byModuleFromList entries =
-  MonoidMap.fromListWith
-    (flip Map.union)
+  MonoidMap.fromList
     [(name, Map.singleton package value) | (ModuleKey package name, value) <- entries]
 
 -- | The facts of the modules of one package.
