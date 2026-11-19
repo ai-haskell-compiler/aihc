@@ -277,6 +277,7 @@ import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -357,26 +358,25 @@ instance NFData InstalledPackage
 -- package. Two packages can each hold a module of one name, as @filepath@
 -- and @os-string@ both hold @System.OsString.Internal.Types@, so a map by
 -- module name alone would keep the fact of one package only.
-type ByModule value = Map.Map Text (Map.Map Package value)
+type ByModule value = MonoidMap Text (Map.Map Package value)
 
 byModuleFromList :: [(ModuleKey, value)] -> ByModule value
 byModuleFromList entries =
-  Map.fromListWith
-    Map.union
+  MonoidMap.fromList
     [(name, Map.singleton package value) | (ModuleKey package name, value) <- entries]
 
 -- | The facts of the modules of one package.
 ownModules :: Package -> Map.Map Text value -> ByModule value
-ownModules package = Map.map (Map.singleton package)
+ownModules package = MonoidMap.fromMapWith (Map.singleton package)
 
 -- | Left-biased, as 'Map.union' is: where two maps hold a fact for the same
 -- module of the same package, the left one wins.
 byModuleUnions :: [ByModule value] -> ByModule value
-byModuleUnions = Map.unionsWith Map.union
+byModuleUnions = mconcat
 
 -- | The fact of the module of that name in each package that holds one.
 byModuleLookupName :: Text -> ByModule value -> [(Package, value)]
-byModuleLookupName name = maybe [] Map.toList . Map.lookup name
+byModuleLookupName name = Map.toList . MonoidMap.get name
 
 -- | The stamp inputs of a unit for the digests of the modules it imports
 -- from outside itself, one for each package that holds such a module.
@@ -3445,8 +3445,8 @@ runTypeUnit context runtimes runtime = do
             putTMVar
               (runtimeTypeResult runtime)
               TypeUnitResult
-                { typeUnitTypes = Map.empty,
-                  typeUnitHashes = Map.empty,
+                { typeUnitTypes = MonoidMap.empty,
+                  typeUnitHashes = MonoidMap.empty,
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
                   typeUnitInstanceInterface = importedInstanceInterface,
