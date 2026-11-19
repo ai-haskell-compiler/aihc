@@ -1,0 +1,59 @@
+extensions:
+  - DataKinds
+  - MagicHash
+  - StandaloneKindSignatures
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE DataKinds, MagicHash, StandaloneKindSignatures, TypeFamilies #-}
+    module Test where
+    import GHC.Prim
+    import GHC.Types
+    type Rep :: Type -> RuntimeRep
+    type family Rep a where
+      Rep Int = 'IntRep
+      Rep Double = 'DoubleRep
+    type Raw :: forall (a :: Type) -> TYPE (Rep a)
+    type family Raw a where
+      Raw Int = Int#
+      Raw Double = Double#
+    class Unbox a where unbox :: a -> Raw a
+    instance Unbox Int where unbox (I# n) = n
+    instance Unbox Double where unbox (D# x) = x
+    answer :: Int -> Int
+    answer n = I# (unbox n)
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, MagicHash, StandaloneKindSignatures, TypeFamilies #-}
+    module Test where
+    import GHC.Prim
+    import GHC.Types
+    type Rep :: Type -> RuntimeRep
+    type family Rep a where
+                └─ type: Type → GHC.Types.RuntimeRep
+      Rep Int = 'IntRep
+      Rep Double = 'DoubleRep
+    type Raw :: forall (a :: Type) -> TYPE (Rep a)
+    type family Raw a where
+                └─ type: Type → GHC.Types.TYPE (Rep a)
+      Raw Int = Int#
+      Raw Double = Double#
+    class Unbox a where unbox :: a -> Raw a
+    └─ class methods: unbox ∷ ∀ a. (Unbox a) ⇒ a → Raw a
+    instance Unbox Int where unbox (I# n) = n
+    │                        │      │  └─ type: GHC.Prim.Int#
+    │                        │      └─ type: GHC.Types.Int
+    │                        └─ unbox ∷ Int → Raw Int
+    └─ $fUnboxInt ∷ () ⇒ Unbox Int
+    instance Unbox Double where unbox (D# x) = x
+    │                           │      │  └─ type: GHC.Prim.Double#
+    │                           │      └─ type: GHC.Types.Double
+    │                           └─ unbox ∷ Double → Raw Double
+    └─ $fUnboxDouble ∷ () ⇒ Unbox Double
+    answer :: Int -> Int
+    answer n = I# (unbox n)
+    │      │       └─ type: GHC.Types.Int → Raw GHC.Types.Int; type-args: Int; evidence: $fUnboxInt
+    │      └─ type: GHC.Types.Int
+    └─ type: GHC.Types.Int → GHC.Types.Int
+status: pass
+reason: a visible dependent binder of a standalone kind signature gives each equation of the family its result kind

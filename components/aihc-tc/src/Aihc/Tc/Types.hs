@@ -60,6 +60,8 @@ module Aihc.Tc.Types
     familyEquationRightKind,
     TcTypeApplicationKinds (..),
     typeApplicationKinds,
+    visibleDependentPred,
+    visibleDependentBinders,
     typeKind,
     constraintKind,
     runtimeRepKind,
@@ -349,9 +351,11 @@ mkAppTy function argument
 -- forall b. ErrorMessage -> b@, and a data family @Tok :: Symbol -> k@. An
 -- application of such a constructor must keep its kind arguments.
 hasResultOnlyKindVariable :: TypeScheme -> Int -> Bool
-hasResultOnlyKindVariable (ForAll variables _ kind) arity =
-  any (\variable -> not (any (typeMentionsTyVar variable) formals)) variables
+hasResultOnlyKindVariable scheme@(ForAll variables _ kind) arity =
+  any (\variable -> not (any (typeMentionsTyVar variable) formals)) (filter (`notElem` dependent) variables)
   where
+    -- A visible argument gives a visible dependent binder.
+    dependent = map snd (visibleDependentBinders scheme)
     formals = take arity (formalKinds kind)
     formalKinds (KFun formal result) = formal : formalKinds result
     formalKinds _ = []
@@ -685,6 +689,38 @@ isPolyType _ = False
 typeSchemeBody :: TypeScheme -> TcType
 typeSchemeBody (ForAll _ _ body) = body
 
+-- | The mark of a visible dependent binder in a kind scheme. The kind
+-- @forall (a :: Type) -> TYPE (Rep a)@ has the scheme @forall (a :: Type).
+-- Type -> TYPE (Rep a)@ and this mark for the argument position 0 and the
+-- binder @a@. An application then gives the binder the visible argument of
+-- that position, and not a type that the kinds of the arguments give.
+--
+-- The mark is a predicate of the scheme. A kind scheme has no other
+-- predicate. Thus each operation that renames the binders of a scheme
+-- keeps the mark correct, and an interface keeps it without a new field.
+-- Read the marks only with 'visibleDependentBinders'.
+visibleDependentPred :: Int -> TyVarId -> Pred
+visibleDependentPred position binder =
+  EqPred (TcTyVar binder) (TcTyLit (TyLitNat (fromIntegral position)))
+
+-- | The visible dependent binders of a kind scheme, each with the
+-- position of the visible argument that gives it.
+visibleDependentBinders :: TypeScheme -> [(Int, TyVarId)]
+visibleDependentBinders (ForAll _ predicates _) =
+  [ (fromIntegral position, binder)
+  | EqPred (TcTyVar binder) (TcTyLit (TyLitNat position)) <- predicates
+  ]
+
+-- | The binders that the visible argument of a position gives, each with
+-- that argument.
+visibleDependentSubst :: TypeScheme -> Int -> TcType -> Map Unique TcType
+visibleDependentSubst scheme position argument =
+  Map.fromList
+    [ (tvUnique binder, argument)
+    | (binderPosition, binder) <- visibleDependentBinders scheme,
+      binderPosition == position
+    ]
+
 data Pred
   = ClassPred !TyCon ![TcType]
   | EqPred !TcType !TcType
@@ -998,16 +1034,19 @@ typeKindInEnv kinds kindEnv = go
           applyKind functionKind argument
         TcTyLit literal -> Right (tyLitKind kinds literal)
 
-    applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) body
+    applyArguments scheme@(ForAll quantified _ body) = applyMany scheme 0 (map tvUnique quantified) body
 
     -- An argument can leave a kind variable of its own constructor
     -- undetermined, as the @a@ of @'Right x :: Either a k@. A later
     -- argument can then determine it, so the variables of each argument
     -- stay open for the arguments after it.
-    applyMany _ kind [] = Right kind
-    applyMany quantified kind (argument : rest) = do
+    --
+    -- A visible dependent binder takes the argument itself.
+    applyMany _ _ _ kind [] = Right kind
+    applyMany scheme position quantified kind (argument : rest) = do
       kind' <- applyKindWith quantified kind argument
-      applyMany (quantified <> argumentKindVariables kindEnv argument) kind' rest
+      let dependent = visibleDependentSubst scheme (position :: Int) argument
+      applyMany scheme (position + 1) (quantified <> argumentKindVariables kindEnv argument) (applySubst dependent kind') rest
 
     applyKind = applyKindWith []
 
@@ -1502,7 +1541,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
   scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
   let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
-      (argumentSubstitution, remainingKind, skipped, leftover, open) = go quantifiedUniques [] 0 Map.empty resultKind arguments
+      (argumentSubstitution, remainingKind, skipped, leftover, open) = go scheme quantifiedUniques [] 0 Map.empty resultKind arguments
       -- A kind variable in the place of an arrow, as in @Any :: forall k.
       -- k@, stands for the arrow from the kinds of the arguments that are
       -- left over to the kind of the whole application. The expected kind
@@ -1520,16 +1559,21 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
     -- An earlier argument can leave a kind variable of its own constructor
     -- undetermined (see 'argumentKindVariables'). A later argument can
     -- determine it, and the substitution then uses what it determines.
-    go quantifiedUniques open position substitution (KFun formal result) (argument : rest) =
-      case typeKindInEnv kinds kindEnv argument of
-        Right argumentKind ->
-          let found = matchKind (quantifiedUniques <> open) (applySubst substitution formal) argumentKind
-              substitution' = Map.map (applySubst found) substitution <> found
-           in go quantifiedUniques (open <> argumentKindVariables kindEnv argument) (position + 1) substitution' (applySubst found result) rest
-        Left reason ->
-          let (substitution', kind, skipped, leftover, open') = go quantifiedUniques open (position + 1) substitution result rest
-           in (substitution', kind, skippedArgument position reason : skipped, leftover, open')
-    go _ open _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover, open)
+    --
+    -- A visible dependent binder takes the argument itself, also when the
+    -- kind of the argument is not known.
+    go scheme quantifiedUniques open position substitution (KFun formal result) (argument : rest) =
+      let dependent = visibleDependentSubst scheme position argument
+       in case typeKindInEnv kinds kindEnv argument of
+            Right argumentKind ->
+              let found = dependent <> matchKind (quantifiedUniques <> open) (applySubst substitution formal) argumentKind
+                  substitution' = Map.map (applySubst found) substitution <> found
+               in go scheme quantifiedUniques (open <> argumentKindVariables kindEnv argument) (position + 1) substitution' (applySubst found result) rest
+            Left reason ->
+              let dependentSubstitution = Map.map (applySubst dependent) substitution <> dependent
+                  (substitution', kind, skipped, leftover, open') = go scheme quantifiedUniques open (position + 1) dependentSubstitution (applySubst dependent result) rest
+               in (substitution', kind, skippedArgument position reason : skipped, leftover, open')
+    go _ _ open _ substitution kind leftover = (substitution, applySubst substitution kind, [], leftover, open)
 
     -- The caller prints the arguments themselves, so name the one that
     -- failed by position rather than repeating it.
