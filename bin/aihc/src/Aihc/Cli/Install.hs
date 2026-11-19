@@ -277,6 +277,7 @@ import Data.List (intercalate, isSuffixOf, nub, partition, sortOn)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -2742,7 +2743,7 @@ renderResolveExcerpt :: DiagnosticSourceMap -> SourceSpan -> String
 renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
     SourceSpan sourcePath startLine startColumn endLine endColumn _ _ ->
-      case Map.lookup (T.unpack sourcePath) sourceLines >>= Map.lookup startLine of
+      case Map.lookup startLine (MonoidMap.get (T.unpack sourcePath) sourceLines) of
         Nothing -> ""
         Just sourceLine ->
           let lineNumber = show startLine
@@ -2786,7 +2787,7 @@ renderFrontendFailure loadSource parseDiagnostics resolveDiagnostics typeDiagnos
 -- | The lines of the files that some spans point into, by file and line.
 loadExcerptSources :: (FilePath -> IO DiagnosticSourceMap) -> [SourceSpan] -> IO DiagnosticSourceMap
 loadExcerptSources loadSource spans =
-  Map.unionsWith Map.union
+  mconcat
     <$> mapM loadSource (nub (map (T.unpack . sourceSpanSourceName) spans))
 
 -- | How the excerpts of a package's diagnostics find their lines. A module
@@ -2805,8 +2806,8 @@ excerptSourceLoader headerDir root versions files path =
       result <- try (BS.readFile path)
       pure $
         case result of
-          Left (_ :: IOException) -> Map.empty
-          Right bytes -> Map.singleton path (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
+          Left (_ :: IOException) -> MonoidMap.empty
+          Right bytes -> MonoidMap.singleton path (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
   where
     fileInfos = Map.fromList [(HackageCabal.fileInfoPath fileInfo, fileInfo) | fileInfo <- files]
 

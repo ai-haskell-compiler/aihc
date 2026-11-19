@@ -30,6 +30,8 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -222,11 +224,11 @@ diagnosticSummary :: Aeson.Value -> Text
 diagnosticSummary =
   TE.decodeUtf8 . BL.toStrict . Aeson.encode
 
-type DiagnosticSourceMap = Map.Map FilePath (Map.Map Int Text)
+type DiagnosticSourceMap = MonoidMap FilePath (Map.Map Int Text)
 
 diagnosticSourceMap :: FilePath -> Text -> DiagnosticSourceMap
 diagnosticSourceMap initialFile =
-  third . foldl' step (initialFile, 1, Map.empty) . T.lines
+  third . foldl' step (initialFile, 1, MonoidMap.empty) . T.lines
   where
     third (_, _, value) = value
     step (currentFile, currentLine, sourceMap) line =
@@ -235,7 +237,7 @@ diagnosticSourceMap initialFile =
         Nothing ->
           ( currentFile,
             currentLine + 1,
-            Map.insertWith Map.union currentFile (Map.singleton currentLine line) sourceMap
+            MonoidMap.adjust (Map.insert currentLine line) currentFile sourceMap
           )
 
 parseLineDirective :: Text -> Maybe (Int, Maybe FilePath)
