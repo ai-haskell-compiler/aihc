@@ -186,6 +186,8 @@ import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -569,7 +571,7 @@ data TcState = TcState
     -- | The same equations by the family of their left-hand side, so that
     -- a reduction reads the equations of one family without a walk over
     -- every equation. 'setTypeFamilyInstances' keeps the two in step.
-    tcsFamilyEquations :: !(Map TyCon (Map TcAxiomKey TypeFamilyInstanceInfo)),
+    tcsFamilyEquations :: !(MonoidMap TyCon (Map TcAxiomKey TypeFamilyInstanceInfo)),
     -- | Pattern synonyms in scope, keyed like their builder term.
     tcsPatSyns :: !(Map Entity PatSynInfo),
     -- | Record heads of the record pattern synonyms declared in the
@@ -619,7 +621,7 @@ initTcState =
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
       tcsTypeFamilyInstances = Map.empty,
-      tcsFamilyEquations = Map.empty,
+      tcsFamilyEquations = MonoidMap.empty,
       tcsForeignImports = Map.empty,
       tcsDeferredKindMetas = IntSet.empty,
       tcsRecKnotOccurrences = Map.empty
@@ -1158,7 +1160,7 @@ insertTypeFamilyInstance key instanceInfo =
     state
       { tcsTypeFamilyInstances = Map.insert key instanceInfo (tcsTypeFamilyInstances state),
         tcsFamilyEquations = case equationFamily instanceInfo of
-          Just family -> Map.insertWith Map.union family (Map.singleton key instanceInfo) (tcsFamilyEquations state)
+          Just family -> MonoidMap.adjust (Map.union (Map.singleton key instanceInfo)) family (tcsFamilyEquations state)
           Nothing -> tcsFamilyEquations state
       }
 
@@ -1167,7 +1169,7 @@ getTypeFamilyInstances = lift $ gets (Map.elems . tcsTypeFamilyInstances)
 
 -- | The equations of one type family, by axiom key.
 getTypeFamilyEquations :: TyCon -> TcM (Map TcAxiomKey TypeFamilyInstanceInfo)
-getTypeFamilyEquations tyCon = lift $ gets (Map.findWithDefault Map.empty tyCon . tcsFamilyEquations)
+getTypeFamilyEquations tyCon = lift $ gets (MonoidMap.get tyCon . tcsFamilyEquations)
 
 -- | Replace the type-family equations in scope, and index them by family.
 setTypeFamilyInstances :: Map TcAxiomKey TypeFamilyInstanceInfo -> TcState -> TcState
@@ -1177,10 +1179,10 @@ setTypeFamilyInstances instances state =
       tcsFamilyEquations =
         Map.foldrWithKey
           ( \key info index -> case equationFamily info of
-              Just family -> Map.insertWith Map.union family (Map.singleton key info) index
+              Just family -> MonoidMap.adjust (Map.union (Map.singleton key info)) family index
               Nothing -> index
           )
-          Map.empty
+          MonoidMap.empty
           instances
     }
 
