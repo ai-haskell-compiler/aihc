@@ -17,10 +17,9 @@
         --site-dir "$out"
     '';
 
-  # The Lazy Reader. The helper of its playground and the bundle of the
-  # core libraries are not part of this derivation: the deploy workflow
-  # builds them with `nix run .#build-lazy-reader-helper` and adds them to
-  # the site.
+  # The Lazy Reader. The web kit of its playgrounds is not part of this
+  # derivation: the deploy workflow builds it with
+  # `nix run .#build-web-kit` and adds it to the site.
   mkGuide = pkgs: guideSrc:
     pkgs.runCommand "aihc-lazy-reader" {
       nativeBuildInputs = [pkgs.python3Packages.mkdocs-material];

@@ -1,20 +1,36 @@
 #!/usr/bin/env bash
-# Build the playground helper of The Lazy Reader for the browser.
+# Build the web kit: aihc for the browser.
+#
+# The kit has the playground helper, the browser tools, the inputs of the
+# browser linker, the JavaScript glue of web-kit/src, and manifest.json.
+# web-kit/README.md gives the layout. A release ships the kit, and The Lazy
+# Reader uses it for its playgrounds.
 #
 # The helper is bin/aihc-play, compiled by aihc to wasm32-wasip3. jco turns
 # the component into a JavaScript module that imports the WASI interfaces
-# from the browser host of the guide, docs/aihc-guide/src/play/host.js.
+# from web-kit/src/host.js.
 #
-# Usage: scripts/build-lazy-reader-helper.sh --output DIR [--store DIR]
+# Usage: scripts/build-web-kit.sh --output DIR [--version VERSION]
+#        [--archive FILE] [--component FILE] [--store DIR]
 #        [--optimization LEVEL]
 #
-# With AIHC_PLAY_HELPER_URL, tools.json puts the compressed files at
-# AIHC_PLAY_HELPER_URL/VERSION/. Then scripts/publish-play-helper.sh uploads
+# --output DIR     Write the kit to DIR. DIR must be empty or an earlier kit.
+# --version V      The version in manifest.json. The default is the version
+#                  in bin/aihc/aihc.cabal with the suffix -dev.
+# --archive FILE   Also pack DIR as FILE, a .tar.gz archive.
+# --component FILE Also write the helper component to FILE, for a check
+#                  under wasmtime: wasmtime run -S cli -S http FILE.
+#
+# Without the variables below, the kit is complete: each file is in DIR.
+# The variables are for The Lazy Reader, which keeps large files on R2.
+# With AIHC_PLAY_TOOLS_URL, the browser tools stay at
+# AIHC_PLAY_TOOLS_URL/TOOLS_VERSION/ and manifest.json gives their URL.
+# With AIHC_PLAY_HELPER_URL, manifest.json puts the compressed files at
+# AIHC_PLAY_HELPER_URL/BUILD/. Then scripts/publish-play-helper.sh uploads
 # them there and removes them from DIR. The preview workflow uses this.
 #
 # AIHC names the compiler and AIHC_DEV the developer tool. The defaults
-# are the cabal builds of exe:aihc and exe:aihc-dev. The output directory
-# gets the helper, browser tools, and compressed core library assets.
+# are the cabal builds of exe:aihc and exe:aihc-dev.
 # The helper reads core.bundle.gz for name resolution and type checks.
 # The browser linker reads the runtime objects and core archives.
 set -euo pipefail
@@ -22,6 +38,9 @@ set -euo pipefail
 output=""
 store=""
 optimization="s"
+version=""
+archive=""
+component=""
 tools="${AIHC_PLAY_TOOLS:-}"
 if [[ -z "$tools" ]]; then
   tools=$(nix build .#aihc-play-tools --no-link --print-out-paths)
@@ -31,15 +50,36 @@ while [[ $# -gt 0 ]]; do
     --output) output=$2; shift 2 ;;
     --store) store=$2; shift 2 ;;
     --optimization) optimization=$2; shift 2 ;;
+    --version) version=$2; shift 2 ;;
+    --archive) archive=$2; shift 2 ;;
+    --component) component=$2; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
 if [[ -z "$output" ]]; then
-  echo "usage: $0 --output DIR [--store DIR] [--optimization LEVEL]" >&2
+  echo "usage: $0 --output DIR [--version VERSION] [--archive FILE] [--component FILE] [--store DIR] [--optimization LEVEL]" >&2
   exit 2
 fi
+# manifest.json lists each file of DIR. Thus DIR must not have other files.
+if [[ -d "$output" && -n "$(ls -A "$output")" ]]; then
+  if [[ ! -f "$output/manifest.json" ]]; then
+    echo "The output directory is not empty and is not a kit: $output" >&2
+    exit 1
+  fi
+  rm -rf "$output"
+fi
+mkdir -p "$output"
+output=$(cd "$output" && pwd)
+# The script changes the directory. Make each path absolute first.
+absolute() { case "$1" in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
+[[ -z "$archive" ]] || archive=$(absolute "$archive")
+[[ -z "$component" ]] || component=$(absolute "$component")
+[[ -z "$store" ]] || store=$(absolute "$store")
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+if [[ -z "$version" ]]; then
+  version="$(sed -n 's/^version:[[:space:]]*//p' "$root/bin/aihc/aihc.cabal")-dev"
+fi
 aihc="${AIHC:-$(cd "$root" && cabal list-bin aihc:exe:aihc)}"
 aihc_dev="${AIHC_DEV:-$(cd "$root" && cabal list-bin aihc:exe:aihc-dev)}"
 # The wasm link reads the WIT world and the runtime sources from the data
@@ -106,7 +146,6 @@ echo "=== Compiling the core libraries for the browser linker ==="
   --build-root "$work/runtime-build" -O 1
 
 echo "=== Writing the bundle of the core libraries ==="
-mkdir -p "$output"
 "$aihc_dev" play-bundle --store "$store/wasm32-wasip3" --output "$work/core.bundle"
 gzip -9 -n -c "$work/core.bundle" > "$output/core.bundle.gz"
 
@@ -114,20 +153,22 @@ echo "=== Writing the browser linker inputs ==="
 "$aihc_dev" play-runtime --store "$store/wasm32-wasip3" --output "$work/runtime"
 echo '(module)' > "$work/empty.wat"
 wasm-tools component embed "$root/bin/aihc/compiler/wasm/runtime/wit" "$work/empty.wat" -o "$work/runtime/world.wasm"
-node "$root/scripts/package-play-runtime.mjs" "$output" "$work/runtime"
+node "$root/scripts/pack-web-kit-runtime.mjs" "$output" "$work/runtime"
 
-# Local builds use the same tools without an R2 account.
-version=$(cat "$tools/version")
+# Without AIHC_PLAY_TOOLS_URL, the kit has its own copy of the browser tools.
+manifest_options=()
 if [[ -n "${AIHC_PLAY_TOOLS_URL:-}" ]]; then
-  tools_url="${AIHC_PLAY_TOOLS_URL%/}/$version/tools.js"
+  manifest_options+=(--tools-url "${AIHC_PLAY_TOOLS_URL%/}/$(cat "$tools/version")")
 else
-  mkdir -p "$output/tools/$version"
-  cp -R "$tools/assets/." "$output/tools/$version/"
-  tools_url="./tools/$version/tools.js"
+  mkdir -p "$output/tools"
+  cp -R "$tools/assets/." "$output/tools/"
+  chmod -R u+w "$output/tools"
 fi
-cp "$root/docs/aihc-guide/src/play/run.js" "$output/run.js"
-cp "$root/docs/aihc-guide/src/play/host.js" "$output/host.js"
-cp "$root/docs/aihc-guide/src/play/program.js" "$output/program.js"
+if [[ -n "${AIHC_PLAY_HELPER_URL:-}" ]]; then
+  manifest_options+=(--data-url "$AIHC_PLAY_HELPER_URL")
+fi
+cp "$root/web-kit/src/"*.js "$output/"
+cp "$root/web-kit/README.md" "$root/LICENSE" "$output/"
 
 echo "=== Transpile the component with jco ==="
 "$tools/bin/aihc-play-transpile" "$work/aihc-play.wasm" "$work/out"
@@ -161,18 +202,28 @@ cp "$work/out/aihc-play-component.js" "$output/"
 for core in "$work/out/"*.wasm; do
   gzip -9 -n -c "$core" > "$output/$(basename "$core").gz"
 done
-# tools.json lists the downloads of the program playground. Write it after
-# all the files are in the output directory.
-node "$root/scripts/write-play-manifest.mjs" "$output" "$tools_url" "$tools/assets" ${AIHC_PLAY_HELPER_URL:+"$AIHC_PLAY_HELPER_URL"}
-for asset in "$output/"*; do
-  [[ -f "$asset" ]] || continue
+# manifest.json lists each file of the kit. Write it after all the files
+# are in the output directory.
+node "$root/scripts/write-web-kit-manifest.mjs" "$output" "$version" "$tools/assets" ${manifest_options[@]+"${manifest_options[@]}"}
+# Workers rejects an asset above 25 MiB. R2 has no such limit, but a site
+# can also serve the kit as static assets of a Worker, as The Lazy Reader
+# does. Thus each file of the kit stays below the limit.
+while IFS= read -r -d "" asset; do
   if [[ $(wc -c < "$asset") -gt 26214400 ]]; then
-    echo "The asset exceeds the site limit: $asset" >&2
+    echo "The asset exceeds the limit of 25 MiB: $asset" >&2
     exit 1
   fi
-done
-ls -la "$output"
-# The component itself goes beside the output directory, for a check under
-# wasmtime: wasmtime run -S cli -S http aihc-play.wasm < requests. It is
-# not part of the site: Workers rejects an asset above 25 MiB.
-cp "$work/aihc-play.wasm" "$(dirname "$output")/aihc-play.wasm"
+done < <(find "$output" -type f -print0)
+find "$output" -type f -exec ls -l {} +
+echo "Kit $version, build $(sed -n 's/^ "build": "\(.*\)",$/\1/p' "$output/manifest.json"): $(du -sk "$output" | cut -f1) KiB"
+if [[ -n "$component" ]]; then
+  cp "$work/aihc-play.wasm" "$component"
+fi
+if [[ -n "$archive" ]]; then
+  # The archive has one directory, named after the archive.
+  name=$(basename "$archive" .tar.gz)
+  mkdir -p "$work/archive"
+  cp -R "$output" "$work/archive/$name"
+  tar -C "$work/archive" -czf "$archive" "$name"
+  echo "Wrote $archive ($(wc -c < "$archive" | tr -d ' ') bytes)"
+fi
