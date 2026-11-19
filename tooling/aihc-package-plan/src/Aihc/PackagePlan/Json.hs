@@ -183,7 +183,7 @@ parseEscape text =
 
 parseNumber :: Parser Value
 parseNumber input =
-  let (sign, afterSign) = maybe ("", input) ((,) "-") (T.stripPrefix (T.pack "-") input)
+  let (sign, afterSign) = maybe ("", input) ("-",) (T.stripPrefix (T.pack "-") input)
       (digits, rest) = T.span isDigit afterSign
    in if T.null digits || (T.length digits > 1 && T.head digits == '0')
         then Left ("invalid number: " <> preview input)
