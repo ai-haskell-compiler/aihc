@@ -100,7 +100,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust)
-import Data.Monoid (Sum)
+import Data.Monoid (Sum (..))
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
@@ -119,7 +119,7 @@ data PointsTo = PointsTo
     -- field of each such node.
     resultLocationNodes :: !(V.Vector (Map GrinNodeTag [Int])),
     -- | The set node of each variable of each function.
-    resultVariables :: !(Map FunctionName (Map GrinVar Int)),
+    resultVariables :: !(MonoidMap FunctionName (Map GrinVar Int)),
     -- | The thunk locations that one evaluation at most enters.
     resultSingleEntry :: !IntSet,
     resultStats :: !PointsToStats
@@ -383,7 +383,7 @@ runAnalysis limit program = runST $ do
   when (unknown /= unknownLocation || unknownValue /= unknownValueLocation) (error "points-to: the unknown locations must come first")
   -- The parameters and the results of every function exist before any
   -- body refers to them.
-  functionVars <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
+  functionVars <- fmap MonoidMap.fromList $ forM (grinFunctions program) $ \function -> do
     parameters <- mapM (newSlot solver . grinVarRuntimeRep) (grinFunctionParameters function)
     results <-
       case resultRepComponents (grinFunctionResultRep function) of
@@ -414,10 +414,10 @@ runAnalysis limit program = runST $ do
     for_ known $ \info -> do
       mapM_ (unknownSlot solver) (functionParameters info)
       escapeResults solver (functionResults info)
-  variables <- fmap Map.fromList $ forM (grinFunctions program) $ \function -> do
+  variables <- fmap MonoidMap.fromList $ forM (grinFunctions program) $ \function -> do
     let name = grinFunctionName function
     info <- lookupFunction solver name
-    varsRef <- newSTRef (Map.findWithDefault Map.empty name functionVars)
+    varsRef <- newSTRef (MonoidMap.get name functionVars)
     for_ info $ \known -> generateExpr solver varsRef (functionResults known) (grinFunctionBody function)
     (,) name <$> readSTRef varsRef
   solve solver
@@ -430,7 +430,7 @@ runAnalysis limit program = runST $ do
   functions <- readSTRef (solverFunctions solver)
   evalNodes <- readSTRef (solverEvalNodes solver)
   statics <- readSTRef (solverStatics solver)
-  let usesByFunction = Map.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program]
+  let usesByFunction = MonoidMap.fromList [(grinFunctionName function, useCounts (grinFunctionBody function)) | function <- grinFunctions program]
       shared = sharedLocations sets locationNodes functions evalNodes variables usesByFunction (IntSet.fromList (Map.elems statics))
       captures = any (capturesContinuation . grinFunctionBody) (grinFunctions program)
       singleEntry
@@ -445,7 +445,7 @@ runAnalysis limit program = runST $ do
         resultStats =
           PointsToStats
             { statsIterations = iterations,
-              statsVariables = sum (map Map.size (Map.elems variables)),
+              statsVariables = getSum (foldMap (Sum . Map.size) variables),
               statsSetNodes = nodeCount,
               statsLocations = locationCount,
               statsSharedLocations = IntSet.size shared,
@@ -1147,8 +1147,8 @@ sharedLocations ::
   V.Vector (Map GrinNodeTag [Int]) ->
   Map FunctionName FunctionInfo ->
   Map FunctionName Int ->
-  Map FunctionName (Map GrinVar Int) ->
-  Map FunctionName (MonoidMap GrinVar (Sum Int)) ->
+  MonoidMap FunctionName (Map GrinVar Int) ->
+  MonoidMap FunctionName (MonoidMap GrinVar (Sum Int)) ->
   IntSet ->
   IntSet
 sharedLocations sets locationNodes functions evalNodes variables uses statics =
@@ -1171,8 +1171,8 @@ sharedLocations sets locationNodes functions evalNodes variables uses statics =
                 field <- fields
               ]
             : [ setOf node
-              | (functionName, counts) <- Map.toList uses,
-                let nodes = Map.findWithDefault Map.empty functionName variables,
+              | (functionName, counts) <- MonoidMap.toList uses,
+                let nodes = MonoidMap.get functionName variables,
                 (var, count) <- MonoidMap.toList counts,
                 count >= 2,
                 Just node <- [Map.lookup var nodes]
@@ -1260,7 +1260,7 @@ rewriteWithPointsTo analysis program =
         (RewriteState (PointsToRewrites 0 0 0 0 0) (maximumProgramVarUnique program + 1))
     declared = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
     rewriteFunction function = do
-      let vars = Map.findWithDefault Map.empty (grinFunctionName function) (resultVariables analysis)
+      let vars = MonoidMap.get (grinFunctionName function) (resultVariables analysis)
       body <- rewriteExpr analysis declared constructors vars (grinFunctionBody function)
       pure function {grinFunctionBody = body}
     constructors = Set.fromList (map grinConstructorName (grinConstructors program))
