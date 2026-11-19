@@ -22,10 +22,14 @@ import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
 import Control.Exception (bracket)
 import Control.Monad (forever, unless)
+import Data.Foldable (fold)
 import Data.List (intercalate, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
+import Data.Monoid (Sum (..))
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64)
@@ -136,12 +140,12 @@ data ProgressState = ProgressState
     stateOrder :: ![ProgressItem],
     stateWorkers :: !Int,
     -- | The running tasks of each kind.
-    stateActive :: !(Map TaskKind Int),
+    stateActive :: !(MonoidMap TaskKind (Sum Int)),
     stateStart :: !Word64
   }
 
 initialState :: Word64 -> ProgressState
-initialState = ProgressState Map.empty [] 0 Map.empty
+initialState = ProgressState Map.empty [] 0 MonoidMap.empty
 
 -- | Apply an event. An item that is complete stays complete: a later
 -- graph of the same command finds it in the store, or builds it again in
@@ -158,8 +162,8 @@ applyEvent now event state =
     ProgressLink item -> transition item links
     ProgressDone item -> transition item done
     ProgressWorkers count -> state {stateWorkers = count}
-    ProgressTaskStart kind -> state {stateActive = Map.insertWith (+) kind 1 (stateActive state)}
-    ProgressTaskEnd kind -> state {stateActive = Map.adjust (subtract 1) kind (stateActive state)}
+    ProgressTaskStart kind -> state {stateActive = MonoidMap.adjust (+ 1) kind (stateActive state)}
+    ProgressTaskEnd kind -> state {stateActive = MonoidMap.adjust (subtract 1) kind (stateActive state)}
     ProgressLog _ -> state
   where
     compiles current =
@@ -397,8 +401,8 @@ renderFrame color width height now tick state
     inStore = countItems isInStore state
     modulesTotal = sum (map itemModules values)
     modulesDone = sum (map itemModulesDone values)
-    busy = sum (Map.elems (stateActive state))
-    kinds = [show count <> " " <> kindName kind | (kind, count) <- Map.toList (stateActive state), count > 0]
+    busy = getSum (fold (stateActive state))
+    kinds = [show count <> " " <> kindName kind | (kind, Sum count) <- MonoidMap.toList (stateActive state), count > 0]
     -- The first line fits 80 columns: the store count and the kinds of
     -- the running tasks go on the status line.
     summaryLine =
