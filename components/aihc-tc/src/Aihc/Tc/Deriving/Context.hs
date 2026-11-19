@@ -257,7 +257,7 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
           derivingEnvContexts = Map.empty,
           derivingEnvForwarded = forwarded
         }
-    groupByClass classKey = MonoidMap.fromMap . Map.fromListWith (flip (<>)) . map (\value -> (classKey value, [value]))
+    groupByClass classKey = MonoidMap.fromList . map (\value -> (classKey value, [value]))
 
     inferable = [(plan, obligations) | plan <- plans, Just (Right obligations) <- [inferableObligations kinds unlifted plan]]
     reusing = [plan | (plan, _) <- inferable, reusesInstance (tcDerivingStrategy plan)]
