@@ -210,7 +210,7 @@ data Env = Env
     -- scope evaluates, when it is not a function. An evaluation of the
     -- binder evaluates the right-hand side, thus it evaluates these
     -- variables too. See 'demandExpr'.
-    envThunks :: !(Map Name (Set Name)),
+    envThunks :: !(MonoidMap Name (Set Name)),
     -- | The constructors that each variable in scope cannot have. The
     -- default alternative of a case on a variable knows that the variable
     -- has none of the constructors of the other alternatives.
@@ -231,7 +231,7 @@ analysisEnv types signatures =
       envAnalysisOnly = False,
       envEvaluates = Map.empty,
       envBodies = Map.empty,
-      envThunks = Map.empty,
+      envThunks = MonoidMap.empty,
       envExcluded = MonoidMap.empty,
       envRefine = True
     }
@@ -590,7 +590,7 @@ demandExpr env ty expr =
   case expr of
     ExVar name
       | isConstructorName name -> pure (expr, Set.empty)
-      | otherwise -> pure (expr, Set.insert name (Map.findWithDefault Set.empty name (envThunks env)))
+      | otherwise -> pure (expr, Set.insert name (MonoidMap.get name (envThunks env)))
     ExLit {} -> pure (expr, Set.empty)
     ExCoercion {} -> pure (expr, Set.empty)
     ExLam binder body
@@ -624,7 +624,7 @@ demandExpr env ty expr =
       -- answer.
       let thunk = null (fst (collectLambdas rhs)) && not (isStrictBinder (envTypes env) binder)
           withThunk current
-            | thunk = current {envThunks = Map.insert (binderName binder) rhsStrict (envThunks current)}
+            | thunk = current {envThunks = MonoidMap.set (binderName binder) rhsStrict (envThunks current)}
             | otherwise = current
           inner = withThunk (bindSignature (extendType env binder) binder rhs)
       (body', bodyStrict) <- demandExpr inner ty body
