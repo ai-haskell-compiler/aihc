@@ -11,12 +11,13 @@ on:
       - docs/aihc-manual/**
       - docs/aihc-guide/**
       - bin/aihc-play/**
-      - scripts/build-lazy-reader-helper.sh
+      - web-kit/**
+      - scripts/build-web-kit.sh
       - scripts/build-play-tools.mjs
       - scripts/transpile-play.mjs
-      - scripts/package-play-runtime.mjs
+      - scripts/pack-web-kit-runtime.mjs
       - scripts/publish-play-tools.sh
-      - scripts/write-play-manifest.mjs
+      - scripts/write-web-kit-manifest.mjs
       - scripts/nix/play-tools.nix
       - editors/grammars/**
       - flake.lock
@@ -86,13 +87,12 @@ jobs:
           cp -rL result docs/aihc-guide/site
           chmod -R u+w docs/aihc-guide/site
 
-          # The playground helper is aihc-play, compiled by aihc to
-          # WebAssembly. Its build needs Hackage, so it runs as an
-          # app outside the Nix sandbox and lands beside the site.
-          echo "=== Building the playground helper ==="
-          nix run .#build-lazy-reader-helper -- --output docs/aihc-guide/site/play/helper
-          # The script leaves the component beside the output directory.
-          rm -f docs/aihc-guide/site/play/aihc-play.wasm
+          # The playgrounds use the web kit: aihc-play, compiled by aihc
+          # to WebAssembly, and its JavaScript glue. Its build needs
+          # Hackage, so it runs as an app outside the Nix sandbox and
+          # lands beside the site.
+          echo "=== Building the web kit ==="
+          nix run .#build-web-kit -- --output docs/aihc-guide/site/play/kit
 
           echo "=== Site structure ==="
           find docs/aihc-guide/site -type f -not -path "*/assets/*" | head -60

@@ -5,10 +5,15 @@ name: Release
 # the core-libs sources in the executable. The job fails when stage 1 and
 # stage 2 are not byte-for-byte identical, and ships stage 2.
 #
+# The web job builds the web kit with the stage 2 executable for Linux. The
+# kit is aihc for the browser: see web-kit/README.md. A smoke test loads the
+# packed kit in a headless browser, and compiles and runs a program there.
+#
 # A pushed tag v<version> makes a draft release with the archives, their
 # SHA-256 sums, and a build provenance attestation. The tag must match the
-# version in bin/aihc/aihc.cabal. A manual run only builds the archives and
-# keeps them as workflow artifacts.
+# version in bin/aihc/aihc.cabal. Then the workflow publishes the web kit to
+# https://assets.aihc.app/play/releases/<version>/, where it never changes.
+# A manual run only builds the archives and keeps them as workflow artifacts.
 #
 # The paths of the work directory get into the executable. Thus, both stages
 # use the same WORK_DIR, and each target uses the same path.
@@ -237,11 +242,71 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  web:
+    name: Build web
+    needs:
+      - version
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Download the Linux archive
+        uses: actions/download-artifact@v8
+        with:
+          name: aihc-${{ env.VERSION }}-linux-amd64
+          path: ${{ runner.temp }}/native
+
+      # The stage 2 executable compiles the helper and the core libraries.
+      # aihc-dev from the Nix build writes the bundle and the linker inputs
+      # from the store of that executable. Both come from this commit.
+      - name: Build the web kit
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP/native" -xzf "$RUNNER_TEMP/native/aihc-$VERSION-linux-amd64.tar.gz"
+          AIHC="$RUNNER_TEMP/native/aihc-$VERSION-linux-amd64/aihc" nix run .#build-web-kit -- \
+            --output "$RUNNER_TEMP/kit" \
+            --version "$VERSION" \
+            --archive "$RUNNER_TEMP/aihc-$VERSION-web.tar.gz"
+          {
+            echo "### Web kit $VERSION"
+            echo
+            echo "| Group | Size in bytes |"
+            echo "| --- | --- |"
+            jq --raw-output '.files | group_by(.group)[] | "| \(.[0].group) | \(map(.bytes) | add) |"' "$RUNNER_TEMP/kit/manifest.json"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # The test reads the archive and not the build directory. Thus it
+      # tests the files that the release ships.
+      - name: Run the smoke test
+        run: nix run .#web-kit-smoke-test -- --archive "$RUNNER_TEMP/aihc-$VERSION-web.tar.gz"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: aihc-${{ env.VERSION }}-web
+          path: ${{ runner.temp }}/aihc-${{ env.VERSION }}-web.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+
   release:
     name: Make the draft release
     needs:
       - version
       - build
+      - web
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -282,6 +347,7 @@ jobs:
           {
             echo "Binaries of aihc $VERSION, compiled with aihc at -O$OPTIMIZATION."
             echo "The core libraries are embedded in each binary."
+            echo "The web archive is aihc for the browser, also at https://assets.aihc.app/play/releases/$VERSION/manifest.json."
             echo
             echo "| Archive | SHA-256 |"
             echo "| --- | --- |"
@@ -296,3 +362,44 @@ jobs:
             --notes-file notes.md \
             archives/aihc-*.tar.gz archives/SHA256SUMS
           echo "Draft release v$VERSION is ready for review." >>"$GITHUB_STEP_SUMMARY"
+
+  # A website pins a version of the kit. Thus the files of a version must
+  # never change. The script does not replace or delete a file, and it fails
+  # when the version is there with different contents.
+  publish-web:
+    name: Publish the web kit
+    needs:
+      - version
+      - release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Download the web archive
+        uses: actions/download-artifact@v8
+        with:
+          name: aihc-${{ env.VERSION }}-web
+          path: ${{ runner.temp }}/web
+
+      - name: Publish the web kit to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP/web" -xzf "$RUNNER_TEMP/web/aihc-$VERSION-web.tar.gz"
+          nix run .#publish-web-kit -- "$RUNNER_TEMP/web/aihc-$VERSION-web" "$VERSION"
+          echo "Web kit: https://assets.aihc.app/play/releases/$VERSION/manifest.json" >>"$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,12 @@
   hsPkgs = mkHsPkgs pkgs;
   playTools = import ./play-tools.nix {inherit pkgs;};
   wasmSysroot = mkWasiSysroot pkgs;
+  smokeBrowsers = pkgs.playwright-driver.browsers.override {
+    withFirefox = false;
+    withWebkit = false;
+    withFfmpeg = false;
+    withChromiumHeadlessShell = false;
+  };
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
   '';
@@ -334,17 +340,18 @@ in {
       exec bash ./scripts/install-hackage-packages.sh "$@"
     '';
 
-  # The playground helper of The Lazy Reader: aihc-play compiled by aihc to
-  # wasm32-wasip3 and transpiled by jco. The build reads Hackage for the
-  # dependencies of aihc-play, so it is an app and not a
-  # derivation. The deploy workflow runs it and adds the output to the site
-  # of the guide.
-  build-lazy-reader-helper =
-    mkAppWithInputs "build-lazy-reader-helper" [
+  # The web kit: aihc-play compiled by aihc to wasm32-wasip3 and transpiled
+  # by jco, with the browser tools and the JavaScript glue. The build reads
+  # Hackage for the dependencies of aihc-play, so it is an app and not a
+  # derivation. The release workflow packs the output. The deploy workflow
+  # adds the output to the site of the guide.
+  build-web-kit =
+    mkAppWithInputs "build-web-kit" [
       pkgs.bash
       pkgs.cacert
       pkgs.coreutils
       pkgs.curl
+      pkgs.findutils
       pkgs.gnutar
       pkgs.gzip
       pkgs.gawk
@@ -369,12 +376,27 @@ in {
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_SYSROOT=${wasmSysroot}
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
-      exec bash ./scripts/build-lazy-reader-helper.sh "$@"
+      exec bash ./scripts/build-web-kit.sh "$@"
     '';
 
   publish-play-tools = mkAppWithInputs "publish-play-tools" [pkgs.bash pkgs.curl pkgs.coreutils pkgs.wrangler] ''
     export AIHC_PLAY_TOOLS=${playTools}
     exec bash ./scripts/publish-play-tools.sh "$@"
+  '';
+
+  # Load a kit in a headless browser, compile a program, and run it. The
+  # browser is Chromium from the playwright-driver package of the pinned
+  # nixpkgs. The test starts it directly and does not use Playwright.
+  web-kit-smoke-test = mkAppWithInputs "web-kit-smoke-test" [pkgs.bash pkgs.coreutils pkgs.gnutar pkgs.gzip pkgs.nodejs_24] ''
+    set -euo pipefail
+    ${repoRootGuard}
+    export AIHC_SMOKE_BROWSERS=${smokeBrowsers}
+    exec node ./web-kit/test/smoke.mjs "$@"
+  '';
+
+  # A release publishes its kit to R2 under its version.
+  publish-web-kit = mkAppWithInputs "publish-web-kit" [pkgs.bash pkgs.curl pkgs.coreutils pkgs.diffutils pkgs.jq pkgs.wrangler] ''
+    exec bash ./scripts/publish-web-kit.sh "$@"
   '';
 
   # The documentation preview publishes the compressed helper files to R2

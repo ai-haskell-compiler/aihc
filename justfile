@@ -17,11 +17,11 @@ hedgehog:
 hedgehog1:
   TASTY_HEDGEHOG_TESTS=10000 TASTY_HEDGEHOG_SHRINKS=1000000 cabal test all -v0 --jobs=1 --test-options="--hide-successes"
 
-# Build the playground helper and the core-libraries bundle of The Lazy Reader and serve the guide at http://127.0.0.1:8000
+# Build the web kit for the playgrounds of The Lazy Reader and serve the guide at http://127.0.0.1:8000
 guide:
   #!/usr/bin/env bash
   set -euo pipefail
-  nix develop --quiet --command bash -c 'cabal build -v0 exe:aihc exe:aihc-dev && scripts/build-lazy-reader-helper.sh --output docs/aihc-guide/src/play/helper --store .aihc-target/lazy-reader-store && cd docs/aihc-guide && mkdocs serve'
+  nix develop --quiet --command bash -c 'cabal build -v0 exe:aihc exe:aihc-dev && scripts/build-web-kit.sh --output docs/aihc-guide/src/play/kit --store .aihc-target/lazy-reader-store && cd docs/aihc-guide && mkdocs serve'
 
 # Auto-format Nix, Cabal, Haskell, and C files (Nix and Cabal files come from scripts/repository-files.sh, so other worktrees and the benchmarks submodule are excluded; Haskell excludes test fixtures)
 fmt:

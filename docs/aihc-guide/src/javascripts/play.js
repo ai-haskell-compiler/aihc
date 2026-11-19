@@ -5,25 +5,35 @@
 // types. The seed source is the text of its <pre> child. The script builds
 // an editor and an output pane, and asks the helper again after each edit.
 //
-// The helper is aihc itself, compiled to WebAssembly. It loads once per
-// page, when the first playground scrolls into view.
+// The helper is aihc itself, compiled to WebAssembly. It comes from the web
+// kit, which a build writes to play/kit/. The page speaks to the kit only
+// through its entry module, aihc.js. The helper loads once per page, when
+// the first playground scrolls into view.
 
-const PLAY_ROOT = new URL("../play/", import.meta.url);
-const playWorkers = new Set();
+const KIT = new URL("../play/kit/", import.meta.url);
+// Each compile playground adds a function that stops its workers.
+const playStops = new Set();
 
 // ---------------------------------------------------------------------------
-// The helper
+// The kit
 
+let kitPromise = null;
+
+// Make a compiler. Each compiler starts a worker of its own on its first
+// request.
+function newCompiler() {
+  kitPromise ??= import(new URL("aihc.js", KIT));
+  kitPromise.catch(() => {
+    kitPromise = null;
+  });
+  return kitPromise.then(({ createCompiler }) => createCompiler(new URL("manifest.json", KIT)));
+}
+
+// The compiler of the parse, names, and types playgrounds.
 const helper = {
   state: "idle",
   reason: "",
-  queue: Promise.resolve(),
-  pending: null,
-  inputs: [],
-  waiters: [],
-  lineBuffer: "",
-  decoder: new TextDecoder(),
-  encoder: new TextEncoder(),
+  compiler: null,
   listeners: new Set(),
 };
 
@@ -31,109 +41,6 @@ function setHelperState(state, reason = "") {
   helper.state = state;
   helper.reason = reason;
   for (const listener of helper.listeners) listener(state, reason);
-}
-
-// The helper reads its input through a buffer of 8192 bytes, in pieces
-// of at most this many bytes. A larger piece than the read of the helper
-// loses its tail in the stream of the host.
-const INPUT_CHUNK = 4096;
-
-// A request body of at least the buffer size is read by the helper in
-// one read of the whole body, so the host hands it over in one piece.
-const DIRECT_READ = 8192;
-
-function pushPiece(piece) {
-  if (helper.waiters.length > 0) {
-    helper.waiters.shift()(piece);
-  } else {
-    helper.inputs.push(piece);
-  }
-}
-
-function pushInput(bytes) {
-  for (let offset = 0; offset < bytes.length; offset += INPUT_CHUNK) {
-    pushPiece(bytes.subarray(offset, offset + INPUT_CHUNK));
-  }
-}
-
-function nextInput() {
-  if (helper.inputs.length > 0) return Promise.resolve(helper.inputs.shift());
-  return new Promise((resolve) => helper.waiters.push(resolve));
-}
-
-function onStdout(bytes) {
-  helper.lineBuffer += helper.decoder.decode(bytes, { stream: true });
-  let newline;
-  while ((newline = helper.lineBuffer.indexOf("\n")) >= 0) {
-    const line = helper.lineBuffer.slice(0, newline);
-    helper.lineBuffer = helper.lineBuffer.slice(newline + 1);
-    const pending = helper.pending;
-    helper.pending = null;
-    if (pending) {
-      try {
-        pending.resolve(JSON.parse(line));
-      } catch (error) {
-        pending.reject(new Error("the helper gave an unreadable answer: " + line.slice(0, 200)));
-      }
-    }
-  }
-}
-
-function onStderr(bytes) {
-  console.warn("aihc-play:", helper.decoder.decode(bytes));
-}
-
-// Hand a request to the helper: the header line, then the body. A large
-// body goes in one piece after the header, so the helper reads it in one
-// read; a small one goes with the header in pieces the buffer holds.
-function sendFrame(command, body) {
-  const header = helper.encoder.encode(command + " " + body.length + "\n");
-  if (body.length >= DIRECT_READ) {
-    pushPiece(header);
-    pushPiece(body);
-    return;
-  }
-  const bytes = new Uint8Array(header.length + body.length);
-  bytes.set(header, 0);
-  bytes.set(body, header.length);
-  pushInput(bytes);
-}
-
-// One request at a time. The helper answers in order, so a queue keeps
-// each answer with its request.
-function send(command, body) {
-  const run = () =>
-    new Promise((resolve, reject) => {
-      const started = performance.now();
-      helper.pending = {
-        resolve: (answer) => {
-          console.debug("The Lazy Reader: " + command + " answered in " + Math.round(performance.now() - started) + " ms");
-          resolve(answer);
-        },
-        reject,
-      };
-      sendFrame(command, body);
-    });
-  const result = helper.queue.then(run, run);
-  helper.queue = result.catch(() => {});
-  return result;
-}
-
-async function fetchText(path) {
-  const response = await fetch(new URL(path, PLAY_ROOT));
-  if (!response.ok) throw new Error("cannot fetch " + path + ": " + response.status);
-  return response.text();
-}
-
-// The bundle of the core libraries: the naming and type facts of
-// aihc-prim and aihc-base, written by the helper build. The file is gzip,
-// inflated here, so the size on the wire does not depend on the server.
-async function loadBundle() {
-  const { cachedFetch, helperUrl } = await import(new URL("cache.js", PLAY_ROOT));
-  const response = await cachedFetch(await helperUrl("core.bundle.gz"));
-  if (!response.ok) throw new Error("cannot fetch the bundle of the core libraries: " + response.status);
-  const inflated = response.body.pipeThrough(new DecompressionStream("gzip"));
-  return new Uint8Array(await new Response(inflated).arrayBuffer());
 }
 
 let startPromise = null;
@@ -151,33 +58,10 @@ function startHelper() {
     setHelperState("loading", "Loading the compiler");
     const started = performance.now();
     try {
-      globalThis.lazyReaderHost = { nextInput, write: onStdout, writeErr: onStderr };
-      const [module, bundle] = await Promise.all([import(new URL("compiler.js", PLAY_ROOT)), loadBundle()]);
-      const fetched = performance.now();
-      // The helper runs until the page goes away. Its promise settles only
-      // on a failure.
-      module.run
-        .run()
-        .then(() => setHelperState("stopped", "The compiler stopped."))
-        .catch((error) => setHelperState("failed", "The compiler failed: " + error));
-      setHelperState("loading", "Loading the core libraries.");
-      const answer = await send("load-bundle", bundle);
-      if (!answer.ok) throw new Error(answer.message);
-      const ready = performance.now();
-      helper.timing = { fetched: Math.round(fetched - started), ready: Math.round(ready - fetched) };
-      console.info(
-        "The Lazy Reader: the compiler is ready " +
-          Math.round(ready - started) +
-          " ms after the start (" +
-          helper.timing.fetched +
-          " ms to fetch, " +
-          helper.timing.ready +
-          " ms to load, " +
-          answer.facts +
-          " facts in " +
-          answer.typeBytes +
-          " bytes)",
-      );
+      const compiler = await newCompiler();
+      await compiler.load();
+      helper.compiler = compiler;
+      console.info("The Lazy Reader: the compiler is ready " + Math.round(performance.now() - started) + " ms after the start");
       setHelperState("ready");
     } catch (error) {
       setHelperState("failed", "The compiler did not start: " + error);
@@ -189,7 +73,7 @@ function startHelper() {
 async function ask(command, source) {
   await startHelper();
   if (helper.state !== "ready") throw new Error(helper.reason);
-  return send(command, helper.encoder.encode(source));
+  return helper.compiler.request(command, source);
 }
 
 // ---------------------------------------------------------------------------
@@ -496,33 +380,41 @@ function buildPlayground(root) {
     root.querySelector(".lazy-pane-input").append(el("div", { class: "lazy-run-controls" }, [run, stop]));
     status.setAttribute("role", "status");
     output.setAttribute("aria-label", "Program output");
-    let builder, program, activeId = 0, active = false, phase, count;
-    let stdout, stderr, warming = false;
-    const startBuilder = () => {
-      builder = new Worker(new URL("helper/run.js", PLAY_ROOT), { type: "module" });
-      playWorkers.add(builder);
-    };
-    // The first build in a worker is slow. Thus the worker builds the seed
-    // once, with id 0, when the playground comes into view. A Run waits for
-    // that build and then uses the warm worker.
-    const warmUp = () => {
-      if (builder) return;
-      startBuilder();
-      warming = true;
-      if (!active) status.textContent = "Download and start the compiler.";
-      const worker = builder;
-      worker.addEventListener("message", ({ data }) => {
-        if (data.id !== 0 || worker !== builder || !["warm", "error", "diagnostics"].includes(data.type)) return;
-        warming = false;
-        if (active) return;
-        if (data.type === "error") {
-          status.textContent = data.text;
-          resetBuilder();
-        } else {
-          status.textContent = "Select Run to compile the module.";
-        }
+    let compiler = null, compilerPromise = null, abort = null;
+    let activeId = 0, active = false, phase, count;
+    let stdout, stderr, warming = null, warm = false;
+    const getCompiler = () => {
+      compilerPromise ??= newCompiler().then((made) => {
+        compiler = made;
+        return made;
       });
-      worker.postMessage({ id: 0, source: seed, warm: true });
+      compilerPromise.catch(() => {
+        compilerPromise = null;
+      });
+      return compilerPromise;
+    };
+    playStops.add(() => {
+      compiler?.terminate();
+      abort?.abort();
+    });
+    // The first build in a worker is slow. Thus the worker builds the seed
+    // once when the playground comes into view. A Run waits for that build
+    // and then uses the warm worker.
+    const warmUp = () => {
+      if (warming) return;
+      if (!active) status.textContent = "Download and start the compiler.";
+      warming = getCompiler()
+        .then((made) => made.warm(seed))
+        .then(
+          () => {
+            warm = true;
+            if (!active) status.textContent = "Select Run to compile the module.";
+          },
+          (error) => {
+            warming = null;
+            if (!active && error?.name !== "AbortError") status.textContent = String(error?.message ?? error);
+          },
+        );
     };
     // The playground downloads tens of megabytes. Thus it stays locked until
     // the reader enables it. If the browser has all the files from an earlier
@@ -544,8 +436,8 @@ function buildPlayground(root) {
       unlock();
       warmUp();
     });
-    import(new URL("cache.js", PLAY_ROOT))
-      .then((cache) => cache.downloadSize())
+    getCompiler()
+      .then((made) => made.downloadSize())
       .then(({ missing }) => {
         if (missing > 0) {
           const size = Math.max(1, Math.round(missing / 1e6)) + " MB";
@@ -568,83 +460,76 @@ function buildPlayground(root) {
       .catch(() => {
         note.textContent = "The compiler and the linker run in your browser. This button downloads their files.";
       });
-    const destroy = (worker) => {
-      worker?.terminate();
-      playWorkers.delete(worker);
-    };
-    const resetBuilder = () => {
-      destroy(builder);
-      builder = null;
-    };
     const finish = () => {
-      destroy(program);
-      program = null;
       active = false;
+      abort = null;
       run.disabled = false;
       stop.disabled = true;
     };
     const cancel = () => {
       // A synchronous compiler operation needs worker termination to stop.
-      if (phase === "build") resetBuilder();
+      if (phase === "build") {
+        compiler?.terminate();
+        warm = false;
+        warming = null;
+      }
+      abort?.abort();
       finish();
     };
-    const watch = (worker, id) => {
-      worker.onmessage = ({ data }) => {
-        if (!active || activeId !== id || data.id !== id) return;
-        if (worker !== builder && worker !== program) return;
-        if (data.type === "status") status.textContent = data.text;
-        if (data.type === "stdout" || data.type === "stderr" || data.type === "tool-stderr" || data.type === "compiler-stderr") {
-          const pane = data.type === "stdout" ? stdout : stderr;
-          const text = data.text.slice(0, Math.max(0, 65536 - count));
-          pane.append(document.createTextNode(text));
-          count += data.text.length;
-          if (count > 65536) {
-            status.textContent = "The output reached the size limit. The program stopped.";
-            cancel();
-          }
-        }
-        if (data.type === "program") {
-          phase = "program";
-          status.textContent = "Start the program.";
-          program = new Worker(new URL("helper/program.js", PLAY_ROOT), { type: "module" });
-          playWorkers.add(program);
-          watch(program, id);
-          const transfers = [...new Set(data.files.map(([, bytes]) => bytes.buffer))];
-          program.postMessage({ id, files: data.files }, transfers);
-        }
-        if (data.type === "diagnostics") {
-          output.append(problemsList(data.errors));
-          status.textContent = "Correct the module, then select Run.";
-          finish();
-        }
-        if (data.type === "done" || data.type === "error") {
-          status.textContent = data.text;
-          if (data.type === "error" && worker === builder) resetBuilder();
-          finish();
-        }
-      };
-      worker.onerror = (error) => {
-        if (!active || activeId !== id || (worker !== builder && worker !== program)) return;
-        status.textContent = error.message;
-        if (worker === builder) resetBuilder();
-        finish();
-      };
-    };
-    run.addEventListener("click", () => {
+    run.addEventListener("click", async () => {
       output.textContent = "";
       stdout = el("pre", { class: "lazy-program-stdout" });
       stderr = el("pre", { class: "lazy-program-stderr" });
       output.append(stdout, stderr);
       count = 0;
       active = true;
-      activeId += 1;
+      const id = ++activeId;
       phase = "build";
+      abort = new AbortController();
+      const { signal } = abort;
       run.disabled = true;
       stop.disabled = false;
-      status.textContent = builder && !warming ? "Compile the module." : "Load the compiler.";
-      if (!builder) startBuilder();
-      watch(builder, activeId);
-      builder.postMessage({ id: activeId, source: editor.value });
+      const current = () => active && activeId === id;
+      const setStatus = (text) => {
+        if (current()) status.textContent = text;
+      };
+      const append = (pane) => (text) => {
+        if (!current()) return;
+        pane.append(document.createTextNode(text.slice(0, Math.max(0, 65536 - count))));
+        count += text.length;
+        if (count > 65536) {
+          status.textContent = "The output reached the size limit. The program stopped.";
+          cancel();
+        }
+      };
+      status.textContent = warm ? "Compile the module." : "Load the compiler.";
+      try {
+        const made = await getCompiler();
+        const built = await made.compile(editor.value, { onStatus: setStatus, onLog: append(stderr) });
+        if (!current()) return;
+        if (!built.ok) {
+          output.append(problemsList(built.diagnostics));
+          setStatus("Correct the module, then select Run.");
+          finish();
+          return;
+        }
+        phase = "program";
+        setStatus("Run the program.");
+        const { exitCode } = await made.run(built.program, { signal, onStdout: append(stdout), onStderr: append(stderr) });
+        if (!current()) return;
+        setStatus(exitCode === 0 ? "The program finished." : "The program exited with code " + exitCode + ".");
+        finish();
+      } catch (error) {
+        if (!current()) return;
+        setStatus(String(error?.message ?? error));
+        // A failed build can leave the worker in an unknown state.
+        if (phase === "build") {
+          compiler?.terminate();
+          warm = false;
+          warming = null;
+        }
+        finish();
+      }
     });
     stop.addEventListener("click", () => {
       cancel();
@@ -774,8 +659,8 @@ function initAnimations() {
 }
 
 function init() {
-  for (const worker of playWorkers) worker.terminate();
-  playWorkers.clear();
+  for (const stop of playStops) stop();
+  playStops.clear();
   initAnimations();
   const roots = [...document.querySelectorAll(".lazy-play")];
   if (roots.length === 0) return;

@@ -1187,10 +1187,10 @@
 
   manual = mkManual pkgs pipelineExamples editorGrammars;
 
-  # The Lazy Reader, without its WebAssembly helper. The helper needs the
-  # Hackage packages that aihc-play depends on and jco from npm, so the
-  # deploy workflow builds it with `nix run .#build-lazy-reader-helper` and
-  # adds it to this site.
+  # The Lazy Reader, without the web kit of its playgrounds. The kit needs
+  # the Hackage packages that aihc-play depends on and jco from npm, so the
+  # deploy workflow builds it with `nix run .#build-web-kit` and adds it to
+  # this site.
   guide = mkGuide pkgs (sources.guideSrc pkgs);
 
   # Every example uses LLVM and the available host-native backend. Nix
