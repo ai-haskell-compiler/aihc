@@ -1160,7 +1160,7 @@ insertTypeFamilyInstance key instanceInfo =
     state
       { tcsTypeFamilyInstances = Map.insert key instanceInfo (tcsTypeFamilyInstances state),
         tcsFamilyEquations = case equationFamily instanceInfo of
-          Just family -> MonoidMap.adjust (Map.union (Map.singleton key instanceInfo)) family (tcsFamilyEquations state)
+          Just family -> MonoidMap.adjust (Map.insert key instanceInfo) family (tcsFamilyEquations state)
           Nothing -> tcsFamilyEquations state
       }
 
@@ -1179,7 +1179,7 @@ setTypeFamilyInstances instances state =
       tcsFamilyEquations =
         Map.foldrWithKey
           ( \key info index -> case equationFamily info of
-              Just family -> MonoidMap.adjust (Map.union (Map.singleton key info)) family index
+              Just family -> MonoidMap.adjust (Map.insert key info) family index
               Nothing -> index
           )
           MonoidMap.empty
