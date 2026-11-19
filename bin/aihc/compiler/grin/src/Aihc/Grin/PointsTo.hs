@@ -100,7 +100,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust)
-import Data.Monoid (Sum)
+import Data.Monoid (Sum (..))
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.STRef (STRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
@@ -445,7 +445,7 @@ runAnalysis limit program = runST $ do
         resultStats =
           PointsToStats
             { statsIterations = iterations,
-              statsVariables = sum (map Map.size (Map.elems variables)),
+              statsVariables = getSum (foldMap (Sum . Map.size) variables),
               statsSetNodes = nodeCount,
               statsLocations = locationCount,
               statsSharedLocations = IntSet.size shared,
