@@ -34,6 +34,7 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum (..))
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
@@ -102,7 +103,7 @@ data ReadyTask = ReadyTask !TaskKind !Int !TaskId
 
 data TaskState = TaskState
   { stateReady :: !(Set ReadyTask),
-    stateWaitCounts :: !(Map TaskId Int),
+    stateWaitCounts :: !(MonoidMap TaskId (Sum Int)),
     stateDependents :: !(MonoidMap TaskId [TaskId]),
     -- | The tasks that ran, which a task added later can depend on.
     stateCompleted :: !(Set TaskId),
@@ -131,7 +132,7 @@ runTaskGraphWith observer requestedWorkers seed = do
   graph <-
     TaskGraph
       <$> newTVarIO Map.empty
-      <*> newTVarIO (TaskState Set.empty Map.empty MonoidMap.empty Set.empty 0)
+      <*> newTVarIO (TaskState Set.empty MonoidMap.empty MonoidMap.empty Set.empty 0)
       <*> newTVarIO 0
       <*> newIORef []
   seed graph
@@ -173,7 +174,7 @@ addTasks graph tasks = do
       let waiting = Set.size (taskDependencies task Set.\\ stateCompleted state)
        in state
             { stateReady = if waiting == 0 then Set.insert (readyTask task) (stateReady state) else stateReady state,
-              stateWaitCounts = Map.insert (taskId task) waiting (stateWaitCounts state),
+              stateWaitCounts = MonoidMap.set (taskId task) (Sum waiting) (stateWaitCounts state),
               stateDependents = addTaskDependents (stateDependents state) task,
               stateRemaining = stateRemaining state + 1
             }
@@ -238,8 +239,8 @@ completeTask graph (ReadyTask _ _ identifier) = do
             }
 
     unlock taskMap (waitCounts, ready) dependent =
-      let nextCount = Map.findWithDefault 0 dependent waitCounts - 1
-          nextWaitCounts = Map.insert dependent nextCount waitCounts
+      let nextCount = MonoidMap.get dependent waitCounts - 1
+          nextWaitCounts = MonoidMap.set dependent nextCount waitCounts
        in if nextCount == 0
             then case Map.lookup dependent taskMap of
               Just task -> (nextWaitCounts, readyTask task : ready)
