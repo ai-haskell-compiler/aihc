@@ -131,6 +131,8 @@ import Data.List (intercalate, nub, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -652,7 +654,7 @@ data St = St
     -- | The live incompatibilities that mention each variable. A merged
     -- incompatibility leaves the index and stays in the store, since a
     -- derivation can name it.
-    stIndex :: !(Map Var IntSet),
+    stIndex :: !(MonoidMap Var IntSet),
     stMerge :: !(Map MergeKey IncompatId),
     stPartial :: !Partial,
     stMemo :: !Memo,
@@ -666,7 +668,7 @@ type Solve m = StateT St m
 -- | Solve the roots and goals of the configuration.
 solve :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
 solve inputs config =
-  evalStateT start (St IntMap.empty 0 Map.empty Map.empty emptyPartial (Memo Map.empty Map.empty) Set.empty 0)
+  evalStateT start (St IntMap.empty 0 MonoidMap.empty Map.empty emptyPartial (Memo Map.empty Map.empty) Set.empty 0)
   where
     start = do
       _ <- addIncompat (Incompat (Map.singleton VarRoot (Negative (Set.singleton rootVersion))) KindRoot)
@@ -701,12 +703,12 @@ store inc = do
 indexIncompat :: (Monad m) => IncompatId -> Solve m ()
 indexIncompat incId = do
   inc <- lookupIncompat incId
-  modify' (\st -> st {stIndex = foldr (\var -> Map.insertWith IntSet.union var (IntSet.singleton incId)) (stIndex st) (Map.keys (incTerms inc))})
+  modify' (\st -> st {stIndex = foldr (MonoidMap.adjust (IntSet.insert incId)) (stIndex st) (Map.keys (incTerms inc))})
 
 unindexIncompat :: (Monad m) => IncompatId -> Solve m ()
 unindexIncompat incId = do
   inc <- lookupIncompat incId
-  modify' (\st -> st {stIndex = foldr (Map.adjust (IntSet.delete incId)) (stIndex st) (Map.keys (incTerms inc))})
+  modify' (\st -> st {stIndex = foldr (MonoidMap.adjust (IntSet.delete incId)) (stIndex st) (Map.keys (incTerms inc))})
 
 addIncompat :: (Monad m) => Incompat -> Solve m IncompatId
 addIncompat inc = do
@@ -756,7 +758,7 @@ propagate config start = go (Set.singleton start)
       case Set.minView changed of
         Nothing -> pure (Right ())
         Just (var, rest) -> do
-          ids <- gets (maybe [] IntSet.toDescList . Map.lookup var . stIndex)
+          ids <- gets (IntSet.toDescList . MonoidMap.get var . stIndex)
           step rest ids
 
     step changed [] = go changed
@@ -875,7 +877,7 @@ decide inputs config = do
     (_, var, allowed) : _ -> do
       version <- chooseVersion inputs config var allowed
       expand inputs config var version
-      ids <- gets (maybe [] IntSet.toDescList . Map.lookup var . stIndex)
+      ids <- gets (IntSet.toDescList . MonoidMap.get var . stIndex)
       partial' <- gets stPartial
       let trial = decideIn var version partial'
       satisfied <- or <$> mapM (fmap ((== Satisfied) . relationOf trial) . lookupIncompat) ids
