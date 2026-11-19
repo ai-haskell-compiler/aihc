@@ -32,10 +32,10 @@ library
 
   other-modules:
     Aihc.PackagePlan.EmbeddedCoreLibs
+    Aihc.PackagePlan.Json
 
   hs-source-dirs: src
   build-depends:
-    aeson >=2.0 && <2.3,
     aihc-cabal-syntax >=2.0 && <2.1,
     aihc-cpp,
     aihc-hackage,

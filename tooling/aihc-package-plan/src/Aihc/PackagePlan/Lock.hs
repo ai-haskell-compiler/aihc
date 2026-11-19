@@ -30,20 +30,18 @@ module Aihc.PackagePlan.Lock
 where
 
 import Aihc.Hackage.Package (Arch, FlagAssignment, OS, PackageName, Version, archName, mkFlagAssignment, mkFlagName, mkPackageName, osName, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
+import Aihc.PackagePlan.Json qualified as Json
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..), Preference (..), Solution)
 import Control.Exception (bracket)
 import Control.Monad (when)
-import Data.Aeson ((.:), (.:?), (.=))
-import Data.Aeson qualified as Aeson
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import System.Directory (doesFileExist, removeFile, renameFile)
 import System.FilePath (takeDirectory, takeFileName)
@@ -117,9 +115,9 @@ renderLockFile :: LockFile -> BL.ByteString
 renderLockFile lock =
   BLC.unlines
     ( [ BLC.pack "{",
-        field "format" (Aeson.encode lockFormatVersion) <> BLC.pack ",",
-        field "compiler" (Aeson.encode (lockCompiler lock)) <> BLC.pack ",",
-        field "index-state" (Aeson.encode (lockIndexState lock)) <> BLC.pack ",",
+        field "format" (Json.encode (Json.Number (toInteger lockFormatVersion))) <> BLC.pack ",",
+        field "compiler" (jsonString (lockCompiler lock)) <> BLC.pack ",",
+        field "index-state" (Json.encode (maybe Json.Null (Json.String . T.pack) (lockIndexState lock))) <> BLC.pack ",",
         BLC.pack "  \"platforms\": {"
       ]
         <> concat (separatedGroups (map platform (Map.toAscList (lockPlatforms lock))))
@@ -145,12 +143,12 @@ renderEntry entry =
   BLC.pack "{"
     <> BLC.intercalate
       (BLC.pack ", ")
-      ( [ pair "name" (Aeson.encode (unPackageName (lockName entry))),
-          pair "version" (Aeson.encode (showVersion (lockVersion entry))),
-          pair "source" (Aeson.encode (sourceText (lockSource entry)))
+      ( [ pair "name" (jsonString (unPackageName (lockName entry))),
+          pair "version" (jsonString (showVersion (lockVersion entry))),
+          pair "source" (jsonString (sourceText (lockSource entry)))
         ]
-          <> [pair "revision" (Aeson.encode revision) | Just revision <- [lockRevision entry]]
-          <> [ pair "flags" (Aeson.encode (Aeson.object [Key.fromString (unFlagName flag) .= value | (flag, value) <- sortOn fst (unFlagAssignment (lockFlags entry))]))
+          <> [pair "revision" (Json.encode (Json.Number (toInteger revision))) | Just revision <- [lockRevision entry]]
+          <> [ pair "flags" (Json.encode (Json.Object (Map.fromList [(T.pack (unFlagName flag), Json.Bool value) | (flag, value) <- unFlagAssignment (lockFlags entry)])))
              | not (null (unFlagAssignment (lockFlags entry)))
              ]
       )
@@ -168,41 +166,85 @@ sourceText source =
 
 parseLockFile :: BL.ByteString -> Either String LockFile
 parseLockFile bytes = do
-  value <- Aeson.eitherDecode bytes
-  AesonTypes.parseEither parseLock value
+  value <- Json.decode bytes
+  object <- asObject "lock file" value
+  format <- required "format" asInt object
+  if format /= lockFormatVersion
+    then Left ("unsupported lock format " <> show format <> "; this compiler writes format " <> show lockFormatVersion)
+    else
+      LockFile
+        <$> required "compiler" asString object
+        <*> optional "index-state" asString object
+        <*> (required "platforms" (asObject "platforms") object >>= fmap Map.fromList . mapM parsePlatform . Map.toList)
   where
-    parseLock = Aeson.withObject "lock file" $ \object -> do
-      format <- object .: "format"
-      if format /= lockFormatVersion
-        then fail ("unsupported lock format " <> show (format :: Int) <> "; this compiler writes format " <> show lockFormatVersion)
-        else
-          LockFile
-            <$> object .: "compiler"
-            <*> object .:? "index-state"
-            <*> (object .: "platforms" >>= Aeson.withObject "platforms" (fmap Map.fromList . mapM parsePlatform . KeyMap.toList))
     parsePlatform (key, value) = do
-      entries <- Aeson.parseJSON value >>= mapM parseEntry
-      pure (Key.toString key, entries)
-    parseEntry = Aeson.withObject "package" $ \object -> do
-      name <- object .: "name"
-      versionText <- object .: "version"
-      version <- maybe (fail ("invalid version " <> versionText)) pure (parseVersionString versionText)
-      sourceName <- object .: "source"
-      source <- case sourceName :: String of
-        "core" -> pure LockCore
-        "hackage" -> pure LockHackage
-        "local" -> pure LockLocal
-        other -> fail ("unknown package source " <> other)
-      revision <- object .:? "revision"
-      flags <- object .:? "flags"
+      entries <- asArray "platform" value >>= mapM parseEntry
+      pure (T.unpack key, entries)
+    parseEntry value = do
+      object <- asObject "package" value
+      name <- required "name" asString object
+      versionText <- required "version" asString object
+      version <- maybe (Left ("invalid version " <> versionText)) Right (parseVersionString versionText)
+      sourceName <- required "source" asString object
+      source <- case sourceName of
+        "core" -> Right LockCore
+        "hackage" -> Right LockHackage
+        "local" -> Right LockLocal
+        other -> Left ("unknown package source " <> other)
+      revision <- optional "revision" asInt object
+      flags <- optional "flags" (asObject "flags") object
+      flagValues <- traverse (asBool "flag") (fromMaybe Map.empty flags)
       pure
         LockEntry
           { lockName = mkPackageName name,
             lockVersion = version,
             lockSource = source,
             lockRevision = revision,
-            lockFlags = mkFlagAssignment [(mkFlagName (T.unpack flag), value) | (flag, value) <- maybe [] Map.toList flags]
+            lockFlags = mkFlagAssignment [(mkFlagName (T.unpack flag), flagValue) | (flag, flagValue) <- Map.toList flagValues]
           }
+
+-- | A JSON string, with quotes and escapes.
+jsonString :: String -> BL.ByteString
+jsonString = Builder.toLazyByteString . Json.encodeString
+
+-- | A field that must be present.
+required :: String -> (Json.Value -> Either String a) -> Map T.Text Json.Value -> Either String a
+required name convert object =
+  case Map.lookup (T.pack name) object of
+    Just value -> either (Left . inField name) Right (convert value)
+    Nothing -> Left ("key " <> show name <> " not found")
+
+-- | A field that can be absent or null.
+optional :: String -> (Json.Value -> Either String a) -> Map T.Text Json.Value -> Either String (Maybe a)
+optional name convert object =
+  case Map.lookup (T.pack name) object of
+    Nothing -> Right Nothing
+    Just Json.Null -> Right Nothing
+    Just value -> either (Left . inField name) (Right . Just) (convert value)
+
+inField :: String -> String -> String
+inField name message = "in " <> show name <> ": " <> message
+
+asObject :: String -> Json.Value -> Either String (Map T.Text Json.Value)
+asObject _ (Json.Object object) = Right object
+asObject what _ = Left ("expected an object for the " <> what)
+
+asArray :: String -> Json.Value -> Either String [Json.Value]
+asArray _ (Json.Array values) = Right values
+asArray what _ = Left ("expected an array for the " <> what)
+
+asString :: Json.Value -> Either String String
+asString (Json.String text) = Right (T.unpack text)
+asString _ = Left "expected a string"
+
+asBool :: String -> Json.Value -> Either String Bool
+asBool _ (Json.Bool value) = Right value
+asBool what _ = Left ("expected a boolean for the " <> what)
+
+asInt :: Json.Value -> Either String Int
+asInt (Json.Number number)
+  | number >= toInteger (minBound :: Int) && number <= toInteger (maxBound :: Int) = Right (fromInteger number)
+asInt _ = Left "expected an integer"
 
 -- | The entries of one platform from a solution.
 lockEntriesFromSolution :: Solution -> [LockEntry]

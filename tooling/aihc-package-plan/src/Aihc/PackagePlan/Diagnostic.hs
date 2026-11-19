@@ -2,11 +2,10 @@
 
 -- |
 -- Module      : Aihc.PackagePlan.Diagnostic
--- Description : Human-readable rendering of JSON diagnostics
+-- Description : Human-readable rendering of parse and preprocessor diagnostics
 --
--- Renders the JSON diagnostics produced while parsing, preprocessing,
--- resolving and type checking a package as GHC-style messages with a source
--- excerpt.
+-- Renders the diagnostics produced while parsing and preprocessing a package
+-- as GHC-style messages.
 module Aihc.PackagePlan.Diagnostic
   ( Diagnostic,
     isCppWarning,
@@ -15,214 +14,51 @@ module Aihc.PackagePlan.Diagnostic
     diagnosticSourceMap,
     parseDiagnosticValue,
     cppDiagnosticValue,
-    sourceSpanValue,
   )
 where
 
 import Aihc.Cpp qualified as Cpp
 import Aihc.Parser.Syntax (SourceSpan, pattern SourceSpan)
-import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData (..))
-import Data.Aeson (object, (.:), (.=))
-import Data.Aeson qualified as Aeson
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Text.Read (readMaybe)
 
 -- | A diagnostic from the parser or preprocessor.
-newtype Diagnostic = Diagnostic Aeson.Value
+data Diagnostic = Diagnostic
+  { diagnosticFile :: !FilePath,
+    -- | The line and, if known, the column.
+    diagnosticPosition :: !(Int, Maybe Int),
+    diagnosticSeverity :: !Text,
+    diagnosticMessage :: !Text
+  }
   deriving (Eq, Show)
 
 instance NFData Diagnostic where
-  rnf (Diagnostic value) = rnf value
+  rnf (Diagnostic file position severity message) =
+    rnf file `seq` rnf position `seq` rnf severity `seq` rnf message
 
 isCppWarning :: Diagnostic -> Bool
-isCppWarning (Diagnostic value) = stringField "severity" value == Just "Warning"
+isCppWarning diagnostic = diagnosticSeverity diagnostic == "Warning"
 
-renderHumanDiagnostic :: String -> Diagnostic -> String
-renderHumanDiagnostic phase (Diagnostic diagnostic) =
-  unlines $
-    T.unpack (locationPrefix <> severityText <> ": " <> modulePrefix <> messageText)
-      : renderHumanDiagnosticExcerpt diagnostic
+renderHumanDiagnostic :: Diagnostic -> String
+renderHumanDiagnostic diagnostic =
+  unlines
+    [ diagnosticFile diagnostic
+        <> ":"
+        <> show line
+        <> maybe "" ((":" <>) . show) column
+        <> ": "
+        <> T.unpack (diagnosticSeverity diagnostic)
+        <> ": "
+        <> T.unpack (diagnosticMessage diagnostic)
+    ]
   where
-    locationPrefix =
-      case diagnosticLocation diagnostic of
-        Just location -> location <> ": "
-        Nothing -> ""
-    modulePrefix =
-      case diagnosticModule diagnostic of
-        Just moduleName -> "[" <> moduleName <> "] "
-        Nothing -> ""
-    severityText = fromMaybe "error" (stringField "severity" diagnostic)
-    messageText = renderHumanDiagnosticMessage phase diagnostic
-
-renderHumanDiagnosticMessage :: String -> Aeson.Value -> Text
-renderHumanDiagnosticMessage phase diagnostic
-  | phase == "rename",
-    Just message <- stringField "message" diagnostic,
-    Just name <- stringField "name" diagnostic,
-    Just namespace <- stringField "namespace" diagnostic =
-      renderResolveMessage message name namespace
-  | otherwise = fromMaybe (diagnosticSummary diagnostic) (stringField "message" diagnostic)
-
-renderResolveMessage :: Text -> Text -> Text -> Text
-renderResolveMessage message name namespace
-  | message == "unbound" = "unbound " <> renderNamespace namespace <> " name ‘" <> name <> "’"
-  | message == "not found" = renderNamespace namespace <> " ‘" <> name <> "’ not found"
-  | otherwise = message <> ": " <> renderNamespace namespace <> " name ‘" <> name <> "’"
-
-renderNamespace :: Text -> Text
-renderNamespace namespace =
-  case namespace of
-    "ResolutionNamespaceTerm" -> "term"
-    "ResolutionNamespaceType" -> "type"
-    "ResolutionNamespaceModule" -> "module"
-    _ -> namespace
-
-renderHumanDiagnosticExcerpt :: Aeson.Value -> [String]
-renderHumanDiagnosticExcerpt diagnostic =
-  case (diagnosticSourceLines diagnostic, diagnosticSpanLines diagnostic) of
-    (sourceLines@(_ : _), Just (startLine, startColumn, endLine, endColumn)) ->
-      renderSourceExcerpt sourceLines startLine startColumn endLine endColumn
-    _ -> []
-
-renderSourceExcerpt :: [DiagnosticSourceLine] -> Int -> Int -> Int -> Int -> [String]
-renderSourceExcerpt sourceLines startLine startColumn endLine endColumn
-  | null selectedLines = []
-  | otherwise = concatMap renderLine selectedLines
-  where
-    selectedLines =
-      filter
-        ( \sourceLine ->
-            sourceLineNumber sourceLine >= startLine
-              && sourceLineNumber sourceLine <= endLine
-        )
-        sourceLines
-    width = length (show (maximum (map sourceLineNumber selectedLines)))
-    renderLine sourceLine =
-      [ "  " <> padLeft width ' ' (show lineNumber) <> " | " <> T.unpack lineText,
-        "  " <> replicate width ' ' <> " | " <> T.unpack (caretIndicator lineNumber lineText)
-      ]
-      where
-        lineNumber = sourceLineNumber sourceLine
-        lineText = sourceLineText sourceLine
-    caretIndicator lineNumber lineText =
-      T.replicate (max 0 (lineStartColumn lineNumber - 1)) " "
-        <> T.replicate (lineCaretWidth lineNumber lineText) "^"
-    lineStartColumn lineNumber
-      | lineNumber == startLine = max 1 startColumn
-      | otherwise = 1
-    lineCaretWidth lineNumber lineText
-      | startLine == endLine =
-          max 1 (endColumn - startColumn)
-      | lineNumber == startLine =
-          max 1 (T.length lineText - lineStartColumn lineNumber + 1)
-      | lineNumber == endLine =
-          max 1 (endColumn - 1)
-      | otherwise =
-          max 1 (T.length lineText)
-
-diagnosticModule :: Aeson.Value -> Maybe Text
-diagnosticModule =
-  stringField "module"
-
-diagnosticFile :: Aeson.Value -> Maybe Text
-diagnosticFile diagnostic =
-  stringField "file" diagnostic
-    <|> (objectField "span" diagnostic >>= stringField "file")
-
-diagnosticLocation :: Aeson.Value -> Maybe Text
-diagnosticLocation diagnostic =
-  case diagnosticFile diagnostic of
-    Nothing -> Nothing
-    Just file ->
-      Just $
-        file
-          <> maybe "" (":" <>) lineText
-          <> maybe "" (":" <>) columnText
-  where
-    spanValue = objectField "span" diagnostic
-    lineText = scalarFieldText "line" diagnostic <|> (spanValue >>= scalarFieldText "startLine")
-    columnText = spanValue >>= scalarFieldText "startColumn"
-
-diagnosticSpanLines :: Aeson.Value -> Maybe (Int, Int, Int, Int)
-diagnosticSpanLines diagnostic = do
-  spanValue <- objectField "span" diagnostic
-  startLine <- intField "startLine" spanValue
-  startColumn <- intField "startColumn" spanValue
-  endLine <- intField "endLine" spanValue
-  endColumn <- intField "endColumn" spanValue
-  pure (startLine, startColumn, endLine, endColumn)
-
-data DiagnosticSourceLine = DiagnosticSourceLine
-  { sourceLineNumber :: !Int,
-    sourceLineText :: !Text
-  }
-
-instance Aeson.FromJSON DiagnosticSourceLine where
-  parseJSON =
-    Aeson.withObject "DiagnosticSourceLine" $ \obj ->
-      DiagnosticSourceLine
-        <$> obj .: "line"
-        <*> obj .: "text"
-
-diagnosticSourceLines :: Aeson.Value -> [DiagnosticSourceLine]
-diagnosticSourceLines diagnostic =
-  case objectField "sourceLines" diagnostic of
-    Just value ->
-      case Aeson.fromJSON value of
-        Aeson.Success sourceLines -> sourceLines
-        Aeson.Error {} -> []
-    Nothing -> []
-
-stringField :: String -> Aeson.Value -> Maybe Text
-stringField name value =
-  case objectField name value of
-    Just (Aeson.String text) -> Just text
-    _ -> Nothing
-
-scalarFieldText :: String -> Aeson.Value -> Maybe Text
-scalarFieldText name value =
-  scalarValueText =<< objectField name value
-
-intField :: String -> Aeson.Value -> Maybe Int
-intField name value =
-  case objectField name value of
-    Just fieldValue ->
-      case Aeson.fromJSON fieldValue of
-        Aeson.Success int -> Just int
-        Aeson.Error {} -> Nothing
-    Nothing -> Nothing
-
-scalarValueText :: Aeson.Value -> Maybe Text
-scalarValueText value =
-  case value of
-    Aeson.String text -> Just text
-    Aeson.Number {} ->
-      let parsedInt :: Aeson.Result Int
-          parsedInt = Aeson.fromJSON value
-       in case parsedInt of
-            Aeson.Success int -> Just (T.pack (show int))
-            Aeson.Error {} -> Just (diagnosticSummary value)
-    _ -> Nothing
-
-objectField :: String -> Aeson.Value -> Maybe Aeson.Value
-objectField name value =
-  case value of
-    Aeson.Object obj -> KeyMap.lookup (Key.fromString name) obj
-    _ -> Nothing
-
-diagnosticSummary :: Aeson.Value -> Text
-diagnosticSummary =
-  TE.decodeUtf8 . BL.toStrict . Aeson.encode
+    (line, column) = diagnosticPosition diagnostic
 
 type DiagnosticSourceMap = MonoidMap FilePath (Map.Map Int Text)
 
@@ -259,36 +95,19 @@ parseLineDirective line = do
         _ -> Nothing
 
 parseDiagnosticValue :: FilePath -> (SourceSpan, Text) -> Diagnostic
-parseDiagnosticValue path (span', message) =
-  Diagnostic $
-    object
-      [ "file" .= path,
-        "span" .= sourceSpanValue span',
-        "message" .= message
-      ]
+parseDiagnosticValue path (SourceSpan _ startLine startColumn _ _ _ _, message) =
+  Diagnostic
+    { diagnosticFile = path,
+      diagnosticPosition = (startLine, Just startColumn),
+      diagnosticSeverity = "error",
+      diagnosticMessage = message
+    }
 
 cppDiagnosticValue :: Cpp.Diagnostic -> Diagnostic
 cppDiagnosticValue diag =
-  Diagnostic $
-    object
-      [ "file" .= Cpp.diagFile diag,
-        "line" .= Cpp.diagLine diag,
-        "severity" .= show (Cpp.diagSeverity diag),
-        "message" .= Cpp.diagMessage diag
-      ]
-
-sourceSpanValue :: SourceSpan -> Aeson.Value
-sourceSpanValue (SourceSpan file startLine startCol endLine endCol startOffset endOffset) =
-  object
-    [ "file" .= file,
-      "startLine" .= startLine,
-      "startColumn" .= startCol,
-      "endLine" .= endLine,
-      "endColumn" .= endCol,
-      "startOffset" .= startOffset,
-      "endOffset" .= endOffset
-    ]
-
-padLeft :: Int -> Char -> String -> String
-padLeft width char value =
-  replicate (max 0 (width - length value)) char <> value
+  Diagnostic
+    { diagnosticFile = Cpp.diagFile diag,
+      diagnosticPosition = (Cpp.diagLine diag, Nothing),
+      diagnosticSeverity = T.pack (show (Cpp.diagSeverity diag)),
+      diagnosticMessage = Cpp.diagMessage diag
+    }
