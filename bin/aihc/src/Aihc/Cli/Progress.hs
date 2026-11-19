@@ -402,7 +402,7 @@ renderFrame color width height now tick state
     modulesTotal = sum (map itemModules values)
     modulesDone = sum (map itemModulesDone values)
     busy = getSum (fold (stateActive state))
-    kinds = [show count <> " " <> kindName kind | (kind, Sum count) <- MonoidMap.toList (stateActive state), count > 0]
+    kinds = [show count <> " " <> kindName kind | (kind, Sum count) <- MonoidMap.toList (stateActive state)]
     -- The first line fits 80 columns: the store count and the kinds of
     -- the running tasks go on the status line.
     summaryLine =
