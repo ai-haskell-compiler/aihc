@@ -337,7 +337,7 @@ reserveNames = foldl' reserve
     reserve env name =
       case nameOrigin name of
         OriginLocal (Unique unique) ->
-          env {tidyUsed = MonoidMap.adjust (IntSet.union (IntSet.singleton unique)) (nameText name) (tidyUsed env)}
+          env {tidyUsed = MonoidMap.adjust (IntSet.insert unique) (nameText name) (tidyUsed env)}
         OriginTop {} -> env
 
 tidyRecBind :: TidyEnv -> Tidied Binder -> Bind -> Tidied Bind
@@ -444,7 +444,7 @@ bindName env oldName newName =
             if nameOrigin oldName == nameOrigin newName && Map.notMember oldName (tidyNames env)
               then tidyNames env
               else Map.insert oldName newName (tidyNames env),
-          tidyUsed = MonoidMap.adjust (IntSet.union (IntSet.singleton unique)) (nameText newName) (tidyUsed env)
+          tidyUsed = MonoidMap.adjust (IntSet.insert unique) (nameText newName) (tidyUsed env)
         }
     OriginTop {} -> env
 
