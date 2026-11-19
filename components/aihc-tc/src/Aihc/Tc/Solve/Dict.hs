@@ -35,7 +35,7 @@ import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercible
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
+import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, isTypeFamilyTyCon, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassClosure)
 import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds, matchKinds)
@@ -735,12 +735,67 @@ solveNormalizedDict visited givens ct
 
     -- A literal argument builds the dictionary. Otherwise a given
     -- equality can still rewrite the argument to one a given names.
+    -- A given equality with a type family application on one side rewrites
+    -- that application in the wanted before the instance search, as in
+    -- GHC. With the given @V a ~ v@, the wanted @(E v ::: t) :>: E (V a)@
+    -- becomes @(E v ::: t) :>: E v@, and the more specific instance for
+    -- @(x ::: t) :>: x@ matches. As written, only the general instance
+    -- for @(y ::: t) :>: x@ matches. Its context is a new wanted of the
+    -- same form, one level down, and each level tries the rule sets again
+    -- after the instances fail. Thus the time grows exponentially with
+    -- the depth. If the rewritten wanted is stuck, the search continues
+    -- with the wanted as written.
     solveFromInstances className args' givens' = do
+      rewritten <- familyRewrittenArguments givens' args'
+      case rewritten of
+        Just (rewrittenArgs, coercions) -> do
+          saved <- lift get
+          variable <- freshEvVar
+          result <- solveDictWithGivensVisited (ctPred ct : visited) givens' ct {ctPred = ClassPred className rewrittenArgs, ctEvVar = variable}
+          evidence <- case result of
+            DictSolved -> lookupEvidence variable
+            DictStuck _ -> pure Nothing
+          case evidence of
+            Just term -> do
+              bindEvidence (ctEvVar ct) (EvCast term (Sym (TyConAppCo className args' coercions [])))
+              pure DictSolved
+            Nothing -> do
+              restoreKeepingOverflow saved
+              solveFromInstancesAsWritten className args' givens'
+        Nothing -> solveFromInstancesAsWritten className args' givens'
+
+    solveFromInstancesAsWritten className args' givens' = do
       instances <- getClassInstances className
       result <- tryInstances (ctPred ct : visited) className args' (mostSpecificInstances args' instances)
       case result of
         DictSolved -> pure DictSolved
         DictStuck _ -> solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
+
+    -- The arguments with the family rules of the given equalities applied,
+    -- when an argument has a type family application that a rule rewrites.
+    familyRewrittenArguments givens' arguments = do
+      isFamily <- isTypeFamilyTyCon
+      if not (any (mentionsFamily isFamily) arguments)
+        then pure Nothing
+        else do
+          outerGivens <- mapM zonkGivenPred =<< getGivenPredicates
+          let allGivens = givens' <> filter (`notElem` givens') outerGivens
+          ruleSets <- givenRewriteRuleSets allGivens
+          pure $ case ruleSets of
+            familyRules@(_ : _) : _
+              | let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules familyRules) arguments),
+                not (and (zipWith sameType rewrittenArgs arguments)) ->
+                  Just (rewrittenArgs, coercions)
+            _ -> Nothing
+
+    mentionsFamily isFamily ty =
+      case ty of
+        TcTyConApp tyCon _ arguments -> isFamily tyCon || any (mentionsFamily isFamily) arguments
+        TcFunTy argument result -> mentionsFamily isFamily argument || mentionsFamily isFamily result
+        TcAppTy function argument -> mentionsFamily isFamily function || mentionsFamily isFamily argument
+        TcForAllTy _ body -> mentionsFamily isFamily body
+        TcQualTy _ body -> mentionsFamily isFamily body
+        _ -> False
 
     tryTypeLitOrGivens visited' zonkedGivens className args classNameText matchesSort ty = do
       result <- tryTypeLit classNameText matchesSort ty
