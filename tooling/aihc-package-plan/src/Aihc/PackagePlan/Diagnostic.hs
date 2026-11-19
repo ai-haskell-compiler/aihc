@@ -237,7 +237,7 @@ diagnosticSourceMap initialFile =
         Nothing ->
           ( currentFile,
             currentLine + 1,
-            MonoidMap.adjust (Map.union (Map.singleton currentLine line)) currentFile sourceMap
+            MonoidMap.adjust (Map.insert currentLine line) currentFile sourceMap
           )
 
 parseLineDirective :: Text -> Maybe (Int, Maybe FilePath)
