@@ -171,7 +171,7 @@ programStaticReferences program =
         Just global <- [Map.lookup name externGlobals]
       ]
     directCalls =
-      Map.fromList
+      MonoidMap.fromMap . Map.fromList $
         [ (grinFunctionName function, callees)
         | function <- grinFunctions program,
           let callees =
@@ -184,7 +184,7 @@ programStaticReferences program =
       Map.fromListWith
         (<>)
         [ (callee, [caller])
-        | (caller, callees) <- Map.toList directCalls,
+        | (caller, callees) <- MonoidMap.toList directCalls,
           callee <- Set.toList callees
         ]
     -- A function reaches a traced static object when it mentions one or when
@@ -199,7 +199,7 @@ programStaticReferences program =
           let new = [caller | caller <- Map.findWithDefault [] name callers, not (Set.member caller found)]
            in walkCallers (foldr Set.insert found new) (new <> rest)
     children name =
-      Set.toAscList (Set.intersection reaching (Map.findWithDefault Set.empty name directCalls))
+      Set.toAscList (Set.intersection reaching (MonoidMap.get name directCalls))
 
 -- | A function mentions a static object either through an explicit global
 -- reference or through a free variable, which the backends materialize as a
