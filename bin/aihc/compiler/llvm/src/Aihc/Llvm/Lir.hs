@@ -40,6 +40,8 @@ import Data.Either (fromRight)
 import Data.List (partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -588,9 +590,9 @@ renderCallShim signature index =
 
 -- | A jump edge. A target with parameters gets its own block so the phi of
 -- the target sees one predecessor per edge.
-edgeTo :: Map Label [(Var, Type)] -> Target -> M Text
+edgeTo :: MonoidMap Label [(Var, Type)] -> Target -> M Text
 edgeTo parameters (Target label arguments)
-  | null (Map.findWithDefault [] label parameters) = pure ("%" <> blockName label)
+  | null (MonoidMap.get label parameters) = pure ("%" <> blockName label)
   | otherwise = do
       state <- get
       let name = quote ("e." <> tshow (stateNextEdge state))
@@ -618,7 +620,7 @@ compileFunction ctx input = do
             stateEdges = Map.empty,
             stateNextEdge = 0
           }
-      parameters = Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function]
+      parameters = MonoidMap.fromMap (Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function])
   (bodies, final) <- lift (runStateT (mapM (compileBlock ctx function parameters) (functionBlocks function)) initial)
   put (ModuleState (stateTraps final) (stateCallShims final) (stateMetadata final))
   let edges = stateEdges final
@@ -670,7 +672,7 @@ compileFunction ctx input = do
 -- | The lines of one block after its phi instructions. An instruction that
 -- traps splits the block, so the result is a list of blocks: the first
 -- continues the block of the Lir label and the rest are fresh blocks.
-compileBlock :: Ctx -> Function -> Map Label [(Var, Type)] -> Block -> M [Text]
+compileBlock :: Ctx -> Function -> MonoidMap Label [(Var, Type)] -> Block -> M [Text]
 compileBlock ctx function parameters block = do
   modify' $ \state -> state {stateBlocksRev = [], stateOpenRev = []}
   mapM_ (compileInstruction ctx) (blockInstructions block)
@@ -678,7 +680,7 @@ compileBlock ctx function parameters block = do
   state <- get
   pure (concat (reverse (reverse (stateOpenRev state) : stateBlocksRev state)))
 
-compileTerminator :: Ctx -> Function -> Map Label [(Var, Type)] -> Terminator -> M ()
+compileTerminator :: Ctx -> Function -> MonoidMap Label [(Var, Type)] -> Terminator -> M ()
 compileTerminator ctx function parameters terminator =
   case terminator of
     Jump target -> do
