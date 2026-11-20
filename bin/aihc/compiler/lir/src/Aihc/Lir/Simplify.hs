@@ -572,7 +572,7 @@ eliminateCommonSubexpressions function
                   | not (null results) ->
                       case lookup operation loads' of
                         Just earlier -> reuse earlier
-                        Nothing -> go replaced pure' (MonoidMap.set (addressRegion address) ((operation, results) : MonoidMap.get (addressRegion address) loads) loads) (instruction : kept) rest
+                        Nothing -> go replaced pure' (MonoidMap.adjust ((operation, results) :) (addressRegion address) loads) (instruction : kept) rest
                   where
                     loads' = fold loads
                 Store _ _ address _
