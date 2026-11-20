@@ -170,13 +170,9 @@ programStaticReferences program =
         Just global <- [Map.lookup name externGlobals]
       ]
     directCalls =
-      MonoidMap.fromList
-        [ (grinFunctionName function, callees)
-        | function <- grinFunctions program,
-          let callees =
-                Set.delete (grinFunctionName function) $
-                  Set.intersection definedNames (functionReferences function)
-        ]
+      MonoidMap.mapWithKey
+        (\name -> Set.delete name . Set.intersection definedNames)
+        references
     -- The known callers of each function, from the direct calls.
     callers =
       MonoidMap.fromListWith
