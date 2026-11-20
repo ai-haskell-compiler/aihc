@@ -73,6 +73,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -647,7 +648,7 @@ generalizedBinders quantification sigs ignored placeholders residuals binders = 
               ty <- freshMetaTv
               pure (Left (name, TcMonoIdBinder ty))
             Just ty ->
-              pure (Right (name, ty, Map.findWithDefault [] key (localResidualPreds residuals)))
+              pure (Right (name, ty, MonoidMap.get key (localResidualPreds residuals)))
     assemble classified schemes =
       case (classified, schemes) of
         ([], _) -> []
@@ -658,7 +659,7 @@ generalizedBinders quantification sigs ignored placeholders residuals binders = 
 -- | Residual constraints of a local binding group after the group solve.
 data LocalResiduals = LocalResiduals
   { -- | Predicates that each generalized binder abstracts over.
-    localResidualPreds :: Map Entity [Pred],
+    localResidualPreds :: MonoidMap Entity [Pred],
     -- | Constraints that the enclosing scope must solve.
     localResidualOuterCts :: [Ct],
     -- | Meta-variables that a retained constraint keeps monomorphic.
@@ -740,8 +741,8 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
             owners = ownersOf generalizable
          in if null generalizable || null owners || not (isClassPred predicate) || any (`Set.member` restrictedBinders) owners
               then (preds, outerCts ++ [ct], givens)
-              else (foldr (\key -> Map.insertWith (flip (++)) key [predicate]) preds owners, outerCts, givens ++ [ct])
-      (localPreds, outer, givenCts) = foldl step (Map.empty, [], []) residualCts
+              else (foldr (MonoidMap.adjust (<> [predicate])) preds owners, outerCts, givens ++ [ct])
+      (localPreds, outer, givenCts) = foldl step (MonoidMap.empty, [], []) residualCts
   forM_ givenCts $ \ct ->
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
   pure
