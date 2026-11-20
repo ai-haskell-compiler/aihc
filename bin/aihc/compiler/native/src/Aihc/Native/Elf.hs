@@ -53,7 +53,7 @@ writeImage image payloads = do
       -- starts at or before it.
       pieceStarts =
         MonoidMap.fromListWith
-          (flip Map.union)
+          Map.union
           [(pieceRole piece, Map.singleton (pieceStart piece) index) | (index, piece) <- pieceIndexes]
       pieceAt role offset = Map.lookupLE offset (MonoidMap.get role pieceStarts)
       target relocation =
