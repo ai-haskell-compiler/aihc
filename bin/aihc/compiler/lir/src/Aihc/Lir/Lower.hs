@@ -92,6 +92,7 @@ import Aihc.Native
     renderLinkedGlobalSymbol,
     renderLinkedPartialConstructorInfoSymbol,
   )
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM, forM_, mfilter, unless, void, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -1588,9 +1589,9 @@ tailCallCallers env program
   where
     functions = grinFunctions program
     occurrences =
-      MonoidMap.fromList
-        ( [(name, 1 :: Sum Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
-            <> [(name, 1) | global <- grinGlobals program, name <- grinNodeFunctionNames (grinGlobalNode global)]
+      Occurrences.count
+        ( [name | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+            <> [name | global <- grinGlobals program, name <- grinNodeFunctionNames (grinGlobalNode global)]
         )
     tailCalls = Map.fromListWith (<>) [(callee, [grinFunctionName function]) | function <- functions, callee <- tailCallees (grinFunctionBody function)]
     eligible name =
