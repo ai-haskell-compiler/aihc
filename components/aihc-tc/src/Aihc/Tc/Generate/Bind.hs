@@ -218,8 +218,9 @@ localDeclComponents decls = do
       graph = [(node, node, [dep | dep <- Set.toList (MonoidMap.get node nodeDeps), not (Set.member dep signedNodes)]) | node <- Set.toList (MonoidMap.nonNullKeys valueNodes)]
       componentIndices component =
         let nodes = Graph.flattenSCC component
-            indices = Set.toList (Set.unions [MonoidMap.get node valueNodes <> MonoidMap.get node attached | node <- nodes])
+            indices = Set.toList (Set.unions [MonoidMap.get node nodeIndices | node <- nodes])
          in (indices, map (decls !!) indices)
+      nodeIndices = valueNodes <> attached
       attachedIndices = Set.unions attached
       -- A declaration without binders that no component holds, such as a
       -- signature for a binder outside the group, goes last.
