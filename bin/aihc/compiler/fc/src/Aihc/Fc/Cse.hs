@@ -24,7 +24,7 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Simplify (safePrimitiveCall, substExpr)
 import Aihc.Fc.Syntax
-import Aihc.Fc.TypeOf (TypeEnv, reduceType, typeEnvFromProgram)
+import Aihc.Fc.TypeOf (TypeEnv (..), lookupHeaderType, reduceType, typeEnvFromProgram)
 import Aihc.Fc.Views (exprValueNames, maxLocalUnique)
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
@@ -80,11 +80,13 @@ data Available = Available
   { -- | The pure right-hand sides in scope, and their binders.
     availableExprs :: !(Map Expr Name),
     -- | The binders in scope whose type mentions a state token.
-    availableState :: !(Set Name)
+    availableState :: !(Set Name),
+    -- | The types of the local binders in scope.
+    availableTypes :: !(Map Name Type)
   }
 
 emptyAvailable :: Available
-emptyAvailable = Available Map.empty Set.empty
+emptyAvailable = Available Map.empty Set.empty Map.empty
 
 -- | Bring binders into scope. A binder hides the right-hand sides that
 -- use its name, and the right-hand side that it named.
@@ -97,7 +99,8 @@ introduce binders available
             if Map.null (availableExprs available)
               then Map.empty
               else Map.filterWithKey keep (availableExprs available),
-          availableState = List.foldl' mark (availableState available) binders
+          availableState = List.foldl' mark (availableState available) binders,
+          availableTypes = List.foldl' (\types binder -> Map.insert (binderName binder) (binderType binder) types) (availableTypes available) binders
         }
   where
     names = Set.fromList (map binderName binders)
@@ -144,12 +147,56 @@ reuse env available expr
             mapM
               ( \alternative ->
                   (\rhs -> alternative {altRhs = rhs})
-                    <$> reuse env (introduce (altTypeBinders alternative <> altBinders alternative) afterBinder) (altRhs alternative)
+                    <$> reuse env (rebuilt env scrutinee' binder alternative (introduce (altTypeBinders alternative <> altBinders alternative) afterBinder)) (altRhs alternative)
               )
               alternatives
           pure (ExCase scrutinee' binder alternatives')
   where
     go = reuse env available
+
+-- | In an alternative of a constructor, the constructor applied to the
+-- fields of the alternative is the value that the case matched. A use of
+-- that value in place of the application does not allocate a copy of the
+-- scrutinee. The value is the case binder, or else a variable scrutinee.
+-- The type arguments come from the type of that value, so the
+-- application must have the same type. A top-level variable has no type
+-- here, so it takes the place of an application only when the
+-- constructor has no type parameters.
+rebuilt :: TypeEnv -> Expr -> Maybe Binder -> Alt -> Available -> Available
+rebuilt env scrutinee binder alternative available =
+  case altCon alternative of
+    AltData con
+      | null (altTypeBinders alternative),
+        not (Map.member con (teConRepresentations env)),
+        Just (value, arguments) <- matched con,
+        value `notElem` map binderName (altBinders alternative),
+        not (Set.member value (availableState available)) ->
+          let application =
+                List.foldl'
+                  (\function field -> ExApp function (ExVar (binderName field)))
+                  (List.foldl' ExTyApp (ExVar con) arguments)
+                  (altBinders alternative)
+           in available {availableExprs = Map.insert application value (availableExprs available)}
+    _ -> available
+  where
+    matched con =
+      case (binder, scrutinee) of
+        (Just caseBinder, _) -> (,) (binderName caseBinder) <$> typeArguments (binderType caseBinder)
+        (Nothing, ExVar variable)
+          | Just ty <- Map.lookup variable (availableTypes available) -> (,) variable <$> typeArguments ty
+          | Just conType <- lookupHeaderType env con,
+            monomorphic conType ->
+              Just (variable, [])
+        _ -> Nothing
+    monomorphic ty =
+      case ty of
+        TyForAll {} -> False
+        _ -> True
+    typeArguments ty =
+      case ty of
+        TyCon _ -> Just []
+        TyApp function argument -> (<> [argument]) <$> typeArguments function
+        _ -> Nothing
 
 -- | Whether a let binds a pure expression that a later equal expression
 -- can use.

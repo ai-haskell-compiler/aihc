@@ -1,0 +1,75 @@
+---
+extensions: []
+modules:
+- |
+  module Test (keep, step) where
+
+  import GHC.Types (Int)
+
+  data Cursor = Cursor [Int] Int
+
+  step :: Cursor -> Cursor
+  step cursor = case cursor of
+    Cursor input offset -> case input of
+      [] -> Cursor input offset
+      _ : rest -> Cursor rest offset
+
+  data Box a = Box a [a]
+
+  keep :: Box a -> Box a
+  keep box = case box of
+    Box first others -> case others of
+      [] -> Box first others
+      _ : _ -> box
+passes:
+- cse
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cI#] 2.tInt :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a → t[] a → t[] a;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tCursor :: sType {
+    pub 1.cCursor :: t[] tInt → tInt → tCursor
+  }
+
+  type 1.tBox (a : sType) :: sType {
+    pub 1.cBox :: ∀(a : sType). a → t[] a → tBox a
+  }
+
+  pub val 1.vstep :: tCursor → tCursor
+    = λ(x : tCursor).
+      let! cCursor (input : t[] tInt) (offset : tInt) = x;
+      case input of {
+        c[] →
+          x;
+        c: (unused _pat : tInt) (rest : t[] tInt) →
+          cCursor rest offset
+      }
+
+  pub val 1.vkeep :: ∀(a : sType). tBox a → tBox a
+    = Λ(a : sType). λ(x : tBox a).
+      let! cBox (unused first : a) (others : t[] a) = x;
+      case others of {
+        c[] →
+          x;
+        c: (unused _pat : a) (unused _pat{1} : t[] a) →
+          x
+      }
+status: pass
+reason: In 'step' and 'keep', the first inner alternative builds the scrutinee again from the fields of its alternative. The pass uses the value that the case matched at that position, so the code does not allocate a copy. That value is the variable scrutinee. In 'keep' the type of the variable gives the type argument of the application.

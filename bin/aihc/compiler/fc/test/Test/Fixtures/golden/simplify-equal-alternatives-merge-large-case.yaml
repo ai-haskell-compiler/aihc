@@ -1,0 +1,167 @@
+---
+extensions: []
+modules:
+- |
+  module Test (isLast) where
+
+  import GHC.Types (Bool (..))
+
+  data Key
+    = K1
+    | K2
+    | K3
+    | K4
+    | K5
+    | K6
+    | K7
+    | K8
+    | K9
+    | K10
+    | K11
+    | K12
+    | K13
+    | K14
+    | K15
+    | K16
+    | K17
+    | K18
+    | K19
+    | K20
+    | K21
+    | K22
+    | K23
+    | K24
+    | K25
+    | K26
+    | K27
+    | K28
+    | K29
+    | K30
+    | K31
+    | K32
+    | K33
+    | K34
+    | K35
+    | K36
+    | K37
+    | K38
+    | K39
+    | K40
+
+  isLast :: Key -> Bool
+  isLast key = case key of
+      K1 -> False
+      K2 -> False
+      K3 -> False
+      K4 -> False
+      K5 -> False
+      K6 -> False
+      K7 -> False
+      K8 -> False
+      K9 -> False
+      K10 -> False
+      K11 -> False
+      K12 -> False
+      K13 -> False
+      K14 -> False
+      K15 -> False
+      K16 -> False
+      K17 -> False
+      K18 -> False
+      K19 -> False
+      K20 -> False
+      K21 -> False
+      K22 -> False
+      K23 -> False
+      K24 -> False
+      K25 -> False
+      K26 -> False
+      K27 -> False
+      K28 -> False
+      K29 -> False
+      K30 -> False
+      K31 -> False
+      K32 -> False
+      K33 -> False
+      K34 -> False
+      K35 -> False
+      K36 -> False
+      K37 -> False
+      K38 -> False
+      K39 -> False
+      K40 -> True
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tKey :: sType {
+    1.cK1 :: tKey;
+    1.cK2 :: tKey;
+    1.cK3 :: tKey;
+    1.cK4 :: tKey;
+    1.cK5 :: tKey;
+    1.cK6 :: tKey;
+    1.cK7 :: tKey;
+    1.cK8 :: tKey;
+    1.cK9 :: tKey;
+    1.cK10 :: tKey;
+    1.cK11 :: tKey;
+    1.cK12 :: tKey;
+    1.cK13 :: tKey;
+    1.cK14 :: tKey;
+    1.cK15 :: tKey;
+    1.cK16 :: tKey;
+    1.cK17 :: tKey;
+    1.cK18 :: tKey;
+    1.cK19 :: tKey;
+    1.cK20 :: tKey;
+    1.cK21 :: tKey;
+    1.cK22 :: tKey;
+    1.cK23 :: tKey;
+    1.cK24 :: tKey;
+    1.cK25 :: tKey;
+    1.cK26 :: tKey;
+    1.cK27 :: tKey;
+    1.cK28 :: tKey;
+    1.cK29 :: tKey;
+    1.cK30 :: tKey;
+    1.cK31 :: tKey;
+    1.cK32 :: tKey;
+    1.cK33 :: tKey;
+    1.cK34 :: tKey;
+    1.cK35 :: tKey;
+    1.cK36 :: tKey;
+    1.cK37 :: tKey;
+    1.cK38 :: tKey;
+    1.cK39 :: tKey;
+    1.cK40 :: tKey
+  }
+
+  pub val 1.visLast :: tKey → tBool
+    = λ(x : tKey).
+      case x of {
+        cK40 →
+          cTrue;
+        _ →
+          cFalse
+      }
+status: pass
+reason: The case has forty alternatives, more than the limit of the pairwise merge. Thirty-nine alternatives give the same constructor, so they become one default alternative.
