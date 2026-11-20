@@ -53,7 +53,7 @@ writeImage image payloads = do
       -- starts at or before it.
       pieceStarts =
         MonoidMap.fromListWith
-          Map.union
+          (<>)
           [(pieceRole piece, Map.singleton (pieceStart piece) index) | (index, piece) <- pieceIndexes]
       pieceAt role offset = Map.lookupLE offset (MonoidMap.get role pieceStarts)
       target relocation =
@@ -191,7 +191,7 @@ splitSections image payloads =
   where
     starts =
       MonoidMap.fromListWith
-        Set.union
+        (<>)
         [(role, Set.singleton (symbolOffset symbol)) | symbol <- imageSymbols image, Just role <- [symbolSection symbol]]
     total = sum [Set.size offsets | (_, offsets) <- MonoidMap.toList starts]
     stride = max 1 ((total + maximumPieces - 1) `div` maximumPieces)
