@@ -163,8 +163,8 @@ programStaticReferences program =
     externGlobals = Map.fromList [(grinExternName extern, grinExternGlobal extern) | extern <- grinExternFunctions program]
     -- The code references of each body, found once. The extern objects and
     -- the direct calls of a function both read them.
-    references = Map.fromList [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
-    functionReferences function = Map.findWithDefault Set.empty (grinFunctionName function) references
+    references = MonoidMap.fromMap . Map.fromList $ [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
+    functionReferences function = MonoidMap.get (grinFunctionName function) references
     externObjects function =
       [ global
       | name <- Set.toList (functionReferences function),
