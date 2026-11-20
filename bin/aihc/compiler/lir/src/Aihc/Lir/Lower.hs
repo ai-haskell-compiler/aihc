@@ -104,6 +104,8 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Monoid (Sum (..))
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -1580,15 +1582,15 @@ tailCallCallers env program
           all (== caller) callers,
           caller /= callee,
           Set.notMember caller (envForwardingFunctions env),
-          Map.lookup callee occurrences == Just (length callers),
+          MonoidMap.get callee occurrences == Sum (length callers),
           eligible callee
         ]
   where
     functions = grinFunctions program
     occurrences =
-      Map.fromListWith
+      MonoidMap.fromListWith
         (+)
-        ( [(name, 1 :: Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+        ( [(name, 1 :: Sum Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
             <> [(name, 1) | global <- grinGlobals program, name <- grinNodeFunctionNames (grinGlobalNode global)]
         )
     tailCalls = Map.fromListWith (<>) [(callee, [grinFunctionName function]) | function <- functions, callee <- tailCallees (grinFunctionBody function)]
