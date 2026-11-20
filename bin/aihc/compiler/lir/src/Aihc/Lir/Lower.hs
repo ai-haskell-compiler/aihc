@@ -2540,7 +2540,7 @@ smallByteArraySet to byte bytes = do
   terminate (Jump (Target doneLabel []))
   beginBlock loopLabel []
   low <- emitValue "fill_low" I64 (Binary And I64 byte (OperandLiteral (LitInt 255)))
-  pattern <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
+  repeated <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
   narrow <- emitValue "fill_narrow" I8 (Convert Trunc I64 (typedOperand low) I8)
   terminate (Jump (Target wordLabel [zero]))
   index <- fresh "fill_index"
@@ -2550,7 +2550,7 @@ smallByteArraySet to byte bytes = do
   terminate (Branch (typedOperand fits) (Target wordBodyLabel []) (Target byteLabel [OperandVar index]))
   beginBlock wordBodyLabel []
   wordTo <- at to (OperandVar index)
-  emit [] (Store I64 (typedOperand pattern) wordTo (byteAlignment 1))
+  emit [] (Store I64 (typedOperand repeated) wordTo (byteAlignment 1))
   terminate (Jump (Target wordLabel [typedOperand next]))
   byteIndex <- fresh "fill_byte_index"
   beginBlock byteLabel [(byteIndex, I64)]
