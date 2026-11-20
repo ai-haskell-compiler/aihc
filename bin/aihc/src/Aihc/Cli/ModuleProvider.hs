@@ -12,6 +12,7 @@ module Aihc.Cli.ModuleProvider
     ProviderCache,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
+    ModuleReach (..),
     newModuleProvider,
     newProviderCache,
     providerPackagesOf,
@@ -34,7 +35,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc (interfaceFileName)
 import Aihc.Fc qualified as Fc
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
-import Aihc.Tc (MergeCheck (..), TcInterface, mergeTcInterfaces)
+import Aihc.Tc (MergeCheck (..), ModuleOrigin, TcInterface, mergeTcInterfaces)
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
@@ -80,7 +81,11 @@ data ResolvedModuleFacts = ResolvedModuleFacts
 
 -- | What the type phase of a consumer takes from a module.
 data TypedModuleFacts = TypedModuleFacts
-  { typedModuleInterface :: !TcInterface,
+  { -- | The facts that the module declares.
+    typedModuleInterface :: !TcInterface,
+    -- | The module with its package, and the facts of each module that
+    -- its facts can refer to.
+    typedModuleReach :: !ModuleReach,
     typedModuleTypeDigest :: !Text,
     -- | The digest of the instance facts of the unit of the module, which
     -- covers every unit below it.
@@ -89,6 +94,14 @@ data TypedModuleFacts = TypedModuleFacts
     typedModuleInstanceProviders :: !(Set InstanceProvider),
     -- | Whether the module type checked. A module from the store did.
     typedModuleSuccess :: !Bool
+  }
+
+-- | A module and the facts that it can refer to: its own facts, and the
+-- facts of each module below it in the import graph. The map has one
+-- interface for each module, and all consumers share that interface.
+data ModuleReach = ModuleReach
+  { reachOrigin :: !ModuleOrigin,
+    reachModules :: !(Map ModuleOrigin TcInterface)
   }
 
 -- | The modules of the dependency packages, by name, and their facts on
@@ -222,19 +235,39 @@ newModuleProvider cache locator dependencies = do
               artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
               unless (resolveArtifactModuleName artifact == name) (ioError (userError ("Resolve artifact module name does not match " <> path)))
               evaluate (force (ResolvedModuleFacts (resolveArtifactExports artifact) (moduleScopeDigest digests) True))
-      typed key = do
-        (source, name) <- moduleSource key
+      typed key@(ModuleKey package name) = do
+        let (identity, original) = Map.findWithDefault (packageId package, name) key reexports
+        source <- locate identity
+        typedAt identity source original
+      -- The type artifact of a module of a store package. The memo of the
+      -- facts artifacts also holds these, by their path.
+      moduleArtifact directory name = do
+        let path = directory </> moduleNameDirectory name </> "type.cbor"
+        artifact <- factsMemo path (readTypeArtifactFile path >>= \found -> evaluate (force (typeArtifactInterface found)) >> pure found)
+        unless (typeArtifactModuleName artifact == name) (ioError (userError ("Type artifact module name does not match " <> path)))
+        pure artifact
+      typedAt identity source name =
         case source of
           GraphPackage {graphTyped} -> graphTyped name
           StorePackage directory ->
             cacheTyped cache (directory, name) $ do
               digests <- moduleDigests directory name
-              let path = directory </> moduleNameDirectory name </> "type.cbor"
-              artifact <- readTypeArtifactFile path
-              unless (typeArtifactModuleName artifact == name) (ioError (userError ("Type artifact module name does not match " <> path)))
+              artifact <- moduleArtifact directory name
               facts <- factsArtifact (directory </> moduleFactsArtifact digests)
+              -- The modules of one module group import each other, so
+              -- the reach takes their facts and not their reach.
+              siblings <- forM (typeArtifactSiblings artifact) $ \sibling ->
+                (,) (sibling, identity) . typeArtifactInterface <$> moduleArtifact directory sibling
+              imports <- forM (typeArtifactImports artifact) $ \(importIdentity, importName) -> do
+                importSource <- locate importIdentity
+                typedModuleReach <$> typedAt importIdentity importSource importName
               let providers = Set.fromList (Map.findWithDefault [] name (typeArtifactInstanceProviders facts))
-              evaluate (force (TypedModuleFacts (typeArtifactInterface artifact) (moduleTypeDigest digests) (moduleFactsDigest digests) providers True))
+                  interface = typeArtifactInterface artifact
+                  origin = (name, identity)
+                  reach =
+                    Map.insert origin interface $
+                      Map.union (Map.fromList siblings) (Map.unions (map reachModules imports))
+              evaluate (force (TypedModuleFacts interface (ModuleReach origin reach) (moduleTypeDigest digests) (moduleFactsDigest digests) providers True))
       instanceFacts providers = do
         let byPackage = Map.fromListWith (<>) [(packageId', [name]) | (packageId', name) <- Set.toList providers]
         interfaces <- forM (Map.toList byPackage) $ \(packageId', names) -> do
@@ -269,5 +302,6 @@ instance NFData ResolvedModuleFacts where
   rnf (ResolvedModuleFacts scope digest success) = rnf scope `seq` rnf digest `seq` rnf success
 
 instance NFData TypedModuleFacts where
-  rnf (TypedModuleFacts interface typeDigest factsDigest providers success) =
-    rnf interface `seq` rnf typeDigest `seq` rnf factsDigest `seq` rnf providers `seq` rnf success
+  -- Each interface of the reach is in normal form when the reach gets it.
+  rnf (TypedModuleFacts interface (ModuleReach origin reach) typeDigest factsDigest providers success) =
+    rnf interface `seq` rnf origin `seq` Map.size reach `seq` rnf typeDigest `seq` rnf factsDigest `seq` rnf providers `seq` rnf success
