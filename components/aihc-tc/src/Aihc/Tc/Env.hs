@@ -53,6 +53,7 @@ module Aihc.Tc.Env
     instanceEnvList,
     instanceEnvSince,
     instanceEnvForClass,
+    instanceEnvForClassArguments,
 
     -- * Data family instances
     DataFamilyInstanceInfo (..),
@@ -74,8 +75,6 @@ import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.MonoidMap (MonoidMap)
-import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -572,12 +571,25 @@ instanceIsForClass classTyCon instanceInfo =
 data InstanceEnv = InstanceEnv
   { instanceEnvSize :: !Int,
     instanceEnvAll :: ![InstanceInfo],
-    instanceEnvByClass :: !(MonoidMap GlobalName [InstanceInfo])
+    instanceEnvByClass :: !(Map GlobalName ClassInstances)
+  }
+  deriving (Show)
+
+-- | The instances of one class, most recent first.
+--
+-- The instances are also grouped by the type constructor at the head of
+-- the first argument of the instance. An instance whose first argument has
+-- no such type constructor is open. Each grouped instance has its position
+-- in the environment, so a search can give the groups in the usual order.
+data ClassInstances = ClassInstances
+  { classInstancesAll :: ![InstanceInfo],
+    classInstancesOpen :: ![(Int, InstanceInfo)],
+    classInstancesByHead :: !(Map GlobalName [(Int, InstanceInfo)])
   }
   deriving (Show)
 
 emptyInstanceEnv :: InstanceEnv
-emptyInstanceEnv = InstanceEnv 0 [] MonoidMap.empty
+emptyInstanceEnv = InstanceEnv 0 [] Map.empty
 
 -- | Build an environment that lists the instances in the given order.
 instanceEnvFromList :: [InstanceInfo] -> InstanceEnv
@@ -586,10 +598,38 @@ instanceEnvFromList = foldr addInstanceEnv emptyInstanceEnv
 addInstanceEnv :: InstanceInfo -> InstanceEnv -> InstanceEnv
 addInstanceEnv instanceInfo env =
   InstanceEnv
-    { instanceEnvSize = instanceEnvSize env + 1,
+    { instanceEnvSize = position + 1,
       instanceEnvAll = instanceInfo : instanceEnvAll env,
-      instanceEnvByClass = MonoidMap.adjust (instanceInfo :) (tyConKey (iiClass instanceInfo)) (instanceEnvByClass env)
+      instanceEnvByClass = Map.alter (Just . add . fromMaybe (ClassInstances [] [] Map.empty)) (tyConKey (iiClass instanceInfo)) (instanceEnvByClass env)
     }
+  where
+    position = instanceEnvSize env
+    entry = (position, instanceInfo)
+    add instances =
+      case iiHead instanceInfo of
+        first : _
+          | Just key <- typeHeadTyCon first ->
+              instances
+                { classInstancesAll = instanceInfo : classInstancesAll instances,
+                  classInstancesByHead = Map.insertWith (<>) key [entry] (classInstancesByHead instances)
+                }
+        _ ->
+          instances
+            { classInstancesAll = instanceInfo : classInstancesAll instances,
+              classInstancesOpen = entry : classInstancesOpen instances
+            }
+
+-- | The type constructor at the head of a type, if the type has one.
+--
+-- Two types with different head type constructors do not match, and they
+-- do not match after a meta variable gets a type. A function type gives
+-- no head, because a type can have the function constructor in two forms.
+typeHeadTyCon :: TcType -> Maybe GlobalName
+typeHeadTyCon ty =
+  case ty of
+    TcTyConApp tyCon _ _ -> Just (tyConKey tyCon)
+    TcAppTy function _ -> typeHeadTyCon function
+    _ -> Nothing
 
 -- | Every instance, most recent first.
 instanceEnvList :: InstanceEnv -> [InstanceInfo]
@@ -603,7 +643,30 @@ instanceEnvSince current previous =
 
 -- | The instances of the exact class, most recent first.
 instanceEnvForClass :: TyCon -> InstanceEnv -> [InstanceInfo]
-instanceEnvForClass classTyCon = MonoidMap.get (tyConKey classTyCon) . instanceEnvByClass
+instanceEnvForClass classTyCon = maybe [] classInstancesAll . Map.lookup (tyConKey classTyCon) . instanceEnvByClass
+
+-- | The instances of the exact class that can match the arguments now or
+-- after a meta variable of the arguments gets a type, most recent first.
+--
+-- The result leaves out an instance only if the first argument of the
+-- instance and the first wanted argument have different head type
+-- constructors.
+instanceEnvForClassArguments :: TyCon -> [TcType] -> InstanceEnv -> [InstanceInfo]
+instanceEnvForClassArguments classTyCon arguments env =
+  case Map.lookup (tyConKey classTyCon) (instanceEnvByClass env) of
+    Nothing -> []
+    Just instances ->
+      case arguments of
+        first : _
+          | Just key <- typeHeadTyCon first ->
+              mergeRecent (Map.findWithDefault [] key (classInstancesByHead instances)) (classInstancesOpen instances)
+        _ -> classInstancesAll instances
+  where
+    mergeRecent left [] = map snd left
+    mergeRecent [] right = map snd right
+    mergeRecent left@((leftPosition, leftInstance) : leftRest) right@((rightPosition, rightInstance) : rightRest)
+      | leftPosition > rightPosition = leftInstance : mergeRecent leftRest right
+      | otherwise = rightInstance : mergeRecent left rightRest
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first
