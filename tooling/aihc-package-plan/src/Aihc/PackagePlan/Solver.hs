@@ -131,6 +131,7 @@ import Data.List (intercalate, nub, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
+import Data.Monoid (Sum)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
@@ -1062,14 +1063,15 @@ explain proof =
     incompat incId = proofIncompatibilities proof IntMap.! incId
 
     -- How many derivations use each derived incompatibility.
-    uses = countUses IntMap.empty (proofRoot proof)
+    uses :: MonoidMap Int (Sum Int)
+    uses = countUses MonoidMap.empty (proofRoot proof)
     countUses counts incId
-      | IntMap.member incId counts = counted
+      | MonoidMap.nonNullKey incId counts = counted
       | KindDerived left right <- incKind (incompat incId) =
           countUses (countUses counted left) right
       | otherwise = counts
       where
-        counted = IntMap.insertWith (+) incId (1 :: Int) counts
+        counted = MonoidMap.adjust (+ 1) incId counts
 
     isDerived incId = case incKind (incompat incId) of
       KindDerived _ _ -> True
@@ -1137,12 +1139,12 @@ explain proof =
             KindDerived a b
               | isDerived a,
                 not (isDerived b),
-                IntMap.findWithDefault 0 derived uses < 2 -> do
+                MonoidMap.get derived uses < 2 -> do
                   visit a False
                   write incId isConclusion ("And because " <> external (incompat b) <> " and " <> external (incompat ext) <> ", " <> conclusion <> ".")
               | isDerived b,
                 not (isDerived a),
-                IntMap.findWithDefault 0 derived uses < 2 -> do
+                MonoidMap.get derived uses < 2 -> do
                   visit b False
                   write incId isConclusion ("And because " <> external (incompat a) <> " and " <> external (incompat ext) <> ", " <> conclusion <> ".")
             _ -> do
@@ -1151,7 +1153,7 @@ explain proof =
 
     write incId isConclusion line = do
       writer <- get
-      let numbered = isConclusion || IntMap.findWithDefault 0 incId uses > 1
+      let numbered = isConclusion || MonoidMap.get incId uses > 1
           number = writerNext writer
       put
         writer
