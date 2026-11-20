@@ -16,9 +16,33 @@ module Aihc.Tc.Interface
     MergeCheck (..),
     mergeTcInterface,
     mergeTcInterfaces,
+
+    -- * Facts by the module of their origin
+    ModuleOrigin,
+    FactEnv,
+    emptyFactEnv,
+    factEnvFromInterface,
+    factEnvFromModules,
+    factEnvUniqueBound,
+    factEnvExtra,
+    factEnvInterface,
+    entityOrigin,
+    globalNameOrigin,
+    factEnvTerm,
+    factEnvTyCon,
+    factEnvDataType,
+    factEnvClass,
+    factEnvPatSyn,
+    factEnvForeignImport,
+    factEnvTyCons,
+    factEnvDataTypes,
+    factEnvClasses,
+    factEnvPatSyns,
+    factEnvModuleDataTypes,
   )
 where
 
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Env
 import Aihc.Tc.Types
@@ -162,3 +186,106 @@ conflict :: (Show key, Eq value) => String -> key -> value -> value -> value
 conflict label key left right
   | left == right = left
   | otherwise = error ("conflicting " <> label <> " key: " <> show key)
+
+-- | The module that declares a fact: its name and its package. The name
+-- comes first, because two module names differ sooner than two package
+-- identities.
+type ModuleOrigin = (Text, PackageId)
+
+-- | The facts that a module group can see, without a merge.
+--
+-- Each module has one interface with the facts that the module declares.
+-- All module groups that can see the module use the same object. The key
+-- of a fact gives the module of its origin, so a lookup goes to the
+-- interface of that module.
+--
+-- The extra interface holds the facts that the origin does not find: the
+-- instances, the family instances, and the facts that a module group
+-- registered for a type constructor of a different module.
+data FactEnv = FactEnv
+  { factEnvModules :: !(Map.Map ModuleOrigin TcInterface),
+    factEnvExtra :: !TcInterface,
+    -- | A number above each unique in the facts.
+    factEnvUniqueBound :: !Int
+  }
+  deriving (Show)
+
+emptyFactEnv :: FactEnv
+emptyFactEnv = FactEnv Map.empty emptyTcInterface 0
+
+-- | The facts of one merged interface. Each lookup reads that interface.
+factEnvFromInterface :: TcInterface -> FactEnv
+factEnvFromInterface interface = FactEnv Map.empty interface (tcInterfaceUniqueBound interface)
+
+-- | The facts of the given modules, and the extra facts.
+factEnvFromModules :: Map.Map ModuleOrigin TcInterface -> TcInterface -> FactEnv
+factEnvFromModules modules extra =
+  FactEnv modules extra (Map.foldl' (\bound interface -> max bound (tcInterfaceUniqueBound interface)) (tcInterfaceUniqueBound extra) modules)
+
+-- | All facts as one interface. This is a merge of each module, so use it
+-- only where a consumer needs one interface.
+factEnvInterface :: FactEnv -> TcInterface
+factEnvInterface env =
+  (mergeTcInterfaces TrustMergedFacts (factEnvExtra env : Map.elems (factEnvModules env)))
+    { tcInterfaceUniqueBound = factEnvUniqueBound env
+    }
+
+entityOrigin :: Entity -> Maybe ModuleOrigin
+entityOrigin entity =
+  case entity of
+    EntityGlobal global -> Just (globalNameOrigin global)
+    _ -> Nothing
+
+globalNameOrigin :: GlobalName -> ModuleOrigin
+globalNameOrigin global = (globalNameModule global, globalNamePackage global)
+
+lookupFact :: (Ord key) => (TcInterface -> Map.Map key value) -> Maybe ModuleOrigin -> key -> FactEnv -> Maybe value
+lookupFact select origin key env =
+  case origin >>= (`Map.lookup` factEnvModules env) of
+    Just interface
+      | Just value <- Map.lookup key (select interface) -> Just value
+    _ -> Map.lookup key (select (factEnvExtra env))
+{-# INLINE lookupFact #-}
+
+factEnvTerm :: Entity -> FactEnv -> Maybe TypeScheme
+factEnvTerm key = lookupFact tcInterfaceTermMap (entityOrigin key) key
+
+factEnvTyCon :: GlobalName -> FactEnv -> Maybe TyConInfo
+factEnvTyCon key = lookupFact tcInterfaceTyConMap (Just (globalNameOrigin key)) key
+
+factEnvDataType :: GlobalName -> FactEnv -> Maybe DataTypeInfo
+factEnvDataType key = lookupFact tcInterfaceDataTypeMap (Just (globalNameOrigin key)) key
+
+factEnvClass :: GlobalName -> FactEnv -> Maybe ClassInfo
+factEnvClass key = lookupFact tcInterfaceClassMap (Just (globalNameOrigin key)) key
+
+factEnvPatSyn :: Entity -> FactEnv -> Maybe PatSynInfo
+factEnvPatSyn key = lookupFact tcInterfacePatSynMap (entityOrigin key) key
+
+factEnvForeignImport :: Entity -> FactEnv -> Maybe TcForeignImportInfo
+factEnvForeignImport key = lookupFact tcInterfaceForeignImportMap (entityOrigin key) key
+
+-- | Each fact of one table: the extra facts first, then each module.
+-- A fact can be in the extra facts and in a module.
+allFacts :: (TcInterface -> Map.Map key value) -> FactEnv -> [value]
+allFacts select env =
+  Map.elems (select (factEnvExtra env)) <> concatMap (Map.elems . select) (Map.elems (factEnvModules env))
+
+factEnvTyCons :: FactEnv -> [TyConInfo]
+factEnvTyCons = allFacts tcInterfaceTyConMap
+
+factEnvDataTypes :: FactEnv -> [DataTypeInfo]
+factEnvDataTypes = allFacts tcInterfaceDataTypeMap
+
+factEnvClasses :: FactEnv -> [ClassInfo]
+factEnvClasses = allFacts tcInterfaceClassMap
+
+factEnvPatSyns :: FactEnv -> [PatSynInfo]
+factEnvPatSyns = allFacts tcInterfacePatSynMap
+
+-- | The data types that can have a constructor of the given module: those
+-- of the module, and those of the extra facts.
+factEnvModuleDataTypes :: ModuleOrigin -> FactEnv -> [DataTypeInfo]
+factEnvModuleDataTypes origin env =
+  maybe [] (Map.elems . tcInterfaceDataTypeMap) (Map.lookup origin (factEnvModules env))
+    <> Map.elems (tcInterfaceDataTypeMap (factEnvExtra env))

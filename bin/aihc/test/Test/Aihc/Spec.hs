@@ -33,7 +33,7 @@ import Aihc.Wasm.Engine (Engine, engineGuestPath, linkSharedModule, loadSharedMo
 import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.Async (async, cancel, waitCatch)
 import Control.Exception (IOException, SomeException, bracket, displayException, try)
-import Control.Monad (forM_, void)
+import Control.Monad (foldM, forM_, void)
 import Data.Aeson (FromJSON (..), withObject, (.!=), (.:), (.:?))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -589,9 +589,23 @@ testInstallFixture getPrimStore getCoreStore root name = do
           Just _ -> assertFailure (name <> ": install accepted a package that requires an error")
           Nothing -> do
             forM_ (installFixtureTyCons fixture) $ \(moduleName, expected) -> do
-              bytes <- BL.readFile (installStorePath result </> moduleName </> "type.cbor")
-              artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
-              let actual = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
+              -- The artifact of a module holds the facts that the module
+              -- declares. A consumer also gets the facts of each module
+              -- below it, so the test reads those artifacts too.
+              let reachableTyCons seen artifactDirectory
+                    | artifactDirectory `elem` seen = pure (seen, [])
+                    | otherwise = do
+                        let path = installStorePath result </> artifactDirectory </> "type.cbor"
+                        present <- doesFileExist path
+                        if not present
+                          then pure (artifactDirectory : seen, [])
+                          else do
+                            bytes <- BL.readFile path
+                            artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
+                            let own = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
+                                below = map (T.unpack . T.replace "." "/") (map snd (typeArtifactImports artifact) <> typeArtifactSiblings artifact)
+                            foldM (\(seen', found) next -> fmap (found <>) <$> reachableTyCons seen' next) (artifactDirectory : seen, own) below
+              (_, actual) <- reachableTyCons [] moduleName
               forM_ expected $ \constructor ->
                 assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
             forM_ (installFixtureGrin fixture) $ \(moduleName, expected) -> do
@@ -881,7 +895,9 @@ test_buildModuleSourceDirectories getStore =
     manifest <- either assertFailure pure manifestResult
     assertBool "package manifest contains Prelude" ("Prelude" `elem` packageManifestModules manifest)
     let unusedResolve = basePackage </> "Data" </> "Bool" </> "resolve.cbor"
-        unusedType = basePackage </> "Data" </> "Bool" </> "type.cbor"
+        -- A build reads the type facts of each module below its imports,
+        -- and Data.Bool is below Prelude. No import reaches Text.Printf.
+        unusedType = basePackage </> "Text" </> "Printf" </> "type.cbor"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     -- The store is never listed, so a stray package directory beside the

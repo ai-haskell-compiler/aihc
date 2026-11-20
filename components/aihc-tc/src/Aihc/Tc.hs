@@ -17,6 +17,7 @@ module Aihc.Tc
   ( -- * Entry point
     typecheckModulesWithInterface,
     typecheckModuleSccWithInterface,
+    typecheckModuleSccWithFacts,
 
     -- * Result types
     TcConfig,
@@ -45,6 +46,12 @@ module Aihc.Tc
     tcInterfacePatSyns,
     tcInterfaceForeignImports,
     tcInterfaceFromLists,
+    ModuleOrigin,
+    FactEnv,
+    emptyFactEnv,
+    factEnvFromModules,
+    factEnvFromInterface,
+    factEnvInterface,
     emptyTcInterface,
     MergeCheck (..),
     mergeTcInterface,
@@ -140,7 +147,6 @@ import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Data.List qualified as List
-import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
@@ -163,7 +169,7 @@ tcModuleSuccess =
 -- | Type-check dependency-ordered modules with an imported semantic interface.
 -- Return only facts that the specified modules define.
 typecheckModulesWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
-typecheckModulesWithInterface config = typecheckWithInterface checkModules
+typecheckModulesWithInterface config = typecheckWithFacts checkModules . factEnvFromInterface
   where
     checkModules initialState resolved =
       let (finalState, checkedModules) = List.mapAccumL check initialState resolved
@@ -175,11 +181,16 @@ typecheckModulesWithInterface config = typecheckWithInterface checkModules
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
 typecheckModuleSccWithInterface :: TcConfig -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface config = typecheckWithInterface (typecheckModuleSccWithState config)
+typecheckModuleSccWithInterface config = typecheckModuleSccWithFacts config . factEnvFromInterface
+
+-- | Type-check one strongly connected module component with the facts of
+-- the imported modules, by the module of their origin.
+typecheckModuleSccWithFacts :: TcConfig -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckModuleSccWithFacts config = typecheckWithFacts (typecheckModuleSccWithState config)
 
 -- | Use the same module identity and interface rules for both check orders.
-typecheckWithInterface :: (TcState -> [ResolvedModule] -> ([Module], TcState)) -> TcInterface -> [ResolvedModule] -> ([Module], TcInterface)
-typecheckWithInterface check imported resolved
+typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckWithFacts check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the modules add no types, evidence, or diagnostics.
   | all (null . moduleDecls . moduleUnitAst) units = (map annotateIdentity units, emptyTcInterface)
@@ -191,30 +202,29 @@ typecheckWithInterface check imported resolved
     units = map resolvedModuleUnit resolved
     annotateIdentity unit = withModuleIdentity unit (moduleUnitAst unit)
 
-initialTcState :: TcInterface -> TcState
-initialTcState imported =
+-- | The state before the check of a module group. The tables of terms,
+-- type constructors, data types, classes, pattern synonyms, and foreign
+-- imports start empty, because a lookup finds an imported fact in the
+-- fact environment. The instances and the family instances come from the
+-- extra facts, because a search reads all of them.
+initialTcState :: FactEnv -> TcState
+initialTcState facts =
   initTcState
-    { tcsNextUnique = tcInterfaceUniqueBound imported,
-      -- A lazy map: an imported scheme is read when a lookup reaches it,
-      -- so an interface that decodes its facts on demand decodes only the
-      -- terms the module uses.
-      tcsGlobalTerms = LazyMap.map (`TcIdBinder` Closed) (tcInterfaceTermMap imported) <> tcsGlobalTerms initTcState,
-      tcsGlobalTyCons = tcInterfaceTyConMap imported <> tcsGlobalTyCons initTcState,
-      tcsDataTypes = tcInterfaceDataTypeMap imported,
-      tcsClasses = tcInterfaceClassMap imported,
+    { tcsNextUnique = factEnvUniqueBound facts,
+      tcsFacts = facts,
       tcsInstances = instanceEnvFromList (tcInterfaceInstances imported),
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstanceMap imported,
       tcsTypeFamilyInstances = tcInterfaceTypeFamilyInstanceMap imported,
-      tcsFamilyEquations = tcsFamilyEquations (setTypeFamilyInstances (tcInterfaceTypeFamilyInstanceMap imported) initTcState),
-      tcsPatSyns = tcInterfacePatSynMap imported,
-      tcsForeignImports = tcInterfaceForeignImportMap imported
+      tcsFamilyEquations = tcsFamilyEquations (setTypeFamilyInstances (tcInterfaceTypeFamilyInstanceMap imported) initTcState)
     }
+  where
+    imported = factEnvExtra facts
 
 tcInterfaceDifference :: TcState -> TcState -> TcInterface
 tcInterfaceDifference initial state =
   TcInterface
     { tcInterfaceTermMap = exportedGlobalTerms (newEntries (tcsGlobalTerms state) (tcsGlobalTerms initial)),
-      tcInterfaceTyConMap = newEntries (tcsGlobalTyCons state) (tcsGlobalTyCons initial),
+      tcInterfaceTyConMap = Map.withoutKeys (newEntries (tcsGlobalTyCons state) (tcsGlobalTyCons initial)) (tcsReplacedImports state),
       tcInterfaceDataTypeMap = newEntries (tcsDataTypes state) (tcsDataTypes initial),
       tcInterfaceClassMap = newEntries (tcsClasses state) (tcsClasses initial),
       tcInterfaceInstanceMap =

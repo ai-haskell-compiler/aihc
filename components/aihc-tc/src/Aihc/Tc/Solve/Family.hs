@@ -24,13 +24,13 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), typeFamilyAxiomIndex)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (tcsGlobalTyCons), freshMetaTvOfKind, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, readMetaTvKind, trackKindMeta)
+import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getKindLookup, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, readMetaTvKind, stateTyCon, trackKindMeta)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (gets)
+import Control.Monad.Trans.State.Strict (get)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
@@ -184,8 +184,8 @@ applicationHead ty =
 -- | Whether a type constructor is a type family.
 isTypeFamilyTyCon :: TcM (TyCon -> Bool)
 isTypeFamilyTyCon = do
-  tyCons <- lift $ gets tcsGlobalTyCons
-  pure (\tyCon -> maybe False ((== TypeFamilyTyCon) . tciFlavor) (Map.lookup (tyConKey tyCon) tyCons))
+  state <- lift get
+  pure (\tyCon -> maybe False ((== TypeFamilyTyCon) . tciFlavor) (stateTyCon (tyConKey tyCon) state))
 
 -- | Whether a type is a saturated application of a type family that no
 -- equation reduces yet. The equality solver waits for such a type.
@@ -232,9 +232,9 @@ tyVarOccursOutsideFamilies = do
 -- saturated type family application.
 leafOutsideFamilies :: TcM ((TcType -> Bool) -> TcType -> Bool)
 leafOutsideFamilies = do
-  tyCons <- lift $ gets tcsGlobalTyCons
+  state <- lift get
   let familyArity tyCon =
-        case Map.lookup (tyConKey tyCon) tyCons of
+        case stateTyCon (tyConKey tyCon) state of
           Just info | tciFlavor info == TypeFamilyTyCon -> Just (tciArity info)
           _ -> Nothing
       occurs isTarget = go
@@ -300,9 +300,9 @@ reduceHead ty =
                 Nothing -> do
                   equations <- familyEquations tyCon
                   family <- isTypeFamilyTyCon
-                  kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
-                  let kindOf = either (const Nothing) Just . typeKindInEnv kinds kindEnv
-                      kindsOfArguments viewed = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKinds kinds kindEnv tyCon viewed Nothing)
+                  kindEnv <- getKindLookup
+                  let kindOf = either (const Nothing) Just . typeKindWith kinds kindEnv
+                      kindsOfArguments viewed = either (const Nothing) (Just . take (length familyArguments) . tcVisibleArgumentKinds) (typeApplicationKindsWith kinds kindEnv tyCon viewed Nothing)
                   -- A meta variable in an argument has a kind, but the kind
                   -- environment does not know it. The poly-kinded @Dim (v ::
                   -- k)@ applied to @ContVec t0@ needs the kind of @ContVec
@@ -315,7 +315,7 @@ reduceHead ty =
                       then kindsOfArguments <$> mapM metasAsVariables familyArguments
                       else pure (kindsOfArguments familyArguments)
                   let bareKindArguments bare expectedKind = do
-                        ForAll quantified _ bareKind <- Map.lookup (tyConKey bare) kindEnv
+                        ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
                   case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of

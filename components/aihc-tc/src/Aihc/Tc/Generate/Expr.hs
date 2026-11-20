@@ -356,7 +356,7 @@ isExistentialRecordField :: Text -> Entity -> TcM Bool
 isExistentialRecordField name target =
   case target of
     EntityGlobal global -> do
-      dataTypes <- getDataTypes
+      dataTypes <- getModuleDataTypes (globalNameModule global, globalNamePackage global)
       pure $
         or
           [ True

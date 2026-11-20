@@ -79,6 +79,14 @@ import Data.Word (Word64)
 data TypeArtifact = TypeArtifact
   { typeArtifactModuleName :: !Text,
     typeArtifactInstanceProviders :: !(Map Text [(PackageId, Text)]),
+    -- | The modules of other module groups that the module group of this
+    -- module imports, each with its package. The facts of this module can
+    -- refer to the facts of these modules and of the modules below them.
+    typeArtifactImports :: ![(PackageId, Text)],
+    -- | The other modules of the module group of this module.
+    typeArtifactSiblings :: ![Text],
+    -- | The facts that the module declares. Each fact is in the artifact
+    -- of one module only.
     typeArtifactInterface :: TcInterface
   }
   deriving (Show)
@@ -96,10 +104,12 @@ encodeTypeArtifact = fst . encodeTypeArtifactParts
 encodeTypeArtifactParts :: TypeArtifact -> (BL.ByteString, BL.ByteString)
 encodeTypeArtifactParts artifact =
   ( Builder.toLazyByteString $
-      cborArray 5
+      cborArray 7
         <> cborText "aihc-type"
         <> cborText (typeArtifactModuleName artifact)
         <> encodeList encodeModuleProviders (Map.toAscList (typeArtifactInstanceProviders artifact))
+        <> encodeList encodeProvider (typeArtifactImports artifact)
+        <> encodeList cborText (typeArtifactSiblings artifact)
         <> Builder.lazyByteString interfaceBytes,
     interfaceBytes
   )
@@ -140,15 +150,17 @@ decodeTypeArtifact bytes =
 
 getArtifact :: Get.Get TypeArtifact
 getArtifact = do
-  expectArray 5
+  expectArray 7
   expectText "aihc-type"
   typeArtifactModuleName <- getText
   typeArtifactInstanceProviders <- Map.fromList <$!> getList getModuleProviders
+  typeArtifactImports <- getList getProvider
+  typeArtifactSiblings <- getList getText
   tyCons <- getList getTyConDefinition
   let tyConTable = listArray (0, length tyCons - 1) tyCons
   interfaceBytes <- Get.getRemainingLazyByteString
   typeArtifactInterface <- either fail pure (runInterface tyConTable interfaceBytes)
-  pure TypeArtifact {typeArtifactModuleName, typeArtifactInstanceProviders, typeArtifactInterface}
+  pure TypeArtifact {typeArtifactModuleName, typeArtifactInstanceProviders, typeArtifactImports, typeArtifactSiblings, typeArtifactInterface}
   where
     getModuleProviders = expectArray 2 >> ((,) <$!> getText <*!> getList getProvider)
     getProvider = expectArray 2 >> ((,) <$!> getPackageId <*!> getText)

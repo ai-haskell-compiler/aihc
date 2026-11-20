@@ -54,9 +54,9 @@ import Aihc.Tc.Types
     tvKind,
     tvUnique,
     tyConKey,
-    typeApplicationKinds,
+    typeApplicationKindsWith,
     typeKind,
-    typeKindInEnv,
+    typeKindWith,
     typeMentionsMeta,
     typeMentionsTyVar,
     pattern KFun,
@@ -358,17 +358,17 @@ recordSchemeKindArguments scheme@(Scheme inferred specified predicates body) = d
 -- application is given back as it is.
 recordKindArguments :: Maybe TcType -> TcType -> TcM TcType
 recordKindArguments expected ty = do
-  globals <- lift (gets tcsGlobalTyCons)
+  globals <- lift (gets (flip stateTyCon))
   if typeHasOpenResultKind globals ty
     then do
       kinds <- getKinds
       recordKindArgumentsIn kinds globals expected ty
     else pure ty
 
-recordKindArgumentsIn :: TcKinds -> Map.Map GlobalName TyConInfo -> Maybe TcType -> TcType -> TcM TcType
+recordKindArgumentsIn :: TcKinds -> (GlobalName -> Maybe TyConInfo) -> Maybe TcType -> TcType -> TcM TcType
 recordKindArgumentsIn kinds globals = go
   where
-    kindEnv = Map.map tciKindScheme globals
+    kindEnv = fmap tciKindScheme . globals
     go expected ty =
       case ty of
         TcTyConApp tyCon headKinds arguments -> do
@@ -423,14 +423,14 @@ recordKindArgumentsIn kinds globals = go
       case anyKindOf argument of
         Just kind | not (typeMentionsMeta kind) -> Just kind
         _ -> Nothing
-    anyKindOf argument = either (const Nothing) Just (typeKindInEnv kinds kindEnv argument)
+    anyKindOf argument = either (const Nothing) Just (typeKindWith kinds kindEnv argument)
     determined tyCon arguments variables =
-      case typeApplicationKinds kinds kindEnv tyCon arguments Nothing of
+      case typeApplicationKindsWith kinds kindEnv tyCon arguments Nothing of
         Right checked -> all (\variable -> Map.member (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
         Left _ -> False
     kindArguments tyCon arguments variables maybeKind = do
       kind <- maybeKind
-      checked <- either (const Nothing) Just (typeApplicationKinds kinds kindEnv tyCon arguments (Just kind))
+      checked <- either (const Nothing) Just (typeApplicationKindsWith kinds kindEnv tyCon arguments (Just kind))
       mapM (\variable -> Map.lookup (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
 
 recordPredKindArguments :: (Maybe TcType -> TcType -> TcM TcType) -> (TcType -> Maybe TcType) -> TcKinds -> Pred -> TcM Pred
@@ -444,9 +444,9 @@ recordPredKindArguments record kindOf kinds predicate =
 -- | The kind variables of a type constructor, when its kind has a variable
 -- that only the result kind mentions, for an application to this number
 -- of visible arguments.
-openResultKindScheme :: Map.Map GlobalName TyConInfo -> TyCon -> Int -> Maybe [TyVarId]
+openResultKindScheme :: (GlobalName -> Maybe TyConInfo) -> TyCon -> Int -> Maybe [TyVarId]
 openResultKindScheme globals tyCon arity = do
-  info <- Map.lookup (tyConKey tyCon) globals
+  info <- globals (tyConKey tyCon)
   let ForAll variables _ resultKind = tciKindScheme info
       formals = take arity (formalKinds resultKind)
   if any (\variable -> not (any (typeMentionsTyVar variable) formals)) variables
@@ -460,7 +460,7 @@ openResultKindScheme globals tyCon arity = do
 
 -- | Whether a type has an application that 'recordKindArguments' can
 -- change. The walk allocates nothing.
-typeHasOpenResultKind :: Map.Map GlobalName TyConInfo -> TcType -> Bool
+typeHasOpenResultKind :: (GlobalName -> Maybe TyConInfo) -> TcType -> Bool
 typeHasOpenResultKind globals = go
   where
     go ty =
@@ -472,7 +472,7 @@ typeHasOpenResultKind globals = go
         TcAppTy function argument -> go function || go argument
         _ -> False
 
-predHasOpenResultKind :: Map.Map GlobalName TyConInfo -> Pred -> Bool
+predHasOpenResultKind :: (GlobalName -> Maybe TyConInfo) -> Pred -> Bool
 predHasOpenResultKind globals predicate =
   case predicate of
     EqPred left right -> typeHasOpenResultKind globals left || typeHasOpenResultKind globals right

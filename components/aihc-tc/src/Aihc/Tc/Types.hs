@@ -27,6 +27,11 @@ module Aihc.Tc.Types
     LocalId (..),
     TcAxiomKey (..),
     TcKindEnv,
+    KindLookup,
+    typeKindWith,
+    typeApplicationKindsWith,
+    argumentKindVariablesWith,
+    familyEquationRightKindWith,
     TyCon (TyCon, tyConName, tyConArity),
     tyConKey,
     tyConPackageId,
@@ -288,6 +293,9 @@ instance NFData TcAxiomKey where
   rnf key = key `seq` ()
 
 type TcKindEnv = Map GlobalName TypeScheme
+
+-- | The kind scheme of a type constructor, by its identity.
+type KindLookup = GlobalName -> Maybe TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
 tyConPackageId (TyConInternal _ packageId _ _ _ _) = packageId
@@ -975,8 +983,13 @@ dataConstructorList kinds = foldr cons nil
 -- gives @k'@ the value 'Type'. The type checker and the desugarer both use
 -- this function, so they agree on the kind arguments of the left-hand side.
 familyEquationRightKind :: TcKinds -> TcKindEnv -> [TyVarId] -> TcType -> Maybe TcType
-familyEquationRightKind kinds kindEnv variables right =
-  case typeKindInEnv kinds kindEnv right of
+familyEquationRightKind kinds kindEnv = familyEquationRightKindWith kinds (`Map.lookup` kindEnv)
+
+-- | 'familyEquationRightKind' with a function that gives the kind scheme
+-- of a type constructor.
+familyEquationRightKindWith :: TcKinds -> KindLookup -> [TyVarId] -> TcType -> Maybe TcType
+familyEquationRightKindWith kinds lookupKind variables right =
+  case typeKindWith kinds lookupKind right of
     Right kind | closed kind -> Just kind
     _ -> Nothing
   where
@@ -996,7 +1009,12 @@ familyEquationRightKind kinds kindEnv variables right =
 
 -- | Get a type kind from the complete type-constructor identity table.
 typeKindInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
-typeKindInEnv kinds kindEnv = go
+typeKindInEnv kinds kindEnv = typeKindWith kinds (`Map.lookup` kindEnv)
+
+-- | 'typeKindInEnv' with a function that gives the kind scheme of a type
+-- constructor.
+typeKindWith :: TcKinds -> KindLookup -> TcType -> Either String TcType
+typeKindWith kinds lookupKind = go
   where
     go rawType =
       case rawType of
@@ -1005,7 +1023,7 @@ typeKindInEnv kinds kindEnv = go
         -- The kind arguments give the kind of the constructor, and the
         -- visible arguments apply it.
         TcTyConApp tyCon kindArguments@(_ : _) arguments
-          | Just (ForAll quantified _ body) <- Map.lookup (tyConKey tyCon) kindEnv,
+          | Just (ForAll quantified _ body) <- lookupKind (tyConKey tyCon),
             length quantified == length kindArguments ->
               foldM applyKind (applySubst (Map.fromList (zip (map tvUnique quantified) kindArguments)) body) arguments
         TcTyCon tyCon arguments -> do
@@ -1013,14 +1031,14 @@ typeKindInEnv kinds kindEnv = go
             maybe
               (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
               Right
-              (Map.lookup (tyConKey tyCon) kindEnv)
+              (lookupKind (tyConKey tyCon))
           applyArguments scheme arguments
         TcKindedTyCon tyCon kindArguments -> do
           scheme <-
             maybe
               (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
               Right
-              (Map.lookup (tyConKey tyCon) kindEnv)
+              (lookupKind (tyConKey tyCon))
           let ForAll quantified _ body = scheme
           Right (applySubst (Map.fromList (zip (map tvUnique quantified) kindArguments)) body)
         TcArrowTy -> Right (KFun (typeKind kinds) (KFun (typeKind kinds) (typeKind kinds)))
@@ -1046,13 +1064,13 @@ typeKindInEnv kinds kindEnv = go
     applyMany scheme position quantified kind (argument : rest) = do
       kind' <- applyKindWith quantified kind argument
       let dependent = visibleDependentSubst scheme (position :: Int) argument
-      applyMany scheme (position + 1) (quantified <> argumentKindVariables kindEnv argument) (applySubst dependent kind') rest
+      applyMany scheme (position + 1) (quantified <> argumentKindVariablesWith lookupKind argument) (applySubst dependent kind') rest
 
     applyKind = applyKindWith []
 
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
-      substitution <- matchKinds quantified (argumentKindVariables kindEnv argument) formal actual
+      substitution <- matchKinds quantified (argumentKindVariablesWith lookupKind argument) formal actual
       Right (applySubst substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
@@ -1090,16 +1108,21 @@ typeKindInEnv kinds kindEnv = go
 -- type can contain the variable itself: the kind of @'( '[ 'Unit ], '[] )@
 -- contains the variable of @'[]@.
 argumentKindVariables :: TcKindEnv -> TcType -> [Unique]
-argumentKindVariables kindEnv argument =
+argumentKindVariables kindEnv = argumentKindVariablesWith (`Map.lookup` kindEnv)
+
+-- | 'argumentKindVariables' with a function that gives the kind scheme of
+-- a type constructor.
+argumentKindVariablesWith :: KindLookup -> TcType -> [Unique]
+argumentKindVariablesWith lookupKind argument =
   case argument of
     TcTyCon tyCon arguments ->
-      schemeVariables tyCon <> concatMap (argumentKindVariables kindEnv) arguments
+      schemeVariables tyCon <> concatMap (argumentKindVariablesWith lookupKind) arguments
     TcAppTy function functionArgument ->
-      argumentKindVariables kindEnv function <> argumentKindVariables kindEnv functionArgument
+      argumentKindVariablesWith lookupKind function <> argumentKindVariablesWith lookupKind functionArgument
     _ -> []
   where
     schemeVariables tyCon =
-      case Map.lookup (tyConKey tyCon) kindEnv of
+      case lookupKind (tyConKey tyCon) of
         Just (ForAll variables _ _) -> map tvUnique variables
         Nothing -> []
 
@@ -1537,8 +1560,13 @@ data TcTypeApplicationKinds = TcTypeApplicationKinds
   deriving (Eq, Show, Read)
 
 typeApplicationKinds :: TcKinds -> TcKindEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
-typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
-  scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (Map.lookup (tyConKey tyCon) kindEnv)
+typeApplicationKinds kinds kindEnv = typeApplicationKindsWith kinds (`Map.lookup` kindEnv)
+
+-- | 'typeApplicationKinds' with a function that gives the kind scheme of
+-- a type constructor.
+typeApplicationKindsWith :: TcKinds -> KindLookup -> TyCon -> [TcType] -> Maybe TcType -> Either String TcTypeApplicationKinds
+typeApplicationKindsWith kinds lookupKind tyCon arguments expectedKind = do
+  scheme <- maybe (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))) Right (lookupKind (tyConKey tyCon))
   let ForAll quantified _ resultKind = scheme
   let quantifiedUniques = map tvUnique quantified
       (argumentSubstitution, remainingKind, skipped, leftover, open) = go scheme quantifiedUniques [] 0 Map.empty resultKind arguments
@@ -1548,7 +1576,7 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
       -- can also determine a kind that an argument left open: the @'[]@ in
       -- @'( '[ 'Unit ], '[] ) :: ([Unit], [k])@.
       resultSubstitution =
-        case (expectedKind, mapM (typeKindInEnv kinds kindEnv) leftover) of
+        case (expectedKind, mapM (typeKindWith kinds lookupKind) leftover) of
           (Just expected, Right leftoverKinds) -> matchKind (quantifiedUniques <> open) remainingKind (foldr KFun expected leftoverKinds)
           _ -> Map.empty
       substitution = Map.map (applySubst resultSubstitution) argumentSubstitution <> resultSubstitution
@@ -1564,11 +1592,11 @@ typeApplicationKinds kinds kindEnv tyCon arguments expectedKind = do
     -- kind of the argument is not known.
     go scheme quantifiedUniques open position substitution (KFun formal result) (argument : rest) =
       let dependent = visibleDependentSubst scheme position argument
-       in case typeKindInEnv kinds kindEnv argument of
+       in case typeKindWith kinds lookupKind argument of
             Right argumentKind ->
               let found = dependent <> matchKind (quantifiedUniques <> open) (applySubst substitution formal) argumentKind
                   substitution' = Map.map (applySubst found) substitution <> found
-               in go scheme quantifiedUniques (open <> argumentKindVariables kindEnv argument) (position + 1) substitution' (applySubst found result) rest
+               in go scheme quantifiedUniques (open <> argumentKindVariablesWith lookupKind argument) (position + 1) substitution' (applySubst found result) rest
             Left reason ->
               let dependentSubstitution = Map.map (applySubst dependent) substitution <> dependent
                   (substitution', kind, skipped, leftover, open') = go scheme quantifiedUniques open (position + 1) dependentSubstitution (applySubst dependent result) rest

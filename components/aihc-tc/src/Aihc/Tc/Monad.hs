@@ -81,7 +81,6 @@ module Aihc.Tc.Monad
     finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
-    getTermEnv,
     getMetaTermEnv,
     withVisibleTerms,
     isTermVisible,
@@ -102,6 +101,10 @@ module Aihc.Tc.Monad
     lookupPatSyn,
     lookupPatSynTarget,
     getDataTypes,
+    getModuleDataTypes,
+    stateTyCon,
+    stateKindLookup,
+    getKindLookup,
     lookupDataType,
     tcMonoLocalBinds,
     tcMonomorphismRestriction,
@@ -172,6 +175,7 @@ import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvForClassArguments, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
+import Aihc.Tc.Interface (FactEnv, ModuleOrigin, emptyFactEnv, factEnvClass, factEnvClasses, factEnvDataType, factEnvDataTypes, factEnvModuleDataTypes, factEnvPatSyn, factEnvPatSyns, factEnvTerm, factEnvTyCon, factEnvTyCons)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
@@ -540,8 +544,11 @@ data TcState = TcState
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
     tcsDiagnostics :: ![TcDiagnostic],
-    -- | Global term bindings accumulated from declarations and imported
-    -- interfaces.
+    -- | The facts of the imported modules. The tables below hold only the
+    -- facts that the module group declares. A lookup reads the table of
+    -- the module group first, and then these facts.
+    tcsFacts :: !FactEnv,
+    -- | Global term bindings accumulated from declarations.
     --
     -- Global keys store the package, module, and identifier selected by
     -- @aihc-resolve@.
@@ -559,6 +566,9 @@ data TcState = TcState
     tcsMetaTerms :: !(Set.Set Entity),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map GlobalName TyConInfo),
+    -- | The imported type constructors that the module group replaced in
+    -- its own table. They are not facts of the module group.
+    tcsReplacedImports :: !(Set.Set GlobalName),
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map GlobalName DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
@@ -612,9 +622,11 @@ initTcState =
       tcsMetaKinds = IntMap.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
+      tcsFacts = emptyFactEnv,
       tcsGlobalTerms = Map.empty,
       tcsMetaTerms = Set.empty,
       tcsGlobalTyCons = Map.empty,
+      tcsReplacedImports = Set.empty,
       tcsDataTypes = Map.empty,
       tcsPatSyns = Map.empty,
       tcsDeclaredRecordPatSyns = Map.empty,
@@ -768,7 +780,10 @@ lookupTermKey key =
     EntityLocal _ ->
       asks $ \env -> Map.lookup key (tcEnvTerms env)
     EntityGlobal {} ->
-      lift $ gets $ \s -> Map.lookup key (tcsGlobalTerms s)
+      lift $ gets $ \s ->
+        case Map.lookup key (tcsGlobalTerms s) of
+          Just binder -> Just binder
+          Nothing -> (`TcIdBinder` Closed) <$> factEnvTerm key (tcsFacts s)
     EntitySyntax -> pure Nothing
 
 resolvedTermKey :: Name -> TcM Entity
@@ -794,17 +809,10 @@ resolvedNameTermKey displayName resolved =
     EntitySyntax ->
       abortTc ("built-in syntax has no term key: " <> show displayName)
 
--- | Snapshot all visible term bindings keyed by resolver-selected identity.
-getTermEnv :: TcM (Map Entity TcBinder)
-getTermEnv = do
-  locals <- asks tcEnvTerms
-  globals <- lift $ gets tcsGlobalTerms
-  pure (locals <> globals)
-
 -- | The visible term bindings that can still mention a meta-variable: the
 -- local ones, which the enclosing scope is still inferring, and the global
 -- placeholders of 'tcsMetaTerms'. A local binding shadows a global one, as
--- in 'getTermEnv'.
+-- for each lookup.
 getMetaTermEnv :: TcM (Map Entity TcBinder)
 getMetaTermEnv = do
   locals <- asks tcEnvTerms
@@ -960,7 +968,7 @@ lookupTyCon = lookupTyConInNamespace ResolutionNamespaceType
 
 lookupTyConInNamespace :: ResolutionNamespace -> Text -> TcM (Maybe TyConInfo)
 lookupTyConInNamespace namespace name =
-  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  lift $ gets $ find matches . stateTyCons
   where
     matches info =
       tyConNamespace (tciTyCon info) == namespace
@@ -971,7 +979,7 @@ lookupTyConQualified = lookupTyConQualifiedInNamespace ResolutionNamespaceType
 
 lookupTyConQualifiedInNamespace :: ResolutionNamespace -> Text -> Text -> TcM (Maybe TyConInfo)
 lookupTyConQualifiedInNamespace namespace moduleName name =
-  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  lift $ gets $ find matches . stateTyCons
   where
     matches info =
       let tyCon = tciTyCon info
@@ -1012,7 +1020,26 @@ lookupDeclaredTyCon name =
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
-lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup (tyConKey tyCon) . tcsGlobalTyCons
+lookupTyConByIdentity tyCon = lift $ gets $ stateTyCon (tyConKey tyCon)
+
+-- | The type constructor with the given identity: one that the module
+-- group declares, or an imported one.
+stateTyCon :: GlobalName -> TcState -> Maybe TyConInfo
+stateTyCon key state =
+  case Map.lookup key (tcsGlobalTyCons state) of
+    Just info -> Just info
+    Nothing -> factEnvTyCon key (tcsFacts state)
+
+-- | Each visible type constructor: those of the module group first.
+stateTyCons :: TcState -> [TyConInfo]
+stateTyCons state = Map.elems (tcsGlobalTyCons state) <> factEnvTyCons (tcsFacts state)
+
+-- | The kind scheme of each visible type constructor.
+stateKindLookup :: TcState -> KindLookup
+stateKindLookup state key = tciKindScheme <$> stateTyCon key state
+
+getKindLookup :: TcM KindLookup
+getKindLookup = lift (gets stateKindLookup)
 
 -- | The type constructor that a resolver identity names. The resolver
 -- names the declaration of the list type, which is registered under the
@@ -1024,7 +1051,7 @@ lookupTyConOrigin namespace packageId moduleName name = do
       wiredKey
         | key == tyConKey (tcWiringListDeclaration wiring) = tyConKey (tcWiringListTyCon wiring)
         | otherwise = key
-  lift $ gets $ Map.lookup wiredKey . tcsGlobalTyCons
+  lift $ gets $ stateTyCon wiredKey
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
 typeResolution = resolutionOf (== ResolutionNamespaceType)
@@ -1037,9 +1064,22 @@ extendTyConEnvPermanent info = do
 
 replaceTyConEnvPermanent :: TyConInfo -> TcM ()
 replaceTyConEnvPermanent info = do
+  let key = tyConKey (tciTyCon info)
   tyCons <- lift $ gets tcsGlobalTyCons
-  tyCons' <- replaceMapEntry "global type constructor environment" (tyConKey (tciTyCon info)) info tyCons
-  lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
+  imported <- lift $ gets (factEnvTyCon key . tcsFacts)
+  case imported of
+    -- The replacement of an imported entry is for this module group
+    -- only. The result of the check does not contain it.
+    Just _
+      | Map.notMember key tyCons ->
+          lift $ modify' $ \state ->
+            state
+              { tcsGlobalTyCons = Map.insert key info tyCons,
+                tcsReplacedImports = Set.insert key (tcsReplacedImports state)
+              }
+    _ -> do
+      tyCons' <- replaceMapEntry "global type constructor environment" key info tyCons
+      lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
 
 addDataType :: DataTypeInfo -> TcM ()
 addDataType info = do
@@ -1048,7 +1088,12 @@ addDataType info = do
   lift $ modify' $ \state -> state {tcsDataTypes = dataTypes'}
 
 getDataTypes :: TcM [DataTypeInfo]
-getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
+getDataTypes = lift $ gets (\state -> Map.elems (tcsDataTypes state) <> factEnvDataTypes (tcsFacts state))
+
+-- | The data types that can have a constructor of the given module.
+getModuleDataTypes :: ModuleOrigin -> TcM [DataTypeInfo]
+getModuleDataTypes origin =
+  lift $ gets (\state -> Map.elems (tcsDataTypes state) <> factEnvModuleDataTypes origin (tcsFacts state))
 
 addPatSyn :: PatSynInfo -> TcM ()
 addPatSyn info = do
@@ -1080,16 +1125,20 @@ recordPatSynHeads = lift $ gets $ \state ->
   let imported =
         Map.fromList
           [ (patSynKey info, patSynRecordHead info)
-          | info <- Map.elems (tcsPatSyns state),
+          | info <- Map.elems (tcsPatSyns state) <> factEnvPatSyns (tcsFacts state),
             not (null (psiFields info))
           ]
    in Map.elems (Map.union (tcsDeclaredRecordPatSyns state) imported)
 
 lookupPatSyn :: Entity -> TcM (Maybe PatSynInfo)
-lookupPatSyn key = lift $ gets (Map.lookup key . tcsPatSyns)
+lookupPatSyn key =
+  lift $ gets $ \state ->
+    case Map.lookup key (tcsPatSyns state) of
+      Just info -> Just info
+      Nothing -> factEnvPatSyn key (tcsFacts state)
 
 getPatSyns :: TcM [PatSynInfo]
-getPatSyns = lift $ gets (Map.elems . tcsPatSyns)
+getPatSyns = lift $ gets (\state -> Map.elems (tcsPatSyns state) <> factEnvPatSyns (tcsFacts state))
 
 -- | The pattern synonym that a resolved top-level name refers to.
 lookupPatSynTarget :: Entity -> TcM (Maybe PatSynInfo)
@@ -1099,7 +1148,11 @@ lookupPatSynTarget target =
     _ -> pure Nothing
 
 lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
-lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)
+lookupDataType tyCon =
+  lift $ gets $ \state ->
+    case Map.lookup (tyConKey tyCon) (tcsDataTypes state) of
+      Just info -> Just info
+      Nothing -> factEnvDataType (tyConKey tyCon) (tcsFacts state)
 
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = do
@@ -1210,13 +1263,17 @@ addClass classInfo = do
 
 -- | Look up a class by its exact type constructor.
 lookupClass :: TyCon -> TcM (Maybe ClassInfo)
-lookupClass classTyCon = lift $ gets (Map.lookup (tyConKey classTyCon) . tcsClasses)
+lookupClass classTyCon =
+  lift $ gets $ \state ->
+    case Map.lookup (tyConKey classTyCon) (tcsClasses state) of
+      Just info -> Just info
+      Nothing -> factEnvClass (tyConKey classTyCon) (tcsFacts state)
 
 -- | Look up a class by its source name alone. Only for well-known classes
 -- whose origin is not available, such as @Typeable@.
 lookupClassByName :: Text -> TcM (Maybe ClassInfo)
 lookupClassByName className =
-  lift $ gets (find ((== className) . ciName) . Map.elems . tcsClasses)
+  lift $ gets (\state -> find ((== className) . ciName) (Map.elems (tcsClasses state) <> factEnvClasses (tcsFacts state)))
 
 -- | Look up the class that a resolved class-name occurrence refers to.
 lookupClassNamed :: Name -> TcM (Maybe ClassInfo)

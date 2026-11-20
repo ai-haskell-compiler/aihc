@@ -19,8 +19,6 @@ import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (gets)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -90,7 +88,7 @@ proveFromEqualitiesDirect equalities left right
           pairs = [(a, b) | a : rest <- List.tails vertices, b <- rest]
       projections <- traverse projection pairs
       kinds <- getKinds
-      kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
+      kindEnv <- getKindLookup
       let context = KindContext kinds kindEnv
           closed = closeGraph context pairs (concat projections) graph
       case findProof closed left right of
@@ -420,7 +418,7 @@ findProof graph source target = go (Set.singleton (typeShape source)) [(source, 
 
 -- | The kinds that congruence needs to find the implicit kind arguments
 -- of a type constructor application.
-data KindContext = KindContext TcKinds TcKindEnv
+data KindContext = KindContext TcKinds KindLookup
 
 closeGraph :: KindContext -> [(TcType, TcType)] -> [(TcType, TcType, Coercion -> Coercion, TcType, TcType)] -> ProofGraph -> ProofGraph
 closeGraph context pairs projections graph =
@@ -480,7 +478,7 @@ congruence context graph left right =
 -- When the kind arguments are equal, the list is empty.
 kindArgumentProofs :: KindContext -> ProofGraph -> TyCon -> [TcType] -> [TcType] -> [Coercion]
 kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
-  case (Map.lookup (tyConKey tyCon) kindEnv, kindArguments leftArgs, kindArguments rightArgs) of
+  case (kindEnv (tyConKey tyCon), kindArguments leftArgs, kindArguments rightArgs) of
     (Just (ForAll quantified _ _), Right leftKinds, Right rightKinds)
       | any (differs leftKinds rightKinds) quantified ->
           map (proof leftKinds rightKinds) quantified
@@ -491,8 +489,8 @@ kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
     -- the kind variable of 'K1' itself. A kind that contains such a
     -- variable is not a kind argument, and it gets no proof.
     kindArguments arguments = do
-      checked <- typeApplicationKinds kinds kindEnv tyCon arguments Nothing
-      let open = Set.fromList (concatMap (argumentKindVariables kindEnv) arguments)
+      checked <- typeApplicationKindsWith kinds kindEnv tyCon arguments Nothing
+      let open = Set.fromList (concatMap (argumentKindVariablesWith kindEnv) arguments)
           determined kind = not (any (`Set.member` open) (typeVariableUniques kind))
       pure (Map.filter determined (tcInvisibleKindSubstitution checked))
     differs leftKinds rightKinds tyVar =

@@ -79,8 +79,7 @@ decideConstructorRepresentations previousTypes previousFamilies = do
   unless (Map.null localTypes && Map.null localFamilies) $ do
     let local = typeConstructors True localTypes <> familyConstructors True localFamilies
         known = local <> typeConstructors False (tcsDataTypes state) <> familyConstructors False (tcsDataFamilyInstances state)
-        localKeys = Map.keys local
-    decided <- Memo.evalStateT (mapM (\key -> (,) key <$> decideCon known key) localKeys) Map.empty
+    decided <- Memo.evalStateT (mapM (\(key, item) -> (,) key <$> decideCon known (knownInfo item)) (Map.toList local)) Map.empty
     let reps = Map.fromList decided
         rewrite info =
           case Map.lookup (conKey info) reps of
@@ -118,13 +117,16 @@ conKey info =
    in (package, moduleName, dciName info)
 
 -- | The field layouts of one constructor. A constructor from an earlier
--- component keeps its stored layouts.
-decideCon :: Map ConKey KnownCon -> ConKey -> MemoM [FieldRep]
-decideCon known key = do
+-- component keeps its stored layouts. The map has the constructors of the
+-- module group, thus a constructor that is not in the map is an imported
+-- one, and it also keeps its stored layouts.
+decideCon :: Map ConKey KnownCon -> DataConInfo -> MemoM [FieldRep]
+decideCon known info = do
+  let key = conKey info
   memo <- Memo.get
   case (Map.lookup key memo, Map.lookup key known) of
     (Just reps, _) -> pure reps
-    (Nothing, Nothing) -> pure []
+    (Nothing, Nothing) -> pure (map dcfiRep (dciFields info))
     (Nothing, Just item)
       | not (knownLocal item) -> pure (map dcfiRep (dciFields (knownInfo item)))
       | otherwise -> do
@@ -214,7 +216,7 @@ representationOf known ty = do
     HeadNewtype _ tyCon arguments inner ->
       fmap (RepCast tyCon arguments) <$> representationOf known inner
     HeadProduct info -> do
-      reps <- decideCon known (conKey info)
+      reps <- decideCon known info
       let substitution = fromMaybe Map.empty (matchTypes [dciResTy info] [prepared])
           leaves = concatMap (repLeaves . applySubstRep substitution) reps
       -- The outer case binds these arguments, so each leaf is stored.

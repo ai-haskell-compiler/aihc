@@ -100,6 +100,7 @@ import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceN
 import Aihc.Cli.ModuleProvider
   ( InstanceProvider,
     ModuleProvider,
+    ModuleReach (..),
     PackageLocator,
     PackageSource (..),
     ProviderCache,
@@ -229,6 +230,7 @@ import Aihc.Tc
     DerivingReference (..),
     InstanceInfo (..),
     MergeCheck (..),
+    ModuleOrigin,
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
@@ -238,6 +240,8 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
     emptyTcInterface,
+    factEnvFromModules,
+    factEnvInterface,
     mergeTcInterfaces,
     mkTcKinds,
     renderFunDepNames,
@@ -249,10 +253,11 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tyConKey,
+    typecheckModuleSccWithFacts,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
-import Aihc.Tc.Types (TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
+import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
 import Aihc.Th.Reify (exportedFixity)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId, spliceResultsPath)
@@ -457,7 +462,10 @@ data ResolveUnitResult = ResolveUnitResult
   }
 
 data TypeUnitResult = TypeUnitResult
-  { typeUnitTypes :: !(ByModule TcInterface),
+  { -- | The facts that each module of the unit declares.
+    typeUnitTypes :: !(ByModule TcInterface),
+    -- | Each module of the unit with the facts that it can refer to.
+    typeUnitReach :: !(ByModule ModuleReach),
     typeUnitHashes :: !(ByModule Text),
     typeUnitOwnInstanceInterface :: !TcInterface,
     -- | The digest of the instance facts of the unit. The facts artifact
@@ -1485,6 +1493,7 @@ graphPackageSource package outputRoot unitsVar =
         pure
           TypedModuleFacts
             { typedModuleInterface = fromMaybe emptyTcInterface (lookup package (byModuleLookupName name (typeUnitTypes result))),
+              typedModuleReach = fromMaybe (ModuleReach (name, packageId package) Map.empty) (lookup package (byModuleLookupName name (typeUnitReach result))),
               typedModuleTypeDigest = fromMaybe "" (lookup package (byModuleLookupName name (typeUnitHashes result))),
               typedModuleFactsDigest = typeUnitFactsDigest result,
               typedModuleInstanceProviders = typeUnitInstanceProviders result,
@@ -3225,10 +3234,12 @@ unitExactTypedFacts context runtimes keys = do
         pure $ do
           result <- finished
           interface <- lookup own (byModuleLookupName (moduleKeyName key) (typeUnitTypes result))
+          reach <- lookup own (byModuleLookupName (moduleKeyName key) (typeUnitReach result))
           Just
             ( key,
               TypedModuleFacts
                 { typedModuleInterface = interface,
+                  typedModuleReach = reach,
                   typedModuleTypeDigest = fromMaybe "" (lookup own (byModuleLookupName (moduleKeyName key) (typeUnitHashes result))),
                   typedModuleFactsDigest = typeUnitFactsDigest result,
                   typedModuleInstanceProviders = typeUnitInstanceProviders result,
@@ -3267,21 +3278,33 @@ unitImportedTypes context runtimes unit = do
       dependencies = nub (concatMap sourceDependencies sources <> map (Nothing,) wiredInterfaceModules)
   externalTyped <- externalTypedFacts provider resolvePackage unitNames dependencies
   externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
-  let dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
-      availableTypes = localReexportFacts context (byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes]))
+  let reaches = importedModuleReaches context resolvePackage unitNames dependencies dependencyResults externalTyped
+  -- A splice needs one interface, so this merges the facts of each module
+  -- that the unit can refer to.
   pure $
-    mergeTcInterfaces
-      (configMergeCheck (taskModuleCompileConfig context))
-      ( mergeTcInterfaces TrustMergedFacts (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
-          : Map.elems
-            ( Map.fromList
-                [ ((package, name), interface)
-                | dependency@(_, name) <- dependencies,
-                  (package, interface) <- byModuleLookupName name availableTypes,
-                  importSelects resolvePackage unitNames dependency package
-                ]
-            )
+    factEnvInterface
+      ( factEnvFromModules
+          (Map.unions (map reachModules reaches))
+          (mergeTcInterfaces TrustMergedFacts (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults))
       )
+
+-- | The reach of each module that the modules of a unit import. Every
+-- package that holds an imported module contributes its module: the keys
+-- of the facts carry the package, so the modules of two packages with one
+-- name do not collide.
+importedModuleReaches :: PackageTaskContext -> Package -> [Text] -> [(Maybe Text, Text)] -> [TypeUnitResult] -> [(ModuleKey, TypedModuleFacts)] -> [ModuleReach]
+importedModuleReaches context resolvePackage unitNames dependencies dependencyResults externalTyped =
+  Map.elems
+    ( Map.fromList
+        [ ((package, name), reach)
+        | dependency@(_, name) <- dependencies,
+          (package, reach) <- byModuleLookupName name availableReach,
+          importSelects resolvePackage unitNames dependency package
+        ]
+    )
+  where
+    dependencyReach = byModuleFromList [(key, typedModuleReach facts) | (key, facts) <- externalTyped]
+    availableReach = localReexportFacts context (byModuleUnions (map typeUnitReach dependencyResults ++ [dependencyReach]))
 
 -- | The exports and scope digests of a unit whose resolve artifacts were
 -- built from the same inputs, if the artifacts are the ones the stamp
@@ -3338,10 +3361,8 @@ runTypeUnit context runtimes runtime = do
   let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]
       exactInputs = [("exact:" <> packageIdText (packageId package) <> ":" <> name, typedModuleTypeDigest facts) | (ModuleKey package name, facts) <- exactTyped]
-      dependencyTypes = byModuleFromList [(key, typedModuleInterface facts) | (key, facts) <- externalTyped]
       dependencyTypeHashes = byModuleFromList [(key, typedModuleTypeDigest facts) | (key, facts) <- externalTyped]
       dependencyFactsDigests = byModuleFromList [(key, typedModuleFactsDigest facts) | (key, facts) <- externalTyped]
-      availableTypes = localReexportFacts context (byModuleUnions (map typeUnitTypes dependencyResults ++ [dependencyTypes]))
       availableTypeHashes = localReexportFacts context (byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes]))
       availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports)
       availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes]))
@@ -3389,23 +3410,24 @@ runTypeUnit context runtimes runtime = do
         mergeTcInterfaces
           TrustMergedFacts
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
-      -- Every package that holds an imported module contributes its
-      -- interface: the keys of the facts carry the package, so the
-      -- interfaces of two packages with a module of one name do not
-      -- collide.
-      importedTypes =
-        mergeTcInterfaces
-          (configMergeCheck config)
-          ( importedInstanceInterface
-              : Map.elems
-                ( Map.fromList
-                    [ ((package, name), interface)
-                    | dependency@(_, name) <- dependencies,
-                      (package, interface) <- byModuleLookupName name availableTypes,
-                      importSelects resolvePackage unitNames dependency package
-                    ]
-                )
-                <> map (typedModuleInterface . snd) exactTyped
+      -- The modules that the unit imports, and the modules that the result
+      -- of a splice names. The facts of the unit can refer to the facts of
+      -- these modules and of the modules below them.
+      importedReaches =
+        importedModuleReaches context resolvePackage unitNames dependencies dependencyResults externalTyped
+          <> map (typedModuleReach . snd) exactTyped
+      importedModules = Map.unions (map reachModules importedReaches)
+      importedOrigins = Set.toAscList (Set.fromList [(package', name') | ModuleReach (name', package') _ <- importedReaches])
+      -- No merge of the imported facts: a lookup finds a fact in the
+      -- interface of the module that declares it. The instances are the
+      -- extra facts, because an instance search reads all of them.
+      importedFacts = factEnvFromModules importedModules importedInstanceInterface
+      ownOrigin name = (name, packageId resolvePackage) :: ModuleOrigin
+      unitReach interfaces =
+        ownModules
+          resolvePackage
+          ( let modules = Map.union (Map.fromList [(ownOrigin name, interface) | (name, interface) <- zip unitNames interfaces]) importedModules
+             in Map.fromList [(name, ModuleReach (ownOrigin name) modules) | name <- unitNames]
           )
       checkUnit = do
         let resolved =
@@ -3417,9 +3439,9 @@ runTypeUnit context runtimes runtime = do
                       -- same inputs resolve the same way.
                       fromRight (ResolvedUnit []) (resolveUnitQuotes (builtinFunctionScope resolvePackage visibleExports) visibleExports packageModules)
             checked =
-              typecheckModuleSccWithInterface
+              typecheckModuleSccWithFacts
                 (primTcConfig primIdentity)
-                importedTypes
+                importedFacts
                 (resolvedModules resolved)
             checkedDiagnostics = concatMap tcModuleDiagnostics (fst checked)
         _ <- evaluate (length checkedDiagnostics)
@@ -3449,6 +3471,7 @@ runTypeUnit context runtimes runtime = do
               (runtimeTypeResult runtime)
               TypeUnitResult
                 { typeUnitTypes = MonoidMap.empty,
+                  typeUnitReach = MonoidMap.empty,
                   typeUnitHashes = MonoidMap.empty,
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
@@ -3473,6 +3496,7 @@ runTypeUnit context runtimes runtime = do
           (runtimeTypeResult runtime)
           TypeUnitResult
             { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames interfaces)),
+              typeUnitReach = unitReach interfaces,
               typeUnitHashes = ownModules resolvePackage (unitStampTypes recorded),
               typeUnitOwnInstanceInterface = ownFacts,
               typeUnitFactsDigest = unitStampFacts recorded,
@@ -3488,9 +3512,14 @@ runTypeUnit context runtimes runtime = do
     Nothing -> do
       ((checkedModules, newInterface), diagnostics) <- checkUnit
       let checkedInterface = shareTcInterface newInterface
-          completeInterface = mergeTcInterfaces (configMergeCheck config) [importedTypes, checkedInterface]
-          ownInstanceInterface = addReferencedFacts (typeLiteralKindTyCons (primKinds primIdentity)) (typeLiteralSupportTerms primIdentity) completeInterface (instanceFacts checkedInterface)
-          unitTypes = map (moduleTypeInterface (primKinds primIdentity) (typeLiteralSupportTerms primIdentity) (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
+          -- The desugarer and the C stubs need one interface. A build
+          -- without code does not evaluate this merge.
+          completeInterface = mergeTcInterfaces TrustMergedFacts [factEnvInterface importedFacts, checkedInterface]
+          (ownInterfaces, foreignFacts) = splitUnitInterface (packageId resolvePackage) unitNames checkedInterface
+          -- The instances go to each unit above this one, and so do the
+          -- facts that have no module of the unit as their origin.
+          ownInstanceInterface = mergeTcInterfaces TrustMergedFacts [instanceFacts checkedInterface, foreignFacts]
+          unitTypes = [Map.findWithDefault emptyTcInterface name ownInterfaces | name <- unitNames]
           completeInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownInstanceInterface]
           instanceProviders = interfaceInstanceProviders completeInstanceInterface
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
@@ -3498,11 +3527,17 @@ runTypeUnit context runtimes runtime = do
       (ownTypeHashes, factsDigest) <-
         if success
           then do
-            typeHashes <- Map.fromList <$> zipWithM (writeTypeArtifact verbose ((storePath </>) . typePath)) sources unitTypes
+            interfaceHashes <- zipWithM (writeTypeArtifact verbose ((storePath </>) . typePath) importedOrigins unitNames) sources unitTypes
+            -- A module can refer to the facts of each module below its
+            -- imports, and to the facts of the other modules of its unit.
+            -- Thus one digest covers the facts of the unit and the digests
+            -- of the imports, which cover the modules below them.
+            let unitDigest = T.pack (stableHash (map (TE.encodeUtf8 . snd) interfaceHashes <> [BS8.pack (show typeInputs)]))
+                typeHashes = Map.fromList [(name, unitDigest) | (name, _) <- interfaceHashes]
             -- The artifact names the providers of each module of the unit,
             -- so a consumer finds the facts the module sees without the
             -- closure in memory.
-            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" (Map.fromList [(name, Set.toAscList instanceProviders) | name <- unitNames]) ownInstanceInterface)
+            let factsBytes = encodeTypeArtifact (TypeArtifact "$unit" (Map.fromList [(name, Set.toAscList instanceProviders) | name <- unitNames]) [] [] ownInstanceInterface)
             createDirectoryIfMissing True (takeDirectory (storePath </> factsPath))
             BL.writeFile (storePath </> factsPath) factsBytes
             -- The facts digest covers the facts digests of the units below
@@ -3570,6 +3605,7 @@ runTypeUnit context runtimes runtime = do
         evaluate
           TypeUnitResult
             { typeUnitTypes = ownModules resolvePackage (Map.fromList (zip unitNames unitTypes)),
+              typeUnitReach = unitReach unitTypes,
               typeUnitHashes = ownModules resolvePackage ownTypeHashes,
               typeUnitOwnInstanceInterface = ownInstanceInterface,
               typeUnitFactsDigest = factsDigest,
@@ -3767,6 +3803,57 @@ unitBackendPaths config unit = concatMap paths (sourceUnitSources unit)
             <> [outputLirPath (output source) | keepsLirText config]
             <> [outputNativePath (output source) | compileKeepNative config, not (keepNativeIsKeepLir config)]
     output source = moduleOutputPaths "" (compileTarget config) (sourceName source)
+
+-- | The facts of a unit by the module that declares them, and the facts
+-- that no module of the unit declares. The type checker registers such a
+-- fact for a type constructor of a different module, for example a tuple.
+-- Each module also keeps these facts, so its artifact is complete.
+splitUnitInterface :: PackageId -> [Text] -> TcInterface -> (Map.Map Text TcInterface, TcInterface)
+splitUnitInterface package unitNames interface =
+  (Map.fromList [(name, moduleFacts name) | name <- unitNames], foreignFacts)
+  where
+    termOrigin key = case key of
+      EntityGlobal global -> globalOrigin global
+      _ -> Nothing
+    globalOrigin global
+      | globalNamePackage global == package = Just (globalNameModule global)
+      | otherwise = Nothing
+    axiomOrigin key
+      | axiomKeyPackage key == package = Just (axiomKeyModule key)
+      | otherwise = Nothing
+    instanceOrigin ((instancePackage, instanceModule), _)
+      | instancePackage == packageIdText package = Just instanceModule
+      | otherwise = Nothing
+    foreign' :: (key -> Maybe Text) -> key -> value -> Bool
+    foreign' origin key _ = maybe True (`notElem` unitNames) (origin key)
+    foreignFacts =
+      emptyTcInterface
+        { tcInterfaceTermMap = Map.filterWithKey (foreign' termOrigin) (tcInterfaceTermMap interface),
+          tcInterfaceTyConMap = Map.filterWithKey (foreign' globalOrigin) (tcInterfaceTyConMap interface),
+          tcInterfaceDataTypeMap = Map.filterWithKey (foreign' globalOrigin) (tcInterfaceDataTypeMap interface),
+          tcInterfaceClassMap = Map.filterWithKey (foreign' globalOrigin) (tcInterfaceClassMap interface),
+          tcInterfacePatSynMap = Map.filterWithKey (foreign' termOrigin) (tcInterfacePatSynMap interface),
+          tcInterfaceForeignImportMap = Map.filterWithKey (foreign' termOrigin) (tcInterfaceForeignImportMap interface),
+          tcInterfaceUniqueBound = tcInterfaceUniqueBound interface
+        }
+    moduleFacts name
+      -- Most units have one module, and then no filter is necessary for
+      -- the facts with that module as their origin.
+      | [_] <- unitNames = interface
+      | otherwise =
+          let own :: (key -> Maybe Text) -> key -> value -> Bool
+              own origin key _ = maybe True (== name) (origin key)
+           in interface
+                { tcInterfaceTermMap = Map.filterWithKey (own termOrigin) (tcInterfaceTermMap interface),
+                  tcInterfaceTyConMap = Map.filterWithKey (own globalOrigin) (tcInterfaceTyConMap interface),
+                  tcInterfaceDataTypeMap = Map.filterWithKey (own globalOrigin) (tcInterfaceDataTypeMap interface),
+                  tcInterfaceClassMap = Map.filterWithKey (own globalOrigin) (tcInterfaceClassMap interface),
+                  tcInterfaceInstanceMap = Map.filterWithKey (own instanceOrigin) (tcInterfaceInstanceMap interface),
+                  tcInterfaceDataFamilyInstanceMap = Map.filterWithKey (own axiomOrigin) (tcInterfaceDataFamilyInstanceMap interface),
+                  tcInterfaceTypeFamilyInstanceMap = Map.filterWithKey (own axiomOrigin) (tcInterfaceTypeFamilyInstanceMap interface),
+                  tcInterfacePatSynMap = Map.filterWithKey (own termOrigin) (tcInterfacePatSynMap interface),
+                  tcInterfaceForeignImportMap = Map.filterWithKey (own termOrigin) (tcInterfaceForeignImportMap interface)
+                }
 
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
@@ -5280,11 +5367,13 @@ addReferencedFacts extraRoots extraTerms complete = go
           ]
         reachableKeys = Set.map tyConKey reachable
 
-writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO (Text, Text)
-writeTypeArtifact verbose artifactPath source interface = do
+-- | Write the type artifact of a module and return the digest of the
+-- facts inside it.
+writeTypeArtifact :: (String -> IO ()) -> (SourceModule -> FilePath) -> [(PackageId, Text)] -> [Text] -> SourceModule -> TcInterface -> IO (Text, Text)
+writeTypeArtifact verbose artifactPath imports unitNames source interface = do
   let path = artifactPath source
       name = sourceModuleName source
-      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name Map.empty interface)
+      (artifactBytes, interfaceBytes) = encodeTypeArtifactParts (TypeArtifact name Map.empty imports (filter (/= name) unitNames) interface)
   createDirectoryIfMissing True (takeDirectory path)
   BL.writeFile path artifactBytes
   verbose ("Write type interface: " <> T.unpack name)
@@ -5314,4 +5403,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-60"
+packageArtifactFormatVersion = "aihc-artifacts-61"

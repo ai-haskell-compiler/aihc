@@ -1366,7 +1366,7 @@ defaultGlobalKindMetas initialKeys = do
       -- @Fst (x, y) = x@ for @Fst :: forall k k'. k -> k'@. The equation then
       -- instantiates @k'@ at that kind, as in GHC, and does not bind it.
       kinds <- getKinds
-      kindEnv <- lift (gets (Map.map tciKindScheme . tcsGlobalTyCons))
+      kindEnv <- getKindLookup
       --
       -- The right-hand side can also stay polymorphic in a result kind, as
       -- in @type instance Same NP = NP@ of @sop-core@ with @Same :: ((k1 ->
@@ -1390,7 +1390,7 @@ defaultGlobalKindMetas initialKeys = do
                             tvUnique variable `notElem` parameterVariables,
                             tvUnique variable `notElem` bound
                           ]
-                     in case familyEquationRightKind kinds kindEnv (closeKindVariables tyVars <> candidates) right of
+                     in case familyEquationRightKindWith kinds kindEnv (closeKindVariables tyVars <> candidates) right of
                           Nothing -> candidates
                           Just rightKind ->
                             let values = fromMaybe Map.empty (matchTypes [result] [rightKind])
