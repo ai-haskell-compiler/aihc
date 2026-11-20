@@ -816,7 +816,7 @@ prepareFunction backend signatures index functionReads function = do
           { ctxFunction = function,
             ctxLayout = layout,
             ctxLabels = labels,
-            ctxBlockParameters = MonoidMap.fromMap (Map.fromList [(blockLabel block, blockParameters block) | block <- blocks]),
+            ctxBlockParameters = MonoidMap.fromList [(blockLabel block, blockParameters block) | block <- blocks],
             ctxSignatures = signatures,
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes backend (length (functionParameters function))

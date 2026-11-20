@@ -620,7 +620,7 @@ compileFunction ctx input = do
             stateEdges = MonoidMap.empty,
             stateNextEdge = 0
           }
-      parameters = MonoidMap.fromMap (Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function])
+      parameters = MonoidMap.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function]
   (bodies, final) <- lift (runStateT (mapM (compileBlock ctx function parameters) (functionBlocks function)) initial)
   put (ModuleState (stateTraps final) (stateCallShims final) (stateMetadata final))
   let edges = stateEdges final

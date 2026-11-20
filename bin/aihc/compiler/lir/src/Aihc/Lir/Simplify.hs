@@ -636,7 +636,7 @@ eliminateRedundantBlockParameters function
   | otherwise = function {functionBlocks = map rewrite (functionBlocks function)}
   where
     blocks = functionBlocks function
-    parameterLists = MonoidMap.fromMap (Map.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks])
+    parameterLists = MonoidMap.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks]
     cyclic =
       Set.fromList
         [ label
