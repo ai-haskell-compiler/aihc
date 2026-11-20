@@ -2869,6 +2869,24 @@ rebuildCall env headExpr' args' = do
     -- @let x = e in b[y := a]@. An argument that is not trivial is bound
     -- once in front of the head first, so that the arguments that move are
     -- variables. See 'bindHeadArguments'.
+    -- An argument with an effect cannot get a binder in front of the head.
+    -- It moves into a lazy let and into a case of one alternative,
+    -- such as the match of a strict field. The lowered code evaluates the
+    -- head of an application before its arguments, so the scrutinee still
+    -- goes first, and each argument still runs once.
+    ExLet bind body
+      | any (effectfulArgument env) args',
+        not (isStrictBinder (spEnv env) (bindBinder bind)),
+        all (either (const True) (unused (binderName (bindBinder bind)))) args' -> do
+          inner <- simplifyApp env body args'
+          mkLet env bind inner
+    ExCase scrutinee binder alternatives
+      | any (effectfulArgument env) args',
+        [alternative] <- NE.toList alternatives,
+        let bound = foldMap (pure . binderName) binder <> map binderName (altBinders alternative),
+        all (either (const True) (\argument -> all (`unused` argument) bound)) args' -> do
+          rhs <- simplifyApp (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) args'
+          pure (mkCase (spEnv env) scrutinee binder (alternative {altRhs = rhs} NE.:| []))
     ExLet {}
       | not (null args'),
         not (all (either (const True) (copiable env)) args') ->
@@ -2877,6 +2895,17 @@ rebuildCall env headExpr' args' = do
       | not (null args'),
         not (all (either (const True) (copiable env)) args') ->
           bindHeadArguments env headExpr' args'
+    -- A recursive group in the head takes each argument into its body
+    -- once, so no argument is copied, and the argument needs no binder.
+    -- An argument with an effect, such as the state token of an @ST@
+    -- loop, moves too: the group only allocates its bindings, and that
+    -- order cannot be seen. A local loop then gets all its arguments in
+    -- the body, and lowering lifts it to a function with direct calls.
+    ExRec binds body
+      | any (effectfulArgument env) args',
+        all (either (const True) (\argument -> all ((`unused` argument) . binderName . bindBinder) binds)) args' -> do
+          inner <- simplifyApp env body args'
+          pure (ExRec binds inner)
     ExRec {}
       | not (null args'),
         not (all (either (const True) (copiable env)) args') ->
@@ -2923,6 +2952,18 @@ rebuildCall env headExpr' args' = do
           pushed' <- pushed
           rebuildApp env pushed' args'
     _ -> rebuildOther env headExpr' args'
+
+-- | An argument that is not trivial, has an unlifted type, and is not a
+-- primitive call without an effect, such as the state token that an
+-- effect gives. 'bindHeadArguments' cannot bind such an argument.
+effectfulArgument :: Simpl -> Arg -> Bool
+effectfulArgument env arg =
+  case arg of
+    Right value ->
+      not (copiable env value)
+        && maybe False (not . isLiftedType (spEnv env)) (exprType (spEnv env) value)
+        && isNothing (safePrimitiveCall (spEnv env) value)
+    Left _ -> False
 
 -- | Rebuild an application whose head no rewrite takes: speculate its
 -- cheap cases, and bind its lazy primitive arguments.

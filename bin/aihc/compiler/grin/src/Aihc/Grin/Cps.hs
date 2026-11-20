@@ -24,6 +24,7 @@ import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -84,7 +85,11 @@ data CpsState = CpsState
     cpsUsedFunctionNames :: !FunctionNames,
     cpsGeneratedFunctionsRev :: ![GrinFunction],
     cpsContinuationFramesState :: !(Map FunctionName ContinuationFrameKind),
-    cpsComputationContinuations :: !(Map FunctionName GrinVar)
+    cpsComputationContinuations :: !(Map FunctionName GrinVar),
+    -- | The position of each parameter of the function that the pass
+    -- transforms, with its continuation after the parameters. See
+    -- 'orderCaptures'.
+    cpsParameterOrder :: !(Map GrinVar Int)
   }
 
 type CpsM = StateT CpsState (Either CpsGrinError)
@@ -120,7 +125,8 @@ toCpsGrin sourceProgram = do
           cpsUsedFunctionNames = functionNamesFrom (Set.fromList (map grinFunctionName sourceFunctions <> map grinExternName (grinExternFunctions program))),
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
-          cpsComputationContinuations = Map.empty
+          cpsComputationContinuations = Map.empty,
+          cpsParameterOrder = Map.empty
         }
 
 transformFunction :: GrinFunction -> CpsM GrinFunction
@@ -128,6 +134,7 @@ transformFunction function = do
   continuation <- freshVar "$cps_return" liftedGrinRep
   let parameters = grinFunctionParameters function
       bound = Set.fromList (continuation : parameters)
+  modify' (\state -> state {cpsParameterOrder = Map.fromList (zip (parameters <> [continuation]) [0 ..])})
   body <-
     transformTail
       (grinFunctionName function)
@@ -169,8 +176,9 @@ transformTail parent bound resultRep continuation expression =
               (bindAtTail resultVars (grinAltRhs alternative) afterCase)
           pure alternative {grinAltRhs = rhs}
         shareBody = do
-          joinName <- liftJoinPoint parent resultRep captures resultVars body
-          pure (GrinCall resultRep joinName (map GrinVarValue (captures <> resultVars)))
+          ordered <- orderCaptures captures
+          joinName <- liftJoinPoint parent resultRep ordered resultVars body
+          pure (GrinCall resultRep joinName (map GrinVarValue (ordered <> resultVars)))
         -- What the shared body needs from the scope around the case. The
         -- results of the bind are not in that scope; they are the other
         -- parameters of the join point.
@@ -487,23 +495,65 @@ reifyContinuation parent bound resultRep outerContinuation resultVars body = do
       GrinGlobalValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
       GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
   let freeCaptures = freeExprVars transformedBody `Set.intersection` bound
-      captures = parentContinuation : Set.toAscList (Set.delete parentContinuation freeCaptures)
-      continuationFunction =
+      others = Set.toAscList (Set.delete parentContinuation freeCaptures)
+      frameFields = parentContinuation : others
+  -- The direct entry takes the captures in the order of the parameters of
+  -- the function, so that the ready path of an evaluation keeps each value
+  -- in its register. The frame keeps the parent continuation in field
+  -- zero, as the runtime requires. When the two orders differ, a small
+  -- frame entry takes the fields and calls the continuation.
+  -- A forwarding frame passes its result to the parent without an entry
+  -- call, so it keeps the order of its fields.
+  let frameKind = case forwardedResultUses transformedBody of
+        Just _ -> ContinuationFrameForward
+        Nothing -> ContinuationFrameNormal
+  captures <- case frameKind of
+    ContinuationFrameForward -> pure frameFields
+    _ -> orderCaptures frameFields
+  let continuationFunction =
         GrinFunction
           { grinFunctionName = continuationName,
             grinFunctionParameters = captures <> resultVars,
             grinFunctionResultRep = resultRep,
             grinFunctionBody = transformedBody
           }
-      continuationNode =
-        GrinNode
-          (GrinClosure continuationName [map grinVarRuntimeRep resultVars])
-          (map GrinVarValue captures)
-  let frameKind = case forwardedResultUses transformedBody of
-        Just _ -> ContinuationFrameForward
-        Nothing -> ContinuationFrameNormal
   addContinuationFunction frameKind continuationFunction
+  frameFunction <-
+    if captures == frameFields
+      then pure continuationName
+      else do
+        entryName <- freshFunctionName (unFunctionName continuationName <> "_frame")
+        fieldVars <- mapM (\var -> freshVar (grinVarName var) (grinVarRuntimeRep var)) frameFields
+        resultParameters <- mapM (\var -> freshVar (grinVarName var) (grinVarRuntimeRep var)) resultVars
+        let renamed = Map.fromList (zip frameFields fieldVars)
+            argument var = GrinVarValue (Map.findWithDefault var var renamed)
+        addContinuationFunction
+          frameKind
+          GrinFunction
+            { grinFunctionName = entryName,
+              grinFunctionParameters = fieldVars <> resultParameters,
+              grinFunctionResultRep = resultRep,
+              grinFunctionBody = GrinCall (ResultRep cpsResultRep) continuationName (map argument captures <> map GrinVarValue resultParameters)
+            }
+        pure entryName
+  let continuationNode =
+        GrinNode
+          (GrinClosure frameFunction [map grinVarRuntimeRep resultVars])
+          (map GrinVarValue frameFields)
   pure (ReifiedContinuation pointer continuationName (map GrinVarValue captures) continuationNode)
+
+-- | Put the captured values of a continuation or a join point in the order
+-- of the parameters of the function that the pass transforms, and the
+-- other values after them in the order of their uniques. The calling
+-- convention gives each parameter position its own register, so a value
+-- that keeps its position keeps its register and needs no move.
+orderCaptures :: [GrinVar] -> CpsM [GrinVar]
+orderCaptures vars = do
+  order <- cpsParameterOrder <$> get
+  let key var = case Map.lookup var order of
+        Just position -> (0 :: Int, position)
+        Nothing -> (1, grinVarUnique var)
+  pure (map snd (List.sortOn fst [(key var, var) | var <- vars]))
 
 -- | One body with two entry paths: direct arguments or a heap frame.
 data ReifiedContinuation = ReifiedContinuation
