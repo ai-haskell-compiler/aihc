@@ -3,6 +3,7 @@ module Aihc.Resolve.Monad
     runResolveM,
     resolution,
     withResolution,
+    resolveFailure,
     ModuleInfo (..),
     currentModuleInfo,
     currentScope,
@@ -23,7 +24,6 @@ import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
     SourceSpan,
-    mkAnnotation,
   )
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
@@ -86,15 +86,15 @@ runResolveM scope moduleInfo nextLocal action =
       (result, finalState) = unResolveM action initialEnv initialState
    in (stateNextLocal finalState, reverse (stateErrors finalState), result)
 
--- | Attach a resolution to a piece of syntax, and record the resolution
--- if it failed.
+-- | Attach a resolution result to a piece of syntax, and record the
+-- resolution if it failed.
 --
--- Every resolution annotation the resolver attaches to syntax is made here.
+-- Every resolution result the resolver attaches to syntax is made here.
 -- A failed resolution is thus collected as it is made, and nothing has to
 -- walk the resolved syntax afterwards looking for one.
 --
--- The caller passes what to attach the annotation to rather than taking
--- the annotation and attaching it itself. This runs on every name the
+-- The caller passes what to attach the result to rather than taking the
+-- result and attaching it itself. This runs on every name the
 -- resolver looks at, and the state monad pays for a bind in allocation, so
 -- the whole thing is one step.
 withResolution ::
@@ -102,7 +102,7 @@ withResolution ::
   Identifier ->
   ResolutionNamespace ->
   Resolution ->
-  (Annotation -> a) ->
+  (ResolutionResult -> a) ->
   ResolveM a
 withResolution span' identifier namespace target attach =
   ResolveM $ \_env state ->
@@ -110,16 +110,23 @@ withResolution span' identifier namespace target attach =
     -- the state behind for every name in the module.
     let (annotation, state') = case target of
           Resolved entity ->
-            (mkAnnotation (ResolutionAnnotation span' identifier namespace entity), state)
+            (ResolutionOk (ResolutionAnnotation span' identifier namespace entity), state)
           Unresolved message ->
             let resolveError = resolveErrorAt span' identifier namespace message
-             in (mkAnnotation resolveError, state {stateErrors = resolveError : stateErrors state})
+             in (ResolutionError resolveError, state {stateErrors = resolveError : stateErrors state})
      in state' `seq` (attach annotation, state')
 {-# INLINE withResolution #-}
 
--- | The annotation for one resolution, when the caller has nothing to
--- attach it to yet.
-resolution :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> Resolution -> ResolveM Annotation
+-- | Record a resolution that failed, and give its error.
+resolveFailure :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> String -> ResolveM ResolveError
+resolveFailure span' identifier namespace message =
+  ResolveM $ \_env state ->
+    let resolveError = resolveErrorAt span' identifier namespace message
+     in (resolveError, state {stateErrors = resolveError : stateErrors state})
+
+-- | The result of one resolution, when the caller has nothing to attach
+-- it to yet.
+resolution :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> Resolution -> ResolveM ResolutionResult
 resolution span' identifier namespace target =
   withResolution span' identifier namespace target id
 

@@ -12,12 +12,16 @@ synopsis: Name resolution for parsed Haskell modules
 library
   exposed-modules:
     Aihc.Resolve
+    Aihc.Resolve.Syntax
+    Aihc.Resolve.Syntax.FromParser
+    Aihc.Resolve.Syntax.ToParser
     Aihc.Resolve.Traverse
     Aihc.Resolve.Types
 
   other-modules:
     Aihc.Resolve.Infix
     Aihc.Resolve.Monad
+    Aihc.Resolve.Result
     Aihc.Resolve.Scope
     Aihc.Resolve.Span
 

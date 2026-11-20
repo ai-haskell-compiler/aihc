@@ -26,6 +26,8 @@ module Aihc.Resolve.Types
     Resolution (..),
     ResolutionAnnotation (..),
     RecKnotVariables (..),
+    ResolutionResult (..),
+    resolutionResultAnnotation,
     annotationResolution,
     resolutionOf,
     nameResolution,
@@ -37,9 +39,6 @@ module Aihc.Resolve.Types
     nameOrigin,
     ResolveError (..),
     resolveErrorAt,
-    ResolveFailure (..),
-    ResolvedModule (..),
-    ResolvedUnit (..),
   )
 where
 
@@ -58,6 +57,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
+import Data.Data (Data)
 import Data.List (find)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -68,7 +68,7 @@ import GHC.Generics (Generic)
 
 -- | An opaque identity for one installed package instance.
 newtype PackageId = PackageId {packageIdText :: Text}
-  deriving (Eq, Ord, Show, Read, Generic)
+  deriving (Data, Eq, Ord, Show, Read, Generic)
 
 instance IsString PackageId where
   fromString = PackageId . T.pack
@@ -116,7 +116,7 @@ data GlobalName = GlobalName
     globalNameModule :: !Text,
     globalNameNamespace :: !ResolutionNamespace
   }
-  deriving (Eq, Ord, Show, Read, Generic)
+  deriving (Data, Eq, Ord, Show, Read, Generic)
 
 -- | A mark on a name occurrence that gives its top-level term. The resolver
 -- gives the occurrence that term and does not look in the scope. The
@@ -140,7 +140,7 @@ exactType name = listToMaybe [global | Just (ExactType global) <- map fromAnnota
 
 -- | The identity of one local binder, unique within a compilation unit.
 newtype LocalId = LocalId {localIdUnique :: Int}
-  deriving (Eq, Ord, Show, Read, Generic)
+  deriving (Data, Eq, Ord, Show, Read, Generic)
 
 -- | What a name stands for once it is resolved.
 data Entity
@@ -151,7 +151,7 @@ data Entity
   | -- | Built-in syntax with no declaration, such as a tuple constructor.
     -- The identifier of the annotation says which syntax.
     EntitySyntax
-  deriving (Eq, Ord, Show, Read, Generic)
+  deriving (Data, Eq, Ord, Show, Read, Generic)
 
 -- | A top-level term, by package, module, and name.
 pattern GlobalTerm :: PackageId -> Text -> Text -> Entity
@@ -174,7 +174,7 @@ data Identifier
   = IdentifierTuple !TupleFlavor !Int
   | IdentifierList
   | IdentifierNamed !Text
-  deriving (Eq, Show, Generic)
+  deriving (Data, Eq, Show, Generic)
 
 -- | Render an identifier for diagnostics and other user output.
 displayIdentifier :: Identifier -> Text
@@ -191,7 +191,7 @@ data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
   | ResolutionNamespaceModule
-  deriving (Eq, Ord, Show, Read, Generic)
+  deriving (Data, Eq, Ord, Show, Read, Generic)
 
 instance NFData PackageId
 
@@ -216,7 +216,21 @@ data ResolutionAnnotation = ResolutionAnnotation
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !Entity
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
+
+-- | The outcome of one resolution in the syntax tree that the resolver
+-- gives: the resolution, or the error that the resolver found.
+data ResolutionResult
+  = ResolutionOk !ResolutionAnnotation
+  | ResolutionError !ResolveError
+  deriving (Data, Eq, Show)
+
+-- | The successful resolution of a result, if it is one.
+resolutionResultAnnotation :: ResolutionResult -> Maybe ResolutionAnnotation
+resolutionResultAnnotation result =
+  case result of
+    ResolutionOk annotation -> Just annotation
+    ResolutionError _ -> Nothing
 
 -- | The variables that the knot of a @rec@ statement carries. The resolver
 -- gives this annotation to each segment of an @mdo@ block. A variable of
@@ -225,7 +239,7 @@ data ResolutionAnnotation = ResolutionAnnotation
 -- of GHC. A @rec@ statement without this annotation carries all of its
 -- variables in the knot, as an explicit @rec@ statement does in GHC.
 newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 -- | The resolution that one annotation carries, if it is one.
 annotationResolution :: Annotation -> Maybe ResolutionAnnotation
@@ -278,7 +292,7 @@ data ResolveError = ResolveError
     resolveErrorNamespace :: !ResolutionNamespace,
     resolveErrorMessage :: !String
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 -- | The error of one failed resolution.
 resolveErrorAt :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> String -> ResolveError
@@ -289,30 +303,6 @@ resolveErrorAt span' identifier namespace message =
       resolveErrorNamespace = namespace,
       resolveErrorMessage = message
     }
-
--- | One module after name resolution: its syntax with every name resolved,
--- and the top-level terms it can see, including through qualified imports.
-data ResolvedModule = ResolvedModule
-  { resolvedModuleUnit :: !ModuleUnit,
-    resolvedVisibleTerms :: ![GlobalName]
-  }
-  deriving (Show)
-
--- | A compilation unit after name resolution. Every name of every module
--- resolved: a unit with a failed resolution is a 'ResolveFailure' instead.
-newtype ResolvedUnit = ResolvedUnit
-  { resolvedModules :: [ResolvedModule]
-  }
-  deriving (Show)
-
--- | A compilation unit that did not resolve. The modules carry the
--- resolutions that succeeded and, as a 'ResolveError' annotation, each one
--- that failed. Tools render them. The compiler does not go on from here.
-data ResolveFailure = ResolveFailure
-  { failureErrors :: [ResolveError],
-    failureModules :: [ResolvedModule]
-  }
-  deriving (Show)
 
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _

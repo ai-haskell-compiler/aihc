@@ -11,11 +11,6 @@ module Aihc.Resolve.Span
     peelImportItemSpan,
     rhsSpan,
     spanStartNameSpan,
-    annotateDecl,
-    annotateExpr,
-    annotatePattern,
-    annotateType,
-    annotateImport,
     importModuleNameSpan,
     importMemberNameSpan,
     declKeywordNameSpan,
@@ -25,7 +20,6 @@ where
 import Aihc.Parser.Syntax
   ( Annotation,
     Decl (..),
-    Expr (..),
     GuardQualifier (..),
     ImportDecl (..),
     ImportItem (..),
@@ -33,17 +27,13 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs (..),
     SourceSpan,
-    Type (..),
     fromAnnotation,
-    mkAnnotation,
     pattern SourceSpan,
   )
-import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Typeable (Typeable)
 
 -- | The innermost span of a chain of annotations: a 'SourceSpan' on the
 -- annotation if it carries one, and otherwise the span already in hand.
@@ -106,22 +96,6 @@ spanStartNameSpanAt (SourceSpan sourceName startLine startCol _ _ startOffset en
         (startCol + width)
         startOffset
         (min endOffset (startOffset + width))
-
-annotateDecl :: ResolutionAnnotation -> Decl -> Decl
-annotateDecl annotation = DeclAnn (mkAnnotation annotation)
-
-annotateExpr :: ResolutionAnnotation -> Expr -> Expr
-annotateExpr annotation = EAnn (mkAnnotation annotation)
-
-annotatePattern :: ResolutionAnnotation -> Pattern -> Pattern
-annotatePattern annotation = PAnn (mkAnnotation annotation)
-
-annotateType :: ResolutionAnnotation -> Type -> Type
-annotateType annotation = TAnn (mkAnnotation annotation)
-
-annotateImport :: (Typeable a) => a -> ImportDecl -> ImportDecl
-annotateImport annotation importDecl =
-  importDecl {importDeclAnns = mkAnnotation annotation : importDeclAnns importDecl}
 
 importModuleNameSpan :: ImportDecl -> Maybe SourceSpan
 importModuleNameSpan importDecl =
