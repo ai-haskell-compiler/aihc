@@ -886,16 +886,16 @@ interference fn locals = foldl' blockEdges MonoidMap.empty blocks
     restrict = Set.filter (`Set.member` locals)
     readsOf = restrict . Set.fromList
     parametersOf label = map fst (MonoidMap.get label (fnBlockParameters fn))
-    liveIn = liveness Map.empty
-    liveInOf label = Map.findWithDefault Set.empty label liveIn
+    liveIn = liveness MonoidMap.empty
+    liveInOf label = MonoidMap.get label liveIn
     liveOut block = Set.unions [liveInOf (targetLabel target) | target <- terminatorTargets (blockTerminator block)]
     instructionReads (Instruction _ operation) = readsOf (getConst (forOperationOperands (Const . operandVars) operation))
     -- The values that are live into each block, without its parameters.
     liveness live =
-      let live' = foldr (\block acc -> Map.insert (blockLabel block) (blockLiveIn acc block) acc) live blocks
+      let live' = foldr (\block acc -> MonoidMap.set (blockLabel block) (blockLiveIn acc block) acc) live blocks
        in if live' == live then live else liveness live'
     blockLiveIn live block =
-      let out = Set.unions [Map.findWithDefault Set.empty (targetLabel target) live | target <- terminatorTargets (blockTerminator block)]
+      let out = Set.unions [MonoidMap.get (targetLabel target) live | target <- terminatorTargets (blockTerminator block)]
           start = foldr transfer (Set.union out (readsOf (terminatorReads (blockTerminator block)))) (blockInstructions block)
        in Set.difference start (Set.fromList (map fst (blockParameters block)))
     transfer instruction@(Instruction results _) after =
