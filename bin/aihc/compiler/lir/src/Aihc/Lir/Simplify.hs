@@ -676,11 +676,12 @@ eliminateRedundantBlockParameters function
       OperandVar var -> OperandVar (resolve replacements var)
       OperandLiteral _ -> value
     kept var = not (Map.member var replacements)
-    keepArguments target = case MonoidMap.get (targetLabel target) parameterLists of
-      names
-        | length names == length (targetArguments target) ->
-            target {targetArguments = [argument | (name, argument) <- zip names (targetArguments target), kept name]}
-      _ -> target
+    keepArguments target
+      | length names == length (targetArguments target) =
+          target {targetArguments = [argument | (name, argument) <- zip names (targetArguments target), kept name]}
+      | otherwise = target
+      where
+        names = MonoidMap.get (targetLabel target) parameterLists
     rewrite block =
       block
         { blockParameters = filter (kept . fst) (blockParameters block),
