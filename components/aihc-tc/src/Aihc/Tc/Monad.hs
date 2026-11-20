@@ -566,6 +566,9 @@ data TcState = TcState
     tcsMetaTerms :: !(Set.Set Entity),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map GlobalName TyConInfo),
+    -- | The imported type constructors that the module group replaced in
+    -- its own table. They are not facts of the module group.
+    tcsReplacedImports :: !(Set.Set GlobalName),
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map GlobalName DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
@@ -623,6 +626,7 @@ initTcState =
       tcsGlobalTerms = Map.empty,
       tcsMetaTerms = Set.empty,
       tcsGlobalTyCons = Map.empty,
+      tcsReplacedImports = Set.empty,
       tcsDataTypes = Map.empty,
       tcsPatSyns = Map.empty,
       tcsDeclaredRecordPatSyns = Map.empty,
@@ -1060,9 +1064,22 @@ extendTyConEnvPermanent info = do
 
 replaceTyConEnvPermanent :: TyConInfo -> TcM ()
 replaceTyConEnvPermanent info = do
+  let key = tyConKey (tciTyCon info)
   tyCons <- lift $ gets tcsGlobalTyCons
-  tyCons' <- replaceMapEntry "global type constructor environment" (tyConKey (tciTyCon info)) info tyCons
-  lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
+  imported <- lift $ gets (factEnvTyCon key . tcsFacts)
+  case imported of
+    -- The replacement of an imported entry is for this module group
+    -- only. The result of the check does not contain it.
+    Just _
+      | Map.notMember key tyCons ->
+          lift $ modify' $ \state ->
+            state
+              { tcsGlobalTyCons = Map.insert key info tyCons,
+                tcsReplacedImports = Set.insert key (tcsReplacedImports state)
+              }
+    _ -> do
+      tyCons' <- replaceMapEntry "global type constructor environment" key info tyCons
+      lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
 
 addDataType :: DataTypeInfo -> TcM ()
 addDataType info = do

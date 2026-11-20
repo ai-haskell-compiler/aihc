@@ -99,8 +99,8 @@ import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.ModuleProvider
   ( InstanceProvider,
-    ModuleReach (..),
     ModuleProvider,
+    ModuleReach (..),
     PackageLocator,
     PackageSource (..),
     ProviderCache,
@@ -230,6 +230,7 @@ import Aihc.Tc
     DerivingReference (..),
     InstanceInfo (..),
     MergeCheck (..),
+    ModuleOrigin,
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface (..),
@@ -239,6 +240,8 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     derivingReferenceList,
     emptyTcInterface,
+    factEnvFromModules,
+    factEnvInterface,
     mergeTcInterfaces,
     mkTcKinds,
     renderFunDepNames,
@@ -250,11 +253,8 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tyConKey,
-    typecheckModuleSccWithInterface,
     typecheckModuleSccWithFacts,
-    factEnvFromModules,
-    factEnvInterface,
-    ModuleOrigin,
+    typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)

@@ -24,7 +24,7 @@ where
 
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), typeFamilyAxiomIndex)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getKindLookup, stateTyCon, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, readMetaTvKind, trackKindMeta)
+import Aihc.Tc.Monad (TcM, freshMetaTvOfKind, getKindLookup, getKinds, getTypeFamilyEquations, getWiring, lookupTyConByIdentity, readMetaTvKind, stateTyCon, trackKindMeta)
 import Aihc.Tc.TypeLitFamily (TypeLitValue (..), evaluateTypeLitFamily, simplifyTypeLitFamily)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (TcWiring (..))

@@ -224,7 +224,7 @@ tcInterfaceDifference :: TcState -> TcState -> TcInterface
 tcInterfaceDifference initial state =
   TcInterface
     { tcInterfaceTermMap = exportedGlobalTerms (newEntries (tcsGlobalTerms state) (tcsGlobalTerms initial)),
-      tcInterfaceTyConMap = newEntries (tcsGlobalTyCons state) (tcsGlobalTyCons initial),
+      tcInterfaceTyConMap = Map.withoutKeys (newEntries (tcsGlobalTyCons state) (tcsGlobalTyCons initial)) (tcsReplacedImports state),
       tcInterfaceDataTypeMap = newEntries (tcsDataTypes state) (tcsDataTypes initial),
       tcInterfaceClassMap = newEntries (tcsClasses state) (tcsClasses initial),
       tcInterfaceInstanceMap =
