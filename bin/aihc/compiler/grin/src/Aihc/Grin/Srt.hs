@@ -151,7 +151,7 @@ programStaticReferences program =
       Set.fromList [staticObjectName object | object <- localObjects, not (staticObjectTraced object)]
     definedNames = Set.fromList (map grinFunctionName (grinFunctions program))
     directObjects =
-      MonoidMap.fromMap . Map.fromList $
+      MonoidMap.fromList
         [ (grinFunctionName function, objects)
         | function <- grinFunctions program,
           let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function))),
@@ -163,7 +163,7 @@ programStaticReferences program =
     externGlobals = Map.fromList [(grinExternName extern, grinExternGlobal extern) | extern <- grinExternFunctions program]
     -- The code references of each body, found once. The extern objects and
     -- the direct calls of a function both read them.
-    references = MonoidMap.fromMap . Map.fromList $ [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
+    references = MonoidMap.fromList [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
     functionReferences function = MonoidMap.get (grinFunctionName function) references
     externObjects function =
       [ global
@@ -171,7 +171,7 @@ programStaticReferences program =
         Just global <- [Map.lookup name externGlobals]
       ]
     directCalls =
-      MonoidMap.fromMap . Map.fromList $
+      MonoidMap.fromList
         [ (grinFunctionName function, callees)
         | function <- grinFunctions program,
           let callees =
