@@ -140,16 +140,26 @@ listFoldlEvaluated combine accumulator (value : values) =
 
 -- | The largest element of a list, as GHC's @foldl1' max@. The class
 -- default is a lazy right fold, which builds a 'Just' and a thunk of 'max'
--- for each element before it compares any of them.
+-- for each element before it compares any of them. The loop is local and
+-- the function is INLINE, so each call gets a loop with the known 'max'
+-- of its type, as 'listFoldl' does.
 listMaximum :: (Ord a) => [a] -> a
 listMaximum [] = errorWithoutStackTrace "Prelude.maximum: empty list"
-listMaximum (value : values) = listFoldl' max value values
+listMaximum (first : rest) = loop first rest
+  where
+    loop !best [] = best
+    loop !best (value : values) = loop (max best value) values
+{-# INLINE listMaximum #-}
 
 -- | The smallest element of a list, as GHC's @foldl1' min@. See
 -- 'listMaximum'.
 listMinimum :: (Ord a) => [a] -> a
 listMinimum [] = errorWithoutStackTrace "Prelude.minimum: empty list"
-listMinimum (value : values) = listFoldl' min value values
+listMinimum (first : rest) = loop first rest
+  where
+    loop !best [] = best
+    loop !best (value : values) = loop (min best value) values
+{-# INLINE listMinimum #-}
 
 -- | The length of a list. The count is an unboxed accumulator, as in
 -- GHC's @lenAcc@, so the loop allocates nothing.
