@@ -2458,6 +2458,116 @@ functionTarget :: LowerEnv -> FunctionName -> LowerM Symbol
 functionTarget env name = maybe (failWith (LowerMissingFunction name)) pure (Map.lookup name (envFunctionSymbols env))
 
 -- | The single result of one extern C call.
+-- | The largest copy or fill of a byte array, in bytes, that runs as a
+-- loop in place. A larger one calls the memory helper of the C runtime.
+-- A C call makes every live value move to a preserved register or to the
+-- stack, and the C library chooses its method at run time, so the loop is
+-- faster for the small arrays of most programs, such as the 'STUArray' of
+-- a regex-tdfa match.
+smallByteArrayLimit :: Integer
+smallByteArrayLimit = 128
+
+-- | Copy the bytes of one byte array range to another. A small copy runs
+-- as a loop of words and then a loop of bytes. A move whose destination is
+-- after its source can overlap it, so it calls the helper, which copies
+-- such a range from its end.
+smallByteArrayCopy :: Bool -> Text -> Operand -> Operand -> Operand -> LowerM ()
+smallByteArrayCopy overlaps helper to from bytes = do
+  directionLabel <- freshLabel "copy_direction"
+  callLabel <- freshLabel "copy_call"
+  wordLabel <- freshLabel "copy_word"
+  wordBodyLabel <- freshLabel "copy_word_body"
+  byteLabel <- freshLabel "copy_byte"
+  byteBodyLabel <- freshLabel "copy_byte_body"
+  doneLabel <- freshLabel "copy_done"
+  small <- emitValue "copy_small" I1 (Compare LeU I64 bytes (OperandLiteral (LitInt smallByteArrayLimit)))
+  terminate (Branch (typedOperand small) (Target directionLabel []) (Target callLabel []))
+  beginBlock directionLabel []
+  if overlaps
+    then do
+      toWord <- emitValue "copy_to" I64 (PtrToInt to)
+      fromWord <- emitValue "copy_from" I64 (PtrToInt from)
+      forward <- emitValue "copy_forward" I1 (Compare LeU I64 (typedOperand toWord) (typedOperand fromWord))
+      terminate (Branch (typedOperand forward) (Target wordLabel [zero]) (Target callLabel []))
+    else terminate (Jump (Target wordLabel [zero]))
+  beginColdBlock callLabel []
+  _ <- callRuntime helper [Ptr, Ptr, I64] [] [to, from, bytes]
+  terminate (Jump (Target doneLabel []))
+  index <- fresh "copy_index"
+  beginBlock wordLabel [(index, I64)]
+  next <- emitValue "copy_next" I64 (Binary Add I64 (OperandVar index) (OperandLiteral (LitInt 8)))
+  fits <- emitValue "copy_fits" I1 (Compare LeU I64 (typedOperand next) bytes)
+  terminate (Branch (typedOperand fits) (Target wordBodyLabel []) (Target byteLabel [OperandVar index]))
+  beginBlock wordBodyLabel []
+  wordFrom <- at from (OperandVar index)
+  wordTo <- at to (OperandVar index)
+  value <- emitValue "copy_value" I64 (Load I64 wordFrom (byteAlignment 1))
+  emit [] (Store I64 (typedOperand value) wordTo (byteAlignment 1))
+  terminate (Jump (Target wordLabel [typedOperand next]))
+  byteIndex <- fresh "copy_byte_index"
+  beginBlock byteLabel [(byteIndex, I64)]
+  more <- emitValue "copy_more" I1 (Compare LtU I64 (OperandVar byteIndex) bytes)
+  terminate (Branch (typedOperand more) (Target byteBodyLabel []) (Target doneLabel []))
+  beginBlock byteBodyLabel []
+  byteFrom <- at from (OperandVar byteIndex)
+  byteTo <- at to (OperandVar byteIndex)
+  byte <- emitValue "copy_byte" I8 (Load I8 byteFrom (byteAlignment 1))
+  emit [] (Store I8 (typedOperand byte) byteTo (byteAlignment 1))
+  nextByte <- emitValue "copy_next_byte" I64 (Binary Add I64 (OperandVar byteIndex) (OperandLiteral (LitInt 1)))
+  terminate (Jump (Target byteLabel [typedOperand nextByte]))
+  beginBlock doneLabel []
+  where
+    zero = OperandLiteral (LitInt 0)
+    at base offset = do
+      pointer <- emitValue "byte_address" Ptr (PtrAdd base offset)
+      pure (Address (typedOperand pointer) 0 0 [] HeapRegion)
+
+-- | Fill a byte array range with one byte. A small fill stores words of
+-- the byte and then single bytes. See 'smallByteArrayCopy'.
+smallByteArraySet :: Operand -> Operand -> Operand -> LowerM ()
+smallByteArraySet to byte bytes = do
+  loopLabel <- freshLabel "fill_loop"
+  callLabel <- freshLabel "fill_call"
+  wordLabel <- freshLabel "fill_word"
+  wordBodyLabel <- freshLabel "fill_word_body"
+  byteLabel <- freshLabel "fill_byte"
+  byteBodyLabel <- freshLabel "fill_byte_body"
+  doneLabel <- freshLabel "fill_done"
+  small <- emitValue "fill_small" I1 (Compare LeU I64 bytes (OperandLiteral (LitInt smallByteArrayLimit)))
+  terminate (Branch (typedOperand small) (Target loopLabel []) (Target callLabel []))
+  beginColdBlock callLabel []
+  _ <- callRuntime "aihc_memory_set" [Ptr, I64, I64] [] [to, byte, bytes]
+  terminate (Jump (Target doneLabel []))
+  beginBlock loopLabel []
+  low <- emitValue "fill_low" I64 (Binary And I64 byte (OperandLiteral (LitInt 255)))
+  repeated <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
+  narrow <- emitValue "fill_narrow" I8 (Convert Trunc I64 (typedOperand low) I8)
+  terminate (Jump (Target wordLabel [zero]))
+  index <- fresh "fill_index"
+  beginBlock wordLabel [(index, I64)]
+  next <- emitValue "fill_next" I64 (Binary Add I64 (OperandVar index) (OperandLiteral (LitInt 8)))
+  fits <- emitValue "fill_fits" I1 (Compare LeU I64 (typedOperand next) bytes)
+  terminate (Branch (typedOperand fits) (Target wordBodyLabel []) (Target byteLabel [OperandVar index]))
+  beginBlock wordBodyLabel []
+  wordTo <- at to (OperandVar index)
+  emit [] (Store I64 (typedOperand repeated) wordTo (byteAlignment 1))
+  terminate (Jump (Target wordLabel [typedOperand next]))
+  byteIndex <- fresh "fill_byte_index"
+  beginBlock byteLabel [(byteIndex, I64)]
+  more <- emitValue "fill_more" I1 (Compare LtU I64 (OperandVar byteIndex) bytes)
+  terminate (Branch (typedOperand more) (Target byteBodyLabel []) (Target doneLabel []))
+  beginBlock byteBodyLabel []
+  byteTo <- at to (OperandVar byteIndex)
+  emit [] (Store I8 (typedOperand narrow) byteTo (byteAlignment 1))
+  nextByte <- emitValue "fill_next_byte" I64 (Binary Add I64 (OperandVar byteIndex) (OperandLiteral (LitInt 1)))
+  terminate (Jump (Target byteLabel [typedOperand nextByte]))
+  beginBlock doneLabel []
+  where
+    zero = OperandLiteral (LitInt 0)
+    at base offset = do
+      pointer <- emitValue "byte_address" Ptr (PtrAdd base offset)
+      pure (Address (typedOperand pointer) 0 0 [] HeapRegion)
+
 callRuntime :: Text -> [Type] -> [Type] -> [Operand] -> LowerM Operand
 callRuntime name parameters results arguments = do
   let symbol = Symbol name
@@ -3738,7 +3848,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           from <- byteArrayRange source sourceOffset count
           to <- byteArrayRange destination destinationOffset count
           bytes <- word count
-          _ <- callRuntime helper [Ptr, Ptr, I64] [] [to, from, bytes]
+          smallByteArrayCopy (helper == "aihc_memory_move") helper to from bytes
           bind []
     (_, [array, offset, address, count])
       | name `elem` byteArrayToAddrPrimitives -> do
@@ -3779,7 +3889,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
       to <- byteArrayRange array offset count
       bytes <- word count
       byte <- word value
-      _ <- callRuntime "aihc_memory_set" [Ptr, I64, I64] [] [to, byte, bytes]
+      smallByteArraySet to byte bytes
       bind []
     _
       | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
