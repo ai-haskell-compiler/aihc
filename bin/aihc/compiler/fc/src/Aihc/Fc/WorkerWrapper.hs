@@ -188,9 +188,9 @@ workerWrapperProgram primPackage home scope program =
                 env = List.foldl' extendBinder types tyBinders
           ]
       bodies = Map.fromList [(valName declaration, let (_, _, inner) = splitLambdas (valBody declaration) in inner) | (declaration, _) <- eligible]
-      initial = Map.fromList [(valName declaration, Set.fromList [position | (position, _) <- zip [0 ..] demands, takesProduct position demands]) | (declaration, demands) <- eligible]
+      initial = MonoidMap.fromMap (Map.fromList [(valName declaration, Set.fromList [position | (position, _) <- zip [0 ..] demands, takesProduct position demands]) | (declaration, demands) <- eligible])
       settle current =
-        let next = Map.mapWithKey (\function positions -> limited function (Set.filter (keeps current function) positions)) current
+        let next = MonoidMap.mapWithKey (\function positions -> limited function (Set.filter (keeps current function) positions)) current
          in if next == current then current else settle next
       keeps current function position =
         case Map.lookup position (MonoidMap.get function parameterShapes) of
@@ -209,7 +209,7 @@ workerWrapperProgram primPackage home scope program =
                   go rest (total - count + 1) (Set.delete position kept)
               | otherwise = go rest total kept
          in go (reverse (Map.keys shapes)) (sum (map width (Map.keys shapes))) positions
-      takesIn current function position = maybe False (Set.member position) (Map.lookup function current)
+      takesIn current function position = Set.member position (MonoidMap.get function current)
       takers = settle initial
       takesApart = Boxity (scope == SplitLateFunctions) (takesIn takers)
       -- The members of a recursive group often give a parameter whole to
