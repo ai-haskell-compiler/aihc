@@ -4027,7 +4027,7 @@ literalArguments name literal body
       case expr of
         ExApp (ExVar var) argument
           | var == name ->
-              let (argument', counts) = go argument
+              let counts = snd (go argument)
                in (ExApp (ExVar var) literal, add (1, if argument == literal then 0 else 1) (first0 counts))
         ExVar {} -> (expr, (0, 0))
         ExLit {} -> (expr, (0, 0))
