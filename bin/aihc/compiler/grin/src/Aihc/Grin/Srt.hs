@@ -154,8 +154,7 @@ programStaticReferences program =
       MonoidMap.fromList
         [ (grinFunctionName function, objects)
         | function <- grinFunctions program,
-          let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function))),
-          not (null objects)
+          let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function)))
         ]
     -- The table of an extern function is in its own unit. The public value
     -- of the function is a static object that names that table, so a call
@@ -176,8 +175,7 @@ programStaticReferences program =
         | function <- grinFunctions program,
           let callees =
                 Set.delete (grinFunctionName function) $
-                  Set.intersection definedNames (functionReferences function),
-          not (Set.null callees)
+                  Set.intersection definedNames (functionReferences function)
         ]
     -- The known callers of each function, from the direct calls.
     callers =
