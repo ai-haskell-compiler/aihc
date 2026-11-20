@@ -289,7 +289,7 @@ data Ctx register = Ctx
   { ctxFunction :: !Function,
     ctxLayout :: !(Layout register),
     ctxLabels :: !(Map Label Name),
-    ctxBlockParameters :: !(Map Label [(Var, Type)]),
+    ctxBlockParameters :: !(MonoidMap Label [(Var, Type)]),
     ctxSignatures :: !(Map Symbol Signature),
     ctxIncomingOverflow :: Int,
     ctxReads :: !(MonoidMap Var (Sum Int)),
@@ -816,7 +816,7 @@ prepareFunction backend signatures index functionReads function = do
           { ctxFunction = function,
             ctxLayout = layout,
             ctxLabels = labels,
-            ctxBlockParameters = Map.fromList [(blockLabel block, blockParameters block) | block <- blocks],
+            ctxBlockParameters = MonoidMap.fromList [(blockLabel block, blockParameters block) | block <- blocks],
             ctxSignatures = signatures,
             ctxIncomingOverflow = case functionConvention function of
               AihcConvention -> overflowBytes backend (length (functionParameters function))
@@ -1401,7 +1401,7 @@ switchTableDensity = 3
 
 blockArgumentMoves :: (Eq register) => NativeBackend statement register error -> Ctx register -> Target -> NativeM error [statement]
 blockArgumentMoves backend ctx (Target label arguments) = do
-  let parameters = Map.findWithDefault [] label (ctxBlockParameters ctx)
+  let parameters = MonoidMap.get label (ctxBlockParameters ctx)
   pure
     ( parallelMove
         backend
