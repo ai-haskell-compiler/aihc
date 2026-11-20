@@ -106,6 +106,7 @@ import Control.DeepSeq (NFData)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Monoid (Sum)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
@@ -933,11 +934,12 @@ duplicateFieldSelectors decls =
   [ (label, fieldSelectorName label constructor)
   | (constructor, labels) <- owners,
     label <- labels,
-    Map.findWithDefault 0 label counts > (1 :: Int)
+    MonoidMap.get label counts > 1
   ]
   where
     owners = concatMap declRecordFieldOwners decls
-    counts = Map.fromListWith (+) [(label, 1) | (_, labels) <- owners, label <- labels]
+    counts :: MonoidMap Text (Sum Int)
+    counts = MonoidMap.fromListWith (+) [(label, 1) | (_, labels) <- owners, label <- labels]
 
 -- | The first constructor that a declaration names. A duplicate record
 -- field takes its selector name from it.
