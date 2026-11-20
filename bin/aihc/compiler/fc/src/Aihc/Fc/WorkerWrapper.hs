@@ -126,6 +126,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, isNothing)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -180,7 +181,7 @@ workerWrapperProgram primPackage home scope program =
       -- The parameters of each function: whether a value with a lifted
       -- strict field, and the number of its fields.
       parameterShapes =
-        Map.fromList
+        MonoidMap.fromMap . Map.fromList $
           [ (valName declaration, Map.fromList [(position, (hasStrictProduct env binder, binderName binder, productWidth env binder)) | (position, binder) <- zip [0 ..] binders])
           | (declaration, _) <- eligible,
             let (tyBinders, binders, _) = splitLambdas (valBody declaration)
@@ -192,13 +193,13 @@ workerWrapperProgram primPackage home scope program =
         let next = Map.mapWithKey (\function positions -> limited function (Set.filter (keeps current function) positions)) current
          in if next == current then current else settle next
       keeps current function position =
-        case Map.lookup position (Map.findWithDefault Map.empty function parameterShapes) of
+        case Map.lookup position (MonoidMap.get function parameterShapes) of
           Just (strict, name, _)
             | strict || Map.member function groups -> usedApart (takesIn current) function position name (Map.findWithDefault (ExVar name) function bodies)
           _ -> True
       -- The limit of 'limitStrictUnboxing', in the same order.
       limited function positions =
-        let shapes = Map.findWithDefault Map.empty function parameterShapes
+        let shapes = MonoidMap.get function parameterShapes
             width position = if Set.member position positions then maybe 1 (\(_, _, count) -> count) (Map.lookup position shapes) else 1
             go [] _ kept = kept
             go (position : rest) total kept
