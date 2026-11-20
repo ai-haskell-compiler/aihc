@@ -73,6 +73,7 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -202,10 +203,10 @@ localDeclComponents decls = do
   infos <- mapM (\(index, decl) -> (index,decl,,) <$> declaredBinderKeys decl <*> declTermReferences decl) indexed
   let owners = Map.fromListWith min [(key, index) | (index, _, keys, _) <- infos, key <- keys]
       nodeOf (index, _, keys, _) = maybe index (\key -> Map.findWithDefault index key owners) (listToMaybe keys)
-      valueNodes = Map.fromListWith (<>) [(nodeOf info, Set.singleton index) | info@(index, _, keys, _) <- infos, not (null keys)]
-      nodeDeps = Map.fromListWith (<>) [(nodeOf info, Set.fromList (mapMaybe (`Map.lookup` owners) (Set.toList deps))) | info@(_, _, keys, deps) <- infos, not (null keys)]
+      valueNodes = MonoidMap.fromList [(nodeOf info, Set.singleton index) | info@(index, _, keys, _) <- infos, not (null keys)]
+      nodeDeps = MonoidMap.fromList [(nodeOf info, Set.fromList (mapMaybe (`Map.lookup` owners) (Set.toList deps))) | info@(_, _, keys, deps) <- infos, not (null keys)]
   signatureNodes <- concat <$> mapM signatureOwners infos
-  let attached = Map.fromListWith (<>) [(node, Set.singleton index) | (index, key, _) <- signatureNodes, Just node <- [Map.lookup key owners]]
+  let attached = MonoidMap.fromList [(node, Set.singleton index) | (index, key, _) <- signatureNodes, Just node <- [Map.lookup key owners]]
       -- A partial signature does not give a complete type, so its binder
       -- stays in the component of the bindings it depends on. A pattern
       -- binding has a node for all of its binders. Thus, the node is signed
@@ -214,10 +215,10 @@ localDeclComponents decls = do
       signedKeys = Set.fromList [key | (_, key, True) <- signatureNodes]
       nodeKeys = Map.fromListWith (<>) [(node, [key]) | (key, node) <- Map.toList owners]
       signedNodes = Map.keysSet (Map.filter (all (`Set.member` signedKeys)) nodeKeys)
-      graph = [(node, node, [dep | dep <- Set.toList (Map.findWithDefault Set.empty node nodeDeps), not (Set.member dep signedNodes)]) | node <- Map.keys valueNodes]
+      graph = [(node, node, [dep | dep <- Set.toList (MonoidMap.get node nodeDeps), not (Set.member dep signedNodes)]) | node <- Set.toList (MonoidMap.nonNullKeys valueNodes)]
       componentIndices component =
         let nodes = Graph.flattenSCC component
-            indices = Set.toList (Set.unions [Map.findWithDefault Set.empty node valueNodes <> Map.findWithDefault Set.empty node attached | node <- nodes])
+            indices = Set.toList (Set.unions [MonoidMap.get node valueNodes <> MonoidMap.get node attached | node <- nodes])
          in (indices, map (decls !!) indices)
       attachedIndices = Set.unions attached
       -- A declaration without binders that no component holds, such as a
