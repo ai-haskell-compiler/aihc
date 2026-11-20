@@ -135,6 +135,7 @@ module Aihc.Tc.Monad
     addInstance,
     getInstances,
     getClassInstances,
+    getClassInstancesForArguments,
     addDataFamilyInstance,
     getDataFamilyInstances,
     addTypeFamilyInstance,
@@ -168,7 +169,7 @@ import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamesp
 import Aihc.Resolve qualified as Resolve
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvForClassArguments, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes)
@@ -1114,6 +1115,13 @@ getInstances = lift $ gets (instanceEnvList . tcsInstances)
 -- | The instances of the exact class, most recent first.
 getClassInstances :: TyCon -> TcM [InstanceInfo]
 getClassInstances classTyCon = lift $ gets (instanceEnvForClass classTyCon . tcsInstances)
+
+-- | The instances of a class that can match the arguments now or after a
+-- meta variable of the arguments gets a type. See
+-- 'instanceEnvForClassArguments'.
+getClassInstancesForArguments :: TyCon -> [TcType] -> TcM [InstanceInfo]
+getClassInstancesForArguments classTyCon arguments =
+  lift $ gets (instanceEnvForClassArguments classTyCon arguments . tcsInstances)
 
 addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
 addDataFamilyInstance instanceInfo = do

@@ -288,22 +288,25 @@ stuckGivenConstraints visited (predicate, evidence) = case predicate of
             | otherwise -> pure []
           Just info -> do
             kinds <- getKinds
-            let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
-            substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
-            let fields = classFieldTypes info substitution
-                supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
-                -- A superclass that is not a class or an equality is the
-                -- constraint type itself.
-                superItems =
-                  [ (index, fromMaybe (IrredPred (applySubst substitution superType)) super)
-                  | (index, superType, super) <- zip3 [0 ..] (ciSuperClassTypes info) supers
-                  ]
-            concat
-              <$> traverse
-                (\(index, super) -> stuckGivenConstraints (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
-                superItems
+            plain <- onlyPlainSuperClasses kinds [tyCon] info
+            if plain then pure [] else stuckSuperClasses kinds tyCon arguments info
   _ -> pure []
   where
+    stuckSuperClasses kinds tyCon arguments info = do
+      let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
+      substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+      let fields = classFieldTypes info substitution
+          supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
+          -- A superclass that is not a class or an equality is the
+          -- constraint type itself.
+          superItems =
+            [ (index, fromMaybe (IrredPred (applySubst substitution superType)) super)
+            | (index, superType, super) <- zip3 [0 ..] (ciSuperClassTypes info) supers
+            ]
+      concat
+        <$> traverse
+          (\(index, super) -> stuckGivenConstraints (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
+          superItems
     -- A family can return a class that takes more arguments. The given
     -- @Element arr b@ applies the family @Element@ of arity one to two
     -- arguments, and @Element arr@ reduces to a partial class application.
@@ -348,17 +351,51 @@ givenEqualities visited (predicate, evidence) = case predicate of
           Nothing -> pure []
           Just info -> do
             kinds <- getKinds
-            -- The field types also need the class kind variables. A method
-            -- binder kind such as @f :: k -> Type@ mentions them.
-            let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
-            substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
-            let fields = classFieldTypes info substitution
-                supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
-            concat
-              <$> traverse
-                (\(index, super) -> givenEqualities (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
-                [(index, super) | (index, Just super) <- zip [0 ..] supers]
+            plain <- onlyPlainSuperClasses kinds [tyCon] info
+            if plain then pure [] else superClassEqualities kinds tyCon arguments info
   _ -> pure []
+  where
+    superClassEqualities kinds tyCon arguments info = do
+      -- The field types also need the class kind variables. A method
+      -- binder kind such as @f :: k -> Type@ mentions them.
+      let visibleSubstitution = Map.fromList (zip (map tvUnique (ciTyVars info)) arguments)
+      substitution <- fromMaybe visibleSubstitution <$> matchInstanceKinds (ciTyVars info) visibleSubstitution
+      let fields = classFieldTypes info substitution
+          supers = map (superClassPred kinds substitution) (ciSuperClassTypes info)
+      concat
+        <$> traverse
+          (\(index, super) -> givenEqualities (tyCon : visited) (super, EvSuperClass evidence (ciOrigin info) predicate fields index))
+          [(index, super) | (index, Just super) <- zip [0 ..] supers]
+
+-- | Whether each superclass of the class, at each depth, is a class with
+-- a known type constructor. Such a class gives no equality and no stuck
+-- constraint for any arguments, so the search of its superclasses can
+-- stop. Most classes are of this type.
+--
+-- A superclass with an equality, a type family, or a type variable as its
+-- head is not plain. The substitution of the class arguments can change
+-- the form of such a superclass. The substitution does not change the form
+-- of a class with a known type constructor, a quantified constraint, or an
+-- implicit parameter.
+onlyPlainSuperClasses :: TcKinds -> [TyCon] -> ClassInfo -> TcM Bool
+onlyPlainSuperClasses kinds visited info = allM plainSuperClass (ciSuperClassTypes info)
+  where
+    plainSuperClass declared =
+      case constraintTypeToPred kinds declared of
+        Just (ClassPred tyCon arguments)
+          | tyCon `elem` visited -> pure True
+          | otherwise -> do
+              family <- isTypeFamilyApplication (TcTyCon tyCon arguments)
+              if family
+                then pure False
+                else lookupClass tyCon >>= maybe (pure True) (onlyPlainSuperClasses kinds (tyCon : visited))
+        Just QuantifiedPred {} -> pure True
+        Just IParamPred {} -> pure True
+        _ -> pure False
+    allM _ [] = pure True
+    allM check (item : rest) = do
+      result <- check item
+      if result then allM check rest else pure False
 
 addProof :: TcType -> TcType -> Coercion -> ProofGraph -> ProofGraph
 addProof left right proof =
