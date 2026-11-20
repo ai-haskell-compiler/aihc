@@ -3431,7 +3431,7 @@ callPatternSpec spec =
 
 -- | The largest top-level body that 'constantCallPattern' specialises.
 callPatternBodyLimit :: Int
-callPatternBodyLimit = 2000
+callPatternBodyLimit = 4000
 
 -- | Specialise a saturated call of a top-level value at its constant
 -- arguments: type arguments without type variables, and constructors
@@ -3815,6 +3815,26 @@ mkLet env bind body
   -- also correct for a strict binding, because the right-hand side is
   -- evaluated at the same point in both forms.
   | ExVar var <- body, var == name = pure rhs
+  -- A local function that ignores its parameter, and whose every use is
+  -- a call, takes a literal in place of the argument. The join point of
+  -- a pattern match failure takes the scrutinee, which is often a
+  -- variable that the failure code no longer uses. Such an argument
+  -- counts as a use of the variable, and it keeps a value with one call
+  -- from its call. The parameter keeps its place, so the function stays
+  -- a function and does not become a thunk.
+  | lifted,
+    ExLam parameter inner <- rhs,
+    isLiftedBinder (spEnv env) parameter,
+    TyFun _ resultRep _ resultType <- binderType binder,
+    unused (binderName parameter) inner,
+    -- The program must know the literal type and its representation.
+    Just _ <- lookupHeaderType (spEnv env) intTypeName,
+    Just _ <- lookupHeaderType (spEnv env) intRepName,
+    Just body' <- literalArguments name dummy body =
+      mkLet
+        env
+        (Bind binder {binderType = TyFun intRep resultRep intType resultType} (ExLam parameter {binderType = intType} inner))
+        body'
   -- A safe primitive call cannot fail and has no effect, so an unused
   -- one goes away too.
   | Occurrences 0 _ <- uses, lifted || isCheapValue (spArity (spFixed env)) rhs || isJust (safePrimitiveCall (spEnv env) rhs) = pure body
@@ -3986,6 +4006,69 @@ mkLet env bind body
           unused name scrutinee && all (separateUses . altRhs) alternatives
       | otherwise = False
     uses = occurrencesUnder True (spCredit env) (spInside env) name body
+    package = tePrimPackage (spEnv env)
+    intTypeName = Name "Int#" SortTypeConstructor (OriginTop package "GHC.Prim")
+    intRepName = wiredGhcTypes package "IntRep" SortDataConstructor
+    intType = TyCon intTypeName
+    intRep = TyCon intRepName
+    dummy = ExLit (LitInt intRep 0) intType
+
+-- | Replace the first argument of each call of a local function with a
+-- literal. The result is 'Nothing' when a use of the function is not
+-- such a call, or when every call already gives the literal.
+literalArguments :: Name -> Expr -> Expr -> Maybe Expr
+literalArguments name literal body
+  | calls > 0 && calls == total && changed > 0 = Just rewritten
+  | otherwise = Nothing
+  where
+    Occurrences total _ = occurrences name body
+    (rewritten, (calls, changed)) = go body
+    go expr =
+      case expr of
+        ExApp (ExVar var) argument
+          | var == name ->
+              let counts = snd (go argument)
+               in (ExApp (ExVar var) literal, add (1, if argument == literal then 0 else 1) (first0 counts))
+        ExVar {} -> (expr, (0, 0))
+        ExLit {} -> (expr, (0, 0))
+        ExCoercion {} -> (expr, (0, 0))
+        ExApp function argument -> pair ExApp (go function) (go argument)
+        ExTyApp function ty -> single (`ExTyApp` ty) (go function)
+        ExCast inner coercion -> single (`ExCast` coercion) (go inner)
+        ExAbsurd inner ty -> single (`ExAbsurd` ty) (go inner)
+        ExForeignCall call types arguments ->
+          let results = map go arguments
+           in (ExForeignCall call types (map fst results), List.foldl' add (0, 0) (map snd results))
+        ExLam binder inner
+          | binderName binder == name -> (expr, (0, 0))
+          | otherwise -> single (ExLam binder) (go inner)
+        ExTyLam binder inner -> single (ExTyLam binder) (go inner)
+        ExLet bind inner
+          | binderName (bindBinder bind) == name -> single (\rhs -> ExLet bind {bindRhs = rhs} inner) (go (bindRhs bind))
+          | otherwise -> pair (\rhs inner' -> ExLet bind {bindRhs = rhs} inner') (go (bindRhs bind)) (go inner)
+        ExRec binds inner
+          | any ((== name) . binderName . bindBinder) binds -> (expr, (0, 0))
+          | otherwise ->
+              let results = map (go . bindRhs) binds
+                  (inner', counts) = go inner
+               in (ExRec (zipWith (\bind (rhs, _) -> bind {bindRhs = rhs}) binds results) inner', List.foldl' add counts (map snd results))
+        ExCase scrutinee caseBinder alternatives ->
+          let (scrutinee', counts) = go scrutinee
+              results =
+                fmap
+                  ( \alternative ->
+                      if any ((== name) . binderName) (foldr (:) [] caseBinder <> altBinders alternative)
+                        then (alternative, (0, 0))
+                        else let (rhs, c) = go (altRhs alternative) in (alternative {altRhs = rhs}, c)
+                  )
+                  alternatives
+           in (ExCase scrutinee' caseBinder (fmap fst results), List.foldl' add counts (map snd (NE.toList results)))
+    -- A call inside the argument of a call is not rewritten again, but
+    -- its occurrence counts as a use that is not a call.
+    first0 (_, c) = (0, c)
+    add (a, b) (c, d) = (a + c, b + d) :: (Int, Int)
+    single f (x, c) = (f x, c)
+    pair f (x, c1) (y, c2) = (f x y, add c1 c2)
 
 -- | A saturated constructor application whose arguments are trivial.
 isConstructorOfTrivials :: Expr -> Bool
@@ -5444,6 +5527,15 @@ mergeEqualAlternatives env alternatives =
         group@(leader : _ : _) <- largestGroup ->
           [alternative | alternative <- alternatives, altCon alternative `notElem` map altCon group]
             <> [Alt AltDefault [] [] (altRhs leader)]
+      -- A case with many alternatives, such as a derived method of an
+      -- enumeration, groups the right-hand sides that are equal as
+      -- expressions. A map finds the groups without a comparison of each
+      -- pair.
+      | length alternatives > mergeAlternativeLimit,
+        group@(leader : _ : _) <- largestEqualGroup ->
+          let merged = Set.fromList (map altCon group)
+           in [alternative | alternative <- alternatives, altCon alternative `Set.notMember` merged]
+                <> [Alt AltDefault [] [] (altRhs leader)]
     _ -> alternatives
   where
     mergeable alternative =
@@ -5465,6 +5557,18 @@ mergeEqualAlternatives env alternatives =
       | equal@(_ : _ : _) <- groups (zip [0 :: Int ..] alternatives),
         members@((firstIndex, _) : _) <- [filter (mergeable . snd) equal]
       ]
+    largestEqualGroup =
+      List.foldl'
+        (\best group -> if length group > length best then group else best)
+        []
+        [ map snd (List.sortOn fst members)
+        | members@(_ : _ : _) <-
+            Map.elems
+              ( Map.fromListWith
+                  (<>)
+                  [(altRhs alternative, [(index, alternative)]) | (index, alternative) <- zip [0 :: Int ..] alternatives, mergeable alternative]
+              )
+        ]
     groups candidates =
       case candidates of
         [] -> []
