@@ -939,7 +939,7 @@ duplicateFieldSelectors decls =
   where
     owners = concatMap declRecordFieldOwners decls
     counts :: MonoidMap Text (Sum Int)
-    counts = MonoidMap.fromListWith (<>) [(label, 1) | (_, labels) <- owners, label <- labels]
+    counts = MonoidMap.fromList [(label, 1) | (_, labels) <- owners, label <- labels]
 
 -- | The first constructor that a declaration names. A duplicate record
 -- field takes its selector name from it.
