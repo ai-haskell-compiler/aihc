@@ -23,6 +23,7 @@ module Aihc.Cli.ModuleProvider
     providerResolved,
     providerTyped,
     providerInstanceFacts,
+    interfaceInstanceProviders,
     providerReadInterface,
     moduleNameDirectory,
     readTypeArtifactFile,
@@ -36,7 +37,8 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc (interfaceFileName)
 import Aihc.Fc qualified as Fc
 import Aihc.Resolve (Exports, ModuleKey (..), Package (..), PackageId (..))
-import Aihc.Tc (MergeCheck (..), ModuleOrigin, TcInterface, mergeTcInterfaces)
+import Aihc.Tc (DataFamilyInstanceInfo (..), InstanceInfo (..), MergeCheck (..), ModuleOrigin, TcInterface, TypeFamilyInstanceInfo (..), mergeTcInterfaces, tcInterfaceDataFamilyInstances, tcInterfaceInstances, tcInterfaceTypeFamilyInstances)
+import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (evaluate)
 import Control.Monad (forM, unless)
@@ -124,12 +126,27 @@ data ModuleProvider = ModuleProvider
     providerReexports :: Map ModuleKey (PackageId, Text),
     -- | The instance facts of the given providers, merged as a unit merges
     -- the facts of the units below it.
-    providerInstanceFacts :: Set InstanceProvider -> IO TcInterface,
+    -- The second part is the modules that declare a fact of the first
+    -- part. The provider keeps the result for each set of providers.
+    providerInstanceFacts :: Set InstanceProvider -> IO (TcInterface, Set InstanceProvider),
     -- | Decode an optimizer interface with the given action one time for
     -- each path. The caller reads only a file that exists, so the cache
     -- never holds an interface that a running unit has not written yet.
     providerReadInterface :: FilePath -> IO Fc.Program -> IO Fc.Program
   }
+
+-- | The modules that declare an instance or a family instance of an
+-- interface.
+interfaceInstanceProviders :: TcInterface -> Set InstanceProvider
+interfaceInstanceProviders interface =
+  Set.fromList
+    ( map (first PackageId . iiDictOrigin) (tcInterfaceInstances interface)
+        <> map (tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
+        <> map tfiiOrigin (tcInterfaceTypeFamilyInstances interface)
+    )
+  where
+    first transform (left, right) = (transform left, right)
+    tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
 -- | The dependency packages that expose a module of the name.
 providerPackagesOf :: ModuleProvider -> Text -> [Package]
@@ -184,6 +201,7 @@ newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo
 -- The provider keeps no facts of a graph package. The graph keeps them.
 newModuleProvider :: (TcInterface -> Fc.FactIndex) -> ProviderCache -> PackageLocator -> [(Package, [Text], Map Text (Text, Text), PackageSource)] -> IO ModuleProvider
 newModuleProvider indexOf cache locator dependencies = do
+  instanceMemo <- newMemo
   let digestsMemo = cacheDigests cache
       moduleFacts interface = ModuleFacts interface (indexOf interface)
       factsMemo = cacheFacts cache
@@ -278,7 +296,8 @@ newModuleProvider indexOf cache locator dependencies = do
                     Map.insert origin (moduleFacts interface) $
                       Map.union (Map.fromList siblings) (Map.unions (map reachModules imports))
               evaluate (force (TypedModuleFacts interface (ModuleReach origin reach) (moduleTypeDigest digests) (moduleFactsDigest digests) providers True))
-      instanceFacts providers = do
+      -- Many units of a package see the same providers.
+      instanceFacts providers = instanceMemo providers $ do
         let byPackage = Map.fromListWith (<>) [(packageId', [name]) | (packageId', name) <- Set.toList providers]
         interfaces <- forM (Map.toList byPackage) $ \(packageId', names) -> do
           source <- locate packageId'
@@ -288,7 +307,8 @@ newModuleProvider indexOf cache locator dependencies = do
               digests <- packageDigests directory
               let paths = nub [moduleFactsArtifact entry | name <- names, Just entry <- [Map.lookup name (packageDigestsModules digests)]]
               forM paths $ \path -> typeArtifactInterface <$> factsArtifact (directory </> path)
-        pure (mergeTcInterfaces TrustMergedFacts (concat interfaces))
+        let merged = mergeTcInterfaces TrustMergedFacts (concat interfaces)
+        evaluate (force (merged, interfaceInstanceProviders merged))
   pure
     ModuleProvider
       { providerModules = modules,
