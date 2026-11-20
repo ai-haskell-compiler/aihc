@@ -468,7 +468,7 @@ data FunctionState = FunctionState
     stateOpenRev :: ![Text],
     -- | The phi entries of every block with parameters: for each edge, the
     -- edge block and the arguments.
-    stateEdges :: !(Map Label [(Text, [Operand])]),
+    stateEdges :: !(MonoidMap Label [(Text, [Operand])]),
     stateNextEdge :: !Int
   }
 
@@ -599,7 +599,7 @@ edgeTo parameters (Target label arguments)
       put
         state
           { stateNextEdge = stateNextEdge state + 1,
-            stateEdges = Map.insertWith (flip (<>)) label [(name, arguments)] (stateEdges state)
+            stateEdges = MonoidMap.adjust (<> [(name, arguments)]) label (stateEdges state)
           }
       pure ("%" <> name)
 
@@ -617,7 +617,7 @@ compileFunction ctx input = do
             stateNextTemp = 0,
             stateBlocksRev = [],
             stateOpenRev = [],
-            stateEdges = Map.empty,
+            stateEdges = MonoidMap.empty,
             stateNextEdge = 0
           }
       parameters = MonoidMap.fromMap (Map.fromList [(blockLabel block, blockParameters block) | block <- functionBlocks function])
@@ -629,7 +629,7 @@ compileFunction ctx input = do
       rendered =
         concat
           [ [blockName (blockLabel block) <> ":"]
-              <> [ "  " <> renderVar var <> " = phi " <> renderType ty <> " " <> T.intercalate ", " ["[" <> renderOperand ty (arguments !! index) <> ", %" <> edge <> "]" | (edge, arguments) <- Map.findWithDefault [] (blockLabel block) edges]
+              <> [ "  " <> renderVar var <> " = phi " <> renderType ty <> " " <> T.intercalate ", " ["[" <> renderOperand ty (arguments !! index) <> ", %" <> edge <> "]" | (edge, arguments) <- MonoidMap.get (blockLabel block) edges]
                  | (index, (var, ty)) <- zip [0 ..] (blockParameters block)
                  ]
               <> body
@@ -638,7 +638,7 @@ compileFunction ctx input = do
       edgeBlocks =
         concat
           [ [edge <> ":", "  br label %" <> blockName label]
-          | (label, targets) <- Map.toAscList edges,
+          | (label, targets) <- MonoidMap.toList edges,
             (edge, _) <- targets
           ]
       trapBlocks =
