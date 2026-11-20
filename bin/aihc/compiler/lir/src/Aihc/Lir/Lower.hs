@@ -1588,8 +1588,7 @@ tailCallCallers env program
   where
     functions = grinFunctions program
     occurrences =
-      MonoidMap.fromListWith
-        (<>)
+      MonoidMap.fromList
         ( [(name, 1 :: Sum Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
             <> [(name, 1) | global <- grinGlobals program, name <- grinNodeFunctionNames (grinGlobalNode global)]
         )
