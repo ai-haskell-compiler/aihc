@@ -592,7 +592,7 @@ renderCallShim signature index =
 -- the target sees one predecessor per edge.
 edgeTo :: MonoidMap Label [(Var, Type)] -> Target -> M Text
 edgeTo parameters (Target label arguments)
-  | null (MonoidMap.get label parameters) = pure ("%" <> blockName label)
+  | MonoidMap.nullKey label parameters = pure ("%" <> blockName label)
   | otherwise = do
       state <- get
       let name = quote ("e." <> tshow (stateNextEdge state))
