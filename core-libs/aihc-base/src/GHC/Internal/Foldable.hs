@@ -138,6 +138,19 @@ listFoldlEvaluated combine accumulator (value : values) =
   case combine accumulator value of
     !next -> listFoldlEvaluated combine next values
 
+-- | The largest element of a list, as GHC's @foldl1' max@. The class
+-- default is a lazy right fold, which builds a 'Just' and a thunk of 'max'
+-- for each element before it compares any of them.
+listMaximum :: (Ord a) => [a] -> a
+listMaximum [] = errorWithoutStackTrace "Prelude.maximum: empty list"
+listMaximum (value : values) = listFoldl' max value values
+
+-- | The smallest element of a list, as GHC's @foldl1' min@. See
+-- 'listMaximum'.
+listMinimum :: (Ord a) => [a] -> a
+listMinimum [] = errorWithoutStackTrace "Prelude.minimum: empty list"
+listMinimum (value : values) = listFoldl' min value values
+
 -- | The length of a list. The count is an unboxed accumulator, as in
 -- GHC's @lenAcc@, so the loop allocates nothing.
 listLength :: [a] -> Int
@@ -164,6 +177,10 @@ instance Foldable [] where
   foldl' f initial values = listFoldl' f initial values
 
   length values = listLength values
+
+  maximum values = listMaximum values
+
+  minimum values = listMinimum values
 
   null [] = True
   null (_ : _) = False

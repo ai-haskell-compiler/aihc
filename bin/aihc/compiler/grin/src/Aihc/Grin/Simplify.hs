@@ -253,6 +253,11 @@ simplifyExpr env expression =
     -- A match failure does not return, so nothing after it runs.
     GrinBind _ valueExpression _
       | isMatchFailure valueExpression -> (valueExpression, freeExprVars valueExpression)
+    -- A recursive group in the value of a bind goes before the bind. Its
+    -- names are unique, so the body cannot capture them, and the body then
+    -- sees the node that the value stores, as for a plain store.
+    GrinBind vars (GrinStoreRec bindings inner) body ->
+      simplifyExpr env (GrinStoreRec bindings (GrinBind vars inner body))
     GrinBind vars valueExpression body ->
       let (value', valueFree) = simplifyExpr env valueExpression
        in case unboxedCall env vars value' body of
