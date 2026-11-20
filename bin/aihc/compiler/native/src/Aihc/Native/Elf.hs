@@ -19,6 +19,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
@@ -51,10 +52,9 @@ writeImage image payloads = do
       -- The piece of a section role that holds an offset: the last one that
       -- starts at or before it.
       pieceStarts =
-        Map.fromListWith
-          Map.union
+        MonoidMap.fromList
           [(pieceRole piece, Map.singleton (pieceStart piece) index) | (index, piece) <- pieceIndexes]
-      pieceAt role offset = Map.lookupLE offset (Map.findWithDefault Map.empty role pieceStarts)
+      pieceAt role offset = Map.lookupLE offset (MonoidMap.get role pieceStarts)
       target relocation =
         let symbol = symbols ! relocationSymbol relocation
          in case symbolSection symbol of
@@ -189,14 +189,13 @@ splitSections image payloads =
     ]
   where
     starts =
-      Map.fromListWith
-        Set.union
+      MonoidMap.fromList
         [(role, Set.singleton (symbolOffset symbol)) | symbol <- imageSymbols image, Just role <- [symbolSection symbol]]
-    total = sum [Set.size offsets | offsets <- Map.elems starts]
+    total = sum [Set.size offsets | (_, offsets) <- MonoidMap.toList starts]
     stride = max 1 ((total + maximumPieces - 1) `div` maximumPieces)
     boundaries section =
       let size = imageSectionSize section
-          offsets = Set.toAscList (Set.insert 0 (Set.filter (< size) (Map.findWithDefault Set.empty (imageSectionRole section) starts)))
+          offsets = Set.toAscList (Set.insert 0 (Set.filter (< size) (MonoidMap.get (imageSectionRole section) starts)))
        in [offset | (index, offset) <- zip [0 :: Int ..] offsets, index `mod` stride == 0]
     slices bytes bounds =
       [ BL.take (fromIntegral (end - start)) (BL.drop (fromIntegral start) bytes)
