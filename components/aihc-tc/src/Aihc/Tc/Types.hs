@@ -32,6 +32,8 @@ module Aihc.Tc.Types
     typeApplicationKindsWith,
     argumentKindVariablesWith,
     familyEquationRightKindWith,
+    runtimeRepOfTypeWith,
+    isUnliftedTypeWith,
     TyCon (TyCon, tyConName, tyConArity),
     tyConKey,
     tyConPackageId,
@@ -1127,11 +1129,17 @@ argumentKindVariablesWith lookupKind argument =
         Nothing -> []
 
 runtimeRepOfTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Either String TcType
-runtimeRepOfTypeInEnv kinds kindEnv ty = typeKindInEnv kinds kindEnv ty >>= runtimeRepFromKind
+runtimeRepOfTypeInEnv kinds kindEnv = runtimeRepOfTypeWith kinds (`Map.lookup` kindEnv)
+
+runtimeRepOfTypeWith :: TcKinds -> KindLookup -> TcType -> Either String TcType
+runtimeRepOfTypeWith kinds lookupKind ty = typeKindWith kinds lookupKind ty >>= runtimeRepFromKind
 
 isUnliftedTypeInEnv :: TcKinds -> TcKindEnv -> TcType -> Bool
-isUnliftedTypeInEnv kinds kindEnv ty =
-  case runtimeRepOfTypeInEnv kinds kindEnv ty of
+isUnliftedTypeInEnv kinds kindEnv = isUnliftedTypeWith kinds (`Map.lookup` kindEnv)
+
+isUnliftedTypeWith :: TcKinds -> KindLookup -> TcType -> Bool
+isUnliftedTypeWith kinds lookupKind ty =
+  case runtimeRepOfTypeWith kinds lookupKind ty of
     Right representation -> not (matchesLiftedRuntimeRep representation)
     Left _ -> False
 

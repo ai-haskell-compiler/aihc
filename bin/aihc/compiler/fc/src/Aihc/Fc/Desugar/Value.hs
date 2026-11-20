@@ -6,6 +6,8 @@ module Aihc.Fc.Desugar.Value
   ( desugarValues,
     prepareValueInterface,
     PreparedValueInterface,
+    ValueFacts (..),
+    singleValueFacts,
   )
 where
 
@@ -44,6 +46,7 @@ import Aihc.Tc
     TyConFlavor (..),
     applySubstRep,
     defaultMethodName,
+    emptyTcInterface,
     patSynKey,
     repLeaves,
     tcInterfaceClasses,
@@ -98,9 +101,7 @@ import Aihc.Tc.Types
     int64Rep,
     int8Rep,
     intRep,
-    isUnliftedTypeInEnv,
     mkTyConWithOrigin,
-    runtimeRepOfTypeInEnv,
     setTyVarKind,
     tvKind,
     tvName,
@@ -128,7 +129,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Ratio (denominator, numerator)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -141,7 +142,11 @@ data ValueState = ValueState
   { vsNextUnique :: !Int,
     vsModuleOrigin :: !(PackageId, Text),
     vsConvertEnv :: !ConvertEnv,
+    -- | The checked types of the bindings of the module, and of the
+    -- bindings that 'withBindingTypes' adds.
     vsBindingTypes :: !(Map Entity TcType),
+    -- | The facts of the unit and of the imported modules.
+    vsFacts :: !ValueFacts,
     vsLocals :: !(Map Entity (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
     -- | The equalities that the dictionary scope gives, with the binder of
@@ -157,21 +162,6 @@ data ValueState = ValueState
     -- | The top-level values of 'vsModuleDictionaries', newest first.
     vsModuleDictionaryDeclsRev :: ![ValDecl],
     vsTypeEnv :: !TypeOf.TypeEnv,
-    vsConstructorInfos :: !(Map Text [DataConInfo]),
-    vsNewtypeConstructors :: !(Map Entity DataTypeInfo),
-    vsFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
-    vsPatSyns :: !(Map Entity PatSynInfo),
-    -- | The checked calling convention of each foreign import in scope.
-    vsForeignImports :: !(Map Entity TcForeignImportInfo),
-    -- | Data types for constructor tag operations, by type constructor identity.
-    vsTagDataTypes :: !(Map (PackageId, Text, Text) DataTypeInfo),
-    -- | The method names of each class in scope, in the order of the
-    -- fields of its dictionary. A dictionary match names its binders
-    -- after them.
-    vsClassMethods :: !(Map GlobalName [Text]),
-    -- | The superclass types of each class in scope, as the class declares
-    -- them. They tell which superclass fields are bare equality proofs.
-    vsClassSuperClasses :: !(Map GlobalName [TcType]),
     -- | A match argument that is in scope everywhere in the current match.
     -- A shared failure takes it as the parameter of its join point.
     vsJoinArgument :: !(Maybe (Binder, TcType)),
@@ -185,6 +175,11 @@ data PreparedValueInterface = PreparedValueInterface
   { preparedTypes :: !(Map Entity TcType),
     preparedConstructorInfos :: !(Map Text [DataConInfo]),
     preparedNewtypeConstructors :: !(Map Entity DataTypeInfo),
+    -- | The newtypes by the identity of their type constructor.
+    preparedNewtypeTyCons :: !(Map GlobalName DataTypeInfo),
+    -- | The newtypes by the package, the module, and the source name of
+    -- their type constructor, as the name of their axiom has them.
+    preparedNewtypeAxioms :: !(Map (PackageId, Text, Text) DataTypeInfo),
     preparedFamilyConstructors :: !(Map Entity DataFamilyInstanceInfo),
     preparedPatSyns :: !(Map Entity PatSynInfo),
     preparedForeignImports :: !(Map Entity TcForeignImportInfo),
@@ -195,6 +190,87 @@ data PreparedValueInterface = PreparedValueInterface
     -- | Declared superclass types by class type-constructor identity.
     preparedClassSuperClasses :: !(Map GlobalName [TcType])
   }
+
+-- | The prepared facts that a module can use, without a merge: those of
+-- its unit, those of each imported module by the module of their origin,
+-- and extra facts that the origin does not find.
+--
+-- A lookup reads the facts of the unit first, then the facts of the module
+-- that the key names, then the extra facts.
+data ValueFacts = ValueFacts
+  { valueFactsLocal :: PreparedValueInterface,
+    valueFactsModules :: Map (Text, PackageId) PreparedValueInterface,
+    valueFactsExtra :: PreparedValueInterface
+  }
+
+-- | The facts of one interface. Each lookup reads that interface.
+singleValueFacts :: PreparedValueInterface -> ValueFacts
+singleValueFacts prepared = ValueFacts prepared Map.empty (prepareValueInterface emptyTcInterface)
+
+factOf :: (Ord key) => (PreparedValueInterface -> Map key value) -> Maybe (PackageId, Text) -> key -> ValueFacts -> Maybe value
+factOf select origin key facts =
+  Map.lookup key (select (valueFactsLocal facts))
+    <|> (origin >>= \(package, moduleName') -> Map.lookup (moduleName', package) (valueFactsModules facts) >>= Map.lookup key . select)
+    <|> Map.lookup key (select (valueFactsExtra facts))
+
+entityOrigin :: Entity -> Maybe (PackageId, Text)
+entityOrigin key =
+  case key of
+    GlobalTerm package moduleName' _ -> Just (package, moduleName')
+    _ -> Nothing
+
+globalOrigin :: GlobalName -> Maybe (PackageId, Text)
+globalOrigin global = Just (Tc.globalNamePackage global, Tc.globalNameModule global)
+
+importedBindingType :: Entity -> ValueFacts -> Maybe TcType
+importedBindingType key = factOf preparedTypes (entityOrigin key) key
+
+newtypeConstructorOf :: Entity -> ValueFacts -> Maybe DataTypeInfo
+newtypeConstructorOf key = factOf preparedNewtypeConstructors (entityOrigin key) key
+
+newtypeOfTyCon :: TyCon -> ValueFacts -> Maybe DataTypeInfo
+newtypeOfTyCon tyCon = factOf preparedNewtypeTyCons (globalOrigin (Tc.tyConKey tyCon)) (Tc.tyConKey tyCon)
+
+newtypeOfAxiom :: PackageId -> Text -> Text -> ValueFacts -> Maybe DataTypeInfo
+newtypeOfAxiom package moduleName' name = factOf preparedNewtypeAxioms (Just (package, moduleName')) (package, moduleName', name)
+
+familyConstructorOf :: Entity -> ValueFacts -> Maybe DataFamilyInstanceInfo
+familyConstructorOf key = factOf preparedFamilyConstructors (entityOrigin key) key
+
+patSynOf :: Entity -> ValueFacts -> Maybe PatSynInfo
+patSynOf key = factOf preparedPatSyns (entityOrigin key) key
+
+foreignImportOf :: Entity -> ValueFacts -> Maybe TcForeignImportInfo
+foreignImportOf key = factOf preparedForeignImports (entityOrigin key) key
+
+tagDataTypeOf :: (PackageId, Text, Text) -> ValueFacts -> Maybe DataTypeInfo
+tagDataTypeOf key@(package, moduleName', _) = factOf preparedTagDataTypes (Just (package, moduleName')) key
+
+classMethodsOf :: GlobalName -> ValueFacts -> [Text]
+classMethodsOf key = fromMaybe [] . factOf preparedClassMethods (globalOrigin key) key
+
+classSuperClassesOf :: GlobalName -> ValueFacts -> [TcType]
+classSuperClassesOf key = fromMaybe [] . factOf preparedClassSuperClasses (globalOrigin key) key
+
+-- | The constructors with the given origin and name.
+constructorsAt :: (PackageId, Text) -> Text -> ValueFacts -> [DataConInfo]
+constructorsAt origin@(package, moduleName') name facts =
+  -- The table has the constructors of each origin with the name, so a
+  -- constructor of the unit with the same name must not stop the search.
+  List.nubBy
+    (\left right -> dciOrigin left == dciOrigin right)
+    ( concatMap
+        (filter ((== origin) . dciOrigin) . Map.findWithDefault [] name . preparedConstructorInfos)
+        (valueFactsLocal facts : maybeToList (Map.lookup (moduleName', package) (valueFactsModules facts)) <> [valueFactsExtra facts])
+    )
+
+-- | The constructors with the given name in each visible module. This
+-- reads the facts of each module, so use it only where no origin is known.
+constructorsNamed :: Text -> ValueFacts -> [DataConInfo]
+constructorsNamed name facts =
+  List.nubBy
+    (\left right -> dciOrigin left == dciOrigin right)
+    (concatMap (Map.findWithDefault [] name . preparedConstructorInfos) (valueFactsLocal facts : valueFactsExtra facts : Map.elems (valueFactsModules facts)))
 
 type ValueM = StateT ValueState (Either String)
 
@@ -283,6 +359,19 @@ prepareValueInterface interface =
     { preparedTypes = termTypes,
       preparedConstructorInfos = constructorInfos,
       preparedNewtypeConstructors = newtypes,
+      preparedNewtypeTyCons =
+        Map.fromList
+          [ (Tc.tyConKey (dtiTyCon dataType), dataType)
+          | dataType <- tcInterfaceDataTypes interface,
+            dtiFlavor dataType == NewtypeTyCon
+          ],
+      preparedNewtypeAxioms =
+        Map.fromList
+          [ ((tyConPackageId tyCon, tyConModuleName tyCon, dtiName dataType), dataType)
+          | dataType <- tcInterfaceDataTypes interface,
+            dtiFlavor dataType == NewtypeTyCon,
+            let tyCon = dtiTyCon dataType
+          ],
       preparedFamilyConstructors = familyConstructors,
       preparedPatSyns = Map.fromList [(patSynKey info, info) | info <- tcInterfacePatSyns interface],
       preparedForeignImports = Map.fromList (tcInterfaceForeignImports interface),
@@ -353,7 +442,7 @@ prepareValueInterface interface =
           let tyCon = dtiTyCon dataType
         ]
 
-desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
+desugarValues :: ConvertEnv -> TypeOf.TypeEnv -> [TcBindingResult] -> ValueFacts -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
   let -- Bindings carry the key they are registered under, so this indexes
       -- them without reattaching a module of its own.
@@ -367,7 +456,8 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
           { vsNextUnique = 1000,
             vsModuleOrigin = moduleOrigin,
             vsConvertEnv = convertEnv,
-            vsBindingTypes = Map.union localTypes (preparedTypes interface),
+            vsBindingTypes = localTypes,
+            vsFacts = interface,
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
             vsGivenEqualities = [],
@@ -375,14 +465,6 @@ desugarValues convertEnv typeEnv bindings interface moduleOrigin checked = do
             vsModuleDictionaries = Map.empty,
             vsModuleDictionaryDeclsRev = [],
             vsTypeEnv = typeEnv,
-            vsConstructorInfos = preparedConstructorInfos interface,
-            vsNewtypeConstructors = preparedNewtypeConstructors interface,
-            vsFamilyConstructors = preparedFamilyConstructors interface,
-            vsPatSyns = preparedPatSyns interface,
-            vsForeignImports = preparedForeignImports interface,
-            vsTagDataTypes = preparedTagDataTypes interface,
-            vsClassMethods = preparedClassMethods interface,
-            vsClassSuperClasses = preparedClassSuperClasses interface,
             vsJoinArgument = Nothing,
             vsMatchers = Set.empty
           }
@@ -482,9 +564,9 @@ desugarPatSynDecl declaration =
     Just (annotation, patSyn) -> do
       moduleOrigin <- gets vsModuleOrigin
       key <- requiredBinderKey (Syn.patSynDeclName patSyn)
-      patSyns <- gets vsPatSyns
+      facts <- gets vsFacts
       info <-
-        case Map.lookup key patSyns of
+        case patSynOf key facts of
           Just info -> pure info
           Nothing -> failValue ("pattern synonym does not have checked information: " <> T.unpack (Syn.unqualifiedNameText (Syn.patSynDeclName patSyn)))
       matcher <- desugarPatSynHelper moduleOrigin "$m" info [tcPatSynMatcher annotation]
@@ -536,11 +618,11 @@ patSynHelperKey (package, moduleName') prefix info = GlobalTerm package moduleNa
 -- annotation of the use.
 patternPatSyn :: Syn.Pattern -> ValueM (Maybe (PatSynInfo, TcAnnotation))
 patternPatSyn pattern' = do
-  patSyns <- gets vsPatSyns
+  facts <- gets vsFacts
   pure $ do
     name <- patternConstructorSourceName pattern'
     key <- nameTermKey name
-    info <- Map.lookup key patSyns
+    info <- patSynOf key facts
     annotation <- constructorPatternAnnotation pattern'
     pure (info, annotation)
 
@@ -709,12 +791,11 @@ desugarEarlyDecl declaration =
 desugarRecordSelectors :: [Syn.DataConDecl] -> ValueM [Decl]
 desugarRecordSelectors declarations = do
   moduleOrigin <- gets vsModuleOrigin
-  infos <- gets vsConstructorInfos
+  facts <- gets vsFacts
   let constructors =
         [ constructor
         | name <- concatMap recordConstructorNames declarations,
-          constructor <- Map.findWithDefault [] name infos,
-          dciOrigin constructor == moduleOrigin
+          constructor <- constructorsAt moduleOrigin name facts
         ]
       labels =
         List.nub
@@ -776,13 +857,12 @@ desugarRecordSelector constructors label selector = do
 
 desugarRecordSelection :: Text -> TcType -> TcType -> Binder -> [DataConInfo] -> ValueM Expr
 desugarRecordSelection label scrutineeType fieldType argument constructors = do
-  newtypes <- gets vsNewtypeConstructors
-  families <- gets vsFamilyConstructors
+  facts <- gets vsFacts
   let constructorKey constructor =
         let (package, moduleName') = dciOrigin constructor
          in GlobalTerm package moduleName' (dciName constructor)
-      newtypeInfos = [dataType | constructor <- constructors, Just dataType <- [Map.lookup (constructorKey constructor) newtypes]]
-      familyInfos = [info | constructor <- constructors, Just info <- [Map.lookup (constructorKey constructor) families]]
+      newtypeInfos = [dataType | constructor <- constructors, Just dataType <- [newtypeConstructorOf (constructorKey constructor) facts]]
+      familyInfos = [info | constructor <- constructors, Just info <- [familyConstructorOf (constructorKey constructor) facts]]
   case (newtypeInfos, familyInfos) of
     -- A data-family constructor matches the representation type: cast the
     -- record with the family axiom first, as a pattern on it does. A
@@ -1030,8 +1110,8 @@ foreignImportPlanDependencies ty plan = do
 
 foreignTypeNewtypeDependencies :: TcType -> ValueM [ForeignImportDependency]
 foreignTypeNewtypeDependencies ty = do
-  newtypes <- List.nub . Map.elems <$> gets vsNewtypeConstructors
-  pure (go newtypes ty)
+  facts <- gets vsFacts
+  pure (go facts ty)
   where
     go newtypes current =
       case current of
@@ -1040,7 +1120,7 @@ foreignTypeNewtypeDependencies ty = do
         TcArrowTy -> []
         TcTyLit {} -> []
         TcTyCon tyCon arguments ->
-          [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
+          [foreignNewtypeDependency dataType | Just dataType <- [newtypeOfTyCon tyCon newtypes], dtiTyCon dataType == tyCon]
             <> concatMap (go newtypes) arguments
         -- A bare constructor has no value to marshal.
         TcKindedTyCon {} -> []
@@ -1058,8 +1138,14 @@ foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeign
   where
     go _ [] = pure []
     go sourceType (constructorName : rest) = do
-      newtypes <- List.nub . Map.elems <$> gets vsNewtypeConstructors
-      constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
+      facts <- gets vsFacts
+      -- The source gives the constructor name and no origin, so this reads
+      -- the constructors of that name in each visible module.
+      let constructors = constructorsNamed constructorName facts
+          constructorKey constructor =
+            let (package, moduleName') = dciOrigin constructor
+             in GlobalTerm package moduleName' (dciName constructor)
+          newtypes = List.nub [dataType | constructor <- constructors, Just dataType <- [newtypeConstructorOf (constructorKey constructor) facts]]
       case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
         [(dataType, _, fieldType)] ->
           (foreignNewtypeDependency dataType :) <$> continue sourceType fieldType rest
@@ -2342,8 +2428,8 @@ onlyTailUses matchers name = go
 hasFixedRuntimeRep :: TcType -> ValueM Bool
 hasFixedRuntimeRep ty = do
   kinds <- valueKinds
-  kindEnv <- gets (ceKindEnv . vsConvertEnv)
-  pure $ case runtimeRepOfTypeInEnv kinds kindEnv ty of
+  kindEnv <- gets (ceKindLookup . vsConvertEnv)
+  pure $ case Tc.runtimeRepOfTypeWith kinds kindEnv ty of
     Right (TcTyVar _) -> False
     _ -> True
 
@@ -2814,7 +2900,7 @@ desugarScrutineePatterns resultType fallback scrutinee caseBinder root arguments
 
 firstFamilyPattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataFamilyInstanceInfo))
 firstFamilyPattern matches = do
-  families <- gets vsFamilyConstructors
+  facts <- gets vsFacts
   pure $ do
     pattern' <-
       listToMaybe
@@ -2825,7 +2911,7 @@ firstFamilyPattern matches = do
         ]
     name <- patternConstructorSourceName pattern'
     key <- nameTermKey name
-    info <- Map.lookup key families
+    info <- familyConstructorOf key facts
     pure (pattern', info)
 
 -- | A data-family pattern matches the representation type. Cast the
@@ -2864,7 +2950,7 @@ desugarFamilyPatterns resultType fallback argument remaining argumentTypes works
 
 firstNewtypePattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataTypeInfo))
 firstNewtypePattern matches = do
-  newtypes <- gets vsNewtypeConstructors
+  facts <- gets vsFacts
   pure $ do
     pattern' <-
       listToMaybe
@@ -2875,7 +2961,7 @@ firstNewtypePattern matches = do
         ]
     name <- patternConstructorSourceName pattern'
     key <- nameTermKey name
-    dataType <- Map.lookup key newtypes
+    dataType <- newtypeConstructorOf key facts
     pure (pattern', dataType)
 
 patternConstructorSourceName :: Syn.Pattern -> Maybe Syn.Name
@@ -2918,7 +3004,7 @@ newtypeFieldType dataType scrutineeType child = do
   let kindSubstitution =
         case scrutineeType of
           TcTyCon tyCon arguments ->
-            either (const Map.empty) Tc.tcInvisibleKindSubstitution (Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments Nothing)
+            either (const Map.empty) Tc.tcInvisibleKindSubstitution (Tc.typeApplicationKindsWith (ceKinds env) (ceKindLookup env) tyCon arguments Nothing)
           _ -> Map.empty
   case dtiConstructors dataType of
     [constructor]
@@ -3862,9 +3948,9 @@ patSynBuilderName :: Name -> ValueM Name
 patSynBuilderName variable =
   case nameOrigin variable of
     OriginTop package moduleName' -> do
-      patSyns <- gets vsPatSyns
+      facts <- gets vsFacts
       pure $
-        case Map.lookup (GlobalTerm package moduleName' (nameText variable)) patSyns of
+        case patSynOf (GlobalTerm package moduleName' (nameText variable)) facts of
           Just info -> variable {nameText = patSynHelperName "$b" info, nameSort = SortValue}
           Nothing -> variable
     _ -> pure variable
@@ -3877,8 +3963,8 @@ patSynBuilderVoidArgument :: Name -> ValueM (Maybe Expr)
 patSynBuilderVoidArgument variable =
   case nameOrigin variable of
     OriginTop package moduleName' -> do
-      patSyns <- gets vsPatSyns
-      case Map.lookup (GlobalTerm package moduleName' (nameText variable)) patSyns of
+      facts <- gets vsFacts
+      case patSynOf (GlobalTerm package moduleName' (nameText variable)) facts of
         Just info
           | psiArity info == 0 -> do
               builderType <- lookupBindingType (patSynHelperKey (psiOrigin info) "$b" info)
@@ -3973,8 +4059,8 @@ enumerationConstructors resultType =
   case typeApplicationHead resultType of
     TyCon name
       | OriginTop package moduleName' <- nameOrigin name -> do
-          tagDataTypes <- gets vsTagDataTypes
-          case Map.lookup (package, moduleName', nameText name) tagDataTypes of
+          facts <- gets vsFacts
+          case tagDataTypeOf (package, moduleName', nameText name) facts of
             Just dataType
               | all (null . dciFields) (dtiConstructors dataType) -> pure (dtiConstructors dataType)
             _ -> unsupported
@@ -4013,8 +4099,8 @@ desugarOrdinaryTermReference variable types evidence termArgumentTypes = do
         (package, moduleName') == (primitivePackage, "GHC.Prim") ->
           desugarPrimitiveCoerce variable (GlobalTerm package moduleName' (nameText variable)) types
       | otherwise -> do
-          foreignImports <- gets vsForeignImports
-          case Map.lookup (GlobalTerm package moduleName' (nameText variable)) foreignImports of
+          facts <- gets vsFacts
+          case foreignImportOf (GlobalTerm package moduleName' (nameText variable)) facts of
             Just info -> desugarForeignReference variable (GlobalTerm package moduleName' (nameText variable)) info types evidence
             Nothing -> pure ordinaryReference
     _ -> pure ordinaryReference
@@ -4099,8 +4185,8 @@ constructorInfoByName name =
 -- | The data constructor with one origin and name.
 constructorInfo :: PackageId -> Text -> Text -> ValueM (Maybe DataConInfo)
 constructorInfo package moduleName' name = do
-  infos <- gets vsConstructorInfos
-  pure (List.find (\info -> dciOrigin info == (package, moduleName')) (Map.findWithDefault [] name infos))
+  facts <- gets vsFacts
+  pure (listToMaybe (constructorsAt (package, moduleName') name facts))
 
 -- | Whether the field is one stored argument of the field type.
 repIsStored :: FieldRep -> Bool
@@ -4124,8 +4210,8 @@ repNeedsWrapper rep =
       | not strict -> pure False
       | otherwise -> do
           kinds <- valueKinds
-          kindEnv <- gets (ceKindEnv . vsConvertEnv)
-          pure (not (isUnliftedTypeInEnv kinds kindEnv ty))
+          kindEnv <- gets (ceKindLookup . vsConvertEnv)
+          pure (not (Tc.isUnliftedTypeWith kinds kindEnv ty))
 
 -- | Build a use of a data constructor that needs a wrapper. A data-family
 -- constructor builds the wrapper body at the use, because its result is
@@ -4151,14 +4237,14 @@ desugarUnpackConstructor name annotation info resultCast = do
 desugarConstructorWrappers :: ValueM [Decl]
 desugarConstructorWrappers = do
   moduleOrigin <- gets vsModuleOrigin
-  infos <- gets vsConstructorInfos
-  families <- gets vsFamilyConstructors
+  facts <- gets vsFacts
   let (package, moduleName') = moduleOrigin
+      -- The constructors of the module are facts of its unit.
       constructors =
         [ constructor
-        | constructor <- concat (Map.elems infos),
+        | constructor <- concat (Map.elems (preparedConstructorInfos (valueFactsLocal facts))),
           dciOrigin constructor == moduleOrigin,
-          Map.notMember (GlobalTerm package moduleName' (dciName constructor)) families
+          isNothing (familyConstructorOf (GlobalTerm package moduleName' (dciName constructor)) facts)
         ]
   wrapped <- filterM constructorNeedsWrapper constructors
   mapM desugarConstructorWrapper wrapped
@@ -4256,8 +4342,8 @@ forceLifted result source sourceType strict inner
   | not strict = inner
   | otherwise = do
       kinds <- valueKinds
-      kindEnv <- gets (ceKindEnv . vsConvertEnv)
-      if isUnliftedTypeInEnv kinds kindEnv sourceType
+      kindEnv <- gets (ceKindLookup . vsConvertEnv)
+      if Tc.isUnliftedTypeWith kinds kindEnv sourceType
         then inner
         else do
           evaluated <- freshBinder "_strict_forced" sourceType
@@ -4348,8 +4434,8 @@ newtypeFieldTypeOf tyCon arguments = do
 
 lookupNewtypeTyCon :: TyCon -> ValueM DataTypeInfo
 lookupNewtypeTyCon tyCon = do
-  newtypes <- gets vsNewtypeConstructors
-  case List.find (\dataType -> dtiTyCon dataType == tyCon) (Map.elems newtypes) of
+  facts <- gets vsFacts
+  case List.find (\dataType -> dtiTyCon dataType == tyCon) (newtypeOfTyCon tyCon facts) of
     Just dataType -> pure dataType
     Nothing -> failValue ("missing newtype " <> T.unpack (tyConName tyCon))
 
@@ -4613,13 +4699,13 @@ constructorByKey (package, moduleName', name) = do
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do
-  newtypes <- gets vsNewtypeConstructors
-  pure (nameTermKey name >>= (`Map.lookup` newtypes))
+  facts <- gets vsFacts
+  pure (nameTermKey name >>= (`newtypeConstructorOf` facts))
 
 familyConstructorData :: Syn.Name -> ValueM (Maybe DataFamilyInstanceInfo)
 familyConstructorData name = do
-  families <- gets vsFamilyConstructors
-  pure (nameTermKey name >>= (`Map.lookup` families))
+  facts <- gets vsFacts
+  pure (nameTermKey name >>= (`familyConstructorOf` facts))
 
 -- | A data-family constructor builds the representation type. The source
 -- program sees the family type. Cast the built value with the family axiom.
@@ -5273,8 +5359,8 @@ desugarTuple annotation flavor elements = do
 checkedRuntimeRep :: TcType -> ValueM Type
 checkedRuntimeRep ty = do
   kinds <- valueKinds
-  kindEnv <- gets (ceKindEnv . vsConvertEnv)
-  liftEither (runtimeRepOfTypeInEnv kinds kindEnv ty) >>= convertRuntimeRep
+  kindEnv <- gets (ceKindLookup . vsConvertEnv)
+  liftEither (Tc.runtimeRepOfTypeWith kinds kindEnv ty) >>= convertRuntimeRep
 
 desugarTupleElement :: TcType -> Maybe Syn.Expr -> ValueM (Expr, [Binder])
 desugarTupleElement _ (Just expression) = (,[]) <$> desugarExpr expression
@@ -5759,11 +5845,11 @@ doPatternFamily pattern' =
 
 doPatternNewtype :: Syn.Pattern -> ValueM (Maybe DataTypeInfo)
 doPatternNewtype pattern' = do
-  newtypes <- gets vsNewtypeConstructors
+  facts <- gets vsFacts
   pure $ do
     name <- patternConstructorSourceName pattern'
     key <- nameTermKey name
-    Map.lookup key newtypes
+    newtypeConstructorOf key facts
 
 desugarDoNewtypePattern :: TcType -> Binder -> Syn.Pattern -> DataTypeInfo -> ValueM Expr -> Maybe Expr -> ValueM Expr
 desugarDoNewtypePattern resultType binder pattern' dataType success failure = do
@@ -5920,13 +6006,13 @@ desugarLocalDecls declarations bodyType body = do
         LocalStrictBinds binds -> pure (foldr ExLet innerExpression binds)
     allocationHasUnliftedBinder allocation = do
       kinds <- valueKinds
-      kindEnv <- gets (ceKindEnv . vsConvertEnv)
+      kindEnv <- gets (ceKindLookup . vsConvertEnv)
       let types =
             case allocation of
               LocalNamedAllocation _ _ ty _ _ -> [ty]
               LocalPatternAllocation _ _ _ rhsType binders _ -> rhsType : [ty | (_, _, ty) <- binders]
               LocalImplicitParamAllocation _ _ _ ty -> [ty]
-      pure (any (isUnliftedTypeInEnv kinds kindEnv) types)
+      pure (any (Tc.isUnliftedTypeWith kinds kindEnv) types)
     allocateLocal (LocalNamedGroup group) = do
       let key = groupKey group
           name = groupName group
@@ -6183,12 +6269,11 @@ desugarEvidence evidence =
     Ev.EvHasField classTyCon classArguments recordType fieldType label constructorKeys -> withoutEvidenceScope $ do
       -- The dictionary of the one-method class holds a function that
       -- selects the field from the record.
-      infos <- gets vsConstructorInfos
+      facts <- gets vsFacts
       let constructors =
             [ constructor
             | (package, moduleName', name) <- constructorKeys,
-              constructor <- Map.findWithDefault [] name infos,
-              dciOrigin constructor == (PackageId package, moduleName')
+              constructor <- constructorsAt (PackageId package, moduleName') name facts
             ]
       argument <- freshBinder "$record" recordType
       selection <- desugarRecordSelection label recordType fieldType argument constructors
@@ -6252,7 +6337,7 @@ superClassResultType sourcePredicate fieldTypes fieldIndex = do
 -- class @~@, and not the proof itself.
 dictionaryFieldTypes :: TyCon -> [TcType] -> ValueM [Type]
 dictionaryFieldTypes classTyCon fieldTypes = do
-  declared <- gets (Map.findWithDefault [] (Tc.tyConKey classTyCon) . vsClassSuperClasses)
+  declared <- gets (classSuperClassesOf (Tc.tyConKey classTyCon) . vsFacts)
   env <- gets vsConvertEnv
   let isEquality ty =
         case Tc.collectTypeApplications ty of
@@ -6766,7 +6851,7 @@ coercionKind coercion = do
   pure $ do
     side <- coercionSideType coercion
     kind <- either (const Nothing) Just (typeKindInEnv env side)
-    let open = Tc.argumentKindVariables (ceKindEnv env) side
+    let open = Tc.argumentKindVariablesWith (ceKindLookup env) side
     if any (`elem` open) (typeVariableUniques kind) then Nothing else Just kind
 
 convertCoercionAtKind :: Maybe TcType -> Ev.Coercion -> ValueM (Coercion, [Bind])
@@ -6838,18 +6923,19 @@ convertCoercionAtKind expectedKind coercion =
       pure (proof, concatMap snd kindConverted <> concatMap snd converted)
     Ev.AxiomInstCo key arguments -> do
       let name = lookupAxiomName key
-      newtypes <- gets vsNewtypeConstructors
-      let matches info =
-            let tyCon = dtiTyCon info
-             in name == Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      converted <- case filter matches (Map.elems newtypes) of
-        info : _ -> do
+      facts <- gets vsFacts
+      let axiomNewtype =
+            case (name, T.stripPrefix "$ax$" (nameText name)) of
+              (Name _ SortAxiom (OriginTop package moduleName'), Just typeName) -> newtypeOfAxiom package moduleName' typeName facts
+              _ -> Nothing
+      converted <- case axiomNewtype of
+        Just info -> do
           env <- gets vsConvertEnv
           kindVariables <- liftEither (extraKindVars env (dtiTyCon info) (dtiTyVars info))
           let variables = kindVariables <> dtiTyVars info
               result = TcTyCon (dtiTyCon info) (map TcTyVar (dtiTyVars info))
           convertCheckedTypeArguments (foldr TcForAllTy result variables) arguments
-        [] -> mapM convertCheckedType arguments
+        Nothing -> mapM convertCheckedType arguments
       pure (CoAxiom name converted, [])
   where
     part constructor proof = do
@@ -6976,7 +7062,7 @@ evidenceBinderText ty =
 -- method name in the name of an instance method, such as @$fOrdInt$ccompare@.
 freshDictionaryFields :: TyCon -> [TcType] -> ValueM [Binder]
 freshDictionaryFields classTyCon fieldTypes = do
-  methods <- gets (Map.findWithDefault [] (Tc.tyConKey classTyCon) . vsClassMethods)
+  methods <- gets (classMethodsOf (Tc.tyConKey classTyCon) . vsFacts)
   let superClassCount = length fieldTypes - length methods
       methodNames
         | superClassCount >= 0 = replicate superClassCount Nothing <> map Just methods
@@ -7078,7 +7164,8 @@ lookupBindingType key = do
     Just (_, ty) -> pure ty
     Nothing -> do
       types <- gets vsBindingTypes
-      case Map.lookup key types of
+      facts <- gets vsFacts
+      case Map.lookup key types <|> importedBindingType key facts of
         Just ty -> pure ty
         Nothing -> failValue ("missing checked type for " <> show key)
 
@@ -7088,7 +7175,8 @@ lookupNamedBindingType name = do
   key <- requiredNameTermKey name
   local <- Map.lookup key <$> gets vsLocals
   types <- gets vsBindingTypes
-  case (snd <$> local) <|> Map.lookup key types of
+  facts <- gets vsFacts
+  case (snd <$> local) <|> Map.lookup key types <|> importedBindingType key facts of
     Just ty -> pure ty
     Nothing -> failValue ("missing checked type for " <> T.unpack (Syn.nameText name) <> " (" <> show key <> ")")
 

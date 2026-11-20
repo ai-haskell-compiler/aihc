@@ -55,6 +55,10 @@ module Aihc.Fc
     runPasses,
     programSize,
     desugarModuleFc,
+    desugarModuleFcWith,
+    DesugarFacts (..),
+    FactIndex,
+    factIndex,
     resolvedModuleOrigin,
     DesugarConfig (..),
     moduleDesugarConfig,
@@ -72,7 +76,7 @@ import Aihc.Fc.Arity (EtaReport (..), etaExpandProgram)
 import Aihc.Fc.Binary (decodeProgram, encodeProgram, interfaceFileName, programFileName, readProgramFile, writeProgramFile)
 import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Demand (DemandReport (..), DemandRewrites (..), demandProgram)
-import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, moduleDesugarConfig, resolvedModuleOrigin)
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarFacts (..), FactIndex, FcDesugarResult (..), allPublicDesugarConfig, desugarModuleFc, desugarModuleFcWith, factIndex, moduleDesugarConfig, resolvedModuleOrigin)
 import Aihc.Fc.Inline (InlineConfig (..), InlinePolicy (..), InlineReport (..), growPolicy, inlineProgram, shrinkPolicy)
 import Aihc.Fc.Interface (Grafted (..), InterfaceIndex, InterfacePolicy (..), defaultInterfacePolicy, exposeInterfaceHelpers, graftIndexed, graftInterfaces, interfaceIndex, moduleInterface, stripInterfaces)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)

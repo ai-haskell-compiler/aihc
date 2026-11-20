@@ -12,6 +12,9 @@ module Aihc.Fc.Convert
     withKindEnv,
     withGivenKindEqualities,
     withClassTyCons,
+    withClassTyConTest,
+    withSynonymTyConTest,
+    withKindLookup,
     convertNestedType,
     convertNestedTypeWithExpectedKind,
     withSynonymTyCons,
@@ -90,6 +93,7 @@ import Aihc.Tc.Types
     pattern WordRep,
   )
 import Aihc.Tc.Types qualified as Tc
+import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Data.Either (fromRight)
 import Data.Map.Strict (Map)
@@ -111,11 +115,14 @@ data ConvertEnv = ConvertEnv
     -- kind argument. The equation binds each of these variables that its
     -- types use, as GHC does.
     ceUnresolvedKindVars :: Map Unique TyVarId,
-    ceKindEnv :: TcKindEnv,
-    ceClassTyCons :: Set GlobalName,
+    -- | The kind scheme of a type constructor, by its identity.
+    ceKindLookup :: Tc.KindLookup,
+    -- | Whether a type constructor is a class.
+    ceIsClassTyCon :: GlobalName -> Bool,
     -- | The type synonyms. A reference to one is a synonym name, which the
     -- lint unfolds, and not a type constructor name.
-    ceSynonymTyCons :: Set GlobalName,
+    -- | Whether a type constructor is a type synonym.
+    ceIsSynonymTyCon :: GlobalName -> Bool,
     -- | The visible top-level names of the module, as
     -- 'Aihc.Resolve.exportedLocalNames' gives them. 'Nothing' comes from a
     -- caller that knows of no export list, and keeps every name public.
@@ -134,20 +141,28 @@ emptyConvertEnv kinds package =
       ceKinds = kinds,
       ceTyVars = Map.empty,
       ceUnresolvedKindVars = Map.empty,
-      ceKindEnv = Map.empty,
-      ceClassTyCons = Set.empty,
-      ceSynonymTyCons = Set.empty,
+      ceKindLookup = const Nothing,
+      ceIsClassTyCon = const False,
+      ceIsSynonymTyCon = const False,
       ceExportedNames = Nothing,
       ceGivenKinds = Map.empty
     }
 
 withClassTyCons :: [GlobalName] -> ConvertEnv -> ConvertEnv
-withClassTyCons keys env =
-  env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
+withClassTyCons keys = withClassTyConTest (`Set.member` Set.fromList keys)
+
+-- | Add a test for the type constructors that are classes.
+withClassTyConTest :: (GlobalName -> Bool) -> ConvertEnv -> ConvertEnv
+withClassTyConTest test env =
+  env {ceIsClassTyCon = \key -> test key || ceIsClassTyCon env key}
 
 withSynonymTyCons :: [GlobalName] -> ConvertEnv -> ConvertEnv
-withSynonymTyCons keys env =
-  env {ceSynonymTyCons = Set.fromList keys <> ceSynonymTyCons env}
+withSynonymTyCons keys = withSynonymTyConTest (`Set.member` Set.fromList keys)
+
+-- | Add a test for the type constructors that are type synonyms.
+withSynonymTyConTest :: (GlobalName -> Bool) -> ConvertEnv -> ConvertEnv
+withSynonymTyConTest test env =
+  env {ceIsSynonymTyCon = \key -> test key || ceIsSynonymTyCon env key}
 
 withExportedNames :: Maybe (Set (ResolutionNamespace, Text)) -> ConvertEnv -> ConvertEnv
 withExportedNames names env = env {ceExportedNames = names}
@@ -209,7 +224,7 @@ withUnresolvedKindVars types env =
         TcQualTy _ body -> typeConstructorKindVars body
         _ -> Map.empty
     schemeVars tyCon =
-      case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
+      case ceKindLookup env (tyConKey tyCon) of
         Just (ForAll variables _ _) -> Map.fromList [(tvUnique tyVar, tyVar) | tyVar <- variables]
         Nothing -> Map.empty
 
@@ -247,7 +262,13 @@ freeTypeVariables ty =
     TyLit _ _ -> Set.empty
 
 withKindEnv :: TcKindEnv -> ConvertEnv -> ConvertEnv
-withKindEnv kindEnv env = env {ceKindEnv = kindEnv <> ceKindEnv env}
+withKindEnv kindEnv = withKindLookup (`Map.lookup` kindEnv)
+
+-- | Add a lookup for the kind scheme of a type constructor. The new
+-- lookup has priority.
+withKindLookup :: Tc.KindLookup -> ConvertEnv -> ConvertEnv
+withKindLookup lookupKind env =
+  env {ceKindLookup = \key -> lookupKind key <|> ceKindLookup env key}
 
 convertKind :: ConvertEnv -> TcType -> Either String Type
 convertKind env kind =
@@ -510,7 +531,7 @@ refineGivenKind env = go (Map.size (ceGivenKinds env))
     go _ kind = kind
 
 typeKindInEnv :: ConvertEnv -> TcType -> Either String TcType
-typeKindInEnv env = Tc.typeKindInEnv (ceKinds env) (ceKindEnv env)
+typeKindInEnv env = Tc.typeKindWith (ceKinds env) (ceKindLookup env)
 
 -- | The evidence arrows of a qualified type.
 --
@@ -548,7 +569,7 @@ tyVarType tyVar = TyVar (tyVarName tyVar)
 
 tyConNameFc :: ConvertEnv -> TyCon -> Name
 tyConNameFc env tyCon
-  | Set.member (tyConKey tyCon) (ceClassTyCons env) = classDictTypeName tyCon
+  | ceIsClassTyCon env (tyConKey tyCon) = classDictTypeName tyCon
   | otherwise =
       Name
         (tyConName tyCon)
@@ -556,7 +577,7 @@ tyConNameFc env tyCon
         (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
   where
     sort
-      | Set.member (tyConKey tyCon) (ceSynonymTyCons env) = SortSynonym
+      | ceIsSynonymTyCon env (tyConKey tyCon) = SortSynonym
       | otherwise = namespaceSort (tyConNamespace tyCon)
     namespaceSort ResolutionNamespaceTerm = SortDataConstructor
     namespaceSort ResolutionNamespaceType = SortTypeConstructor
@@ -590,7 +611,7 @@ kindVarToType env tyCon arguments expectedKind tyVar =
     Just found
       | tvName found == tvName tyVar -> Right (tyVarType found)
     _ -> do
-      checkedKinds <- Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
+      checkedKinds <- Tc.typeApplicationKindsWith (ceKinds env) (ceKindLookup env) tyCon arguments expectedKind
       let substitution = Tc.tcInvisibleKindSubstitution checkedKinds
       case Map.lookup (tvUnique tyVar) substitution of
         Just argument -> convertKindArgument env argument
@@ -635,10 +656,10 @@ convertKindArgument env argument =
 
 visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
 visibleArgumentKinds env tyCon arguments expectedKind =
-  Tc.tcVisibleArgumentKinds <$> Tc.typeApplicationKinds (ceKinds env) (ceKindEnv env) tyCon arguments expectedKind
+  Tc.tcVisibleArgumentKinds <$> Tc.typeApplicationKindsWith (ceKinds env) (ceKindLookup env) tyCon arguments expectedKind
 
 kindScheme :: ConvertEnv -> TyCon -> Either String TypeScheme
 kindScheme env tyCon =
-  case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
+  case ceKindLookup env (tyConKey tyCon) of
     Just scheme -> Right scheme
     Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))

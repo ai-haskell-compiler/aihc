@@ -13,6 +13,7 @@ module Aihc.Cli.ModuleProvider
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
     ModuleReach (..),
+    ModuleFacts (..),
     newModuleProvider,
     newProviderCache,
     providerPackagesOf,
@@ -101,7 +102,15 @@ data TypedModuleFacts = TypedModuleFacts
 -- interface for each module, and all consumers share that interface.
 data ModuleReach = ModuleReach
   { reachOrigin :: !ModuleOrigin,
-    reachModules :: !(Map ModuleOrigin TcInterface)
+    reachModules :: !(Map ModuleOrigin ModuleFacts)
+  }
+
+-- | The facts that a module declares, and the tables that the desugarer
+-- reads from them. The tables are lazy: the first unit that desugars a
+-- reference to the module makes them, and each later unit shares them.
+data ModuleFacts = ModuleFacts
+  { moduleFactsInterface :: !TcInterface,
+    moduleFactsIndex :: Fc.FactIndex
   }
 
 -- | The modules of the dependency packages, by name, and their facts on
@@ -173,9 +182,10 @@ newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo
 -- package below them.
 --
 -- The provider keeps no facts of a graph package. The graph keeps them.
-newModuleProvider :: ProviderCache -> PackageLocator -> [(Package, [Text], Map Text (Text, Text), PackageSource)] -> IO ModuleProvider
-newModuleProvider cache locator dependencies = do
+newModuleProvider :: (TcInterface -> Fc.FactIndex) -> ProviderCache -> PackageLocator -> [(Package, [Text], Map Text (Text, Text), PackageSource)] -> IO ModuleProvider
+newModuleProvider indexOf cache locator dependencies = do
   let digestsMemo = cacheDigests cache
+      moduleFacts interface = ModuleFacts interface (indexOf interface)
       factsMemo = cacheFacts cache
       sources =
         Map.fromList
@@ -257,7 +267,7 @@ newModuleProvider cache locator dependencies = do
               -- The modules of one module group import each other, so
               -- the reach takes their facts and not their reach.
               siblings <- forM (typeArtifactSiblings artifact) $ \sibling ->
-                (,) (sibling, identity) . typeArtifactInterface <$> moduleArtifact directory sibling
+                (,) (sibling, identity) . moduleFacts . typeArtifactInterface <$> moduleArtifact directory sibling
               imports <- forM (typeArtifactImports artifact) $ \(importIdentity, importName) -> do
                 importSource <- locate importIdentity
                 typedModuleReach <$> typedAt importIdentity importSource importName
@@ -265,7 +275,7 @@ newModuleProvider cache locator dependencies = do
                   interface = typeArtifactInterface artifact
                   origin = (name, identity)
                   reach =
-                    Map.insert origin interface $
+                    Map.insert origin (moduleFacts interface) $
                       Map.union (Map.fromList siblings) (Map.unions (map reachModules imports))
               evaluate (force (TypedModuleFacts interface (ModuleReach origin reach) (moduleTypeDigest digests) (moduleFactsDigest digests) providers True))
       instanceFacts providers = do
