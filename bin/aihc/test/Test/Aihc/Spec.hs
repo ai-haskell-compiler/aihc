@@ -592,19 +592,19 @@ testInstallFixture getPrimStore getCoreStore root name = do
               -- The artifact of a module holds the facts that the module
               -- declares. A consumer also gets the facts of each module
               -- below it, so the test reads those artifacts too.
-              let reachableTyCons seen directory
-                    | directory `elem` seen = pure (seen, [])
+              let reachableTyCons seen artifactDirectory
+                    | artifactDirectory `elem` seen = pure (seen, [])
                     | otherwise = do
-                        let path = installStorePath result </> directory </> "type.cbor"
+                        let path = installStorePath result </> artifactDirectory </> "type.cbor"
                         present <- doesFileExist path
                         if not present
-                          then pure (directory : seen, [])
+                          then pure (artifactDirectory : seen, [])
                           else do
                             bytes <- BL.readFile path
                             artifact <- either (assertFailure . ((name <> ": invalid type artifact: ") <>)) pure (decodeTypeArtifact bytes)
                             let own = map (T.unpack . tyConName . tciTyCon) (tcInterfaceTyCons (typeArtifactInterface artifact))
                                 below = map (T.unpack . T.replace "." "/") (map snd (typeArtifactImports artifact) <> typeArtifactSiblings artifact)
-                            foldM (\(seen', found) next -> fmap (found <>) <$> reachableTyCons seen' next) (directory : seen, own) below
+                            foldM (\(seen', found) next -> fmap (found <>) <$> reachableTyCons seen' next) (artifactDirectory : seen, own) below
               (_, actual) <- reachableTyCons [] moduleName
               forM_ expected $ \constructor ->
                 assertBool (name <> ": missing type constructor " <> constructor <> " in " <> moduleName) (constructor `elem` actual)
