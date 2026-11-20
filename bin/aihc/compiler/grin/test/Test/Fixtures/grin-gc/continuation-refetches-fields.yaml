@@ -1,0 +1,39 @@
+program: |
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pick (record :: BoxedRep Lifted) (value :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (first :: BoxedRep Lifted), (second :: BoxedRep Lifted), (third :: BoxedRep Lifted) <- fetch (CTriple) (record :: BoxedRep Lifted)
+    (ready :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+    (inner :: BoxedRep Lifted) <- store (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+    store (CPair (inner :: BoxedRep Lifted) (third :: BoxedRep Lifted))
+expected: |
+  constructor Triple [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted]
+
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pick (record :: BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    first :: BoxedRep Lifted, second :: BoxedRep Lifted, third :: BoxedRep Lifted <-
+      fetch (CTriple) (record :: BoxedRep Lifted)
+    if-whnf (value :: BoxedRep Lifted)
+      call @(TupleRep []) pick_cont (record :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+    else
+      $cps_continuation :: BoxedRep Lifted <-
+        store-unchecked (Ppick_cont_frame/1 ($cps_return :: BoxedRep Lifted) (record :: BoxedRep Lifted))
+      cps-eval @(BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+
+  pick_cont (record :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, record$gc :: BoxedRep Lifted <-
+      ensure-heap (6 :: WordRep) ($cps_return :: BoxedRep Lifted) (record :: BoxedRep Lifted)
+    first :: BoxedRep Lifted, second :: BoxedRep Lifted, third :: BoxedRep Lifted <-
+      fetch (CTriple) (record$gc :: BoxedRep Lifted)
+    inner :: BoxedRep Lifted <-
+      store-unchecked (CPair (first :: BoxedRep Lifted) (second :: BoxedRep Lifted))
+    $cps_result :: BoxedRep Lifted <-
+      store-unchecked (CPair (inner :: BoxedRep Lifted) (third :: BoxedRep Lifted))
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Lifted)
+
+  pick_cont_frame ($cps_return :: BoxedRep Lifted) (record :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(TupleRep []) pick_cont (record :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (ready :: BoxedRep Lifted)
+status: pass
+reason: The continuation of the evaluation needs three fields of the record. It captures the record and fetches the fields again, so its frame holds one word in place of three.

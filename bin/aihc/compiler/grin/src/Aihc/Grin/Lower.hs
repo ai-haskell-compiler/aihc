@@ -121,7 +121,10 @@ data LowerState = LowerState
     lowerExternFunctions :: !(Map FunctionName GrinExternFunction),
     -- | The top-level values of the module whose global is a static node
     -- in weak-head normal form. See 'valueGlobalNames'.
-    lowerValueGlobalNames :: !(Set Fc.Name)
+    lowerValueGlobalNames :: !(Set Fc.Name),
+    -- | The environment constructors of the closures that keep their
+    -- captured values in a separate node. See 'makeClosure'.
+    lowerEnvironmentConstructorsRev :: ![GrinConstructorDecl]
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -157,7 +160,7 @@ lowerProgram primPackage program = do
           ]
       baseEnv = typeEnv {lowerPublicEntries = publicEntries}
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
-      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty Set.empty
+      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty Set.empty []
   (parts, finalState) <- flip runStateT initialState $ do
     -- The public entries take their names first: another unit spells the
     -- same names, so no other function of the module can have one.
@@ -169,7 +172,7 @@ lowerProgram primPackage program = do
     mconcat <$> mapM (lowerDecl env) (Fc.programDecls program)
   finishGrinProgram
     GrinProgram
-      { grinConstructors = topConstructors parts,
+      { grinConstructors = topConstructors parts <> reverse (lowerEnvironmentConstructorsRev finalState),
         grinPrimitives = Map.elems (lowerPrimitives finalState),
         grinForeignCalls = Map.elems (lowerForeignCalls finalState),
         grinGlobals =
@@ -317,8 +320,8 @@ lowerValueDecl env declaration = do
       -- function of the value, and 'lazyNode' the body of its thunk.
       node <-
         case Map.lookup (Fc.valName declaration) (lowerLocalFunctions env) of
-          Just function -> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
-          Nothing -> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
+          Just function -> snd <$> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
+          Nothing -> snd <$> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       case Map.lookup (Fc.valName declaration) (lowerPublicEntries env) of
         Just entry
           | (localFunctionEntry <$> Map.lookup (Fc.valName declaration) (lowerLocalFunctions env)) /= Just (publicEntryName entry) ->
@@ -959,7 +962,9 @@ lowerExpr env expression =
     Fc.ExApp function argument -> lowerApplication env function argument
     Fc.ExTyApp (Fc.ExTyLam binder body) argument -> lowerExpr (substituteTypeBinder env binder argument) body
     Fc.ExTyApp function _ -> lowerExpr env function
-    Fc.ExLam {} -> GrinStore <$> makeClosure env Nothing expression
+    Fc.ExLam {} -> do
+      (environments, node) <- makeClosure env Nothing expression
+      pure (storeEnvironments environments (GrinStore node))
     Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
     Fc.ExLet binding body -> lowerLet env binding body
     Fc.ExRec bindings body -> lowerRec env bindings body
@@ -1572,7 +1577,9 @@ lowerLazy env0 hint expression0 continuation = do
               _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
         | hasValueGlobal env name ->
             valueGlobalName env name >>= continuation . GrinGlobalValue
-      Fc.ExLam {} -> makeClosure env Nothing expression >>= storeNode
+      Fc.ExLam {} -> do
+        (environments, node) <- makeClosure env Nothing expression
+        storeEnvironments environments <$> storeNode node
       -- The bindings float out only when the body has a lazy form without
       -- code. If the body is suspended, the bindings go into the thunk too.
       -- Then nothing is allocated before the thunk is forced, and a
@@ -1664,7 +1671,7 @@ unliftedCoercionSource env expression =
 -- | The node that stands for a lifted expression where no pointer can be
 -- bound before it: a recursive binding or a global. The node is direct only
 -- when every field is already a value; anything else is suspended.
-lazyNode :: LowerEnv -> Text -> Fc.Expr -> LowerM GrinNode
+lazyNode :: LowerEnv -> Text -> Fc.Expr -> LowerM ([(GrinVar, GrinNode)], GrinNode)
 lazyNode env0 hint expression0 =
   case expression of
     Fc.ExLam {} -> makeClosure env Nothing expression
@@ -1674,9 +1681,9 @@ lazyNode env0 hint expression0 =
         Just (tag, operands) -> do
           classified <- mapM (classifyOperand env) operands
           case traverse (settledOperand =<<) classified of
-            Just values -> pure (GrinNode tag (concat values))
-            Nothing -> makeThunk env hint expression
-        Nothing -> makeThunk env hint expression
+            Just values -> pure ([], GrinNode tag (concat values))
+            Nothing -> (,) [] <$> makeThunk env hint expression
+        Nothing -> (,) [] <$> makeThunk env hint expression
   where
     (env, expression) = stripLazyWrappers env0 expression0
 
@@ -1921,10 +1928,13 @@ lowerRecBindings env bindings continuation = do
       -- whose node is a value.
       functions = concat [vars | (binding, vars) <- zip bindings variables, isFunctionBinding (Fc.bindRhs binding)]
       recursiveEnv = boundEnv {lowerValueVars = foldr Set.insert (lowerValueVars boundEnv) functions}
-  nodes <- mapM (makeBindingNode recursiveEnv) bindings
-  let values = [variable | (variable, node) <- zip (concat variables) nodes, isValueNodeTag (grinNodeTag node)]
+  made <- mapM (makeBindingNode recursiveEnv) bindings
+  let nodes = map snd made
+      values = [variable | (variable, node) <- zip (concat variables) nodes, isValueNodeTag (grinNodeTag node)]
   loweredBody <- continuation recursiveEnv {lowerValueVars = foldr Set.insert (lowerValueVars recursiveEnv) values}
-  pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
+  -- An environment node can name a binding of the group, and a binding
+  -- names its environment, so they are in one group.
+  pure (GrinStoreRec (concatMap fst made <> zip (concat variables) nodes) loweredBody)
   where
     isFunctionBinding rhs =
       case stripValueWrappers rhs of
@@ -2227,20 +2237,59 @@ closureShape env expression = do
 
 -- | Emit the entry function of a lambda expression, under the given name when
 -- 'localFunctionTable' has already assigned one, and build its closure node.
-makeClosure :: LowerEnv -> Maybe FunctionName -> Fc.Expr -> LowerM GrinNode
+--
+-- A closure stores its captured values, and its entry takes them as its
+-- first parameters. Each call then gives every captured value, and each
+-- continuation in the entry keeps every captured value that it needs.
+-- A closure with many captured values keeps them in a separate
+-- environment node instead. The closure stores only the pointer to that
+-- node, and the entry takes the pointer and fetches the values from it.
+-- Lowering makes each call of such an entry from an @apply@ of the
+-- closure, so no caller gives the values themselves. The result has the
+-- environment nodes that the closure node needs, with their pointers.
+makeClosure :: LowerEnv -> Maybe FunctionName -> Fc.Expr -> LowerM ([(GrinVar, GrinNode)], GrinNode)
 makeClosure env entry expression = do
   let captures = capturedVariables env expression
   functionName <- maybe (freshFunction "closure") pure entry
   shape <- closureShape env expression
   loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
-  emitFunction
-    GrinFunction
-      { grinFunctionName = functionName,
-        grinFunctionParameters = captures <> concat (closureParameters shape),
-        grinFunctionResultRep = closureResultRep shape,
-        grinFunctionBody = loweredBody
-      }
-  pure (GrinNode (GrinClosure functionName (closureLayouts shape)) (map GrinVarValue captures))
+  if isNothing entry && length captures >= closureEnvironmentThreshold
+    then do
+      let environmentName = unFunctionName functionName <> "$env"
+          environmentTag = GrinConstructor environmentName 0
+      parameter <- freshVar "env" liftedGrinRep
+      pointer <- freshVar "env" liftedGrinRep
+      modify' (\state -> state {lowerEnvironmentConstructorsRev = GrinConstructorDecl environmentName [[grinVarRuntimeRep capture] | capture <- captures] 0 GrinPrivate : lowerEnvironmentConstructorsRev state})
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionParameters = parameter : concat (closureParameters shape),
+            grinFunctionResultRep = closureResultRep shape,
+            grinFunctionBody = GrinBind captures (GrinFetch environmentTag (GrinVarValue parameter)) loweredBody
+          }
+      pure
+        ( [(pointer, GrinNode environmentTag (map GrinVarValue captures))],
+          GrinNode (GrinClosure functionName (closureLayouts shape)) [GrinVarValue pointer]
+        )
+    else do
+      emitFunction
+        GrinFunction
+          { grinFunctionName = functionName,
+            grinFunctionParameters = captures <> concat (closureParameters shape),
+            grinFunctionResultRep = closureResultRep shape,
+            grinFunctionBody = loweredBody
+          }
+      pure ([], GrinNode (GrinClosure functionName (closureLayouts shape)) (map GrinVarValue captures))
+
+-- | The fewest captured values that put a closure's values in an
+-- environment node. See 'makeClosure'.
+closureEnvironmentThreshold :: Int
+closureEnvironmentThreshold = 8
+
+-- | Store the environment nodes of a closure before the expression that
+-- stores the closure.
+storeEnvironments :: [(GrinVar, GrinNode)] -> GrinExpr -> GrinExpr
+storeEnvironments environments body = foldr (\(pointer, node) rest -> GrinBind [pointer] (GrinStore node) rest) body environments
 
 collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
 collectLambdas env expression =

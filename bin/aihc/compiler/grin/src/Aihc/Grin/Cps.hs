@@ -22,6 +22,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
+import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
 import Data.List qualified as List
@@ -89,7 +90,11 @@ data CpsState = CpsState
     -- | The position of each parameter of the function that the pass
     -- transforms, with its continuation after the parameters. See
     -- 'orderCaptures'.
-    cpsParameterOrder :: !(Map GrinVar Int)
+    cpsParameterOrder :: !(Map GrinVar Int),
+    -- | The variables of the function that a fetch from a constructor or
+    -- a closure bound: the tag, the pointer, and every variable of that
+    -- fetch. See 'rematerialize'.
+    cpsFetchedFields :: !(Map GrinVar (GrinNodeTag, GrinVar, [GrinVar]))
   }
 
 type CpsM = StateT CpsState (Either CpsGrinError)
@@ -126,7 +131,8 @@ toCpsGrin sourceProgram = do
           cpsGeneratedFunctionsRev = [],
           cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty,
-          cpsParameterOrder = Map.empty
+          cpsParameterOrder = Map.empty,
+          cpsFetchedFields = Map.empty
         }
 
 transformFunction :: GrinFunction -> CpsM GrinFunction
@@ -134,7 +140,7 @@ transformFunction function = do
   continuation <- freshVar "$cps_return" liftedGrinRep
   let parameters = grinFunctionParameters function
       bound = Set.fromList (continuation : parameters)
-  modify' (\state -> state {cpsParameterOrder = Map.fromList (zip (parameters <> [continuation]) [0 ..])})
+  modify' (\state -> state {cpsParameterOrder = Map.fromList (zip (parameters <> [continuation]) [0 ..]), cpsFetchedFields = Map.empty})
   body <-
     transformTail
       (grinFunctionName function)
@@ -194,6 +200,11 @@ transformTail parent bound resultRep continuation expression =
             && (copies - 1) * grinExprSize body > copies * callSize
     GrinBind resultVars valueExpression body
       | isDirectExpression valueExpression -> do
+          case valueExpression of
+            GrinFetch tag (GrinVarValue pointer)
+              | immutableTag tag ->
+                  modify' (\state -> state {cpsFetchedFields = List.foldl' (\current var -> Map.insert var (tag, pointer, resultVars) current) (cpsFetchedFields state) resultVars})
+            _ -> pure ()
           transformedBody <-
             transformTail
               parent
@@ -494,8 +505,8 @@ reifyContinuation parent bound resultRep outerContinuation resultVars body = do
       GrinVarValue var -> pure var
       GrinGlobalValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
       GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
-  let freeCaptures = freeExprVars transformedBody `Set.intersection` bound
-      others = Set.toAscList (Set.delete parentContinuation freeCaptures)
+  (rematerializedBody, freeCaptures) <- rematerialize bound parentContinuation transformedBody
+  let others = Set.toAscList (Set.delete parentContinuation freeCaptures)
       frameFields = parentContinuation : others
   -- The direct entry takes the captures in the order of the parameters of
   -- the function, so that the ready path of an evaluation keeps each value
@@ -504,7 +515,7 @@ reifyContinuation parent bound resultRep outerContinuation resultVars body = do
   -- frame entry takes the fields and calls the continuation.
   -- A forwarding frame passes its result to the parent without an entry
   -- call, so it keeps the order of its fields.
-  let frameKind = case forwardedResultUses transformedBody of
+  let frameKind = case forwardedResultUses rematerializedBody of
         Just _ -> ContinuationFrameForward
         Nothing -> ContinuationFrameNormal
   captures <- case frameKind of
@@ -515,7 +526,7 @@ reifyContinuation parent bound resultRep outerContinuation resultVars body = do
           { grinFunctionName = continuationName,
             grinFunctionParameters = captures <> resultVars,
             grinFunctionResultRep = resultRep,
-            grinFunctionBody = transformedBody
+            grinFunctionBody = rematerializedBody
           }
   addContinuationFunction frameKind continuationFunction
   frameFunction <-
@@ -541,6 +552,52 @@ reifyContinuation parent bound resultRep outerContinuation resultVars body = do
           (GrinClosure frameFunction [map grinVarRuntimeRep resultVars])
           (map GrinVarValue frameFields)
   pure (ReifiedContinuation pointer continuationName (map GrinVarValue captures) continuationNode)
+
+-- | The body of a continuation, and the values that it captures from the
+-- scope around it.
+--
+-- A value that a fetch read from a constructor or a closure is a field of
+-- an object that never changes. When the continuation captures two or
+-- more such fields of one object, or the object itself too, it captures
+-- the pointer instead and fetches the fields again at its start. A frame
+-- then holds one word in place of the fields, and the fields cost one
+-- load each where they are used. A large closure keeps its captured values
+-- in such an object (see "Aihc.Grin.Lower"), so each continuation of its
+-- entry keeps one pointer in place of all of them.
+rematerialize :: Set GrinVar -> GrinVar -> GrinExpr -> CpsM (GrinExpr, Set GrinVar)
+rematerialize bound parentContinuation body = do
+  fetched <- cpsFetchedFields <$> get
+  let free = freeExprVars body `Set.intersection` bound
+      byFetch =
+        Map.fromListWith
+          (<>)
+          [ ((pointer, tag, fields), [var])
+          | var <- Set.toList free,
+            var /= parentContinuation,
+            Just (tag, pointer, fields) <- [Map.lookup var fetched],
+            Set.member pointer bound
+          ]
+      chosen = Map.filterWithKey (\(pointer, _, _) vars -> Set.member pointer free || length vars >= 2) byFetch
+      dropped = Set.fromList (concat (Map.elems chosen))
+      captures = (free `Set.difference` dropped) <> Set.fromList [pointer | (pointer, _, _) <- Map.keys chosen]
+  rebuilt <-
+    foldM
+      ( \rest ((pointer, tag, fields), vars) -> do
+          let needed = Set.fromList vars
+          binders <- mapM (\field -> if Set.member field needed then pure field else freshVar (grinVarName field) (grinVarRuntimeRep field)) fields
+          pure (GrinBind binders (GrinFetch tag (GrinVarValue pointer)) rest)
+      )
+      body
+      (Map.toList chosen)
+  pure (rebuilt, captures)
+
+-- | A tag of a node that no update changes after it is stored.
+immutableTag :: GrinNodeTag -> Bool
+immutableTag tag =
+  case tag of
+    GrinConstructor {} -> True
+    GrinClosure {} -> True
+    _ -> False
 
 -- | Put the captured values of a continuation or a join point in the order
 -- of the parameters of the function that the pass transforms, and the
