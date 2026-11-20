@@ -147,7 +147,7 @@ simplifyProgram primPackage phase siteLimit program =
             spInline = Map.empty,
             spLocals = Map.empty,
             spLocalDictionaries = Map.empty,
-            spExcluded = Map.empty,
+            spExcluded = MonoidMap.empty,
             spCse = Map.empty,
             spEvaluated = Set.empty,
             spDone = Map.empty,
@@ -453,7 +453,7 @@ data Simpl = Simpl
     -- the call does, and the binding stays for the other uses.
     spLocalDictionaries :: !(Map Name Expr),
     -- | Alternatives that a variable cannot select in this scope.
-    spExcluded :: !(Map Expr (Set AltCon)),
+    spExcluded :: !(MonoidMap Expr (Set AltCon)),
     -- | Strict bindings in scope whose right-hand side is a pure
     -- primitive call, keyed by that call. A later binding of the same call
     -- names the earlier binder instead: the earlier binding is evaluated
@@ -1198,7 +1198,7 @@ simplifyCaseOf env scrutinee binder originalAlternatives =
         binder
         [ alternative
         | alternative <- NE.toList originalAlternatives,
-          altCon alternative `Set.notMember` Map.findWithDefault Set.empty scrutinee (spExcluded env),
+          altCon alternative `Set.notMember` MonoidMap.get scrutinee (spExcluded env),
           possible (altCon alternative)
         ]
     -- The comparisons around the case can rule out an alternative of a
@@ -2299,7 +2299,7 @@ knownArgument env argument =
     ExVar name
       | isConstructorName name -> StrongReduction
       | Just body <- Map.lookup name (spKnown (spFixed env)), isKnownConstructor (spArity (spFixed env)) body -> StrongReduction
-      | Map.member name (spLocals env) || maybe False (not . Set.null) (Map.lookup argument (spExcluded env)) -> WeakReduction
+      | Map.member name (spLocals env) || MonoidMap.nonNullKey argument (spExcluded env) -> WeakReduction
       | otherwise -> NoReduction
     core
       | tailsAreKnown env core -> StrongReduction
@@ -2601,7 +2601,7 @@ shadowNames names env
     !dictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names
     !done = List.foldl' (flip Map.delete) (spDone env) names
     !cse = if Map.null (spCse env) then spCse env else Map.filter (`Set.notMember` shadowed) (spCse env)
-    !excluded = List.foldl' (\current name -> Map.delete (ExVar name) current) (spExcluded env) names
+    !excluded = List.foldl' (\current name -> MonoidMap.nullify (ExVar name) current) (spExcluded env) names
     !facts = forgetNames shadowed (spFacts env)
     shadowed = Set.fromList names
     -- A local candidate that one of the names binds again, or whose body
@@ -2711,9 +2711,9 @@ alternativeEnv env0 scrutinee binder alternatives alternative =
       | AltDefault <- altCon alternative,
         Just _ <- scrutineeName =
           let excluded =
-                Map.findWithDefault Set.empty scrutinee (spExcluded env)
+                MonoidMap.get scrutinee (spExcluded env)
                   <> Set.fromList [altCon alt | alt <- alternatives, altCon alt /= AltDefault]
-           in maybe id (\named -> Map.insert (ExVar (binderName named)) excluded) binder (Map.insert scrutinee excluded (spExcluded env))
+           in maybe id (\named -> MonoidMap.set (ExVar (binderName named)) excluded) binder (MonoidMap.set scrutinee excluded (spExcluded env))
       | otherwise = spExcluded env
     known =
       case altCon alternative of
@@ -3517,7 +3517,7 @@ constantCallPattern env headExpr' args' =
               { spInline = Map.empty,
                 spLocals = Map.empty,
                 spLocalDictionaries = Map.empty,
-                spExcluded = Map.empty,
+                spExcluded = MonoidMap.empty,
                 spCse = Map.empty,
                 spEvaluated = Set.empty,
                 spDone = Map.empty,

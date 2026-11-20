@@ -20,15 +20,17 @@ import Data.IntSet qualified as IntSet
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
 
 data TidyEnv = TidyEnv
   { tidyNames :: !(Map Name Name),
-    tidyUsed :: !(Map Text IntSet)
+    tidyUsed :: !(MonoidMap Text IntSet)
   }
 
 emptyTidyEnv :: TidyEnv
-emptyTidyEnv = TidyEnv Map.empty Map.empty
+emptyTidyEnv = TidyEnv Map.empty MonoidMap.empty
 
 -- | The tidy of one part: the part does not change, or it is a new object.
 data Tidied a
@@ -335,7 +337,7 @@ reserveNames = foldl' reserve
     reserve env name =
       case nameOrigin name of
         OriginLocal (Unique unique) ->
-          env {tidyUsed = Map.insertWith IntSet.union (nameText name) (IntSet.singleton unique) (tidyUsed env)}
+          env {tidyUsed = MonoidMap.adjust (IntSet.insert unique) (nameText name) (tidyUsed env)}
         OriginTop {} -> env
 
 tidyRecBind :: TidyEnv -> Tidied Binder -> Bind -> Tidied Bind
@@ -426,7 +428,7 @@ tidyBinderName env name =
       | lowest == unique -> name
       | otherwise -> name {nameOrigin = OriginLocal (Unique lowest)}
       where
-        used = Map.findWithDefault IntSet.empty (nameText name) (tidyUsed env)
+        used = MonoidMap.get (nameText name) (tidyUsed env)
         lowest = lowestUnused used
     OriginTop {} -> name
 
@@ -442,7 +444,7 @@ bindName env oldName newName =
             if nameOrigin oldName == nameOrigin newName && Map.notMember oldName (tidyNames env)
               then tidyNames env
               else Map.insert oldName newName (tidyNames env),
-          tidyUsed = Map.insertWith IntSet.union (nameText newName) (IntSet.singleton unique) (tidyUsed env)
+          tidyUsed = MonoidMap.adjust (IntSet.insert unique) (nameText newName) (tidyUsed env)
         }
     OriginTop {} -> env
 
