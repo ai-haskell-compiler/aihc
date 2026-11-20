@@ -107,6 +107,7 @@ import Aihc.Cli.ModuleProvider
     ProviderCache,
     ResolvedModuleFacts (..),
     TypedModuleFacts (..),
+    interfaceInstanceProviders,
     moduleNameDirectory,
     newModuleProvider,
     newProviderCache,
@@ -248,9 +249,6 @@ import Aihc.Tc
     renderFunDepNames,
     renderPred,
     renderTcType,
-    tcInterfaceDataFamilyInstances,
-    tcInterfaceInstances,
-    tcInterfaceTypeFamilyInstances,
     tcModuleBindings,
     tcModuleDiagnostics,
     tyConKey,
@@ -3279,7 +3277,7 @@ unitImportedTypes context runtimes unit = do
       unitNames = map sourceName sources
       dependencies = nub (concatMap sourceDependencies sources <> map (Nothing,) wiredInterfaceModules)
   externalTyped <- externalTypedFacts provider resolvePackage unitNames dependencies
-  externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
+  (externalInstanceInterface, _) <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
   let reaches = importedModuleReaches context resolvePackage unitNames dependencies dependencyResults externalTyped
   -- A splice needs one interface, so this merges the facts of each module
   -- that the unit can refer to.
@@ -3353,7 +3351,7 @@ runTypeUnit context runtimes runtime = do
   -- The instances a unit sees from the dependency packages come from the
   -- providers of the modules it imports, which can be in packages below
   -- the dependencies.
-  externalInstanceInterface <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
+  (externalInstanceInterface, externalInstanceProviders) <- providerInstanceFacts provider (Set.unions [typedModuleInstanceProviders facts | (_, facts) <- externalTyped])
   -- The result of a splice can name a module that the unit does not
   -- import, with its package. The check needs the facts of that module.
   exactTyped <-
@@ -3412,6 +3410,10 @@ runTypeUnit context runtimes runtime = do
         mergeTcInterfaces
           TrustMergedFacts
           (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults)
+      -- The modules that declare an instance of the imported closure.
+      -- Each part has its providers already, so no walk of the closure
+      -- is necessary.
+      importedInstanceProviders = Set.unions (externalInstanceProviders : map typeUnitInstanceProviders dependencyResults)
       -- The modules that the unit imports, and the modules that the result
       -- of a splice names. The facts of the unit can refer to the facts of
       -- these modules and of the modules below them.
@@ -3479,7 +3481,7 @@ runTypeUnit context runtimes runtime = do
                   typeUnitOwnInstanceInterface = emptyTcInterface,
                   typeUnitFactsDigest = "",
                   typeUnitInstanceInterface = importedInstanceInterface,
-                  typeUnitInstanceProviders = Set.empty,
+                  typeUnitInstanceProviders = importedInstanceProviders,
                   typeUnitDiagnostics = [],
                   typeUnitWritten = Set.empty,
                   typeUnitReused = Set.empty,
@@ -3531,7 +3533,7 @@ runTypeUnit context runtimes runtime = do
           ownInstanceInterface = mergeTcInterfaces TrustMergedFacts [instanceFacts checkedInterface, foreignFacts]
           unitTypes = [Map.findWithDefault emptyTcInterface name ownInterfaces | name <- unitNames]
           completeInstanceInterface = mergeTcInterfaces TrustMergedFacts [importedInstanceInterface, ownInstanceInterface]
-          instanceProviders = interfaceInstanceProviders completeInstanceInterface
+          instanceProviders = Set.union (interfaceInstanceProviders ownInstanceInterface) importedInstanceProviders
           typeSuccess = not (any ((== TcError) . diagSeverity) diagnostics)
           success = resolveSuccess && dependencySuccess && typeSuccess
       (ownTypeHashes, factsDigest) <-
@@ -3882,17 +3884,6 @@ instanceFacts interface =
       tcInterfaceTypeFamilyInstanceMap = tcInterfaceTypeFamilyInstanceMap interface,
       tcInterfaceUniqueBound = tcInterfaceUniqueBound interface
     }
-
-interfaceInstanceProviders :: TcInterface -> Set.Set InstanceProvider
-interfaceInstanceProviders interface =
-  Set.fromList
-    ( map (first PackageId . iiDictOrigin) (tcInterfaceInstances interface)
-        <> map (tyConOrigin . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
-        <> map tfiiOrigin (tcInterfaceTypeFamilyInstances interface)
-    )
-  where
-    first transform (left, right) = (transform left, right)
-    tyConOrigin tyCon = (tyConPackageId tyCon, tyConModuleName tyCon)
 
 -- | The instance facts of a dependency, which already carries everything
 -- its own modules refer to, so it needs no extra roots.
