@@ -636,7 +636,7 @@ eliminateRedundantBlockParameters function
   | otherwise = function {functionBlocks = map rewrite (functionBlocks function)}
   where
     blocks = functionBlocks function
-    parameterLists = Map.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks]
+    parameterLists = MonoidMap.fromMap (Map.fromList [(blockLabel block, map fst (blockParameters block)) | block <- blocks])
     cyclic =
       Set.fromList
         [ label
@@ -645,7 +645,7 @@ eliminateRedundantBlockParameters function
           -- The entry block also starts the function, without a jump.
           Just label /= fmap blockLabel (listToMaybe blocks)
         ]
-    candidates = Set.fromList [parameter | (label, names) <- Map.toList parameterLists, Set.member label cyclic, parameter <- names]
+    candidates = Set.fromList [parameter | (label, names) <- MonoidMap.toList parameterLists, Set.member label cyclic, parameter <- names]
     -- The values that each parameter receives. A literal is 'Nothing'.
     incoming =
       Map.fromListWith
@@ -653,14 +653,14 @@ eliminateRedundantBlockParameters function
         [ (parameter, [variable argument])
         | block <- blocks,
           target <- terminatorTargets (blockTerminator block),
-          Just names <- [Map.lookup (targetLabel target) parameterLists],
+          let names = MonoidMap.get (targetLabel target) parameterLists,
           length names == length (targetArguments target),
           (parameter, argument) <- zip names (targetArguments target)
         ]
     variable argument = case argument of
       OperandVar var -> Just var
       OperandLiteral _ -> Nothing
-    parameters = concat (Map.elems parameterLists)
+    parameters = concat parameterLists
     replacements = settle Map.empty
     settle current =
       let next = List.foldl' remove current parameters
@@ -676,8 +676,8 @@ eliminateRedundantBlockParameters function
       OperandVar var -> OperandVar (resolve replacements var)
       OperandLiteral _ -> value
     kept var = not (Map.member var replacements)
-    keepArguments target = case Map.lookup (targetLabel target) parameterLists of
-      Just names
+    keepArguments target = case MonoidMap.get (targetLabel target) parameterLists of
+      names
         | length names == length (targetArguments target) ->
             target {targetArguments = [argument | (name, argument) <- zip names (targetArguments target), kept name]}
       _ -> target
