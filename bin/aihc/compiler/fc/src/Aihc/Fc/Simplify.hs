@@ -894,8 +894,8 @@ hoistLoopEvaluations (Bind binder rhs) body = do
       parameters = Map.fromList (zip (map binderName valueBinders) [0 :: Int ..])
       (evaluations, rest) = leadingEvaluations inner
       -- The binder of an evaluation is the parameter too.
-      aliases = Map.fromListWith (<>) [(variable, Set.singleton (binderName named)) | (variable, Just named) <- evaluations]
-      namesOf parameter = Set.insert parameter (Map.findWithDefault Set.empty parameter aliases)
+      aliases = MonoidMap.fromListWith (<>) [(variable, Set.singleton (binderName named)) | (variable, Just named) <- evaluations]
+      namesOf parameter = Set.insert parameter (MonoidMap.get parameter aliases)
       static = [position | (position, parameter) <- zip [0 ..] valueBinders, all (staticAt position (namesOf (binderName parameter))) (selfCalls rest)]
       hoisted = [(variable, position) | (variable, _) <- evaluations, Just position <- [Map.lookup variable parameters], position `elem` static]
       hoistedNames = Set.fromList (map fst hoisted)
