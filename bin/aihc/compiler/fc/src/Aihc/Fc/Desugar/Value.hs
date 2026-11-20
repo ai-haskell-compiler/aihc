@@ -254,8 +254,18 @@ classSuperClassesOf key = fromMaybe [] . factOf preparedClassSuperClasses (globa
 
 -- | The constructors with the given origin and name.
 constructorsAt :: (PackageId, Text) -> Text -> ValueFacts -> [DataConInfo]
-constructorsAt origin name facts =
-  filter ((== origin) . dciOrigin) (fromMaybe [] (factOf preparedConstructorInfos (Just origin) name facts))
+constructorsAt origin@(package, moduleName') name facts =
+  -- The table has the constructors of each origin with the name, so a
+  -- constructor of the unit with the same name must not stop the search.
+  List.nubBy
+    (\left right -> dciOrigin left == dciOrigin right)
+    ( filter
+        ((== origin) . dciOrigin)
+        ( concatMap
+            (Map.findWithDefault [] name . preparedConstructorInfos)
+            (valueFactsLocal facts : maybeToList (Map.lookup (moduleName', package) (valueFactsModules facts)) <> [valueFactsExtra facts])
+        )
+    )
 
 -- | The constructors with the given name in each visible module. This
 -- reads the facts of each module, so use it only where no origin is known.
