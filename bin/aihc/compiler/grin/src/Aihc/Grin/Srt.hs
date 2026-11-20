@@ -31,6 +31,7 @@ import Aihc.Grin.Syntax
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -138,7 +139,7 @@ programStaticReferences program =
         Map.fromList
           [ (name, StaticReferenceTable objects (children name))
           | name <- Set.toAscList reaching,
-            let objects = Map.findWithDefault [] name directObjects
+            let objects = MonoidMap.get name directObjects
           ],
       staticReferenceTracedObjects = tracedNames
     }
@@ -150,7 +151,7 @@ programStaticReferences program =
       Set.fromList [staticObjectName object | object <- localObjects, not (staticObjectTraced object)]
     definedNames = Set.fromList (map grinFunctionName (grinFunctions program))
     directObjects =
-      Map.fromList
+      MonoidMap.fromMap . Map.fromList $
         [ (grinFunctionName function, objects)
         | function <- grinFunctions program,
           let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function))),
@@ -190,7 +191,7 @@ programStaticReferences program =
     -- one of its known callees does. A walk from the functions that mention
     -- one, up the callers, finds every such function once and drops the
     -- tables that would only ever be empty.
-    reaching = walkCallers (Map.keysSet directObjects) (Map.keys directObjects)
+    reaching = walkCallers (MonoidMap.nonNullKeys directObjects) (Set.toAscList (MonoidMap.nonNullKeys directObjects))
     walkCallers found pending =
       case pending of
         [] -> found
