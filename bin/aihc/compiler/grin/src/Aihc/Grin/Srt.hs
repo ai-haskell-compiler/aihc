@@ -181,8 +181,8 @@ programStaticReferences program =
         ]
     -- The known callers of each function, from the direct calls.
     callers =
-      Map.fromListWith
-        (<>)
+      MonoidMap.fromListWith
+        (flip (<>))
         [ (callee, [caller])
         | (caller, callees) <- MonoidMap.toList directCalls,
           callee <- Set.toList callees
@@ -196,7 +196,7 @@ programStaticReferences program =
       case pending of
         [] -> found
         name : rest ->
-          let new = [caller | caller <- Map.findWithDefault [] name callers, not (Set.member caller found)]
+          let new = [caller | caller <- MonoidMap.get name callers, not (Set.member caller found)]
            in walkCallers (foldr Set.insert found new) (new <> rest)
     children name =
       Set.toAscList (Set.intersection reaching (MonoidMap.get name directCalls))
