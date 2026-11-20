@@ -51,7 +51,8 @@ lookupRecordHead conSyntax = do
     EntityGlobal global -> do
       let conName = globalNameText global
           origin = (globalNamePackage global, globalNameModule global)
-      dataTypes <- getDataTypes
+      -- A constructor is in a data type of its own module.
+      dataTypes <- getModuleDataTypes (globalNameModule global, globalNamePackage global)
       familyInstances <- getDataFamilyInstances
       let matches =
             [ con

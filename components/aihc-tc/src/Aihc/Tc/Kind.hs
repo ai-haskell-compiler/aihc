@@ -84,7 +84,7 @@ import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (get, gets)
+import Control.Monad.Trans.State.Strict (get)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
@@ -1480,9 +1480,9 @@ givenKindEqualities _ = pure []
 pureTypeKind :: TcType -> TcM (Maybe TcType)
 pureTypeKind ty = do
   kinds <- getKinds
-  kindEnv <- lift $ gets (Map.map tciKindScheme . tcsGlobalTyCons)
+  kindEnv <- getKindLookup
   zonked <- zonkKind ty
-  case typeKindInEnv kinds kindEnv zonked of
+  case typeKindWith kinds kindEnv zonked of
     Right kind -> Just <$> zonkKind kind
     Left _ -> pure Nothing
 
@@ -1706,7 +1706,7 @@ lookupKindSynonym tyCon = do
 kindSynonymIn :: TcState -> TyCon -> Maybe TypeSynonymInfo
 kindSynonymIn state tyCon
   | tyConNamespace tyCon == ResolutionNamespaceTerm = Nothing
-  | otherwise = tciTypeSynonym =<< Map.lookup (tyConKey tyCon) (tcsGlobalTyCons state)
+  | otherwise = tciTypeSynonym =<< stateTyCon (tyConKey tyCon) state
 
 defaultKindMetas :: TcType -> TcM TcType
 defaultKindMetas = settleKindMetas Nothing
