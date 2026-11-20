@@ -21,6 +21,7 @@ import Aihc.Lir.Syntax
 import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Applicative ((<|>))
 import Data.Bits (popCount)
+import Data.Foldable (fold)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -552,7 +553,7 @@ eliminateCommonSubexpressions function
         { blockInstructions = [instruction {instructionOperation = mapOperation (operand replacements) (instructionOperation instruction)} | instruction <- blockInstructions block],
           blockTerminator = mapTerminator (operand replacements) id Return (blockTerminator block)
         }
-    eliminate replaced0 block = go replaced0 Map.empty Map.empty [] (blockInstructions block)
+    eliminate replaced0 block = go replaced0 Map.empty MonoidMap.empty [] (blockInstructions block)
       where
         go replaced _ _ kept [] = (reverse kept, replaced)
         go replaced pure' loads kept (Instruction results operation0 : rest) =
@@ -571,14 +572,14 @@ eliminateCommonSubexpressions function
                   | not (null results) ->
                       case lookup operation loads' of
                         Just earlier -> reuse earlier
-                        Nothing -> go replaced pure' (Map.insert (addressRegion address) ((operation, results) : Map.findWithDefault [] (addressRegion address) loads) loads) (instruction : kept) rest
+                        Nothing -> go replaced pure' (MonoidMap.set (addressRegion address) ((operation, results) : MonoidMap.get (addressRegion address) loads) loads) (instruction : kept) rest
                   where
-                    loads' = concat (Map.elems loads)
+                    loads' = fold loads
                 Store _ _ address _
                   | addressRegion address /= AnyRegion ->
-                      go replaced pure' (Map.delete AnyRegion (Map.delete (addressRegion address) loads)) (instruction : kept) rest
+                      go replaced pure' (MonoidMap.nullify AnyRegion (MonoidMap.nullify (addressRegion address) loads)) (instruction : kept) rest
                 _
-                  | writesMemory operation -> go replaced pure' Map.empty (instruction : kept) rest
+                  | writesMemory operation -> go replaced pure' MonoidMap.empty (instruction : kept) rest
                   | otherwise -> go replaced pure' loads (instruction : kept) rest
     isPure operation =
       case operation of
