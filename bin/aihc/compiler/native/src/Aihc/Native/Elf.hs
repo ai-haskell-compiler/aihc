@@ -52,10 +52,10 @@ writeImage image payloads = do
       -- The piece of a section role that holds an offset: the last one that
       -- starts at or before it.
       pieceStarts =
-        Map.fromListWith
-          Map.union
+        MonoidMap.fromListWith
+          (flip Map.union)
           [(pieceRole piece, Map.singleton (pieceStart piece) index) | (index, piece) <- pieceIndexes]
-      pieceAt role offset = Map.lookupLE offset (Map.findWithDefault Map.empty role pieceStarts)
+      pieceAt role offset = Map.lookupLE offset (MonoidMap.get role pieceStarts)
       target relocation =
         let symbol = symbols ! relocationSymbol relocation
          in case symbolSection symbol of
