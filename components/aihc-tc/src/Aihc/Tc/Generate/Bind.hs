@@ -203,7 +203,7 @@ localDeclComponents decls = do
   let owners = Map.fromListWith min [(key, index) | (index, _, keys, _) <- infos, key <- keys]
       nodeOf (index, _, keys, _) = maybe index (\key -> Map.findWithDefault index key owners) (listToMaybe keys)
       valueNodes = Map.fromListWith (flip (<>)) [(nodeOf info, [index]) | info@(index, _, keys, _) <- infos, not (null keys)]
-      nodeDeps = Map.fromListWith (<>) [(nodeOf info, mapMaybe (`Map.lookup` owners) (Set.toList deps)) | info@(_, _, keys, deps) <- infos, not (null keys)]
+      nodeDeps = Map.fromListWith (<>) [(nodeOf info, Set.fromList (mapMaybe (`Map.lookup` owners) (Set.toList deps))) | info@(_, _, keys, deps) <- infos, not (null keys)]
   signatureNodes <- concat <$> mapM signatureOwners infos
   let attached = Map.fromListWith (<>) [(node, [index]) | (index, key, _) <- signatureNodes, Just node <- [Map.lookup key owners]]
       -- A partial signature does not give a complete type, so its binder
@@ -214,7 +214,7 @@ localDeclComponents decls = do
       signedKeys = Set.fromList [key | (_, key, True) <- signatureNodes]
       nodeKeys = Map.fromListWith (<>) [(node, [key]) | (key, node) <- Map.toList owners]
       signedNodes = Map.keysSet (Map.filter (all (`Set.member` signedKeys)) nodeKeys)
-      graph = [(node, node, [dep | dep <- Set.toList (Set.fromList (Map.findWithDefault [] node nodeDeps)), not (Set.member dep signedNodes)]) | node <- Map.keys valueNodes]
+      graph = [(node, node, [dep | dep <- Set.toList (Map.findWithDefault Set.empty node nodeDeps), not (Set.member dep signedNodes)]) | node <- Map.keys valueNodes]
       componentIndices component =
         let nodes = Graph.flattenSCC component
             indices = Set.toList (Set.fromList (concat [Map.findWithDefault [] node valueNodes <> Map.findWithDefault [] node attached | node <- nodes]))
