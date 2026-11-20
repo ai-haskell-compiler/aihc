@@ -99,6 +99,7 @@ import Aihc.Cli.Hackage (defaultHackageSource)
 import Aihc.Cli.InterfaceTyCons (classInfoTyCons, dataTypeInfoTyCons, interfaceNonTermRootTyCons, interfaceTermTyCons, tyConInfoTyCons, typeSchemeTyCons, typeTyCons)
 import Aihc.Cli.ModuleProvider
   ( InstanceProvider,
+    ModuleFacts (..),
     ModuleProvider,
     ModuleReach (..),
     PackageLocator,
@@ -2152,6 +2153,7 @@ partitionModules graph shared build sourceSlots = do
   compileVerbose config ("Compute " <> show (length units) <> " SCC units")
   provider <-
     newModuleProvider
+      (Fc.factIndex (primKinds (moduleBuildPrimIdentity build)) (moduleBuildPrimIdentity build))
       (sharedProviderCache shared)
       (Map.unions (map dependencyLocator dependencies))
       ( [ (dependencyPackage dependency, Set.toAscList (dependencyExposed dependency), dependencyReexports dependency, dependencySource dependency)
@@ -3284,7 +3286,7 @@ unitImportedTypes context runtimes unit = do
   pure $
     factEnvInterface
       ( factEnvFromModules
-          (Map.unions (map reachModules reaches))
+          (Map.map moduleFactsInterface (Map.unions (map reachModules reaches)))
           (mergeTcInterfaces TrustMergedFacts (externalInstanceInterface : map typeUnitInstanceInterface dependencyResults))
       )
 
@@ -3421,12 +3423,13 @@ runTypeUnit context runtimes runtime = do
       -- No merge of the imported facts: a lookup finds a fact in the
       -- interface of the module that declares it. The instances are the
       -- extra facts, because an instance search reads all of them.
-      importedFacts = factEnvFromModules importedModules importedInstanceInterface
+      importedFacts = factEnvFromModules (Map.map moduleFactsInterface importedModules) importedInstanceInterface
+      indexOf = Fc.factIndex (primKinds primIdentity) primIdentity
       ownOrigin name = (name, packageId resolvePackage) :: ModuleOrigin
       unitReach interfaces =
         ownModules
           resolvePackage
-          ( let modules = Map.union (Map.fromList [(ownOrigin name, interface) | (name, interface) <- zip unitNames interfaces]) importedModules
+          ( let modules = Map.union (Map.fromList [(ownOrigin name, ModuleFacts interface (indexOf interface)) | (name, interface) <- zip unitNames interfaces]) importedModules
              in Map.fromList [(name, ModuleReach (ownOrigin name) modules) | name <- unitNames]
           )
       checkUnit = do
@@ -3512,9 +3515,16 @@ runTypeUnit context runtimes runtime = do
     Nothing -> do
       ((checkedModules, newInterface), diagnostics) <- checkUnit
       let checkedInterface = shareTcInterface newInterface
-          -- The desugarer and the C stubs need one interface. A build
-          -- without code does not evaluate this merge.
-          completeInterface = mergeTcInterfaces TrustMergedFacts [factEnvInterface importedFacts, checkedInterface]
+          -- The desugarer finds an imported fact in the tables of the
+          -- module that declares it. The extra tables hold the facts that
+          -- a unit below registered for a type constructor of a different
+          -- module. A build without code does not evaluate these.
+          desugarFacts =
+            Fc.DesugarFacts
+              { Fc.desugarFactsLocal = indexOf checkedInterface,
+                Fc.desugarFactsModules = LazyMap.map moduleFactsIndex importedModules,
+                Fc.desugarFactsExtra = indexOf (withoutInstanceFacts importedInstanceInterface)
+              }
           (ownInterfaces, foreignFacts) = splitUnitInterface (packageId resolvePackage) unitNames checkedInterface
           -- The instances go to each unit above this one, and so do the
           -- facts that have no module of the unit as their origin.
@@ -3578,13 +3588,13 @@ runTypeUnit context runtimes runtime = do
                     config
                     verbose
                     primIdentity
-                    completeInterface
+                    desugarFacts
                     (moduleOutputPaths storePath (compileTarget config))
                     desugarConfigs
                     checkedModules
                 )
             atomicModifyIORef' (taskBackendPhaseTimings context) (\total -> (total <> mempty {backendDesugarNs = desugarNs}, ()))
-            capiStubs <- evaluate (force [(name, renderCapiStub name (moduleCapiWrappers name completeInterface)) | name <- unitNames])
+            capiStubs <- evaluate (force [(name, renderCapiStub name (moduleCapiWrappers name checkedInterface)) | name <- unitNames])
             pure (Just (PendingBackend fcModules capiStubs))
       let unitSet = Set.fromList unitNames
           -- A unit with warnings is not stamped, so the next build reports
@@ -3855,6 +3865,15 @@ splitUnitInterface package unitNames interface =
                   tcInterfaceForeignImportMap = Map.filterWithKey (own termOrigin) (tcInterfaceForeignImportMap interface)
                 }
 
+-- | An interface without its instances and its family instances.
+withoutInstanceFacts :: TcInterface -> TcInterface
+withoutInstanceFacts interface =
+  interface
+    { tcInterfaceInstanceMap = Map.empty,
+      tcInterfaceDataFamilyInstanceMap = Map.empty,
+      tcInterfaceTypeFamilyInstanceMap = Map.empty
+    }
+
 instanceFacts :: TcInterface -> TcInterface
 instanceFacts interface =
   emptyTcInterface
@@ -3963,7 +3982,7 @@ configMergeCheck config
 -- | Desugar the checked modules of a unit to System FC, lint it when asked,
 -- and write it when a later build or a @--lto@ link reads it. This is the
 -- last phase that sees the Haskell AST.
-desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
+desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> Fc.DesugarFacts -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
 desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
   do
@@ -3974,7 +3993,7 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
         -- Each module is desugared against its own bindings; the rest of
         -- the unit reaches it through the interface.
         desugarResults =
-          [ Fc.desugarModuleFc (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
+          [ Fc.desugarModuleFcWith (desugarConfig name) (tcModuleBindings (primTcWiring primIdentity) checked) interface checked
           | (name, checked) <- zip moduleNames checkedModules
           ]
         desugarErrors =

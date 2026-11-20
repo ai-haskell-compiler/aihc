@@ -4,6 +4,10 @@
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
   ( desugarModuleFc,
+    desugarModuleFcWith,
+    DesugarFacts (..),
+    FactIndex,
+    factIndex,
     DesugarConfig (..),
     moduleDesugarConfig,
     resolvedModuleOrigin,
@@ -14,7 +18,7 @@ where
 
 import Aihc.Fc.Canonical (canonicalForeignCalls)
 import Aihc.Fc.Convert
-import Aihc.Fc.Desugar.Value (desugarValues, prepareValueInterface)
+import Aihc.Fc.Desugar.Value (PreparedValueInterface, ValueFacts (..), desugarValues, prepareValueInterface)
 import Aihc.Fc.Imports (emptyImports, importsForProgramLookup, pruneImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Normalize (normalizeProgram)
@@ -50,6 +54,7 @@ import Aihc.Tc
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
     defaultMethodName,
+    emptyTcInterface,
     repLeaves,
     tcInterfaceClasses,
     tcInterfaceDataFamilyInstances,
@@ -74,7 +79,7 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     defaultMethodWorkerScheme,
-    familyEquationRightKind,
+    familyEquationRightKindWith,
     isEqualityTyCon,
     tyConKey,
     tyConModuleName,
@@ -88,10 +93,11 @@ import Aihc.Tc.Types
     pattern KFun,
     pattern KTYPE,
   )
+import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -173,18 +179,127 @@ withConversionContext :: String -> Either String a -> Either String a
 withConversionContext context =
   either (Left . ((context <> ": ") <>)) Right
 
-interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
-interfaceConvertEnv config interface =
-  withKindEnv
-    -- Keep imported kind schemes lazy until conversion needs them.
-    (LazyMap.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
-    ( withClassTyCons
-        (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
-        ( withSynonymTyCons
-            [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
+-- | The prepared facts of one interface: the tables that the desugarer
+-- reads. Each field is lazy, so a table that no lookup reads is not made.
+--
+-- The driver makes one index for the facts of each module, and all units
+-- that can see the module share it.
+data FactIndex = FactIndex
+  { ixKindSchemes :: Map.Map GlobalName TypeScheme,
+    ixClassTyCons :: Set.Set GlobalName,
+    ixSynonymTyCons :: Set.Set GlobalName,
+    ixDataTypes :: Map.Map GlobalName DataTypeInfo,
+    ixTyCons :: Map.Map GlobalName TyConInfo,
+    ixClasses :: Map.Map GlobalName ClassInfo,
+    ixTypeFamilyInstances :: Map.Map TcAxiomKey TypeFamilyInstanceInfo,
+    -- | The equations of each type family, by the identity of the family.
+    ixFamilyEquations :: Map.Map GlobalName [TypeFamilyInstanceInfo],
+    ixBindings :: Map.Map Entity TcBindingResult,
+    ixHeaders :: Map.Map Name HeaderSource,
+    ixValues :: PreparedValueInterface
+  }
+
+-- | The index of the facts of one interface.
+factIndex :: TcKinds -> PackageId -> TcInterface -> FactIndex
+factIndex kinds primPackage interface =
+  FactIndex
+    { -- Keep imported kind schemes lazy until conversion needs them.
+      ixKindSchemes = LazyMap.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface],
+      ixClassTyCons = classTyCons,
+      ixSynonymTyCons = synonymTyCons,
+      ixDataTypes = Map.fromList [(dataTypeSourceKey info, info) | info <- tcInterfaceDataTypes interface],
+      ixTyCons = Map.fromList [(tyConSourceKey info, info) | info <- tcInterfaceTyCons interface],
+      ixClasses = Map.fromList [(classSourceKey info, info) | info <- tcInterfaceClasses interface],
+      ixTypeFamilyInstances = Map.fromList [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances interface],
+      ixFamilyEquations =
+        Map.fromListWith
+          (flip (<>))
+          [ (tyConKey family, [info])
+          | info <- tcInterfaceTypeFamilyInstances interface,
+            TcTyCon family _ <- [tfiiLeft info]
+          ],
+      ixBindings = bindingsFromInterface interface,
+      ixHeaders = headerIndex nameEnv interface,
+      ixValues = prepareValueInterface interface
+    }
+  where
+    classTyCons = Set.fromList (map (tyConKey . ciTyCon) (tcInterfaceClasses interface))
+    synonymTyCons = Set.fromList [tyConKey (tciTyCon info) | info <- tcInterfaceTyCons interface, tciFlavor info == SynonymTyCon]
+    -- The name of a type constructor of this interface depends only on
+    -- the classes and the synonyms of this interface.
+    nameEnv =
+      withClassTyConTest (`Set.member` classTyCons) $
+        withSynonymTyConTest (`Set.member` synonymTyCons) (emptyConvertEnv kinds primPackage)
+
+-- | The facts that a module can use, without a merge: those of its unit,
+-- those of each imported module by the module of their origin, and extra
+-- facts that the origin does not find.
+--
+-- A lookup reads the facts of the unit first, then the facts of the module
+-- that the key names, then the extra facts.
+data DesugarFacts = DesugarFacts
+  { desugarFactsLocal :: FactIndex,
+    desugarFactsModules :: Map.Map (Text, PackageId) FactIndex,
+    desugarFactsExtra :: FactIndex
+  }
+
+-- | The facts of one interface. Each lookup reads that interface.
+singleDesugarFacts :: TcKinds -> PackageId -> TcInterface -> DesugarFacts
+singleDesugarFacts kinds primPackage interface =
+  DesugarFacts (factIndex kinds primPackage interface) Map.empty (factIndex kinds primPackage emptyTcInterface)
+
+-- | Find a fact: in the unit, then in the module of the origin, then in
+-- the extra facts.
+findFact :: (FactIndex -> Maybe value) -> Maybe (PackageId, Text) -> DesugarFacts -> Maybe value
+findFact select origin facts =
+  select (desugarFactsLocal facts)
+    <|> (origin >>= \(package, moduleName') -> Map.lookup (moduleName', package) (desugarFactsModules facts) >>= select)
+    <|> select (desugarFactsExtra facts)
+
+globalNameOrigin :: GlobalName -> Maybe (PackageId, Text)
+globalNameOrigin global = Just (globalNamePackage global, globalNameModule global)
+
+fcNameOrigin :: Name -> Maybe (PackageId, Text)
+fcNameOrigin name =
+  case nameOrigin name of
+    OriginTop package moduleName' -> Just (package, moduleName')
+    _ -> Nothing
+
+entityFactOrigin :: Entity -> Maybe (PackageId, Text)
+entityFactOrigin key =
+  case key of
+    GlobalTerm package moduleName' _ -> Just (package, moduleName')
+    _ -> Nothing
+
+factsBinding :: DesugarFacts -> Entity -> Maybe TcBindingResult
+factsBinding facts key = findFact (Map.lookup key . ixBindings) (entityFactOrigin key) facts
+
+-- | The equations of a type family in each visible module, in the order
+-- of their axiom keys.
+factsFamilyEquations :: DesugarFacts -> GlobalName -> [TypeFamilyInstanceInfo]
+factsFamilyEquations facts family =
+  Map.elems
+    ( Map.fromList
+        [ (typeFamilyAxiomKey info, info)
+        | index <- desugarFactsLocal facts : desugarFactsExtra facts : Map.elems (desugarFactsModules facts),
+          info <- Map.findWithDefault [] family (ixFamilyEquations index)
+        ]
+    )
+
+factsConvertEnv :: DesugarConfig -> DesugarFacts -> ConvertEnv
+factsConvertEnv config facts =
+  withKindLookup
+    (\key -> findFact (Map.lookup key . ixKindSchemes) (globalNameOrigin key) facts)
+    ( withClassTyConTest
+        (member ixClassTyCons)
+        ( withSynonymTyConTest
+            (member ixSynonymTyCons)
             (withExportedNames (exportedNames config) (emptyConvertEnv (desugarKinds config) (primPackageId config)))
         )
     )
+  where
+    member select key =
+      isJust (findFact (\index -> if Set.member key (select index) then Just () else Nothing) (globalNameOrigin key) facts)
 
 convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
 convertTyConHeader env info = do
@@ -229,7 +344,13 @@ convertTypeScheme env (ForAll tyVars predicates body) = do
   pure (foldr TyForAll (evidenceArrows bindersEnv body convertedPredicates convertedBody) binders)
 
 desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> FcDesugarResult
-desugarModuleFc config bindings interface checked =
+desugarModuleFc config bindings interface =
+  desugarModuleFcWith config bindings (singleDesugarFacts (desugarKinds config) (primPackageId config) interface)
+
+-- | Desugar a module with the facts of its unit and of the imported
+-- modules, by the module of their origin.
+desugarModuleFcWith :: DesugarConfig -> [TcBindingResult] -> DesugarFacts -> Module -> FcDesugarResult
+desugarModuleFcWith config bindings interface checked =
   if not (tcModuleSuccess checked)
     then failedDesugar (map show (tcModuleDiagnostics checked))
     else case desugarFromInterface config bindings interface checked of
@@ -241,30 +362,33 @@ desugarModuleFc config bindings interface checked =
             dsErrors = []
           }
 
-desugarFromInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
-desugarFromInterface config moduleBindings interface checked = do
-  let convertEnv = interfaceConvertEnv config interface
+desugarFromInterface :: DesugarConfig -> [TcBindingResult] -> DesugarFacts -> Module -> Either String Program
+desugarFromInterface config moduleBindings facts checked = do
+  let convertEnv = factsConvertEnv config facts
       (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
-      dataTypes = Map.fromList [(dataTypeSourceKey info, info) | info <- tcInterfaceDataTypes interface]
-      tyCons = Map.fromList [(tyConSourceKey info, info) | info <- tcInterfaceTyCons interface]
-      classes = Map.fromList [(classSourceKey info, info) | info <- tcInterfaceClasses interface]
-      typeFamilyInstances = Map.fromList [(typeFamilyAxiomKey info, info) | info <- tcInterfaceTypeFamilyInstances interface]
-      bindings = Map.union (localBindingMap moduleBindings) (bindingsFromInterface interface)
-      headers = headerIndex convertEnv interface
+      -- The declarations of the module are facts of its unit.
+      local = desugarFactsLocal facts
+      dataTypes = ixDataTypes local
+      tyCons = ixTyCons local
+      classes = ixClasses local
+      typeFamilyInstances = ixTypeFamilyInstances local
+      localBindings = localBindingMap moduleBindings
+      bindings key = Map.lookup key localBindings <|> factsBinding facts key
+      valueFacts = ValueFacts (ixValues local) (Map.map ixValues (desugarFactsModules facts)) (ixValues (desugarFactsExtra facts))
   typeDecls <-
     concat
       <$> mapM
         (dsDecl convertEnv packageId currentModule dataTypes tyCons classes typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
   let typeEnv = TypeOf.typeEnvFromProgram (cePrimPackage convertEnv) (Program emptyImports typeDecls)
-  valueDecls <- desugarValues convertEnv typeEnv moduleBindings (prepareValueInterface interface) moduleOrigin checked
+  valueDecls <- desugarValues convertEnv typeEnv moduleBindings valueFacts moduleOrigin checked
   let decls = typeDecls <> valueDecls
       baseProgram = Program emptyImports decls
   imports <-
     importsForProgramLookup
       (primPackageId config)
-      (lookupHeader convertEnv bindings headers)
+      (lookupHeader convertEnv bindings facts)
       baseProgram
   -- Normalization drops a binding nothing uses, and with it the last use of
   -- an import, so the imports are pruned after it.
@@ -305,15 +429,11 @@ headerIndex convertEnv interface =
       | info <- tcInterfaceTyCons interface,
         tciFlavor info `notElem` [SynonymTyCon, ClassTyCon]
       ]
+    -- The lookup of the header adds the equations, because each visible
+    -- module can have equations of the family.
     tyConHeader info
-      | tciFlavor info == TypeFamilyTyCon = HeaderFamily info (familyEquations (tciTyCon info))
+      | tciFlavor info == TypeFamilyTyCon = HeaderFamily info []
       | otherwise = HeaderTyCon info
-    familyEquations tyCon =
-      [ info
-      | info <- tcInterfaceTypeFamilyInstances interface,
-        TcTyCon family _ <- [tfiiLeft info],
-        family == tyCon
-      ]
     dataTypeFacts =
       [ (tyConNameFc convertEnv (dtiTyCon info), HeaderDataType info)
       | info <- tcInterfaceDataTypes interface,
@@ -389,13 +509,14 @@ headerIndex convertEnv interface =
               origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
         ]
 
-lookupHeader :: ConvertEnv -> Map.Map Entity TcBindingResult -> Map.Map Name HeaderSource -> Name -> Either String (Maybe TypeOf.TypeEnv)
-lookupHeader convertEnv bindings headers name =
-  case Map.lookup name headers of
+lookupHeader :: ConvertEnv -> (Entity -> Maybe TcBindingResult) -> DesugarFacts -> Name -> Either String (Maybe TypeOf.TypeEnv)
+lookupHeader convertEnv bindings facts name =
+  case findFact (Map.lookup name . ixHeaders) (fcNameOrigin name) facts of
     Nothing -> Right Nothing
+    Just (HeaderFamily info _) -> Just . tidyTypeEnv <$> convertHeader convertEnv bindings (HeaderFamily info (factsFamilyEquations facts (tyConKey (tciTyCon info))))
     Just source -> Just . tidyTypeEnv <$> convertHeader convertEnv bindings source
 
-convertHeader :: ConvertEnv -> Map.Map Entity TcBindingResult -> HeaderSource -> Either String TypeOf.TypeEnv
+convertHeader :: ConvertEnv -> (Entity -> Maybe TcBindingResult) -> HeaderSource -> Either String TypeOf.TypeEnv
 convertHeader convertEnv bindings source =
   case source of
     HeaderTerm keyScheme -> do
@@ -501,7 +622,7 @@ dsDecl ::
   Map.Map GlobalName TyConInfo ->
   Map.Map GlobalName ClassInfo ->
   Map.Map TcAxiomKey TypeFamilyInstanceInfo ->
-  Map.Map Entity TcBindingResult ->
+  (Entity -> Maybe TcBindingResult) ->
   Syn.Decl ->
   Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings decl =
@@ -778,7 +899,7 @@ dropKindParams remaining kind
 dropKindParams remaining (KFun _ result) = dropKindParams (remaining - 1) result
 dropKindParams _ kind = kind
 
-convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> Map.Map Entity TcBindingResult -> DataFamilyInstanceInfo -> Either String [Decl]
+convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> (Entity -> Maybe TcBindingResult) -> DataFamilyInstanceInfo -> Either String [Decl]
 convertDataFamilyInst env package moduleName' bindings info = do
   let visibleTyVars = dfiiTyVars info
       representationTyCon = dfiiRepresentationTyCon info
@@ -868,9 +989,9 @@ convertFamilyConstructor bindersEnv representationType info = do
   -- must be.
   pure declaration {conVis = Pub, conType = replaced}
 
-lookupBindingType :: Map.Map Entity TcBindingResult -> PackageId -> Text -> Text -> Either String TcType
+lookupBindingType :: (Entity -> Maybe TcBindingResult) -> PackageId -> Text -> Text -> Either String TcType
 lookupBindingType bindings package moduleName' name =
-  case Map.lookup (GlobalTerm package moduleName' name) bindings of
+  case bindings (GlobalTerm package moduleName' name) of
     Just binding -> Right (tbType binding)
     Nothing -> Left ("missing checked constructor type " <> T.unpack moduleName' <> "." <> T.unpack name)
 
@@ -898,7 +1019,7 @@ convertTypeFamilyEquation env info = do
   -- kind arguments that no argument of the family determines, as @k' :=
   -- Type@ in @Fst (x, y) = x@ for @Fst :: forall k k'. k -> k'@. The type
   -- checker does not bind these variables in the equation.
-  let leftKind = familyEquationRightKind (ceKinds env) (ceKindEnv env) (tfiiTyVars info) (tfiiRight info)
+  let leftKind = familyEquationRightKindWith (ceKinds env) (ceKindLookup env) (tfiiTyVars info) (tfiiRight info)
   left <- convertTypeWithExpectedKind bindersEnv leftKind (tfiiLeft info)
   -- The right-hand side has the kind of the family application. That kind
   -- gives the invisible kind argument of a partial application, as in
