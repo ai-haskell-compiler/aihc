@@ -181,14 +181,14 @@ workerWrapperProgram primPackage home scope program =
       -- The parameters of each function: whether a value with a lifted
       -- strict field, and the number of its fields.
       parameterShapes =
-        MonoidMap.fromMap . Map.fromList $
+        MonoidMap.fromList
           [ (valName declaration, Map.fromList [(position, (hasStrictProduct env binder, binderName binder, productWidth env binder)) | (position, binder) <- zip [0 ..] binders])
           | (declaration, _) <- eligible,
             let (tyBinders, binders, _) = splitLambdas (valBody declaration)
                 env = List.foldl' extendBinder types tyBinders
           ]
       bodies = Map.fromList [(valName declaration, let (_, _, inner) = splitLambdas (valBody declaration) in inner) | (declaration, _) <- eligible]
-      initial = MonoidMap.fromMap (Map.fromList [(valName declaration, Set.fromList [position | (position, _) <- zip [0 ..] demands, takesProduct position demands]) | (declaration, demands) <- eligible])
+      initial = MonoidMap.fromList [(valName declaration, Set.fromList [position | (position, _) <- zip [0 ..] demands, takesProduct position demands]) | (declaration, demands) <- eligible]
       settle current =
         let next = MonoidMap.mapWithKey (\function positions -> limited function (Set.filter (keeps current function) positions)) current
          in if next == current then current else settle next
