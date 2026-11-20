@@ -31,6 +31,7 @@ import Aihc.Grin.Syntax
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -138,7 +139,7 @@ programStaticReferences program =
         Map.fromList
           [ (name, StaticReferenceTable objects (children name))
           | name <- Set.toAscList reaching,
-            let objects = Map.findWithDefault [] name directObjects
+            let objects = MonoidMap.get name directObjects
           ],
       staticReferenceTracedObjects = tracedNames
     }
@@ -150,11 +151,10 @@ programStaticReferences program =
       Set.fromList [staticObjectName object | object <- localObjects, not (staticObjectTraced object)]
     definedNames = Set.fromList (map grinFunctionName (grinFunctions program))
     directObjects =
-      Map.fromList
+      MonoidMap.fromList
         [ (grinFunctionName function, objects)
         | function <- grinFunctions program,
-          let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function))),
-          not (null objects)
+          let objects = sort (Set.toList (Set.fromList (functionDirectObjects untracedNames function <> externObjects function)))
         ]
     -- The table of an extern function is in its own unit. The public value
     -- of the function is a static object that names that table, so a call
@@ -162,43 +162,38 @@ programStaticReferences program =
     externGlobals = Map.fromList [(grinExternName extern, grinExternGlobal extern) | extern <- grinExternFunctions program]
     -- The code references of each body, found once. The extern objects and
     -- the direct calls of a function both read them.
-    references = Map.fromList [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
-    functionReferences function = Map.findWithDefault Set.empty (grinFunctionName function) references
+    references = MonoidMap.fromList [(grinFunctionName function, bodyReferences (grinFunctionBody function)) | function <- grinFunctions program]
+    functionReferences function = MonoidMap.get (grinFunctionName function) references
     externObjects function =
       [ global
       | name <- Set.toList (functionReferences function),
         Just global <- [Map.lookup name externGlobals]
       ]
     directCalls =
-      Map.fromList
-        [ (grinFunctionName function, callees)
-        | function <- grinFunctions program,
-          let callees =
-                Set.delete (grinFunctionName function) $
-                  Set.intersection definedNames (functionReferences function),
-          not (Set.null callees)
-        ]
+      MonoidMap.mapWithKey
+        (\name -> Set.delete name . Set.intersection definedNames)
+        references
     -- The known callers of each function, from the direct calls.
     callers =
-      Map.fromListWith
-        (<>)
+      MonoidMap.fromListWith
+        (flip (<>))
         [ (callee, [caller])
-        | (caller, callees) <- Map.toList directCalls,
+        | (caller, callees) <- MonoidMap.toList directCalls,
           callee <- Set.toList callees
         ]
     -- A function reaches a traced static object when it mentions one or when
     -- one of its known callees does. A walk from the functions that mention
     -- one, up the callers, finds every such function once and drops the
     -- tables that would only ever be empty.
-    reaching = walkCallers (Map.keysSet directObjects) (Map.keys directObjects)
+    reaching = walkCallers (MonoidMap.nonNullKeys directObjects) (Set.toAscList (MonoidMap.nonNullKeys directObjects))
     walkCallers found pending =
       case pending of
         [] -> found
         name : rest ->
-          let new = [caller | caller <- Map.findWithDefault [] name callers, not (Set.member caller found)]
+          let new = [caller | caller <- MonoidMap.get name callers, not (Set.member caller found)]
            in walkCallers (foldr Set.insert found new) (new <> rest)
     children name =
-      Set.toAscList (Set.intersection reaching (Map.findWithDefault Set.empty name directCalls))
+      Set.toAscList (Set.intersection reaching (MonoidMap.get name directCalls))
 
 -- | A function mentions a static object either through an explicit global
 -- reference or through a free variable, which the backends materialize as a
