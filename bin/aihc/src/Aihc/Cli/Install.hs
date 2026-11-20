@@ -221,6 +221,7 @@ import Aihc.Resolve
     modulesInPackage,
     resolveSpliceBodies,
     resolveUnit,
+    toParserExpr,
   )
 import Aihc.Resolve.Types (exactTerm, exactType)
 import Aihc.Tc
@@ -3097,7 +3098,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                   DeclarationSplice _ -> DeclarationSplice body
                   TypeSplice _ -> TypeSplice body
                   PatternSplice _ -> PatternSplice body
-              resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
+              resolvedBodies = map toParserExpr (resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices))
               desugaredSplices =
                 zipWith
                   (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
