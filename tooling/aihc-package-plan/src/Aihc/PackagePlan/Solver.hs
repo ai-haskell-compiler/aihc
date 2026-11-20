@@ -1063,13 +1063,13 @@ explain proof =
 
     -- How many derivations use each derived incompatibility.
     uses = countUses IntMap.empty (proofRoot proof)
-    countUses counts incId =
-      case IntMap.lookup incId counts of
-        Just count -> IntMap.insert incId (count + 1) counts
-        Nothing ->
-          case incKind (incompat incId) of
-            KindDerived left right -> countUses (countUses (IntMap.insert incId (1 :: Int) counts) left) right
-            _ -> counts
+    countUses counts incId
+      | IntMap.member incId counts = counted
+      | KindDerived left right <- incKind (incompat incId) =
+          countUses (countUses counted left) right
+      | otherwise = counts
+      where
+        counted = IntMap.insertWith (+) incId (1 :: Int) counts
 
     isDerived incId = case incKind (incompat incId) of
       KindDerived _ _ -> True
