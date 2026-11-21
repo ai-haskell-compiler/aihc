@@ -49,6 +49,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.List (elemIndex, partition, sortOn)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
@@ -1326,7 +1327,7 @@ rewriteWithRules rules = go
             TcTyConApp tyCon kindArguments arguments
               | Just (to, proof, extra) <- rewriteApplicationPrefix rules tyCon kindArguments arguments ->
                   let (extra', extraProofs) = unzip (map go extra)
-                   in (foldl' mkAppTy to extra', foldl' AppCo proof extraProofs)
+                   in (List.foldl' mkAppTy to extra', List.foldl' AppCo proof extraProofs)
             TcTyConApp tyCon kindArguments arguments ->
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)
