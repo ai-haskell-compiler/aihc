@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | The syntax tree that name resolution gives.
 --
@@ -35,8 +36,19 @@ module Aihc.Resolve.Syntax
     OperatorName,
     mkName,
     mkUnqualifiedName,
+    qualifyName,
     renderName,
     renderUnqualifiedName,
+
+    -- * Reading resolutions
+    nameResolutionAnnotation,
+    binderResolutionAnnotation,
+    termResolutionAnnotation,
+    typeResolutionAnnotation,
+    resolvedNameEntity,
+    resolvedBinderEntity,
+    resolvedNameOrigin,
+    recordSelectorNames,
 
     -- * Modules
     Module (..),
@@ -91,6 +103,13 @@ module Aihc.Resolve.Syntax
     TyVarBinder (..),
     BinderHead (..),
     binderHeadName,
+    binderHeadParams,
+    binderHeadForm,
+    instanceHeadName,
+    instanceHeadTypes,
+    gadtBodyResultType,
+    moduleName,
+    moduleExports,
 
     -- * Expressions
     Expr (..),
@@ -106,7 +125,23 @@ module Aihc.Resolve.Syntax
     peelExprAnn,
     peelPatternAnn,
     peelTypeAnn,
+    peelTypeHead,
     peelDoStmtAnn,
+    peelDataConAnn,
+    peelClassDeclItemAnn,
+    peelInstanceDeclItemAnn,
+    peelGuardQualifierAnn,
+    peelCompStmtAnn,
+    peelArithSeqAnn,
+    peelCmdAnn,
+
+    -- * Annotations of the parser tree
+    mkAnnotation,
+    mkSpanAnnotation,
+    fromAnnotation,
+    peelLiteralAnn,
+    sourceSpanSourceName,
+    pattern SourceSpan,
 
     -- * Types of the parser tree
     Annotation,
@@ -114,6 +149,7 @@ module Aihc.Resolve.Syntax
     BuiltinCon (..),
     CallConv (..),
     DoFlavor (..),
+    Extension (..),
     ExtensionSetting (..),
     FixityAssoc (..),
     FloatType (..),
@@ -133,6 +169,7 @@ module Aihc.Resolve.Syntax
     PatSynArgs (..),
     Pragma (..),
     PragmaType (..),
+    PragmaUnpackKind (..),
     Role (..),
     RuleActivation (..),
     SourceSpan,
@@ -153,6 +190,7 @@ import Aihc.Parser.Syntax
     BuiltinCon (..),
     CallConv (..),
     DoFlavor (..),
+    Extension (..),
     ExtensionSetting (..),
     FixityAssoc (..),
     FloatType (..),
@@ -172,6 +210,7 @@ import Aihc.Parser.Syntax
     PatSynArgs (..),
     Pragma (..),
     PragmaType (..),
+    PragmaUnpackKind (..),
     Role (..),
     RuleActivation (..),
     SourceSpan,
@@ -183,14 +222,26 @@ import Aihc.Parser.Syntax
     TypeLiteral (..),
     TypePromotion (..),
     TypeSyntaxForm (..),
+    fromAnnotation,
+    mkAnnotation,
+    mkSpanAnnotation,
+    peelLiteralAnn,
+    sourceSpanSourceName,
+    pattern SourceSpan,
   )
 import Aihc.Resolve.Types
-  ( RecKnotVariables (..),
+  ( Entity (..),
+    GlobalName (..),
+    PackageId,
+    RecKnotVariables (..),
     ResolutionAnnotation (..),
+    ResolutionNamespace (..),
     ResolutionResult (..),
     ResolveError (..),
+    resolutionResultAnnotation,
   )
 import Data.Data (Data)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
 type BinderName = UnqualifiedName
@@ -204,6 +255,76 @@ mkName qualifier ty txt = Name qualifier ty txt [] Nothing
 -- | An unqualified name with no annotation and no resolution.
 mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
 mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing
+
+-- | A qualified name from an unqualified name. The name keeps its
+-- annotations and its resolution.
+qualifyName :: Maybe Text -> UnqualifiedName -> Name
+qualifyName qualifier name =
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name)
+
+-- | The successful resolution of a name occurrence, in any namespace.
+nameResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
+nameResolutionAnnotation name = resolutionResultAnnotation =<< nameResolution name
+
+-- | The successful resolution of a binder, whatever namespace it binds in.
+binderResolutionAnnotation :: UnqualifiedName -> Maybe ResolutionAnnotation
+binderResolutionAnnotation name = resolutionResultAnnotation =<< unqualifiedNameResolution name
+
+-- | The term resolution of a name occurrence.
+termResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
+termResolutionAnnotation name =
+  case nameResolutionAnnotation name of
+    Just annotation | resolutionNamespace annotation == ResolutionNamespaceTerm -> Just annotation
+    _ -> Nothing
+
+-- | The type resolution of a name occurrence. A promoted data constructor
+-- at the type level resolves in the term namespace, so this is any
+-- resolution that is not of a module.
+typeResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
+typeResolutionAnnotation name =
+  case nameResolutionAnnotation name of
+    Just annotation | resolutionNamespace annotation /= ResolutionNamespaceModule -> Just annotation
+    _ -> Nothing
+
+-- | The entity that a name occurrence stands for, in any namespace.
+resolvedNameEntity :: Name -> Maybe Entity
+resolvedNameEntity = fmap resolutionTarget . nameResolutionAnnotation
+
+-- | The entity that a binder defines.
+resolvedBinderEntity :: UnqualifiedName -> Maybe Entity
+resolvedBinderEntity = fmap resolutionTarget . binderResolutionAnnotation
+
+-- | The package and the module that define the top-level entity a name
+-- occurrence stands for. A local binder or built-in syntax gives 'Nothing'.
+resolvedNameOrigin :: Name -> Maybe (PackageId, Text)
+resolvedNameOrigin name =
+  case resolvedNameEntity name of
+    Just (EntityGlobal global) -> Just (globalNamePackage global, globalNameModule global)
+    _ -> Nothing
+
+-- | The selector name of each record field label of one declaration. A
+-- duplicate record field has a selector with its own name, which the
+-- resolver puts on the field binder. Any other label is its own selector
+-- name.
+recordSelectorNames :: [DataConDecl] -> Map.Map Text Text
+recordSelectorNames constructors =
+  Map.fromList
+    [ (unqualifiedNameText name, selector)
+    | constructor <- constructors,
+      fields <- recordFields constructor,
+      field <- fields,
+      name <- fieldNames field,
+      let selector =
+            case resolvedBinderEntity name of
+              Just (EntityGlobal global) -> globalNameText global
+              _ -> unqualifiedNameText name
+    ]
+  where
+    recordFields constructor =
+      case peelDataConAnn constructor of
+        RecordCon _ _ _ fields -> [fields]
+        GadtCon _ _ _ (GadtRecordBody fields _) -> [fields]
+        _ -> []
 
 -- | The name as the source writes it, with its qualifier.
 renderName :: Name -> Text
@@ -220,6 +341,58 @@ binderHeadName head' =
   case head' of
     PrefixBinderHead name _ -> name
     InfixBinderHead _ name _ _ -> name
+
+binderHeadParams :: BinderHead name -> [TyVarBinder]
+binderHeadParams head' =
+  case head' of
+    PrefixBinderHead _ params -> params
+    InfixBinderHead lhs _ rhs tailParams -> lhs : rhs : tailParams
+
+binderHeadForm :: BinderHead name -> TypeHeadForm
+binderHeadForm head' =
+  case head' of
+    PrefixBinderHead {} -> TypeHeadPrefix
+    InfixBinderHead {} -> TypeHeadInfix
+
+-- | The class name of an instance head: the leftmost atom of the
+-- application spine, under parentheses and wrappers.
+instanceHeadName :: Type -> Maybe Name
+instanceHeadName ty =
+  case ty of
+    TAnn _ inner -> instanceHeadName inner
+    TResolved _ inner -> instanceHeadName inner
+    TApp fun _ -> instanceHeadName fun
+    TTypeApp fun _ -> instanceHeadName fun
+    TParen inner -> instanceHeadName inner
+    TCon name _ -> Just name
+    TInfix _ name _ _ -> Just name
+    _ -> Nothing
+
+-- | The type arguments of an instance head.
+instanceHeadTypes :: Type -> [Type]
+instanceHeadTypes = go []
+  where
+    go acc ty =
+      case ty of
+        TAnn _ inner -> go acc inner
+        TResolved _ inner -> go acc inner
+        TApp fun arg -> go (arg : acc) fun
+        TTypeApp fun _ -> go acc fun
+        TParen inner -> go acc inner
+        TInfix lhs _ _ rhs -> [lhs, rhs]
+        _ -> acc
+
+gadtBodyResultType :: GadtBody -> Type
+gadtBodyResultType body =
+  case body of
+    GadtPrefixBody _ ty -> ty
+    GadtRecordBody _ ty -> ty
+
+moduleName :: Module -> Maybe Text
+moduleName modu = moduleHeadName <$> moduleHead modu
+
+moduleExports :: Module -> Maybe [ExportSpec]
+moduleExports modu = moduleHeadExports =<< moduleHead modu
 
 -- | Remove the annotation and error wrappers of a declaration.
 peelDeclAnn :: Decl -> Decl
@@ -252,6 +425,65 @@ peelTypeAnn ty =
     TAnn _ inner -> peelTypeAnn inner
     TResolved _ inner -> peelTypeAnn inner
     _ -> ty
+
+-- | Remove the wrappers of a type, and its parentheses.
+peelTypeHead :: Type -> Type
+peelTypeHead ty =
+  case ty of
+    TAnn _ inner -> peelTypeHead inner
+    TResolved _ inner -> peelTypeHead inner
+    TParen inner -> peelTypeHead inner
+    _ -> ty
+
+-- | Remove the annotation and resolution wrappers of a constructor.
+peelDataConAnn :: DataConDecl -> DataConDecl
+peelDataConAnn decl =
+  case decl of
+    DataConAnn _ inner -> peelDataConAnn inner
+    DataConResolved _ inner -> peelDataConAnn inner
+    _ -> decl
+
+-- | Remove the annotation and error wrappers of a class item.
+peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
+peelClassDeclItemAnn item =
+  case item of
+    ClassItemAnn _ inner -> peelClassDeclItemAnn inner
+    ClassItemError _ inner -> peelClassDeclItemAnn inner
+    _ -> item
+
+-- | Remove the annotation and error wrappers of an instance item.
+peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
+peelInstanceDeclItemAnn item =
+  case item of
+    InstanceItemAnn _ inner -> peelInstanceDeclItemAnn inner
+    InstanceItemError _ inner -> peelInstanceDeclItemAnn inner
+    _ -> item
+
+peelGuardQualifierAnn :: GuardQualifier -> GuardQualifier
+peelGuardQualifierAnn qualifier =
+  case qualifier of
+    GuardAnn _ inner -> peelGuardQualifierAnn inner
+    _ -> qualifier
+
+peelCompStmtAnn :: CompStmt -> CompStmt
+peelCompStmtAnn stmt =
+  case stmt of
+    CompAnn _ inner -> peelCompStmtAnn inner
+    _ -> stmt
+
+-- | Remove the annotation and resolution wrappers of a sequence.
+peelArithSeqAnn :: ArithSeq -> ArithSeq
+peelArithSeqAnn arithSeq =
+  case arithSeq of
+    ArithSeqAnn _ inner -> peelArithSeqAnn inner
+    ArithSeqResolved _ inner -> peelArithSeqAnn inner
+    _ -> arithSeq
+
+peelCmdAnn :: Cmd -> Cmd
+peelCmdAnn cmd =
+  case cmd of
+    CmdAnn _ inner -> peelCmdAnn inner
+    _ -> cmd
 
 -- | Remove the annotation, resolution and knot wrappers of a statement.
 peelDoStmtAnn :: DoStmt body -> DoStmt body

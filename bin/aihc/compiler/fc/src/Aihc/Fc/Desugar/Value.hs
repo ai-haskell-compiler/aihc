@@ -79,8 +79,8 @@ import Aihc.Tc.Annotations
     TcPatternInstantiation (..),
     TcRecKnotOccurrence (..),
   )
+import Aihc.Tc.Bindings (compStmtBinderNames, recStmtBinderNames)
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Generate.Pattern (compStmtBinderNames, recStmtBinderNames)
 import Aihc.Tc.Kind (typeVariableUniques)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types

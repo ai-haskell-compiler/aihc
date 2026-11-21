@@ -17,6 +17,7 @@
 module Aihc.Resolve.Syntax.ToParser
   ( toParserModule,
     toParserExpr,
+    toParserMatch,
     resolutionResultParserAnnotation,
   )
 where
