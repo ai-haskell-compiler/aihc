@@ -3,9 +3,17 @@
 -- Description : The aihc.lock file
 --
 -- A lock file records a solved plan so that later builds reuse it instead
--- of solving, and so that the plan survives changes on Hackage. It is JSON
--- with the packages sorted by name, one package per line, so that a diff
--- touches only the packages that changed.
+-- of solving, and so that the plan survives changes on Hackage. It is a
+-- line-based text file with the packages sorted by name, one package per
+-- line, so that a diff touches only the packages that changed:
+--
+-- > format 2
+-- > compiler ghc-9.12.4
+-- > index-state 2026-09-17T00:00:00Z
+-- >
+-- > platform linux-x86_64
+-- >   base 4.21.0.0 core
+-- >   unix 2.8.8.0 hackage revision=1 +os-string
 --
 -- The file holds one assignment per target platform, because conditions on
 -- @os@ and @arch@ can change a package's dependencies, and names the
@@ -33,21 +41,17 @@ import Aihc.Hackage.Package (Arch, FlagAssignment, OS, PackageName, Version, arc
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..), Preference (..), Solution)
 import Control.Exception (bracket)
 import Control.Monad (when)
-import Data.Aeson ((.:), (.:?), (.=))
-import Data.Aeson qualified as Aeson
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC
-import Data.List (sortOn)
+import Data.Char (isSpace)
+import Data.List (sortOn, stripPrefix)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Text qualified as T
 import System.Directory (doesFileExist, removeFile, renameFile)
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, openBinaryTempFileWithDefaultPermissions)
+import Text.Read (readMaybe)
 
 -- | The file is called @aihc.lock@ wherever it lives.
 lockFileName :: FilePath
@@ -55,7 +59,7 @@ lockFileName = "aihc.lock"
 
 -- | Bumped on any change to the shape of the file.
 lockFormatVersion :: Int
-lockFormatVersion = 1
+lockFormatVersion = 2
 
 data LockSource = LockCore | LockHackage | LockLocal
   deriving (Eq, Ord, Show)
@@ -115,49 +119,27 @@ writeLockFile path lock =
 -- | Render the file with one package per line, in name order.
 renderLockFile :: LockFile -> BL.ByteString
 renderLockFile lock =
-  BLC.unlines
-    ( [ BLC.pack "{",
-        field "format" (Aeson.encode lockFormatVersion) <> BLC.pack ",",
-        field "compiler" (Aeson.encode (lockCompiler lock)) <> BLC.pack ",",
-        field "index-state" (Aeson.encode (lockIndexState lock)) <> BLC.pack ",",
-        BLC.pack "  \"platforms\": {"
-      ]
-        <> concat (separatedGroups (map platform (Map.toAscList (lockPlatforms lock))))
-        <> [BLC.pack "  }", BLC.pack "}"]
-    )
+  BLC.pack . unlines $
+    [ "format " <> show lockFormatVersion,
+      "compiler " <> lockCompiler lock
+    ]
+      <> ["index-state " <> state | Just state <- [lockIndexState lock]]
+      <> concatMap platform (Map.toAscList (lockPlatforms lock))
   where
-    field :: String -> BL.ByteString -> BL.ByteString
-    field name value = BLC.pack ("  " <> show name <> ": ") <> value
     platform (key, entries) =
-      [BLC.pack ("    " <> show key <> ": [")]
-        <> separated (map ((BLC.pack "      " <>) . renderEntry) (sortOn lockName entries))
-        <> [BLC.pack "    ]"]
-    separated [] = []
-    separated [x] = [x]
-    separated (x : rest) = (x <> BLC.pack ",") : separated rest
-    -- A comma after the last line of every group but the last.
-    separatedGroups [] = []
-    separatedGroups [group] = [group]
-    separatedGroups (group : rest) = (init group <> [last group <> BLC.pack ","]) : separatedGroups rest
+      ["", "platform " <> key] <> map (("  " <>) . renderEntry) (sortOn lockName entries)
 
-renderEntry :: LockEntry -> BL.ByteString
+-- | One package as words: the name, the version, the source, the
+-- revision of a Hackage release, and each flag as @+flag@ or @-flag@.
+renderEntry :: LockEntry -> String
 renderEntry entry =
-  BLC.pack "{"
-    <> BLC.intercalate
-      (BLC.pack ", ")
-      ( [ pair "name" (Aeson.encode (unPackageName (lockName entry))),
-          pair "version" (Aeson.encode (showVersion (lockVersion entry))),
-          pair "source" (Aeson.encode (sourceText (lockSource entry)))
-        ]
-          <> [pair "revision" (Aeson.encode revision) | Just revision <- [lockRevision entry]]
-          <> [ pair "flags" (Aeson.encode (Aeson.object [Key.fromString (unFlagName flag) .= value | (flag, value) <- sortOn fst (unFlagAssignment (lockFlags entry))]))
-             | not (null (unFlagAssignment (lockFlags entry)))
-             ]
-      )
-    <> BLC.pack "}"
-  where
-    pair :: String -> BL.ByteString -> BL.ByteString
-    pair name value = BLC.pack (show name <> ": ") <> value
+  unwords $
+    [ unPackageName (lockName entry),
+      showVersion (lockVersion entry),
+      sourceText (lockSource entry)
+    ]
+      <> ["revision=" <> show revision | Just revision <- [lockRevision entry]]
+      <> [(if value then "+" else "-") <> unFlagName flag | (flag, value) <- sortOn fst (unFlagAssignment (lockFlags entry))]
 
 sourceText :: LockSource -> String
 sourceText source =
@@ -166,43 +148,66 @@ sourceText source =
     LockHackage -> "hackage"
     LockLocal -> "local"
 
+-- | Read the file. Empty lines and lines that start with @--@ are ignored.
 parseLockFile :: BL.ByteString -> Either String LockFile
-parseLockFile bytes = do
-  value <- Aeson.eitherDecode bytes
-  AesonTypes.parseEither parseLock value
+parseLockFile bytes =
+  case [(number, words line) | (number, line) <- zip [1 :: Int ..] (lines (BLC.unpack bytes)), significant line] of
+    (_, ["format", formatText]) : rest
+      | readMaybe formatText == Just lockFormatVersion -> parseHeader rest
+      | otherwise -> unsupported formatText
+    _ -> unsupported "1"
   where
-    parseLock = Aeson.withObject "lock file" $ \object -> do
-      format <- object .: "format"
-      if format /= lockFormatVersion
-        then fail ("unsupported lock format " <> show (format :: Int) <> "; this compiler writes format " <> show lockFormatVersion)
-        else
-          LockFile
-            <$> object .: "compiler"
-            <*> object .:? "index-state"
-            <*> (object .: "platforms" >>= Aeson.withObject "platforms" (fmap Map.fromList . mapM parsePlatform . KeyMap.toList))
-    parsePlatform (key, value) = do
-      entries <- Aeson.parseJSON value >>= mapM parseEntry
-      pure (Key.toString key, entries)
-    parseEntry = Aeson.withObject "package" $ \object -> do
-      name <- object .: "name"
-      versionText <- object .: "version"
-      version <- maybe (fail ("invalid version " <> versionText)) pure (parseVersionString versionText)
-      sourceName <- object .: "source"
-      source <- case sourceName :: String of
-        "core" -> pure LockCore
-        "hackage" -> pure LockHackage
-        "local" -> pure LockLocal
-        other -> fail ("unknown package source " <> other)
-      revision <- object .:? "revision"
-      flags <- object .:? "flags"
+    significant line =
+      let content = dropWhile isSpace line
+       in not (null content) && take 2 content /= "--"
+    unsupported found =
+      Left ("unsupported lock format " <> found <> "; this compiler writes format " <> show lockFormatVersion <> ". Remove the file to write it again")
+    parseHeader ((_, ["compiler", compiler]) : rest) = do
+      let (state, rest') =
+            case rest of
+              (_, ["index-state", value]) : after -> (Just value, after)
+              _ -> (Nothing, rest)
+      platforms <- parsePlatforms Map.empty rest'
+      pure LockFile {lockCompiler = compiler, lockIndexState = state, lockPlatforms = platforms}
+    parseHeader rest = Left (atLine rest "expected \"compiler NAME\"")
+    parsePlatforms platforms [] = Right platforms
+    parsePlatforms platforms ((_, ["platform", key]) : rest) = do
+      let (entryLines, rest') = break (isPlatform . snd) rest
+      entries <- mapM parseEntry entryLines
+      parsePlatforms (Map.insert key entries platforms) rest'
+    parsePlatforms _ rest = Left (atLine rest "expected \"platform KEY\"")
+    isPlatform (keyword : _) = keyword == "platform"
+    isPlatform [] = False
+    parseEntry (number, nameText : versionText : sourceName : options) = do
+      let failure message = Left ("line " <> show number <> ": " <> message)
+      version <- maybe (failure ("invalid version " <> versionText)) Right (parseVersionString versionText)
+      source <- case sourceName of
+        "core" -> Right LockCore
+        "hackage" -> Right LockHackage
+        "local" -> Right LockLocal
+        other -> failure ("unknown package source " <> other)
+      (revision, flags) <- foldr (parseOption failure) (Right (Nothing, [])) options
       pure
         LockEntry
-          { lockName = mkPackageName name,
+          { lockName = mkPackageName nameText,
             lockVersion = version,
             lockSource = source,
             lockRevision = revision,
-            lockFlags = mkFlagAssignment [(mkFlagName (T.unpack flag), value) | (flag, value) <- maybe [] Map.toList flags]
+            lockFlags = mkFlagAssignment flags
           }
+    parseEntry (number, _) = Left ("line " <> show number <> ": expected \"NAME VERSION SOURCE\"")
+    parseOption failure option result = do
+      (revision, flags) <- result
+      case option of
+        '+' : flag | not (null flag) -> Right (revision, (mkFlagName flag, True) : flags)
+        '-' : flag | not (null flag) -> Right (revision, (mkFlagName flag, False) : flags)
+        _
+          | Just number <- readMaybe =<< stripPrefix "revision=" option -> Right (Just number, flags)
+        _ -> failure ("invalid package option " <> option)
+    atLine rest message =
+      case rest of
+        (number, _) : _ -> "line " <> show number <> ": " <> message
+        [] -> "unexpected end of file: " <> message
 
 -- | The entries of one platform from a solution.
 lockEntriesFromSolution :: Solution -> [LockEntry]

@@ -2624,9 +2624,9 @@ parseSource headerDir root versions fileInfo = do
     } <-
     parseInterfaceBytes headerDir root versions fileInfo bytes
   let (cppWarnings, cppErrors) = partition isCppWarning cppDiagnostics
-  mapM_ (hPutStrLn stderr . renderHumanDiagnostic "cpp") cppWarnings
+  mapM_ (hPutStrLn stderr . renderHumanDiagnostic) cppWarnings
   unless (null cppErrors) $
-    ioError (userError ("Preprocess failed:\n" <> concatMap (renderHumanDiagnostic "cpp") cppErrors))
+    ioError (userError ("Preprocess failed:\n" <> concatMap renderHumanDiagnostic cppErrors))
   -- The effective extensions of the module: the cabal default extensions,
   -- the language edition and the module's own pragmas folded into one set.
   -- Name resolution and the type checker take that set as data, so neither
@@ -2823,7 +2823,7 @@ excerptSourceLoader headerDir root versions files path =
 
 renderParseDiagnostics :: [Diagnostic] -> String
 renderParseDiagnostics diagnostics =
-  "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
+  "Parse failed:\n" <> intercalate "\n" (map renderHumanDiagnostic diagnostics)
 
 renderTypeErrors :: DiagnosticSourceMap -> [(Text, TcDiagnostic)] -> String
 renderTypeErrors sourceLines diagnostics =

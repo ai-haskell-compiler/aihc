@@ -278,45 +278,45 @@ The alternatives were considered and rejected:
 
 ### Contents
 
-JSON, with packages sorted by name so that a diff touches only the packages
-that changed:
+A line-based text file, with packages sorted by name so that a diff touches
+only the packages that changed:
 
-```json
-{
-  "format": 1,
-  "compiler": "ghc-9.12.4",
-  "index-state": "2026-09-17T00:00:00Z",
-  "platforms": {
-    "linux-x86_64": [
-      {"name": "base", "version": "4.21.0.0", "source": "core"},
-      {"name": "filepath", "version": "1.5.5.0", "source": "hackage",
-       "revision": 2},
-      {"name": "os-string", "version": "2.0.11", "source": "hackage",
-       "revision": 0},
-      {"name": "unix", "version": "2.8.8.0", "source": "hackage",
-       "revision": 1, "flags": {"os-string": true}}
-    ]
-  }
-}
+```text
+format 2
+compiler ghc-9.12.4
+index-state 2026-09-17T00:00:00Z
+
+platform linux-x86_64
+  base 4.21.0.0 core
+  filepath 1.5.5.0 hackage revision=2
+  os-string 2.0.11 hackage revision=0
+  unix 2.8.8.0 hackage revision=1 +os-string
 ```
 
-- `format` is bumped on any shape change.
+The file uses no JSON, so `aihc` can read it without `aeson` when it is built
+without the `hackage` flag. Empty lines and lines that start with `--` are
+ignored.
+
+- `format` is bumped on any shape change. Format 1 was JSON. A file in another
+  format is an error; remove it to write it again.
 - `compiler` is the emulated GHC release. A lock written for another release
   is ignored and rewritten, since the core-library versions differ.
 - `index-state` is the moment the plan was solved against Hackage. It is
   informational; the pinned versions and revisions are what make the plan
   reproducible.
-- `platforms` holds one assignment per target OS and architecture, because
-  conditions on `os` and `arch` can change a package's dependencies. A
-  multi-target install solves once per platform and writes every result.
-- `flags` lists every flag that is a search variable or was constrained, with
-  its value. Flags at their default that were never searched are omitted, so the
-  entry says exactly what was decided.
-- `revision` is the cabal file revision the plan was solved with. Hackage
+- Each `platform` line starts the assignment of one target OS and
+  architecture, because conditions on `os` and `arch` can change a package's
+  dependencies. A multi-target install solves once per platform and writes
+  every result.
+- Each package line holds the name, the version, and the source: `core`,
+  `hackage`, or `local`.
+- `revision=N` is the cabal file revision the plan was solved with. Hackage
   revisions can tighten bounds after the fact; the build uses the recorded
-  revision so a later revision cannot invalidate a committed plan.
-- Local and workspace packages appear with `"source": "local"` and their
-  version, and no revision.
+  revision so a later revision cannot invalidate a committed plan. Only
+  Hackage releases have one.
+- `+flag` and `-flag` list every flag that is a search variable or was
+  constrained, with its value. Flags at their default that were never
+  searched are omitted, so the entry says exactly what was decided.
 
 ### Behaviour
 

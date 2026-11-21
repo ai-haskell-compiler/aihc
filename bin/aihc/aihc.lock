@@ -1,148 +1,144 @@
-{
-  "format": 1,
-  "compiler": "ghc-9.12.4",
-  "index-state": "2026-11-17T10:29:13Z",
-  "platforms": {
-    "osx-aarch64": [
-      {"name": "OneTuple", "version": "0.4.3", "source": "hackage", "revision": 0, "flags": {"base-ge-4-15":true,"base-ge-4-16":true}},
-      {"name": "QuickCheck", "version": "2.18.0.0", "source": "hackage", "revision": 0, "flags": {"old-random":false}},
-      {"name": "StateVar", "version": "1.2.2", "source": "hackage", "revision": 0},
-      {"name": "aeson", "version": "2.2.5.1", "source": "hackage", "revision": 0},
-      {"name": "aihc", "version": "0.2.0", "source": "local"},
-      {"name": "aihc-base", "version": "4.21.2.0", "source": "core"},
-      {"name": "aihc-cabal-syntax", "version": "2.0.0.0", "source": "hackage", "revision": 0},
-      {"name": "aihc-cpp", "version": "2.0.0.1", "source": "hackage", "revision": 0},
-      {"name": "aihc-hackage", "version": "0.1.0.0", "source": "local"},
-      {"name": "aihc-hackage-fetch", "version": "0.1.0.0", "source": "local"},
-      {"name": "aihc-heap", "version": "9.12.4", "source": "core"},
-      {"name": "aihc-http", "version": "0.1.0.0", "source": "local"},
-      {"name": "aihc-internal", "version": "9.1204.0", "source": "core"},
-      {"name": "aihc-package-plan", "version": "0.1.0.0", "source": "local"},
-      {"name": "aihc-parser", "version": "6.0.0.0", "source": "hackage", "revision": 0},
-      {"name": "aihc-prim", "version": "0.13.0", "source": "core"},
-      {"name": "aihc-resolve", "version": "0.1.0.0", "source": "local"},
-      {"name": "aihc-rts", "version": "1.0.2", "source": "core"},
-      {"name": "aihc-tc", "version": "0.1.0.0", "source": "local", "flags": {"fuzz":true}},
-      {"name": "aihc-template-haskell", "version": "2.23.0.0", "source": "core"},
-      {"name": "ansi-terminal", "version": "1.1.5", "source": "hackage", "revision": 0},
-      {"name": "ansi-terminal-types", "version": "1.1.3", "source": "hackage", "revision": 0},
-      {"name": "appar", "version": "0.1.8", "source": "hackage", "revision": 0},
-      {"name": "array", "version": "0.5.8.0", "source": "hackage", "revision": 2},
-      {"name": "assoc", "version": "1.1.1", "source": "hackage", "revision": 2},
-      {"name": "async", "version": "2.2.6", "source": "hackage", "revision": 0},
-      {"name": "atomic-counter", "version": "0.1.2.4", "source": "hackage", "revision": 0, "flags": {"no-cmm":true}},
-      {"name": "base-orphans", "version": "0.9.4", "source": "hackage", "revision": 0},
-      {"name": "base16", "version": "2.0", "source": "hackage", "revision": 0},
-      {"name": "base16-bytestring", "version": "1.0.2.0", "source": "hackage", "revision": 1},
-      {"name": "base64", "version": "2.1", "source": "hackage", "revision": 0},
-      {"name": "base64-bytestring", "version": "1.2.1.0", "source": "hackage", "revision": 1},
-      {"name": "bifunctors", "version": "5.6.3", "source": "hackage", "revision": 1},
-      {"name": "binary", "version": "0.8.9.3", "source": "hackage", "revision": 0},
-      {"name": "blaze-builder", "version": "0.4.4.1", "source": "hackage", "revision": 0},
-      {"name": "bytestring", "version": "0.12.2.0", "source": "hackage", "revision": 1},
-      {"name": "case-insensitive", "version": "1.2.2.0", "source": "hackage", "revision": 0},
-      {"name": "cborg", "version": "0.2.10.0", "source": "hackage", "revision": 3, "flags": {"optimize-gmp":true}},
-      {"name": "cereal", "version": "0.5.8.3", "source": "hackage", "revision": 0, "flags": {"bytestring-builder":false}},
-      {"name": "character-ps", "version": "0.1", "source": "hackage", "revision": 0},
-      {"name": "colour", "version": "2.3.7", "source": "hackage", "revision": 0},
-      {"name": "commutative-semigroups", "version": "0.2.0.2", "source": "hackage", "revision": 0},
-      {"name": "comonad", "version": "5.0.10", "source": "hackage", "revision": 0},
-      {"name": "containers", "version": "0.7", "source": "hackage", "revision": 0},
-      {"name": "contravariant", "version": "1.5.6", "source": "hackage", "revision": 0},
-      {"name": "cookie", "version": "0.5.1", "source": "hackage", "revision": 0},
-      {"name": "cryptohash-md5", "version": "0.11.101.0", "source": "hackage", "revision": 6},
-      {"name": "cryptohash-sha256", "version": "0.11.102.1", "source": "hackage", "revision": 6},
-      {"name": "crypton", "version": "2.2.6", "source": "hackage", "revision": 1},
-      {"name": "crypton-asn1-encoding", "version": "0.10.0", "source": "hackage", "revision": 0},
-      {"name": "crypton-asn1-parse", "version": "0.10.0", "source": "hackage", "revision": 0},
-      {"name": "crypton-asn1-types", "version": "0.4.1", "source": "hackage", "revision": 0},
-      {"name": "crypton-connection", "version": "0.4.6", "source": "hackage", "revision": 3},
-      {"name": "crypton-pem", "version": "0.3.0", "source": "hackage", "revision": 0},
-      {"name": "crypton-socks", "version": "0.6.2", "source": "hackage", "revision": 0},
-      {"name": "crypton-x509", "version": "1.10.1", "source": "hackage", "revision": 0},
-      {"name": "crypton-x509-store", "version": "1.10.0", "source": "hackage", "revision": 0},
-      {"name": "crypton-x509-system", "version": "1.10.0", "source": "hackage", "revision": 0},
-      {"name": "crypton-x509-validation", "version": "1.10.1", "source": "hackage", "revision": 0},
-      {"name": "data-default", "version": "0.8.0.2", "source": "hackage", "revision": 0},
-      {"name": "data-default-class", "version": "0.2.0.0", "source": "hackage", "revision": 0},
-      {"name": "data-fix", "version": "0.3.4", "source": "hackage", "revision": 2},
-      {"name": "deepseq", "version": "1.5.2.0", "source": "hackage", "revision": 0},
-      {"name": "directory", "version": "1.3.11.0", "source": "hackage", "revision": 0},
-      {"name": "directory-ospath-streaming", "version": "0.3", "source": "hackage", "revision": 1, "flags": {"os-string":true}},
-      {"name": "distributive", "version": "0.6.3", "source": "hackage", "revision": 0},
-      {"name": "dlist", "version": "1.0", "source": "hackage", "revision": 2},
-      {"name": "ech-config", "version": "0.0.2", "source": "hackage", "revision": 0},
-      {"name": "exceptions", "version": "0.10.12", "source": "hackage", "revision": 2},
-      {"name": "file-io", "version": "0.1.6", "source": "hackage", "revision": 0, "flags": {"os-string":true}},
-      {"name": "filepath", "version": "1.5.5.0", "source": "hackage", "revision": 0},
-      {"name": "ghc-bignum", "version": "1.3", "source": "hackage", "revision": 0},
-      {"name": "groups", "version": "0.5.3", "source": "hackage", "revision": 0},
-      {"name": "half", "version": "0.3.3", "source": "hackage", "revision": 3},
-      {"name": "hashable", "version": "1.5.1.0", "source": "hackage", "revision": 0},
-      {"name": "hpke", "version": "0.4.0", "source": "hackage", "revision": 0},
-      {"name": "http-client", "version": "0.7.19", "source": "hackage", "revision": 0, "flags": {"network-uri":true}},
-      {"name": "http-client-tls", "version": "0.4.0", "source": "hackage", "revision": 0},
-      {"name": "http-types", "version": "0.12.6", "source": "hackage", "revision": 0},
-      {"name": "indexed-traversable", "version": "0.1.5", "source": "hackage", "revision": 0, "flags": {"base-ge-4-18":true}},
-      {"name": "indexed-traversable-instances", "version": "0.1.2.1", "source": "hackage", "revision": 0},
-      {"name": "integer-conversion", "version": "0.1.1", "source": "hackage", "revision": 2},
-      {"name": "integer-gmp", "version": "1.1", "source": "hackage", "revision": 0},
-      {"name": "integer-logarithms", "version": "1.0.5", "source": "hackage", "revision": 0, "flags": {"integer-gmp":true}},
-      {"name": "iproute", "version": "1.8.0", "source": "hackage", "revision": 0},
-      {"name": "megaparsec", "version": "9.8.3", "source": "hackage", "revision": 0},
-      {"name": "mime-types", "version": "0.1.2.2", "source": "hackage", "revision": 0},
-      {"name": "monoid-subclasses", "version": "1.2.6.1", "source": "hackage", "revision": 0},
-      {"name": "monoidmap", "version": "0.1.3.1", "source": "hackage", "revision": 0},
-      {"name": "monoidmap-internal", "version": "0.5.1.0", "source": "hackage", "revision": 0},
-      {"name": "mtl", "version": "2.3.2", "source": "hackage", "revision": 1},
-      {"name": "network", "version": "3.2.12.0", "source": "hackage", "revision": 0},
-      {"name": "network-byte-order", "version": "0.1.9", "source": "hackage", "revision": 0},
-      {"name": "network-uri", "version": "2.6.4.2", "source": "hackage", "revision": 1},
-      {"name": "nothunks", "version": "0.3.2", "source": "hackage", "revision": 0},
-      {"name": "optparse-applicative", "version": "0.18.1.0", "source": "hackage", "revision": 1, "flags": {"process":true}},
-      {"name": "os-string", "version": "2.0.11", "source": "hackage", "revision": 0},
-      {"name": "parsec", "version": "3.1.18.0", "source": "hackage", "revision": 1},
-      {"name": "parser-combinators", "version": "1.3.1", "source": "hackage", "revision": 0},
-      {"name": "prettyprinter", "version": "1.7.2", "source": "hackage", "revision": 0},
-      {"name": "prettyprinter-ansi-terminal", "version": "1.1.4", "source": "hackage", "revision": 0},
-      {"name": "primes", "version": "0.2.1.0", "source": "hackage", "revision": 0},
-      {"name": "primitive", "version": "0.9.1.0", "source": "hackage", "revision": 1},
-      {"name": "process", "version": "1.6.30.0", "source": "hackage", "revision": 0, "flags": {"os-string":true}},
-      {"name": "ram", "version": "0.22.1", "source": "hackage", "revision": 0},
-      {"name": "random", "version": "1.3.1", "source": "hackage", "revision": 0},
-      {"name": "scientific", "version": "0.3.10.0", "source": "hackage", "revision": 0, "flags": {"integer-simple":false}},
-      {"name": "semialign", "version": "1.4", "source": "hackage", "revision": 0},
-      {"name": "semigroupoids", "version": "6.0.2", "source": "hackage", "revision": 1},
-      {"name": "serialise", "version": "0.2.6.1", "source": "hackage", "revision": 5, "flags": {"newtime15":true}},
-      {"name": "splitmix", "version": "0.1.3.2", "source": "hackage", "revision": 0},
-      {"name": "stm", "version": "2.5.3.1", "source": "hackage", "revision": 1},
-      {"name": "streaming-commons", "version": "0.2.3.1", "source": "hackage", "revision": 0, "flags": {"use-bytestring-builder":false}},
-      {"name": "strict", "version": "0.5.1", "source": "hackage", "revision": 1},
-      {"name": "system-cxx-std-lib", "version": "1.0", "source": "core"},
-      {"name": "tagged", "version": "0.8.11", "source": "hackage", "revision": 0},
-      {"name": "tar", "version": "0.6.4.0", "source": "hackage", "revision": 4},
-      {"name": "terminal-size", "version": "0.3.4", "source": "hackage", "revision": 1},
-      {"name": "text", "version": "2.1.4", "source": "hackage", "revision": 0},
-      {"name": "text-iso8601", "version": "0.1.1.2", "source": "hackage", "revision": 0},
-      {"name": "text-short", "version": "0.1.6.1", "source": "hackage", "revision": 0},
-      {"name": "th-abstraction", "version": "0.7.2.0", "source": "hackage", "revision": 0},
-      {"name": "th-compat", "version": "0.1.7", "source": "hackage", "revision": 0},
-      {"name": "these", "version": "1.2.1", "source": "hackage", "revision": 3},
-      {"name": "time", "version": "1.14", "source": "hackage", "revision": 1},
-      {"name": "time-compat", "version": "1.9.9", "source": "hackage", "revision": 1},
-      {"name": "time-hourglass", "version": "0.3.0", "source": "hackage", "revision": 0},
-      {"name": "tls", "version": "2.5.1", "source": "hackage", "revision": 0},
-      {"name": "transformers", "version": "0.6.3.0", "source": "hackage", "revision": 2},
-      {"name": "transformers-compat", "version": "0.7.2", "source": "hackage", "revision": 0, "flags": {"five":false,"five-three":true,"four":false,"three":false,"two":false}},
-      {"name": "unix", "version": "2.8.8.0", "source": "hackage", "revision": 1, "flags": {"os-string":true}},
-      {"name": "unix-time", "version": "0.6.0", "source": "hackage", "revision": 0},
-      {"name": "unordered-containers", "version": "0.2.21", "source": "hackage", "revision": 2},
-      {"name": "uuid-types", "version": "1.0.6.1", "source": "hackage", "revision": 0},
-      {"name": "vector", "version": "0.13.2.0", "source": "hackage", "revision": 5},
-      {"name": "vector-stream", "version": "0.1.0.1", "source": "hackage", "revision": 4},
-      {"name": "wherefrom-compat", "version": "0.2.0.0", "source": "hackage", "revision": 5},
-      {"name": "witherable", "version": "0.5", "source": "hackage", "revision": 2},
-      {"name": "zlib", "version": "0.7.1.1", "source": "hackage", "revision": 1, "flags": {"pkg-config":false}}
-    ]
-  }
-}
+format 2
+compiler ghc-9.12.4
+index-state 2026-11-17T10:29:13Z
+
+platform osx-aarch64
+  OneTuple 0.4.3 hackage revision=0 +base-ge-4-15 +base-ge-4-16
+  QuickCheck 2.18.0.0 hackage revision=0 -old-random
+  StateVar 1.2.2 hackage revision=0
+  aeson 2.2.5.1 hackage revision=0
+  aihc 0.2.0 local
+  aihc-base 4.21.2.0 core
+  aihc-cabal-syntax 2.0.0.0 hackage revision=0
+  aihc-cpp 2.0.0.1 hackage revision=0
+  aihc-hackage 0.1.0.0 local
+  aihc-hackage-fetch 0.1.0.0 local
+  aihc-heap 9.12.4 core
+  aihc-http 0.1.0.0 local
+  aihc-internal 9.1204.0 core
+  aihc-package-plan 0.1.0.0 local
+  aihc-parser 6.0.0.0 hackage revision=0
+  aihc-prim 0.13.0 core
+  aihc-resolve 0.1.0.0 local
+  aihc-rts 1.0.2 core
+  aihc-tc 0.1.0.0 local +fuzz
+  aihc-template-haskell 2.23.0.0 core
+  ansi-terminal 1.1.5 hackage revision=0
+  ansi-terminal-types 1.1.3 hackage revision=0
+  appar 0.1.8 hackage revision=0
+  array 0.5.8.0 hackage revision=2
+  assoc 1.1.1 hackage revision=2
+  async 2.2.6 hackage revision=0
+  atomic-counter 0.1.2.4 hackage revision=0 +no-cmm
+  base-orphans 0.9.4 hackage revision=0
+  base16 2.0 hackage revision=0
+  base16-bytestring 1.0.2.0 hackage revision=1
+  base64 2.1 hackage revision=0
+  base64-bytestring 1.2.1.0 hackage revision=1
+  bifunctors 5.6.3 hackage revision=1
+  binary 0.8.9.3 hackage revision=0
+  blaze-builder 0.4.4.1 hackage revision=0
+  bytestring 0.12.2.0 hackage revision=1
+  case-insensitive 1.2.2.0 hackage revision=0
+  cborg 0.2.10.0 hackage revision=3 +optimize-gmp
+  cereal 0.5.8.3 hackage revision=0 -bytestring-builder
+  character-ps 0.1 hackage revision=0
+  colour 2.3.7 hackage revision=0
+  commutative-semigroups 0.2.0.2 hackage revision=0
+  comonad 5.0.10 hackage revision=0
+  containers 0.7 hackage revision=0
+  contravariant 1.5.6 hackage revision=0
+  cookie 0.5.1 hackage revision=0
+  cryptohash-md5 0.11.101.0 hackage revision=6
+  cryptohash-sha256 0.11.102.1 hackage revision=6
+  crypton 2.2.6 hackage revision=1
+  crypton-asn1-encoding 0.10.0 hackage revision=0
+  crypton-asn1-parse 0.10.0 hackage revision=0
+  crypton-asn1-types 0.4.1 hackage revision=0
+  crypton-connection 0.4.6 hackage revision=3
+  crypton-pem 0.3.0 hackage revision=0
+  crypton-socks 0.6.2 hackage revision=0
+  crypton-x509 1.10.1 hackage revision=0
+  crypton-x509-store 1.10.0 hackage revision=0
+  crypton-x509-system 1.10.0 hackage revision=0
+  crypton-x509-validation 1.10.1 hackage revision=0
+  data-default 0.8.0.2 hackage revision=0
+  data-default-class 0.2.0.0 hackage revision=0
+  data-fix 0.3.4 hackage revision=2
+  deepseq 1.5.2.0 hackage revision=0
+  directory 1.3.11.0 hackage revision=0
+  directory-ospath-streaming 0.3 hackage revision=1 +os-string
+  distributive 0.6.3 hackage revision=0
+  dlist 1.0 hackage revision=2
+  ech-config 0.0.2 hackage revision=0
+  exceptions 0.10.12 hackage revision=2
+  file-io 0.1.6 hackage revision=0 +os-string
+  filepath 1.5.5.0 hackage revision=0
+  ghc-bignum 1.3 hackage revision=0
+  groups 0.5.3 hackage revision=0
+  half 0.3.3 hackage revision=3
+  hashable 1.5.1.0 hackage revision=0
+  hpke 0.4.0 hackage revision=0
+  http-client 0.7.19 hackage revision=0 +network-uri
+  http-client-tls 0.4.0 hackage revision=0
+  http-types 0.12.6 hackage revision=0
+  indexed-traversable 0.1.5 hackage revision=0 +base-ge-4-18
+  indexed-traversable-instances 0.1.2.1 hackage revision=0
+  integer-conversion 0.1.1 hackage revision=2
+  integer-gmp 1.1 hackage revision=0
+  integer-logarithms 1.0.5 hackage revision=0 +integer-gmp
+  iproute 1.8.0 hackage revision=0
+  megaparsec 9.8.3 hackage revision=0
+  mime-types 0.1.2.2 hackage revision=0
+  monoid-subclasses 1.2.6.1 hackage revision=0
+  monoidmap 0.1.3.1 hackage revision=0
+  monoidmap-internal 0.5.1.0 hackage revision=0
+  mtl 2.3.2 hackage revision=1
+  network 3.2.12.0 hackage revision=0
+  network-byte-order 0.1.9 hackage revision=0
+  network-uri 2.6.4.2 hackage revision=1
+  nothunks 0.3.2 hackage revision=0
+  optparse-applicative 0.18.1.0 hackage revision=1 +process
+  os-string 2.0.11 hackage revision=0
+  parsec 3.1.18.0 hackage revision=1
+  parser-combinators 1.3.1 hackage revision=0
+  prettyprinter 1.7.2 hackage revision=0
+  prettyprinter-ansi-terminal 1.1.4 hackage revision=0
+  primes 0.2.1.0 hackage revision=0
+  primitive 0.9.1.0 hackage revision=1
+  process 1.6.30.0 hackage revision=0 +os-string
+  ram 0.22.1 hackage revision=0
+  random 1.3.1 hackage revision=0
+  scientific 0.3.10.0 hackage revision=0 -integer-simple
+  semialign 1.4 hackage revision=0
+  semigroupoids 6.0.2 hackage revision=1
+  serialise 0.2.6.1 hackage revision=5 +newtime15
+  splitmix 0.1.3.2 hackage revision=0
+  stm 2.5.3.1 hackage revision=1
+  streaming-commons 0.2.3.1 hackage revision=0 -use-bytestring-builder
+  strict 0.5.1 hackage revision=1
+  system-cxx-std-lib 1.0 core
+  tagged 0.8.11 hackage revision=0
+  tar 0.6.4.0 hackage revision=4
+  terminal-size 0.3.4 hackage revision=1
+  text 2.1.4 hackage revision=0
+  text-iso8601 0.1.1.2 hackage revision=0
+  text-short 0.1.6.1 hackage revision=0
+  th-abstraction 0.7.2.0 hackage revision=0
+  th-compat 0.1.7 hackage revision=0
+  these 1.2.1 hackage revision=3
+  time 1.14 hackage revision=1
+  time-compat 1.9.9 hackage revision=1
+  time-hourglass 0.3.0 hackage revision=0
+  tls 2.5.1 hackage revision=0
+  transformers 0.6.3.0 hackage revision=2
+  transformers-compat 0.7.2 hackage revision=0 -five +five-three -four -three -two
+  unix 2.8.8.0 hackage revision=1 +os-string
+  unix-time 0.6.0 hackage revision=0
+  unordered-containers 0.2.21 hackage revision=2
+  uuid-types 1.0.6.1 hackage revision=0
+  vector 0.13.2.0 hackage revision=5
+  vector-stream 0.1.0.1 hackage revision=4
+  wherefrom-compat 0.2.0.0 hackage revision=5
+  witherable 0.5 hackage revision=2
+  zlib 0.7.1.1 hackage revision=1 -pkg-config
