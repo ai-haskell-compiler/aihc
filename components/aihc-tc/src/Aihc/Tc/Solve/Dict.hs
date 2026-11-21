@@ -32,7 +32,7 @@ import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zon
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstancesForArguments, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, rewriteApplicationPrefix, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, isTypeFamilyTyCon, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
@@ -48,7 +48,7 @@ import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.List (elemIndex, partition, sortOn)
+import Data.List (elemIndex, foldl', partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
@@ -1323,6 +1323,10 @@ rewriteWithRules rules = go
         (to, proof) : _ -> (to, proof)
         [] ->
           case ty of
+            TcTyConApp tyCon kindArguments arguments
+              | Just (to, proof, extra) <- rewriteApplicationPrefix rules tyCon kindArguments arguments ->
+                  let (extra', extraProofs) = unzip (map go extra)
+                   in (foldl' mkAppTy to extra', foldl' AppCo proof extraProofs)
             TcTyConApp tyCon kindArguments arguments ->
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)
