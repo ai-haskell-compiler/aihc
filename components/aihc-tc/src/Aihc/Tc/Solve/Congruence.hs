@@ -5,6 +5,7 @@ module Aihc.Tc.Solve.Congruence
     givenEqualities,
     allGivenEqualities,
     applyGivenSubst,
+    rewriteApplicationPrefix,
     stuckGivenConstraints,
   )
 where
@@ -183,6 +184,10 @@ reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
     rewrite rule@(from, to, proof) current
       | sameType from current = (to, proof)
       | otherwise = case current of
+          TcTyConApp constructor kindArguments arguments
+            | Just (to', proof', extra) <- rewriteApplicationPrefix [rule] constructor kindArguments arguments ->
+                let (extra', extraProofs) = unzip (map (rewrite rule) extra)
+                 in (List.foldl' mkAppTy to' extra', List.foldl' AppCo proof' extraProofs)
           TcTyConApp constructor kindArguments arguments ->
             let (rewritten, proofs) = unzip (map (rewrite rule) arguments)
              in if and (zipWith sameType rewritten arguments)
@@ -201,6 +206,25 @@ reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
                   then (current, Refl current)
                   else (mkAppTy function' argument', AppCo functionProof argumentProof)
           _ -> (current, Refl current)
+
+-- | A rule whose left side is a proper prefix of an application. The
+-- family @V@ has arity one, and @V t Int@ is the application of @V t@ to
+-- @Int@. Thus the given @V t ~ P@ rewrites @V t Int@ to @P Int@. The
+-- result gives the right side of the rule, its proof, and the arguments
+-- after the prefix.
+rewriteApplicationPrefix :: [(TcType, TcType, Coercion)] -> TyCon -> [TcType] -> [TcType] -> Maybe (TcType, Coercion, [TcType])
+rewriteApplicationPrefix rules constructor kindArguments arguments =
+  case matches of
+    match : _ -> Just match
+    [] -> Nothing
+  where
+    matches =
+      [ (to, proof, drop count arguments)
+      | count <- [0 .. length arguments - 1],
+        let prefix = TcTyConApp constructor kindArguments (take count arguments),
+        (from, to, proof) <- rules,
+        sameType from prefix
+      ]
 
 -- | The largest number of given rewrites in one chain of
 -- 'reduceRewritten'.
