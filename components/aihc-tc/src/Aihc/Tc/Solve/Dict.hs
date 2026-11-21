@@ -48,7 +48,7 @@ import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.List (elemIndex, foldl', partition, sortOn)
+import Data.List (elemIndex, partition, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
