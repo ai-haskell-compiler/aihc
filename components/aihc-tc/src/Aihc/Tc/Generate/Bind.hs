@@ -15,7 +15,8 @@ module Aihc.Tc.Generate.Bind
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
@@ -33,6 +34,7 @@ import Aihc.Parser.Syntax
     PatSynDir (..),
     Pattern (..),
     RecordField (..),
+    ResolutionResult (..),
     Rhs (..),
     SourceSpan,
     Type (..),
@@ -40,11 +42,11 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
+    nameResolutionAnnotation,
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), nameResolution)
-import Aihc.Resolve.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
+import Aihc.Resolve.Syntax.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -286,7 +288,7 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
         Just annotation -> name {nameAnns = nameAnns name <> [mkAnnotation annotation]}
 
     occurrencePending schemes name =
-      case nameResolution name of
+      case nameResolutionAnnotation name of
         Just resolution
           | resolutionNamespace resolution == ResolutionNamespaceTerm -> do
               key <- resolvedTermKey name
@@ -323,7 +325,7 @@ declTermReferences decl = do
         ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     hasTermResolution name =
-      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolution name)
+      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolutionAnnotation name)
 
 -- | The binders that a declaration defines.
 declaredBinderKeys :: Decl -> TcM [Entity]
@@ -412,6 +414,9 @@ inferImplicitParamDecl inferExpr decl =
     DeclAnn ann inner -> do
       (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
       pure (DeclAnn ann inner', name, ty, cts)
+    DeclError err inner -> do
+      (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
+      pure (DeclError err inner', name, ty, cts)
     DeclImplicitParam name expr maybeDecls -> do
       (expr', maybeDecls', ty, cts) <-
         case maybeDecls of
@@ -485,6 +490,7 @@ annotateLocalBindingDecl generalized binders decl =
               let pending' = pending {pendingTcAnnType = foldr TcForAllTy (pendingTcAnnType pending) rhsTyVars}
               pure (DeclAnn (mkAnnotation pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl generalized binders inner
+    DeclError ann inner -> DeclError ann <$> annotateLocalBindingDecl generalized binders inner
     DeclValue (PatternBind _ pat _)
       | Nothing <- patternBinderName pat -> pure decl
     DeclValue valueDecl ->
@@ -787,6 +793,7 @@ restrictedBinderKeys groups = do
     isVariablePattern pat =
       case pat of
         PAnn _ inner -> isVariablePattern inner
+        PResolved _ inner -> isVariablePattern inner
         PParen inner -> isVariablePattern inner
         PVar {} -> True
         _ -> False
@@ -840,6 +847,9 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
     DeclAnn ann inner -> do
       (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
       pure (DeclAnn ann inner', cts, schemes)
+    DeclError err inner -> do
+      (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
+      pure (DeclError err inner', cts, schemes)
     DeclValue valueDecl ->
       case valueDecl of
         PatternBind mult pat rhs ->
@@ -900,6 +910,7 @@ strictBinderSignature sigs pat =
     strictPatternBinderName pattern' =
       case pattern' of
         PAnn _ inner -> strictPatternBinderName inner
+        PResolved _ inner -> strictPatternBinderName inner
         PParen inner -> strictPatternBinderName inner
         PStrict inner -> patternBinderName inner
         _ -> Nothing
@@ -1157,6 +1168,7 @@ isStrictPatternBind decl =
     patternIsStrict pat =
       case pat of
         PAnn _ inner -> patternIsStrict inner
+        PResolved _ inner -> patternIsStrict inner
         PParen inner -> patternIsStrict inner
         PStrict _ -> True
         _ -> False
@@ -1237,6 +1249,7 @@ replaceDeclFunctionMatches :: [Match] -> Decl -> Decl
 replaceDeclFunctionMatches matches decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replaceDeclFunctionMatches matches inner)
+    DeclError ann inner -> DeclError ann (replaceDeclFunctionMatches matches inner)
     DeclValue (FunctionBind name _) -> DeclValue (FunctionBind name matches)
     _ -> decl
 
@@ -1246,12 +1259,14 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
     extractSig (DeclTypeSig names ty) =
       mapM (fmap (,ty) . resolvedLocalTermKey) names
     extractSig (DeclAnn _ inner) = extractSig inner
+    extractSig (DeclError _ inner) = extractSig inner
     extractSig _ = pure []
 
 patternBinderName :: Pattern -> Maybe UnqualifiedName
 patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
+patternBinderName (PResolved _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set Entity)
@@ -1294,9 +1309,10 @@ freeVarsMatch match = do
 freeVarsPattern :: Pattern -> TcM (Set.Set Entity)
 freeVarsPattern pat =
   case pat of
-    PAnn ann inner -> do
+    PAnn _ inner -> freeVarsPattern inner
+    PResolved result inner -> do
       innerVars <- freeVarsPattern inner
-      insertSyntaxTermKey ann innerVars
+      insertSyntaxTermKey result innerVars
     PParen inner -> freeVarsPattern inner
     PAs _ inner -> freeVarsPattern inner
     PStrict inner -> freeVarsPattern inner
@@ -1361,9 +1377,10 @@ freeVarsExpr :: Expr -> TcM (Set.Set Entity)
 freeVarsExpr expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
-    EAnn ann inner -> do
+    EAnn _ inner -> freeVarsExpr inner
+    EResolved result inner -> do
       innerVars <- freeVarsExpr inner
-      insertSyntaxTermKey ann innerVars
+      insertSyntaxTermKey result innerVars
     EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
     ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
@@ -1480,14 +1497,14 @@ compStmtsBinderKeys stmts =
         CompLetDecls decls -> declBinderKeys decls
         _ -> pure Set.empty
 
--- | Add the syntax term that a resolver annotation names, if it names one.
+-- | Add the syntax term that a resolution names, if it names one.
 --
 -- RebindableSyntax can bind a syntax term such as @>>@ or @negate@ in the
 -- same binding group, so the term is a dependency of the binding.
-insertSyntaxTermKey :: Annotation -> Set.Set Entity -> TcM (Set.Set Entity)
-insertSyntaxTermKey ann vars =
-  case fromAnnotation ann :: Maybe ResolutionAnnotation of
-    Just resolution
+insertSyntaxTermKey :: ResolutionResult -> Set.Set Entity -> TcM (Set.Set Entity)
+insertSyntaxTermKey result vars =
+  case result of
+    ResolutionOk resolution
       | resolutionNamespace resolution == ResolutionNamespaceTerm,
         IdentifierNamed methodName <- resolutionIdentifier resolution -> do
           methodKey <- resolvedTargetTermKey methodName (resolutionTarget resolution)
@@ -1500,9 +1517,11 @@ freeVarsDoStmts stmts =
     [] -> pure Set.empty
     stmt : rest ->
       case stmt of
-        DoAnn ann inner -> do
+        DoAnn _ inner -> freeVarsDoStmts (inner : rest)
+        DoRecKnot _ inner -> freeVarsDoStmts (inner : rest)
+        DoResolved result inner -> do
           vars <- freeVarsDoStmts (inner : rest)
-          insertSyntaxTermKey ann vars
+          insertSyntaxTermKey result vars
         DoExpr body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
         DoBind pat body -> do
           bodyVars <- freeVarsExpr body
@@ -1526,9 +1545,10 @@ freeVarsDoStmts stmts =
 freeVarsArithSeq :: ArithSeq -> TcM (Set.Set Entity)
 freeVarsArithSeq arithSeq =
   case arithSeq of
-    ArithSeqAnn ann inner -> do
+    ArithSeqAnn _ inner -> freeVarsArithSeq inner
+    ArithSeqResolved result inner -> do
       innerVars <- freeVarsArithSeq inner
-      insertSyntaxTermKey ann innerVars
+      insertSyntaxTermKey result innerVars
     ArithSeqFrom from -> freeVarsExpr from
     ArithSeqFromThen from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
     ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to

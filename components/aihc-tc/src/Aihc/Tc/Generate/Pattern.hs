@@ -23,7 +23,8 @@ module Aihc.Tc.Generate.Pattern
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), resolutionResultAnnotation)
+import Aihc.Resolve.Syntax
   ( Annotation,
     BuiltinCon (..),
     CompStmt (..),
@@ -37,6 +38,7 @@ import Aihc.Parser.Syntax
     NumericType (..),
     Pattern (..),
     RecordField (..),
+    ResolutionResult (..),
     SourceSpan,
     TupleFlavor (..),
     Type,
@@ -48,8 +50,8 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     peelLiteralAnn,
     peelPatternAnn,
+    resolvedBinderEntity,
   )
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), binderEntity)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
@@ -70,7 +72,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -83,6 +85,7 @@ patternBinderNames :: Pattern -> [UnqualifiedName]
 patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
+    PResolved _ inner -> patternBinderNames inner
     PVar name -> [name]
     PTypeBinder _ -> []
     PTypeSyntax _ _ -> []
@@ -116,6 +119,8 @@ recStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
+        DoResolved _ inner -> stmtBinders inner
+        DoRecKnot _ inner -> stmtBinders inner
         DoBind pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
         DoExpr _ -> []
@@ -205,6 +210,7 @@ functionArgumentName :: Pattern -> Text
 functionArgumentName pat =
   case pat of
     PAnn _ inner -> functionArgumentName inner
+    PResolved _ inner -> functionArgumentName inner
     PVar name -> unqualifiedNameText name
     PParen inner -> functionArgumentName inner
     PAs name _ -> unqualifiedNameText name
@@ -242,7 +248,7 @@ withEarlierPatternBindings ((name, ty) : rest) action =
 
 localBinderKey :: UnqualifiedName -> Maybe Entity
 localBinderKey name =
-  case binderEntity name of
+  case resolvedBinderEntity name of
     Just local@EntityLocal {} -> Just local
     _ -> Nothing
 
@@ -285,6 +291,7 @@ instantiatePatternType = go []
 patternNeedsInstantiation :: Pattern -> Bool
 patternNeedsInstantiation pattern' = case pattern' of
   PAnn _ inner -> patternNeedsInstantiation inner
+  PResolved _ inner -> patternNeedsInstantiation inner
   PParen inner -> patternNeedsInstantiation inner
   PVar {} -> False
   PWildcard -> False
@@ -304,6 +311,9 @@ checkPatternWithoutResultType sp pat scrutTy =
         PAnn ann inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+        PResolved result inner -> do
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
+          pure innerCheck {pcPatterns = [PResolved result (checkedPattern innerCheck)]}
         PParen inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
@@ -330,6 +340,7 @@ patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
   case pat of
     PAnn _ inner -> patternUsesBinderAnnotation inner
+    PResolved _ inner -> patternUsesBinderAnnotation inner
     PParen inner -> patternUsesBinderAnnotation inner
     PVar {} -> True
     PAs {} -> True
@@ -342,6 +353,7 @@ patternNeedsCheckedType :: Pattern -> Bool
 patternNeedsCheckedType pat =
   case pat of
     PAnn _ inner -> patternNeedsCheckedType inner
+    PResolved _ inner -> patternNeedsCheckedType inner
     PParen inner -> patternNeedsCheckedType inner
     PLit {} -> False
     PNegLit {} -> False
@@ -355,6 +367,7 @@ patternHasPendingType :: Pattern -> Bool
 patternHasPendingType pat =
   case pat of
     PAnn ann inner -> annotationHasType ann || patternHasPendingType inner
+    PResolved _ inner -> patternHasPendingType inner
     PParen inner -> patternHasPendingType inner
     PLit literal -> literalHasPendingType literal
     PStrict inner -> patternHasPendingType inner
@@ -388,6 +401,7 @@ patternOwnSpan :: Pattern -> Maybe SourceSpan
 patternOwnSpan pat =
   case pat of
     PAnn ann inner -> fromAnnotation @SourceSpan ann <|> patternOwnSpan inner
+    PResolved _ inner -> patternOwnSpan inner
     PVar name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
     PParen inner -> patternOwnSpan inner
     PAs name _ -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
@@ -406,6 +420,7 @@ viewExprSpan :: Expr -> Maybe SourceSpan
 viewExprSpan expr =
   case expr of
     EAnn ann inner -> fromAnnotation @SourceSpan ann <|> viewExprSpan inner
+    EResolved _ inner -> viewExprSpan inner
     EVar name -> sourceSpanFromAnnotations (nameAnns name)
     EParen inner -> viewExprSpan inner
     EPragma _ inner -> viewExprSpan inner
@@ -420,6 +435,9 @@ checkPatternCore sp pat scrutTy =
     PAnn ann inner -> do
       innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+    PResolved result inner -> do
+      innerCheck <- checkPattern sp inner scrutTy
+      pure innerCheck {pcPatterns = [PResolved result (checkedPattern innerCheck)]}
     PParen inner -> do
       innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
@@ -610,6 +628,7 @@ containsConstructorPattern pat =
     PInfix {} -> True
     PRecord {} -> True
     PAnn _ inner -> containsConstructorPattern inner
+    PResolved _ inner -> containsConstructorPattern inner
     PParen inner -> containsConstructorPattern inner
     PAs _ inner -> containsConstructorPattern inner
     PStrict inner -> containsConstructorPattern inner
@@ -771,6 +790,7 @@ checkedLiteralPattern :: TcType -> Pattern -> Pattern
 checkedLiteralPattern ty pat =
   case pat of
     PAnn ann inner -> PAnn ann (checkedLiteralPattern ty inner)
+    PResolved ann inner -> PResolved ann (checkedLiteralPattern ty inner)
     PParen inner -> PParen (checkedLiteralPattern ty inner)
     PStrict inner -> PStrict (checkedLiteralPattern ty inner)
     PIrrefutable inner -> PIrrefutable (checkedLiteralPattern ty inner)
@@ -864,6 +884,7 @@ checkOverloadedListPattern sp pat items scrutTy = do
     replaceAnnotatedPattern new pattern' =
       case pattern' of
         PAnn ann inner -> PAnn ann (replaceAnnotatedPattern new inner)
+        PResolved ann inner -> PResolved ann (replaceAnnotatedPattern new inner)
         _ -> new
 
 -- | Check an n+k pattern.
@@ -967,7 +988,8 @@ requiredPatternResolution name pat =
 patternResolutions :: Pattern -> [ResolutionAnnotation]
 patternResolutions pat =
   case pat of
-    PAnn ann inner -> mapMaybe fromAnnotation [ann] <> patternResolutions inner
+    PAnn _ inner -> patternResolutions inner
+    PResolved result inner -> maybeToList (resolutionResultAnnotation result) <> patternResolutions inner
     PParen inner -> patternResolutions inner
     PStrict inner -> patternResolutions inner
     PIrrefutable inner -> patternResolutions inner
@@ -978,13 +1000,14 @@ patternResolutions pat =
 attachPendingPatternAnnotation :: Text -> PendingTcAnnotation -> Pattern -> Pattern
 attachPendingPatternAnnotation target pending pat =
   case pat of
-    PAnn ann inner ->
-      case fromAnnotation ann of
-        Just resolution
+    PAnn ann inner -> PAnn ann (attachPendingPatternAnnotation target pending inner)
+    PResolved result inner ->
+      case result of
+        ResolutionOk resolution
           | resolutionIdentifier resolution == IdentifierNamed target,
             resolutionNamespace resolution == ResolutionNamespaceTerm ->
-              PAnn (mkAnnotation pending) (PAnn ann inner)
-        _ -> PAnn ann (attachPendingPatternAnnotation target pending inner)
+              PAnn (mkAnnotation pending) (PResolved result inner)
+        _ -> PResolved result (attachPendingPatternAnnotation target pending inner)
     PParen inner -> PParen (attachPendingPatternAnnotation target pending inner)
     PStrict inner -> PStrict (attachPendingPatternAnnotation target pending inner)
     PIrrefutable inner -> PIrrefutable (attachPendingPatternAnnotation target pending inner)
@@ -1019,6 +1042,7 @@ mapPatternBinderNames annotateBinder =
     go pat =
       case pat of
         PAnn ann inner -> PAnn ann (go inner)
+        PResolved ann inner -> PResolved ann (go inner)
         PVar name -> PVar (annotateBinder name)
         PNPlusK name literal -> PNPlusK (annotateBinder name) literal
         PParen inner -> PParen (go inner)
@@ -1324,6 +1348,7 @@ patternCanFail :: Pattern -> TcM Bool
 patternCanFail pat =
   case pat of
     PAnn _ inner -> patternCanFail inner
+    PResolved _ inner -> patternCanFail inner
     PParen inner -> patternCanFail inner
     PAs _ inner -> patternCanFail inner
     PStrict inner -> patternCanFail inner

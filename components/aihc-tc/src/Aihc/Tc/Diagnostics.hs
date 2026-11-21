@@ -9,7 +9,7 @@ module Aihc.Tc.Diagnostics
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
     ClassDeclItem (..),
@@ -32,7 +32,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     sourceSpanSourceName,
   )
-import Aihc.Resolve.Traverse (Walk (..), collectAnnotations, idWalk, walk)
+import Aihc.Resolve.Syntax.Traverse (Walk (..), collectAnnotations, idWalk, walk)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -142,7 +142,7 @@ attachDiagnosticsAt =
     -- A node that wraps its annotations one by one. The first diagnostic
     -- becomes the outermost wrapper, as when each diagnostic is attached
     -- in a walk of its own.
-    attachWrapped :: (node -> Maybe (Annotation, node)) -> (Annotation -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
+    attachWrapped :: (node -> Maybe ([Annotation], node)) -> (Annotation -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
     attachWrapped peel wrap = attachAt (wrappedSpan peel) (flip (foldr wrap))
 
     -- Walk the children first, then attach the diagnostics of the exact
@@ -159,77 +159,90 @@ attachDiagnosticsAt =
             put (Map.delete sp pending)
             pure (attach (map mkAnnotation diagnostics) node')
 
-wrappedSpan :: (node -> Maybe (Annotation, node)) -> node -> Maybe SourceSpan
+-- | The span of the leading wrappers of a node. A resolution wrapper of
+-- the resolved syntax tree has no annotation, and the peel goes through it.
+wrappedSpan :: (node -> Maybe ([Annotation], node)) -> node -> Maybe SourceSpan
 wrappedSpan peel =
   spanFromAnnotations . fst . peelLeading peel
 
-peelLeading :: (node -> Maybe (Annotation, node)) -> node -> ([Annotation], node)
+peelLeading :: (node -> Maybe ([Annotation], node)) -> node -> ([Annotation], node)
 peelLeading peel =
   go []
   where
     go anns node =
       case peel node of
-        Just (ann, inner) -> go (ann : anns) inner
+        Just (nodeAnns, inner) -> go (reverse nodeAnns <> anns) inner
         Nothing -> (reverse anns, node)
 
-peelExprAnnOnce :: Expr -> Maybe (Annotation, Expr)
-peelExprAnnOnce (EAnn ann inner) = Just (ann, inner)
+peelExprAnnOnce :: Expr -> Maybe ([Annotation], Expr)
+peelExprAnnOnce (EAnn ann inner) = Just ([ann], inner)
+peelExprAnnOnce (EResolved _ inner) = Just ([], inner)
 peelExprAnnOnce _ = Nothing
 
-peelPatternAnnOnce :: Pattern -> Maybe (Annotation, Pattern)
-peelPatternAnnOnce (PAnn ann inner) = Just (ann, inner)
+peelPatternAnnOnce :: Pattern -> Maybe ([Annotation], Pattern)
+peelPatternAnnOnce (PAnn ann inner) = Just ([ann], inner)
+peelPatternAnnOnce (PResolved _ inner) = Just ([], inner)
 peelPatternAnnOnce _ = Nothing
 
-peelTypeAnnOnce :: Type -> Maybe (Annotation, Type)
-peelTypeAnnOnce (TAnn ann inner) = Just (ann, inner)
+peelTypeAnnOnce :: Type -> Maybe ([Annotation], Type)
+peelTypeAnnOnce (TAnn ann inner) = Just ([ann], inner)
+peelTypeAnnOnce (TResolved _ inner) = Just ([], inner)
 peelTypeAnnOnce _ = Nothing
 
-peelDeclAnnOnce :: Decl -> Maybe (Annotation, Decl)
-peelDeclAnnOnce (DeclAnn ann inner) = Just (ann, inner)
+peelDeclAnnOnce :: Decl -> Maybe ([Annotation], Decl)
+peelDeclAnnOnce (DeclAnn ann inner) = Just ([ann], inner)
+peelDeclAnnOnce (DeclError _ inner) = Just ([], inner)
 peelDeclAnnOnce _ = Nothing
 
-peelDataConAnnOnce :: DataConDecl -> Maybe (Annotation, DataConDecl)
-peelDataConAnnOnce (DataConAnn ann inner) = Just (ann, inner)
+peelDataConAnnOnce :: DataConDecl -> Maybe ([Annotation], DataConDecl)
+peelDataConAnnOnce (DataConAnn ann inner) = Just ([ann], inner)
+peelDataConAnnOnce (DataConResolved _ inner) = Just ([], inner)
 peelDataConAnnOnce _ = Nothing
 
-peelLiteralAnnOnce :: Literal -> Maybe (Annotation, Literal)
-peelLiteralAnnOnce (LitAnn ann inner) = Just (ann, inner)
+peelLiteralAnnOnce :: Literal -> Maybe ([Annotation], Literal)
+peelLiteralAnnOnce (LitAnn ann inner) = Just ([ann], inner)
 peelLiteralAnnOnce _ = Nothing
 
-peelGuardAnnOnce :: GuardQualifier -> Maybe (Annotation, GuardQualifier)
-peelGuardAnnOnce (GuardAnn ann inner) = Just (ann, inner)
+peelGuardAnnOnce :: GuardQualifier -> Maybe ([Annotation], GuardQualifier)
+peelGuardAnnOnce (GuardAnn ann inner) = Just ([ann], inner)
 peelGuardAnnOnce _ = Nothing
 
-peelDoAnnOnce :: DoStmt body -> Maybe (Annotation, DoStmt body)
-peelDoAnnOnce (DoAnn ann inner) = Just (ann, inner)
+peelDoAnnOnce :: DoStmt body -> Maybe ([Annotation], DoStmt body)
+peelDoAnnOnce (DoAnn ann inner) = Just ([ann], inner)
+peelDoAnnOnce (DoResolved _ inner) = Just ([], inner)
+peelDoAnnOnce (DoRecKnot _ inner) = Just ([], inner)
 peelDoAnnOnce _ = Nothing
 
-peelCompAnnOnce :: CompStmt -> Maybe (Annotation, CompStmt)
-peelCompAnnOnce (CompAnn ann inner) = Just (ann, inner)
+peelCompAnnOnce :: CompStmt -> Maybe ([Annotation], CompStmt)
+peelCompAnnOnce (CompAnn ann inner) = Just ([ann], inner)
 peelCompAnnOnce _ = Nothing
 
-peelArithSeqAnnOnce :: ArithSeq -> Maybe (Annotation, ArithSeq)
-peelArithSeqAnnOnce (ArithSeqAnn ann inner) = Just (ann, inner)
+peelArithSeqAnnOnce :: ArithSeq -> Maybe ([Annotation], ArithSeq)
+peelArithSeqAnnOnce (ArithSeqAnn ann inner) = Just ([ann], inner)
+peelArithSeqAnnOnce (ArithSeqResolved _ inner) = Just ([], inner)
 peelArithSeqAnnOnce _ = Nothing
 
-peelClassItemAnnOnce :: ClassDeclItem -> Maybe (Annotation, ClassDeclItem)
-peelClassItemAnnOnce (ClassItemAnn ann inner) = Just (ann, inner)
+peelClassItemAnnOnce :: ClassDeclItem -> Maybe ([Annotation], ClassDeclItem)
+peelClassItemAnnOnce (ClassItemAnn ann inner) = Just ([ann], inner)
+peelClassItemAnnOnce (ClassItemError _ inner) = Just ([], inner)
 peelClassItemAnnOnce _ = Nothing
 
-peelInstanceItemAnnOnce :: InstanceDeclItem -> Maybe (Annotation, InstanceDeclItem)
-peelInstanceItemAnnOnce (InstanceItemAnn ann inner) = Just (ann, inner)
+peelInstanceItemAnnOnce :: InstanceDeclItem -> Maybe ([Annotation], InstanceDeclItem)
+peelInstanceItemAnnOnce (InstanceItemAnn ann inner) = Just ([ann], inner)
+peelInstanceItemAnnOnce (InstanceItemError _ inner) = Just ([], inner)
 peelInstanceItemAnnOnce _ = Nothing
 
-peelCmdAnnOnce :: Cmd -> Maybe (Annotation, Cmd)
-peelCmdAnnOnce (CmdAnn ann inner) = Just (ann, inner)
+peelCmdAnnOnce :: Cmd -> Maybe ([Annotation], Cmd)
+peelCmdAnnOnce (CmdAnn ann inner) = Just ([ann], inner)
 peelCmdAnnOnce _ = Nothing
 
-peelExportAnnOnce :: ExportSpec -> Maybe (Annotation, ExportSpec)
-peelExportAnnOnce (ExportAnn ann inner) = Just (ann, inner)
+peelExportAnnOnce :: ExportSpec -> Maybe ([Annotation], ExportSpec)
+peelExportAnnOnce (ExportAnn ann inner) = Just ([ann], inner)
 peelExportAnnOnce _ = Nothing
 
-peelImportAnnOnce :: ImportItem -> Maybe (Annotation, ImportItem)
-peelImportAnnOnce (ImportAnn ann inner) = Just (ann, inner)
+peelImportAnnOnce :: ImportItem -> Maybe ([Annotation], ImportItem)
+peelImportAnnOnce (ImportAnn ann inner) = Just ([ann], inner)
+peelImportAnnOnce (ImportItemError _ inner) = Just ([], inner)
 peelImportAnnOnce _ = Nothing
 
 spanFromAnnotations :: [Annotation] -> Maybe SourceSpan

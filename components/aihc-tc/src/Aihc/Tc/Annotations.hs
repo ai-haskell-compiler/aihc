@@ -66,16 +66,16 @@ module Aihc.Tc.Annotations
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Parser.Syntax qualified as P
+import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
+import Aihc.Resolve.Syntax
   ( Decl (..),
     DoStmt (..),
     Expr (..),
-    Match,
     Rhs (..),
     SourceSpan,
     mkAnnotation,
   )
-import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
@@ -434,10 +434,13 @@ newtype TcDerivingAnnotation = TcDerivingAnnotation
 -- | The checked matcher equation, builder equations, and record field
 -- selector equations of a pattern synonym. The desugarer emits them as
 -- ordinary functions. A selector pairs its field label with its equation.
+--
+-- The equations are parser syntax, because the desugarer reads parser
+-- syntax and the bridge does not go into an annotation.
 data TcPatSynAnnotation = TcPatSynAnnotation
-  { tcPatSynMatcher :: !Match,
-    tcPatSynBuilder :: !(Maybe [Match]),
-    tcPatSynSelectors :: ![(Text, Match)]
+  { tcPatSynMatcher :: !P.Match,
+    tcPatSynBuilder :: !(Maybe [P.Match]),
+    tcPatSynSelectors :: ![(Text, P.Match)]
   }
   deriving (Eq, Show)
 
