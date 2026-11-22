@@ -1,0 +1,51 @@
+extensions:
+- ConstraintKinds
+- DataKinds
+- RankNTypes
+- ScopedTypeVariables
+- TypeApplications
+- TypeFamilies
+- AllowAmbiguousTypes
+modules:
+- |
+  {-# LANGUAGE ConstraintKinds, DataKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types
+  data Tag = TagId
+  type family Apply (t :: Tag) (a :: Type) :: Type where
+    Apply 'TagId a = a
+  type family TagOf (f :: Type -> Type) :: Tag
+  type family Payload (f :: Type -> Type) (a :: Type) :: Type where
+    Payload f a = Apply (TagOf f) a
+  class MapMethod c f where
+    mapMethod :: (forall a. c (Payload f a) => f a -> f a) -> f () -> f ()
+  mapMethodF :: forall c f. (TagOf f ~ 'TagId, MapMethod c f) => (forall a. c a => f a -> f a) -> f () -> f ()
+  mapMethodF g = mapMethod @c g
+annotated:
+- |-
+  {-# LANGUAGE ConstraintKinds, DataKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, AllowAmbiguousTypes #-}
+  module Test where
+  import GHC.Types
+  data Tag = TagId
+       │     └─ type: Tag
+       └─ type: Type
+  type family Apply (t :: Tag) (a :: Type) :: Type where
+              └─ type: Tag → Type → Type
+    Apply 'TagId a = a
+  type family TagOf (f :: Type -> Type) :: Tag
+              └─ type: (Type → Type) → Tag
+  type family Payload (f :: Type -> Type) (a :: Type) :: Type where
+              └─ type: (Type → Type) → Type → Type
+    Payload f a = Apply (TagOf f) a
+  class MapMethod c f where
+  └─ class methods: mapMethod ∷ ∀ c f. (MapMethod c f) ⇒ (∀ a. (c (Payload f a)) ⇒ f a → f a) → f () → f ()
+    mapMethod :: (forall a. c (Payload f a) => f a -> f a) -> f () -> f ()
+  mapMethodF :: forall c f. (TagOf f ~ 'TagId, MapMethod c f) => (forall a. c a => f a -> f a) -> f () -> f ()
+  mapMethodF g = mapMethod @c g
+  │          │   └─ type: (∀ a. (c (Payload f a)) ⇒ f a → f a) → f () → f (); type-args: c, f; evidence: given MapMethod c f
+  │          │   └─ type: ∀ a. (c (Payload f a)) ⇒ f a → f a
+  │          │   └─ type: f a → f a; type-args: a; evidence: cast(given c (Payload f a), app (refl c) (Apply given TagOf f ~ 'TagId refl a))
+  │          └─ type: ∀ a. (c a) ⇒ f a → f a
+  └─ type: ∀ c f. ((TagOf f) ~ 'TagId, MapMethod c f) ⇒ (∀ a. (c a) ⇒ f a → f a) → f () → f ()
+status: pass
+reason: a given family equality rewrites a given of a quantified argument context after the given reduces

@@ -393,9 +393,17 @@ solveNormalizedDict visited givens ct
     rewrittenIrreducibleGiven _ _ _ [] = pure Nothing
     rewrittenIrreducibleGiven visited' rules target (given : rest) =
       case given of
-        IrredPred constraint
-          | let (rewritten, proof) = rewriteWithRules rules constraint,
-            not (sameType rewritten constraint) -> do
+        IrredPred written -> do
+          -- The rules have reduced sides, so they are compared with the
+          -- given in its reduced form too. With the given @TagOf f ~
+          -- 'TagId@, the given @c (Payload f a)@ shows @TagOf f@ only
+          -- after @Payload f a@ reduces to @Apply (TagOf f) a@. The proof
+          -- still names the given as written.
+          constraint <- reduceTypeFamilies written
+          let (rewritten, proof) = rewriteWithRules rules constraint
+          if sameType rewritten constraint
+            then rewrittenIrreducibleGiven visited' rules target rest
+            else do
               normalized <- normalizeGiven (IrredPred rewritten)
               let evidence = EvCast (EvGiven given) proof
               found <-
