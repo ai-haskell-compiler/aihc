@@ -26,11 +26,24 @@ normalizeFunction function =
 -- above a branch that needs no reservation, such as the ready branch of a
 -- WHNF test. It stays in the branches that need it, unless a reservation
 -- of some words above the branches covers them.
+--
+-- A reservation of some words also does not go above a branch that needs
+-- no reservation. A loop usually has such a branch: the branch that calls
+-- the loop again and allocates nothing. A reservation above the branches
+-- would put a compare on each iteration of the loop. Thus each branch
+-- keeps its own reservation, unless the expression before the branches
+-- needs a reservation anyway. Then one reservation above the branches
+-- covers all of them, and no path does more compares than before.
 data Reservation
   = -- | No reservation.
     NoReservation
   | -- | Some branches need a reservation of zero words.
     BranchSafepoints
+  | -- | Some branches need a reservation of some words, and some branches
+    -- need no reservation. Each branch keeps its own reservation, unless a
+    -- reservation above covers the branches. The words are the largest
+    -- reservation of a branch.
+    BranchReservations !Integer
   | -- | One reservation of the given words above the expression.
     Reserve !Integer
   deriving (Eq)
@@ -40,8 +53,15 @@ sequential :: Reservation -> Reservation -> Reservation
 sequential first second =
   case (first, second) of
     (Reserve firstWords, Reserve secondWords) -> Reserve (firstWords + secondWords)
+    -- A reservation that one part needs anyway also covers the branches of
+    -- the other part.
+    (Reserve firstWords, BranchReservations secondWords) -> Reserve (firstWords + secondWords)
+    (BranchReservations firstWords, Reserve secondWords) -> Reserve (firstWords + secondWords)
+    (BranchReservations firstWords, BranchReservations secondWords) -> Reserve (firstWords + secondWords)
     (Reserve _, _) -> first
     (_, Reserve _) -> second
+    (BranchReservations _, _) -> first
+    (_, BranchReservations _) -> second
     (BranchSafepoints, _) -> BranchSafepoints
     (_, BranchSafepoints) -> BranchSafepoints
     _ -> NoReservation
@@ -50,10 +70,19 @@ sequential first second =
 alternatives :: [Reservation] -> Reservation
 alternatives reservations
   | null reserved = if BranchSafepoints `elem` reservations then BranchSafepoints else NoReservation
-  | maximum reserved > 0 || all isReserve reservations = Reserve (maximum reserved)
+  | all isReserve reservations = Reserve (maximum reserved)
+  | maximum reserved > 0 = BranchReservations (maximum reserved)
   | otherwise = BranchSafepoints
   where
-    reserved = [words' | Reserve words' <- reservations]
+    reserved = [words' | reservation <- reservations, Just words' <- [reservationWords reservation]]
+
+-- | The words of a reservation that a branch can need.
+reservationWords :: Reservation -> Maybe Integer
+reservationWords reservation =
+  case reservation of
+    Reserve words' -> Just words'
+    BranchReservations words' -> Just words'
+    _ -> Nothing
 
 isReserve :: Reservation -> Bool
 isReserve reservation =
