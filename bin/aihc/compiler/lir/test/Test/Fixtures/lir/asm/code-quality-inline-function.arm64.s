@@ -6,9 +6,8 @@ _enter_direct:
 	and x8, x8, #0xfffffffffffffffc
 	ldr x8, [x8]
 	ldr x20, [x20, #8]
-	mov x14, x8
-	cbz x14, .Llir_trap_0_0
-	br x14
+	cbz x8, .Llir_trap_0_0
+	br x8
 .Llir_trap_0_0:
 	b .Llir_trap_0
 	.text
@@ -19,9 +18,8 @@ _enter_inline:
 	and x8, x8, #0xfffffffffffffffc
 	ldr x8, [x8]
 	ldr x20, [x20, #8]
-	mov x14, x8
-	cbz x14, .Llir_trap_1_0
-	br x14
+	cbz x8, .Llir_trap_1_0
+	br x8
 .Llir_trap_1_0:
 	b .Llir_trap_0
 	.text
