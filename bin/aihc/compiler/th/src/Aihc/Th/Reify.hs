@@ -20,11 +20,14 @@
 --   instances of the class in the type facts that the compiler gives.
 -- * A type constructor with no constructors that the compiler knows, such
 --   as @Int#@: @PrimTyConI@.
--- * A data constructor: @DataConI@.
+-- * A data family: @FamilyI@ with @DataFamilyD@ and the instances of the
+--   family that the module of the family declares.
+-- * A data constructor: @DataConI@. The parent of a constructor of a data
+--   family instance is the family, as in GHC.
 -- * A class method: @ClassOpI@.
 -- * A top-level variable: @VarI@.
 --
--- A type family and a data family give an error.
+-- A type family gives an error.
 module Aihc.Th.Reify
   ( reifyInfo,
     reifyConStrictness,
@@ -43,6 +46,7 @@ import Aihc.Tc.Env
     DataConFieldUnpack (..),
     DataConInfo (..),
     DataConSourceForm (..),
+    DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
     FieldRep,
     FunDep (..),
@@ -53,7 +57,7 @@ import Aihc.Tc.Env
     repHasUnpack,
     repLeaves,
   )
-import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataTypes, tcInterfaceInstances)
+import Aihc.Tc.Interface (TcInterface (..), tcInterfaceClasses, tcInterfaceDataFamilyInstances, tcInterfaceDataTypes, tcInterfaceInstances)
 import Aihc.Tc.Roles (Role (..), RoleFacts (..), tyConRoles)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -71,6 +75,7 @@ import Aihc.Tc.Types
   )
 import Aihc.Tc.Types qualified as TcTypes
 import Aihc.Th.Wire (Tree (..))
+import Control.Monad (zipWithM)
 import Data.Functor.Identity (Identity (..))
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
@@ -149,6 +154,7 @@ typeInfo interface global
         (_, Just synonym) -> node "TyConI" . pure <$> synonymDeclaration global synonym
         (DataTyCon, Nothing) -> Right (primitive (tciArity tyCon))
         (NewtypeTyCon, Nothing) -> Right (primitive (tciArity tyCon))
+        (DataFamilyTyCon, Nothing) -> familyInfo global tyCon (familyInstances interface global)
         (flavor, Nothing) -> Left ("The compiler cannot give the facts of " <> describe flavor <> " " <> globalNameText global <> ".")
   | otherwise = Left (notDeclared global)
   where
@@ -157,7 +163,6 @@ typeInfo interface global
     describe flavor =
       case flavor of
         TypeFamilyTyCon -> "the type family"
-        DataFamilyTyCon -> "the data family"
         ClassTyCon -> "the class"
         SynonymTyCon -> "the type synonym"
         _ -> "the type"
@@ -167,6 +172,10 @@ termInfo interface global
   | Just (dataType, constructor) <- dataConstructor = do
       constructorType <- dataConstructorType constructor
       Right (node "DataConI" [globalNameTree "DataName" global, constructorType, tyConName dataType])
+  | Just (instanceInfo, constructor) <- familyConstructor,
+    Just family <- familyTyCon instanceInfo = do
+      constructorType <- dataConstructorType constructor
+      Right (node "DataConI" [globalNameTree "DataName" global, constructorType, tyConNameTree family])
   | Just (classInfo, scheme) <- classMethod = do
       methodType <- classMethodType classInfo scheme
       Right (node "ClassOpI" [globalNameTree "VarName" global, methodType, tyConNameTree (ciTyCon classInfo)])
@@ -176,6 +185,10 @@ termInfo interface global
   | otherwise = Left (notDeclared global)
   where
     dataConstructor = dataConstructorWithType interface global
+    familyConstructor =
+      find
+        (\(_, constructor) -> dciName constructor == globalNameText global && dciOrigin constructor == (globalNamePackage global, globalNameModule global))
+        [(instanceInfo, constructor) | instanceInfo <- tcInterfaceDataFamilyInstances interface, constructor <- dfiiConstructors instanceInfo]
     classMethod =
       listToMaybe
         [ (classInfo, scheme)
@@ -198,7 +211,7 @@ notDeclared global =
 -- constructor.
 dataDeclaration :: DataTypeInfo -> Either Text Tree
 dataDeclaration dataType = do
-  constructors <- mapM (constructorTree dataType) (dtiConstructors dataType)
+  constructors <- mapM (constructorTree (dataTypeRenaming (dtiTyCon dataType) parameters)) (dtiConstructors dataType)
   binders <- mapM (binderTree "BndrReq") parameters
   let common = [list [], tyConNameTree (dtiTyCon dataType), list binders, node "Nothing" []]
   case (dtiFlavor dataType, constructors) of
@@ -214,9 +227,13 @@ visibleParameters :: DataTypeInfo -> [TyVarId]
 visibleParameters dataType =
   drop (length (dtiTyVars dataType) - tyConArity (dtiTyCon dataType)) (dtiTyVars dataType)
 
-constructorTree :: DataTypeInfo -> DataConInfo -> Either Text Tree
-constructorTree dataType constructor =
-  case haskell98Renaming of
+-- | A constructor of a data type. The function gives the renaming of a
+-- constructor that has the form of a Haskell 98 constructor: it replaces
+-- the variables of the constructor with the variables of the declaration.
+-- A constructor with no renaming gets the form of a GADT constructor.
+constructorTree :: (DataConInfo -> Maybe (Map (Unique, Text) TyVarId)) -> DataConInfo -> Either Text Tree
+constructorTree renamingOf constructor =
+  case renamingOf constructor of
     Just renaming -> do
       let fields = map (substituteField renaming) (dciFields constructor)
           theta = map (substitutePred renaming) (dciTheta constructor)
@@ -231,21 +248,6 @@ constructorTree dataType constructor =
       quantified (dciUnivTyVars constructor <> dciExTyVars constructor) (dciTheta constructor) body
   where
     name = globalNameTree "DataName" (constructorGlobal constructor)
-    parameters = visibleParameters dataType
-    haskell98Renaming =
-      case dciResTy constructor of
-        TcTyCon tyCon arguments
-          | tyCon == dtiTyCon dataType,
-            Just variables <- mapM variableOf arguments,
-            length variables == length parameters,
-            nub variables == variables,
-            all (`elem` dciUnivTyVars constructor) variables ->
-              Just (Map.fromList (zip (map identity variables) parameters))
-        _ -> Nothing
-    variableOf argument =
-      case argument of
-        TcTyVar variable -> Just variable
-        _ -> Nothing
     plainConstructor fields =
       case (dciSourceForm constructor, fields) of
         (RecordDataCon, _) -> node "RecC" . (\trees -> [name, list trees]) <$> mapM fieldTree fields
@@ -276,6 +278,101 @@ constructorTree dataType constructor =
       | dcfiStrict field = node "SourceStrict" []
       | dcfiLazy field = node "SourceLazy" []
       | otherwise = node "NoSourceStrictness" []
+
+-- | The instances of a data family in the type facts of a module.
+familyInstances :: TcInterface -> GlobalName -> [DataFamilyInstanceInfo]
+familyInstances interface global =
+  [instanceInfo | instanceInfo <- tcInterfaceDataFamilyInstances interface, fmap tyConKey (familyTyCon instanceInfo) == Just global]
+
+-- | The data family that an instance is an instance of.
+familyTyCon :: DataFamilyInstanceInfo -> Maybe TyCon
+familyTyCon instanceInfo =
+  case dfiiFamilyType instanceInfo of
+    TcTyCon tyCon _ -> Just tyCon
+    _ -> Nothing
+
+-- | @FamilyI@ of a data family. The kind of the family gives the kinds of
+-- its parameters and its result kind.
+familyInfo :: GlobalName -> TyConInfo -> [DataFamilyInstanceInfo] -> Either Text Tree
+familyInfo global tyCon instances = do
+  let Scheme _ _ _ kind = tciKindScheme tyCon
+      (parameterKinds, resultKind) = splitKind (tciArity tyCon) kind
+  binders <- mapM binder (zip [1 :: Int ..] parameterKinds)
+  resultKind' <- typeTree resultKind
+  instances' <- mapM dataInstanceTree instances
+  let declaration = node "DataFamilyD" [globalNameTree "TcClsName" global, list binders, node "Just" [resultKind']]
+  Right (node "FamilyI" [declaration, list instances'])
+  where
+    binder (position, parameterKind) = do
+      parameterKind' <- typeTree parameterKind
+      Right (node "KindedTV" [node "Name" [node "OccName" [TreeString ("t" <> T.pack (show position))], node "NameS" []], node "BndrReq" [], parameterKind'])
+    splitKind arity kind =
+      case (arity, kind) of
+        (0, _) -> ([], kind)
+        (_, TcFunTy argument result) -> let (arguments, final) = splitKind (arity - 1) result in (argument : arguments, final)
+        _ -> ([], kind)
+
+-- | @DataInstD@ or @NewtypeInstD@ of a data family instance, as the
+-- @reify@ of GHC gives it in @FamilyI@. The constructors get their
+-- fields from the variables of the instance head.
+dataInstanceTree :: DataFamilyInstanceInfo -> Either Text Tree
+dataInstanceTree instanceInfo = do
+  left <- typeTree (dfiiFamilyType instanceInfo)
+  constructors <- mapM (constructorTree (instanceRenaming instanceInfo)) (dfiiConstructors instanceInfo)
+  let common = [list [], node "Nothing" [], left, node "Nothing" []]
+  case (dfiiIsNewtype instanceInfo, constructors) of
+    (True, [constructor]) -> Right (node "NewtypeInstD" (common <> [constructor, list []]))
+    (True, _) -> Left "A newtype instance does not have one constructor."
+    (False, _) -> Right (node "DataInstD" (common <> [list constructors, list []]))
+
+-- | The renaming of a constructor of a data type whose result type is the
+-- data type applied to different universal variables.
+dataTypeRenaming :: TyCon -> [TyVarId] -> DataConInfo -> Maybe (Map (Unique, Text) TyVarId)
+dataTypeRenaming dataTyCon parameters constructor =
+  case dciResTy constructor of
+    TcTyCon tyCon arguments
+      | tyCon == dataTyCon,
+        Just variables <- mapM variableOf arguments,
+        length variables == length parameters,
+        nub variables == variables,
+        all (`elem` dciUnivTyVars constructor) variables ->
+          Just (Map.fromList (zip (map identity variables) parameters))
+    _ -> Nothing
+  where
+    variableOf argument =
+      case argument of
+        TcTyVar variable -> Just variable
+        _ -> Nothing
+
+-- | The renaming of a constructor of a data family instance whose result
+-- type is the instance head with different variables. Each variable of
+-- the result type must agree with one variable of the head.
+instanceRenaming :: DataFamilyInstanceInfo -> DataConInfo -> Maybe (Map (Unique, Text) TyVarId)
+instanceRenaming instanceInfo constructor = do
+  pairs <- nub <$> matchVariables (dfiiFamilyType instanceInfo) (dciResTy constructor)
+  let fromConstructor = map fst pairs
+      fromHead = map snd pairs
+  if nub fromConstructor == fromConstructor && nub fromHead == fromHead
+    then Just (Map.fromList [(identity variable, headVariable) | (variable, headVariable) <- pairs])
+    else Nothing
+
+-- | The pairs of variables at the same positions of a type and of the
+-- instance head, when the two types have the same form. The first
+-- variable of a pair is from the type and the second is from the head.
+matchVariables :: TcType -> TcType -> Maybe [(TyVarId, TyVarId)]
+matchVariables instanceHead ty =
+  case (instanceHead, ty) of
+    (TcTyVar headVariable, TcTyVar variable) -> Just [(variable, headVariable)]
+    (TcTyConApp headTyCon headKinds headArguments, TcTyConApp tyCon kinds arguments)
+      | headTyCon == tyCon,
+        length headKinds == length kinds,
+        length headArguments == length arguments ->
+          concat <$> zipWithM matchVariables (headKinds <> headArguments) (kinds <> arguments)
+    (TcFunTy headArgument headResult, TcFunTy argument result) -> (<>) <$> matchVariables headArgument argument <*> matchVariables headResult result
+    (TcAppTy headFunction headArgument, TcAppTy function argument) -> (<>) <$> matchVariables headFunction function <*> matchVariables headArgument argument
+    _
+      | instanceHead == ty -> Just []
+      | otherwise -> Nothing
 
 -- | @ForallC@ around a constructor when it has variables or a context.
 quantified :: [TyVarId] -> [Pred] -> Tree -> Either Text Tree
