@@ -2,12 +2,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, pathVariable, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
+import Language.Haskell.TH.Syntax (lift)
+import System.Environment (lookupEnv)
 import Lower (Mode, lowerValue)
 import Tone (Label (..), Tone (..))
 
@@ -46,6 +48,13 @@ deriveDescribe name = do
         (AppT (ConT ''Describe) (ConT name))
         [FunD 'describe [Clause [WildP] (NormalB (LitE (StringL names))) []]]
     ]
+
+-- | The value of the environment variable PATH in a splice. A library
+-- can look for a program in PATH, and the variable is always in the
+-- environment of a process. The splice cannot start a program, thus the
+-- value is empty.
+pathVariable :: Q Exp
+pathVariable = runIO (maybe "no PATH" show <$> lookupEnv "PATH") >>= lift
 
 -- | Whether a name is the name of 'Mode'. The name quote of this module
 -- and the name quote of the caller must give the same name.

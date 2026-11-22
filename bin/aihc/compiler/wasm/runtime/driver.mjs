@@ -31,7 +31,7 @@
 //
 // The instance gets no access to the host. Each import of the image is
 // denied, apart from the functions in hostFunctions. These functions give
-// fixed answers, such as an empty environment.
+// fixed answers, such as an environment with only an empty PATH.
 //
 // Usage with a directory: node driver.mjs IMAGE DIRECTORY
 //
@@ -125,14 +125,23 @@ let image;
 const hostFunctions = {
   // The clock gives a fixed time, so that a run is deterministic.
   "wasi:clocks/monotonic-clock@0.3.0 now": () => 0n,
-  // The environment is empty, and not the environment of the host. The C
-  // library asks for it in its constructors when the program can read the
-  // environment. The import writes the list at the address of its
-  // argument, as the address of the elements and their number.
+  // The environment is not the environment of the host. It has only the
+  // variable PATH, with an empty value. A process on the build machine
+  // always has PATH, and a library can look for a program there. An
+  // example is findExecutable of the package directory, which raises an
+  // exception when PATH is missing. The instance cannot start a program,
+  // thus PATH is empty. An empty PATH names only the current directory,
+  // which is the readable directory or no directory. The C library asks for the environment
+  // in its constructors when the program can read the environment. The
+  // import writes the list at the address of its argument, as the address
+  // of the elements and their number. Each element is a name and a value.
   "wasi:cli/environment@0.3.0 get-environment": (result) => {
-    const view = new DataView(image.memory.buffer);
-    view.setUint32(result, 0, true);
-    view.setUint32(result + 4, 0, true);
+    const list = guestAllocate(new Uint8Array(16), 4);
+    storeString(list, "PATH");
+    storeString(list + 8, "");
+    const view = memoryView();
+    view.setUint32(result, list, true);
+    view.setUint32(result + 4, 1, true);
   },
   "env aihc_engine_next": nextClosure,
   // A closure sends a message to the host.

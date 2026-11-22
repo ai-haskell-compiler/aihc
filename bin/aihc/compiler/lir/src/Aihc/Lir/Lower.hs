@@ -4937,6 +4937,10 @@ lowerWasip3Entry gcProgram = do
   entryItems gcProgram
   do
     beginBlock (Label "entry") []
+    -- The start reads the environment of the program, as the main function
+    -- of a native executable does. The engine of Template Haskell also
+    -- starts the program here, with no P3 driver.
+    _ <- callRuntime "aihc_program_environment_initialize" [] [] []
     _ <- startMachine
     finished <- loadFinished
     terminate (Return [finished])
