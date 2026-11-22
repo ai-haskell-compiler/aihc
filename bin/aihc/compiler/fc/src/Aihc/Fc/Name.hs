@@ -25,9 +25,9 @@ import Aihc.Tc.Types (Unique (..))
 import Control.DeepSeq (NFData (..))
 import Data.Bits (xor)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Array (pattern ByteArray)
 import Data.Text.Internal qualified as TI
-import Data.Text qualified as T
 import Data.Word (Word64)
 import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import GHC.Generics (Generic)
