@@ -1148,7 +1148,10 @@ resolveExpr expr =
     -- expression that builds its syntax tree reads their resolutions.
     ETHExpQuote inner ->
       R.ETHExpQuote <$> withExpressionQuote True (resolveExpr inner)
-    ETHTypedQuote {} -> pure (fromParserExpr expr)
+    -- The names of a typed expression quote also have the scope of the
+    -- quote, as the names of an untyped expression quote.
+    ETHTypedQuote inner ->
+      R.ETHTypedQuote <$> withExpressionQuote True (resolveExpr inner)
     -- The body of a declaration or pattern quote stays unresolved. But
     -- each splice in the body is an expression at the level of the quote,
     -- and the type checker examines it.

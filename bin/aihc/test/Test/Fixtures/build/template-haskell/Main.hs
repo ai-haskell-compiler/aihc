@@ -9,7 +9,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..), lowerFile)
 import Quasi (quasiLines)
@@ -361,3 +361,5 @@ main = do
   -- byte array field does. The program gets the same bytes.
   print (Exts.toList ($(lift (Exts.fromList [1, 2, 255] :: ByteArray)) :: ByteArray))
   mapM_ putStrLn quasiLines
+  -- Typed splices of typed quotes.
+  print ($$(typedSteps 3) 5, $$(typedOffset 41))
