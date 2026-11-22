@@ -61,6 +61,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1372,9 +1373,22 @@ arm64TailCall ctx callee convention parameterTypes arguments =
               | (position, (ty, argument)) <- zip [0 :: Int ..] overflow,
                 let (loads, register) = operandIn' ctx displacement ty scratchLeft argument
               ]
+          -- The register that holds the target already, when the tail call
+          -- can branch through it. The argument moves and the frame exit
+          -- must not write that register. Then the copy to the scratch
+          -- target register is not necessary.
+          directTarget = case callee of
+            Right operand
+              | ([], register) <- operandIn' ctx 0 Code scratchTarget operand,
+                register `notElem` take (length arguments) aihcArgumentRegisters,
+                register `notElem` map fst (layoutSaved layout),
+                register `notElem` [X29, X30] ->
+                  Just register
+            _ -> Nothing
+          targetRegister = fromMaybe scratchTarget directTarget
           branch = case callee of
             Left label -> arm64Instruction (ArmB (SymbolName label))
-            Right _ -> arm64Instruction (ArmBr scratchTarget)
+            Right _ -> arm64Instruction (ArmBr targetRegister)
       stub <-
         case callee of
           Right (OperandVar var) | Set.member var (ctxNonNullCode ctx) -> pure Nothing
@@ -1382,6 +1396,9 @@ arm64TailCall ctx callee convention parameterTypes arguments =
           Right _ -> Just <$> trapLabel "indirect call to a non-function"
       let targetLoad displacement =
             case callee of
+              Right _
+                | Just register <- directTarget ->
+                    [arm64Instruction (ArmCbz register label) | Just label <- [stub]]
               Right operand ->
                 let (loads, register) = operandIn' ctx displacement Code scratchTarget operand
                  in loads <> move scratchTarget register <> [arm64Instruction (ArmCbz scratchTarget label) | Just label <- [stub]]

@@ -14,11 +14,10 @@ _return:
 	bl _enter_chunk
 	ldp x29, x30, [sp], #16
 .Llir_0_3:
-	mov x14, x25
 	mov x21, x23
 	mov x0, xzr
 	mov x1, x24
-	br x14
+	br x25
 .Llir_0_4:
 	mov x0, x24
 	b _forward
