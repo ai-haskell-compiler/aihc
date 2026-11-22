@@ -1264,6 +1264,36 @@ marks a thunk that a single-entry evaluation entered, and a second evaluation
 of it fails. A fixture that exercises sharing or evaluation order opts in with
 `evaluators: [fc, grin, grin-points-to]`.
 
+## Identical functions
+
+`Aihc.Grin.Merge` merges identical functions of a GC-GRIN program. It runs
+after GC lowering and before the Lir lowering, at each optimization level.
+Inlining, CPS conversion, and closure conversion make many functions with the
+same code. Examples are a continuation for each call site of an inlined
+function, and a closure for each copy of a lambda.
+
+Two functions are identical when these items are the same:
+
+- The parameters, the result, and the body, after a consistent renaming of
+  the variables. A call of the function itself is the same in both.
+- The continuation frame kind, whether the function is a continuation, and
+  the continuation parameter of the function.
+
+The first function of each group in program order stays. Each reference to
+another function of the group then refers to it. A merge can make two other
+functions identical, so the merge repeats until a round merges no function.
+The pass does not merge an exported function, because another unit can call
+it by its name. A time profile keeps one entry for each function, so the
+pass does not run when the profile is on.
+
+The backends make the info tables, the entry code, and the static reference
+tables of a function from its name. Thus a merged function also has only one
+of each. On `aihc-tc-bench` at `-Os`, the pass removes 1.39 MB (11.9%) of
+the executable.
+
+The fixture `compiler/grin/test/Test/Fixtures/grin-gc/merge-identical-functions.yaml`
+sets `merge: true`. The harness then runs the pass after GC lowering.
+
 ## Invariants
 
 These are the properties the structure is meant to keep. Each is checkable,

@@ -4312,7 +4312,12 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
       when keepGrin $ do
         writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram cpsProgram)
         verbose ("Write CPS-GRIN: " <> T.unpack name)
-      let gcProgram = Grin.lowerGc cpsProgram
+      -- A time profile gives one entry for each function, so it keeps
+      -- identical functions apart.
+      let lowered = Grin.lowerGc cpsProgram
+          gcProgram
+            | compileProfileTime config = lowered
+            | otherwise = Grin.mergeIdenticalFunctions lowered
       when (compileLint config) $ do
         let gcErrors = Grin.lintGcProgram gcProgram
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show gcErrors)))

@@ -1,0 +1,50 @@
+program: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  forceA (value :: BoxedRep Lifted) (capture :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (ready :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+    store (CPair (ready :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
+
+  forceB (value :: BoxedRep Lifted) (capture :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (ready :: BoxedRep Lifted) <- eval @(BoxedRep Lifted) (value :: BoxedRep Lifted)
+    store (CPair (ready :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
+
+  both (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) -> BoxedRep Lifted =
+    (first :: BoxedRep Lifted) <- call @(BoxedRep Lifted) forceA (left :: BoxedRep Lifted) (right :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) forceB (right :: BoxedRep Lifted) (first :: BoxedRep Lifted)
+expected: |
+  constructor Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  forceA (value :: BoxedRep Lifted) (capture :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    if-whnf (value :: BoxedRep Lifted)
+      call @(TupleRep []) forceA_cont (capture :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (value :: BoxedRep Lifted)
+    else
+      $cps_continuation :: BoxedRep Lifted <-
+        store-unchecked (PforceA_cont_frame/1 ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted))
+      cps-eval @(BoxedRep Lifted) (value :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+
+  both (left :: BoxedRep Lifted) (right :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, left$gc :: BoxedRep Lifted, right$gc :: BoxedRep Lifted <-
+      ensure-heap (0 :: WordRep) ($cps_return :: BoxedRep Lifted) (left :: BoxedRep Lifted) (right :: BoxedRep Lifted)
+    $cps_continuation :: BoxedRep Lifted <-
+      store-unchecked (Pboth_cont_frame/1 ($cps_return$gc :: BoxedRep Lifted) (right$gc :: BoxedRep Lifted))
+    call @(TupleRep []) forceA (left$gc :: BoxedRep Lifted) (right$gc :: BoxedRep Lifted) ($cps_continuation :: BoxedRep Lifted)
+
+  forceA_cont (capture :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    $cps_return$gc :: BoxedRep Lifted, capture$gc :: BoxedRep Lifted, ready$gc :: BoxedRep Lifted <-
+      ensure-heap (3 :: WordRep) ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (ready :: BoxedRep Lifted)
+    $cps_result :: BoxedRep Lifted <-
+      store-unchecked (CPair (ready$gc :: BoxedRep Lifted) (capture$gc :: BoxedRep Lifted))
+    continue ($cps_return$gc :: BoxedRep Lifted) ($cps_result :: BoxedRep Lifted)
+
+  forceA_cont_frame ($cps_return :: BoxedRep Lifted) (capture :: BoxedRep Lifted) (ready :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(TupleRep []) forceA_cont (capture :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (ready :: BoxedRep Lifted)
+
+  both_cont (right :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (first :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(TupleRep []) forceA (right :: BoxedRep Lifted) (first :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted)
+
+  both_cont_frame ($cps_return :: BoxedRep Lifted) (right :: BoxedRep Lifted) (first :: BoxedRep Lifted) -> BoxedRep Lifted =
+    call @(TupleRep []) both_cont (right :: BoxedRep Lifted) ($cps_return :: BoxedRep Lifted) (first :: BoxedRep Lifted)
+status: pass
+reason: forceA and forceB have the same body, so CPS gives each one a continuation and a frame function with the same code. The first round merges forceB_cont into forceA_cont. The frame functions then call the same continuation, so the second round merges them. The two functions then store the same frame, so the third round merges forceB into forceA, and both_cont calls forceA.
+merge: true
