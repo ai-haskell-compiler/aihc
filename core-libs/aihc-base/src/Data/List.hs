@@ -152,9 +152,11 @@ import Prelude
     fromIntegral,
     id,
     lines,
+    not,
     notElem,
     or,
     otherwise,
+    seq,
     snd,
     unlines,
     unwords,
@@ -411,7 +413,7 @@ intersectBy _ _ [] = []
 intersectBy same left right = filter (\value -> any (same value) right) left
 
 sort :: (Ord a) => [a] -> [a]
-sort = sortBy compare
+sort = sortGreater (>)
 
 sortOn :: (Ord b) => (a -> b) -> [a] -> [a]
 sortOn project values =
@@ -421,39 +423,102 @@ compareKeys :: (Ord key) => (key, value) -> (key, value) -> Ordering
 compareKeys (leftKey, _) (rightKey, _) = compare leftKey rightKey
 
 sortBy :: (a -> a -> Ordering) -> [a] -> [a]
-sortBy order values = mergeAll (runs values)
+sortBy order = sortGreater (\left right -> order left right == GT)
+
+-- | A stable merge sort, as in GHC base (GHC issues 2143 and 24280). The
+-- argument is true when its first operand must come after the second.
+-- Equal elements stay in ascending runs, and the sort reverses only strictly
+-- descending runs. Each merge keeps the order of equal elements.
+--
+-- The sort makes each run and each merge of a pass before it continues.
+-- It merges four lists at a time. Thus there are fewer passes, and fewer
+-- unevaluated merges are live at the same time.
+sortGreater :: (a -> a -> Bool) -> [a] -> [a]
+sortGreater greater values =
+  case values of
+    [] -> []
+    [a] -> [a]
+    [a, b] -> merge [a] [b]
+    [a, b, c] -> merge3 [a] [b] [c]
+    [a, b, c, d] -> merge4 [a] [b] [c] [d]
+    _ -> mergeAll (runs values)
   where
-    -- Equal elements stay in ascending runs. The sort reverses only strictly
-    -- descending runs. Each merge preserves the order of equal elements.
-    runs (value : next : rest) =
-      case order value next of
-        GT -> descending next [value] rest
-        _ -> ascending next (value :) rest
-    runs [] = []
+    runs (a : b : rest)
+      | greater a b = descending b [a] rest
+      | otherwise = ascending b (a :) rest
     runs rest = [rest]
 
-    descending value accumulated (next : rest)
-      | order value next == GT = descending next (value : accumulated) rest
-    descending value accumulated rest = (value : accumulated) : runs rest
+    descending a accumulated (b : rest)
+      | greater a b = descending b (a : accumulated) rest
+    descending a accumulated rest = (a : accumulated) : runs rest
 
-    ascending value accumulated (next : rest)
-      | order value next /= GT = ascending next (\remaining -> accumulated (value : remaining)) rest
-    ascending value accumulated rest = accumulated [value] : runs rest
+    ascending a accumulated (b : rest)
+      | not (greater a b) = ascending b (\remaining -> accumulated (a : remaining)) rest
+    ascending a accumulated rest =
+      let run = accumulated [a]
+       in run `seq` (run : runs rest)
 
-    mergeAll [] = []
     mergeAll [run] = run
-    mergeAll remaining = mergeAll (mergePairs remaining)
+    mergeAll remaining = mergeAll (reduceOnce remaining)
 
-    mergePairs (left : right : rest) = mergeBy order left right : mergePairs rest
-    mergePairs rest = rest
+    reduceOnce [] = []
+    reduceOnce [a] = [a]
+    reduceOnce [a, b] = [merge a b]
+    reduceOnce [a, b, c] = [merge3 a b c]
+    reduceOnce [a, b, c, d, e] = [merge a b, merge3 c d e]
+    reduceOnce [a, b, c, d, e, f] = [merge3 a b c, merge3 d e f]
+    reduceOnce (a : b : c : d : rest) =
+      let merged = merge4 a b c d
+       in merged `seq` (merged : reduceOnce rest)
 
-mergeBy :: (a -> a -> Ordering) -> [a] -> [a] -> [a]
-mergeBy _ [] right = right
-mergeBy _ left [] = left
-mergeBy order (left : lefts) (right : rights) =
-  case order left right of
-    GT -> right : mergeBy order (left : lefts) rights
-    _ -> left : mergeBy order lefts (right : rights)
+    merge as@(a : as') bs@(b : bs')
+      | greater a b = b : merge as bs'
+      | otherwise = a : merge as' bs
+    merge [] bs = bs
+    merge as [] = as
+
+    -- merge3 as bs cs is a fused form of merge (merge as bs) cs.
+    merge3 as@(a : as') bs@(b : bs') cs
+      | greater a b = merge3X b as bs' cs
+      | otherwise = merge3X a as' bs cs
+    merge3 [] bs cs = merge bs cs
+    merge3 as [] cs = merge as cs
+
+    -- x is the head of merge as bs, which is not in as or bs.
+    merge3X x as bs cs@(c : cs')
+      | greater x c = c : merge3X x as bs cs'
+      | otherwise = x : merge3 as bs cs
+    merge3X x as bs [] = x : merge as bs
+
+    -- y is the head of cs, which is not in cs.
+    merge3Y as@(a : as') y bs cs
+      | greater a y = y : merge3 as bs cs
+      | otherwise = a : merge3Y as' y bs cs
+    merge3Y [] y bs cs = y : merge bs cs
+
+    -- merge4 as bs cs ds is a fused form of merge (merge as bs) (merge cs ds).
+    merge4 as@(a : as') bs@(b : bs') cs ds
+      | greater a b = merge4X b as bs' cs ds
+      | otherwise = merge4X a as' bs cs ds
+    merge4 [] bs cs ds = merge3 bs cs ds
+    merge4 as [] cs ds = merge3 as cs ds
+
+    merge4X x as bs cs@(c : cs') ds@(d : ds')
+      | greater c d = merge4XY x as bs d cs ds'
+      | otherwise = merge4XY x as bs c cs' ds
+    merge4X x as bs [] ds = merge3X x as bs ds
+    merge4X x as bs cs [] = merge3X x as bs cs
+
+    merge4Y as@(a : as') bs@(b : bs') y cs ds
+      | greater a b = merge4XY b as bs' y cs ds
+      | otherwise = merge4XY a as' bs y cs ds
+    merge4Y as [] y cs ds = merge3Y as y cs ds
+    merge4Y [] bs y cs ds = merge3Y bs y cs ds
+
+    -- x is the head of merge as bs, and y is the head of merge cs ds.
+    merge4XY x as bs y cs ds
+      | greater x y = y : merge4X x as bs cs ds
+      | otherwise = x : merge4Y as bs y cs ds
 
 insert :: (Ord a) => a -> [a] -> [a]
 insert = insertBy compare
