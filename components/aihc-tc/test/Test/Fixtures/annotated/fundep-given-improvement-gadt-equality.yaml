@@ -1,0 +1,68 @@
+extensions:
+- DataKinds
+- FunctionalDependencies
+- GADTs
+- KindSignatures
+- ScopedTypeVariables
+- TypeOperators
+- FlexibleInstances
+- FlexibleContexts
+- PolyKinds
+modules:
+- |
+  {-# LANGUAGE DataKinds, FunctionalDependencies, GADTs, KindSignatures, ScopedTypeVariables, TypeOperators, FlexibleInstances, FlexibleContexts, PolyKinds #-}
+  module Test where
+  import GHC.Types
+  data Proxy (t :: k) = Proxy
+  data N = Z | S N
+  data HSet (elems :: [Type]) where
+    HSNil :: HSet '[]
+    HSCons :: e -> HSet elems -> HSet (e ': elems)
+  class HRemove els1 els2 (i :: N) | els1 i -> els2 where
+    hremove :: proxy i -> HSet els1 -> HSet els2
+  data Box where
+    Box :: HSet els -> Box
+  class Drop els (i :: N) where
+    dropAt :: HSet els -> Box
+  instance HRemove els elsx i => Drop (e ': els) i where
+    dropAt (HSCons _ rest) = Box (hremove (Proxy :: Proxy i) rest)
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, FunctionalDependencies, GADTs, KindSignatures, ScopedTypeVariables, TypeOperators, FlexibleInstances, FlexibleContexts, PolyKinds #-}
+  module Test where
+  import GHC.Types
+  data Proxy (t :: k) = Proxy
+       │                └─ type: ∀ k t. Proxy t
+       └─ type: k → Type
+  data N = Z | S N
+       │   │   └─ type: N → N
+       │   └─ type: N
+       └─ type: Type
+  data HSet (elems :: [Type]) where
+       └─ type: [Type] → Type
+    HSNil :: HSet '[]
+    └─ type: ∀ elems. (elems ~ 'GHC.Types.[]) ⇒ HSet elems
+    HSCons :: e -> HSet elems -> HSet (e ': elems)
+    └─ type: ∀ elems elems e. (elems ~ ('GHC.Types.: e elems)) ⇒ e → HSet elems → HSet elems
+  class HRemove els1 els2 (i :: N) | els1 i -> els2 where
+  └─ class methods: hremove ∷ ∀ els1 els2 i proxy. (HRemove els1 els2 i) ⇒ proxy i → HSet els1 → HSet els2; fundeps: els1 i → els2
+    hremove :: proxy i -> HSet els1 -> HSet els2
+  data Box where
+       └─ type: Type
+    Box :: HSet els -> Box
+    └─ type: ∀ els. HSet els → Box
+  class Drop els (i :: N) where
+  └─ class methods: dropAt ∷ ∀ els i. (Drop els i) ⇒ HSet els → Box
+    dropAt :: HSet els -> Box
+  instance HRemove els elsx i => Drop (e ': els) i where
+  └─ $fDrop:eelsi ∷ ∀ els elsx i e. (HRemove els elsx i) ⇒ Drop (': e els) i
+    dropAt (HSCons _ rest) = Box (hremove (Proxy :: Proxy i) rest)
+    │       │      │ │       │    │        └─ type: Proxy i; type-args: N, i
+    │       │      │ │       │    └─ type: Proxy i → HSet elems → HSet elsx; type-args: elems, elsx, i, Proxy; evidence: cast(given HRemove els elsx i, HRemove nth[0](given ': e els ~ ': e elems) refl elsx refl i)
+    │       │      │ │       └─ type: HSet elsx → Box; type-args: elsx
+    │       │      │ └─ type: HSet elems
+    │       │      └─ type: e
+    │       └─ type: e → HSet elems → HSet ('GHC.Types.: e els); type-args: ': e els, elems, e; evidence: given ': e els ~ ': e elems
+    └─ dropAt ∷ HSet (': e els) → Box
+status: pass
+reason: a given equality from a GADT match makes the determiners of a wanted equal to those of a given for fundep improvement
