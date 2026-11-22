@@ -78,7 +78,7 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | exceptions | 0.10.12 | hackage:2 | mtl, stm, transformers |
 | os-string | 2.0.11 | hackage:1 | bytestring, deepseq, exceptions |
 | filepath | 1.5.5.0 | hackage:1 | bytestring, deepseq, exceptions, os-string |
-| aihc-cpp | 2.0.0.0 | hackage:0 | bytestring, containers, deepseq, filepath, text |
+| aihc-cpp | 2.0.0.1 | hackage:0 | bytestring, containers, deepseq, filepath, text |
 | ech-config | 0.0.2 | hackage:0 | base16-bytestring, bytestring, filepath, network-byte-order |
 | hashable | 1.5.1.0 | hackage:0 | bytestring, containers, deepseq, filepath, os-string, text |
 | case-insensitive | 1.2.2.0 | hackage:0 | bytestring, deepseq, hashable, text |
@@ -98,13 +98,13 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | text-short | 0.1.6.1 | hackage:0 | binary, bytestring, deepseq, hashable, text |
 | base16 | 2.0 | hackage:0 | bytestring, deepseq, primitive, text, text-short |
 | base64 | 2.1 | hackage:0 | bytestring, deepseq, text, text-short |
-| crypton | 2.2.6 | hackage:1 | base16, bytestring, deepseq, integer-gmp, primitive, ram, text |
+| crypton | 2.3.0 | hackage:0 | base16, bytestring, deepseq, integer-gmp, primitive, ram, text |
 | crypton-asn1-types | 0.4.1 | hackage:0 | base16, bytestring, time-hourglass |
-| crypton-asn1-encoding | 0.10.0 | hackage:0 | bytestring, crypton-asn1-types, time-hourglass |
+| crypton-asn1-encoding | 0.11.0 | hackage:0 | bytestring, crypton-asn1-types, time-hourglass |
 | crypton-asn1-parse | 0.10.0 | hackage:0 | bytestring, crypton-asn1-types |
 | crypton-pem | 0.3.0 | hackage:0 | base64, bytestring, deepseq, text |
-| crypton-x509 | 1.10.1 | hackage:0 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-parse, crypton-asn1-types, crypton-pem, ram, time-hourglass, transformers |
-| hpke | 0.4.0 | hackage:0 | base16-bytestring, bytestring, crypton, ram |
+| crypton-x509 | 1.11.0 | hackage:1 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-parse, crypton-asn1-types, crypton-pem, ram, time-hourglass, transformers |
+| hpke | 0.4.0 | hackage:1 | base16-bytestring, bytestring, crypton, ram |
 | these | 1.2.1 | hackage:3 | assoc, binary, deepseq, hashable |
 | strict | 0.5.1 | hackage:1 | assoc, binary, bytestring, deepseq, hashable, text, these, transformers |
 | time-compat | 1.9.9 | hackage:1 | base-orphans, deepseq, hashable, time |
@@ -115,13 +115,13 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | file-io | 0.1.6 | hackage:0 | bytestring, deepseq, filepath, os-string, unix |
 | directory | 1.3.11.0 | hackage:0 | file-io, filepath, os-string, time, unix |
 | aihc-hackage | 0.1.0.0 | local:tooling/aihc-hackage | aihc-cabal-syntax, bytestring, containers, directory, filepath, text |
-| crypton-x509-store | 1.10.0 | hackage:0 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-pem, crypton-x509, directory, filepath, mtl, unix |
-| network | 3.2.14.0 | hackage:0 | bytestring, deepseq, directory, stm |
+| crypton-x509-store | 1.10.2 | hackage:1 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-pem, crypton-x509, directory, filepath, mtl, unix |
+| crypton-x509-system | 1.10.2 | hackage:0 | bytestring, containers, crypton-x509, crypton-x509-store, directory, filepath, mtl |
+| network | 3.2.15.0 | hackage:0 | bytestring, deepseq, directory, stm |
 | crypton-socks | 0.6.2 | hackage:0 | bytestring, cereal, network |
 | iproute | 1.8.0 | hackage:0 | appar, bytestring, network |
-| crypton-x509-validation | 1.10.1 | hackage:0 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-pem, crypton-x509, crypton-x509-store, data-default, iproute, mtl, ram, time-hourglass |
+| crypton-x509-validation | 1.11.0 | hackage:1 | bytestring, containers, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-pem, crypton-x509, crypton-x509-store, data-default, iproute, mtl, ram, time-hourglass |
 | process | 1.6.30.0 | hackage:0 | deepseq, directory, filepath, os-string, unix |
-| crypton-x509-system | 1.10.0 | hackage:0 | bytestring, containers, crypton-pem, crypton-x509, crypton-x509-store, directory, filepath, mtl, process |
 | optparse-applicative | 0.18.1.0 | hackage:1 | prettyprinter, prettyprinter-ansi-terminal, process, text, transformers, transformers-compat |
 | tar | 0.6.4.0 | hackage:4 | array, bytestring, containers, deepseq, directory, directory-ospath-streaming, file-io, filepath, os-string, time, transformers |
 | unix-time | 0.6.0 | hackage:0 | binary, bytestring |
@@ -138,18 +138,18 @@ cabal file revision, or `local:PATH` for a package in this repository.
 | serialise | 0.2.6.1 | hackage:5 | array, bytestring, cborg, containers, half, hashable, primitive, strict, text, these, time, unordered-containers, vector |
 | wherefrom-compat | 0.2.0.0 | hackage:5 |  |
 | nothunks | 0.3.2 | hackage:0 | bytestring, containers, stm, text, time, vector, wherefrom-compat |
-| monoidmap | 0.1.4.0 | hackage:0 | containers, deepseq, groups, monoid-subclasses, monoidmap-internal, nothunks |
+| monoidmap | 0.1.5.0 | hackage:0 | containers, deepseq, groups, monoid-subclasses, monoidmap-internal, nothunks |
 | aihc-resolve | 0.1.0.0 | local:components/aihc-resolve | aihc-parser, containers, deepseq, monoidmap, text |
-| aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, text, transformers |
+| aihc-tc | 0.1.0.0 | local:components/aihc-tc | aihc-parser, aihc-resolve, containers, deepseq, monoidmap, text, transformers |
 | witherable | 0.5 | hackage:2 | base-orphans, containers, hashable, indexed-traversable, indexed-traversable-instances, transformers, unordered-containers, vector |
 | aeson | 2.2.5.1 | hackage:0 | OneTuple, QuickCheck, bytestring, character-ps, containers, data-fix, deepseq, dlist, exceptions, hashable, indexed-traversable, integer-conversion, integer-logarithms, network-uri, primitive, scientific, semialign, strict, tagged, text, text-iso8601, text-short, th-abstraction, these, time, time-compat, unordered-containers, uuid-types, vector, witherable |
-| aihc-package-plan | 0.1.0.0 | local:tooling/aihc-package-plan | aeson, aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-parser, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, text, time, transformers |
+| aihc-package-plan | 0.1.0.0 | local:tooling/aihc-package-plan | aeson, aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-parser, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, monoidmap, text, time, transformers |
 | zlib | 0.7.1.1 | hackage:1 | bytestring |
 | streaming-commons | 0.2.3.1 | hackage:0 | array, async, bytestring, directory, network, process, random, stm, text, transformers, unix, zlib |
 | http-client | 0.7.19 | hackage:0 | array, async, base64-bytestring, blaze-builder, bytestring, case-insensitive, containers, cookie, deepseq, exceptions, filepath, http-types, iproute, mime-types, network, network-uri, random, stm, streaming-commons, text, time, transformers |
-| tls | 2.5.2 | hackage:0 | base16-bytestring, bytestring, cereal, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-x509, crypton-x509-store, crypton-x509-validation, data-default, ech-config, hpke, mtl, network, ram, random, serialise, transformers, unix-time, zlib |
-| crypton-connection | 0.4.6 | hackage:3 | bytestring, containers, crypton-socks, crypton-x509-store, crypton-x509-system, data-default, network, tls |
+| tls | 2.6.2 | hackage:0 | base16-bytestring, bytestring, cereal, crypton, crypton-asn1-encoding, crypton-asn1-types, crypton-x509, crypton-x509-store, crypton-x509-validation, data-default, ech-config, hpke, mtl, network, ram, random, serialise, stm, transformers, unix-time, zlib |
+| crypton-connection | 0.4.6 | hackage:4 | bytestring, containers, crypton-socks, crypton-x509-store, crypton-x509-system, data-default, network, tls |
 | http-client-tls | 0.4.0 | hackage:0 | base16, bytestring, case-insensitive, containers, cryptohash-md5, crypton-connection, data-default, exceptions, http-client, http-types, network, network-uri, text, tls, transformers |
 | aihc-http | 0.1.0.0 | local:tooling/aihc-http | bytestring, http-client, http-client-tls, http-types |
 | aihc-hackage-fetch | 0.1.0.0 | local:tooling/aihc-hackage-fetch | aeson, aihc-hackage, aihc-http, bytestring, containers, directory, filepath, tar, time, zlib |
-| aihc | 0.1.0 | local:bin/aihc | aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-hackage-fetch, aihc-package-plan, aihc-parser, aihc-resolve, aihc-tc, array, async, binary, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, megaparsec, monoidmap, optparse-applicative, prettyprinter, primitive, process, stm, terminal-size, text, transformers, unix, vector |
+| aihc | 0.2.1 | local:bin/aihc | aihc-cabal-syntax, aihc-cpp, aihc-hackage, aihc-hackage-fetch, aihc-package-plan, aihc-parser, aihc-resolve, aihc-tc, array, async, binary, bytestring, containers, cryptohash-sha256, deepseq, directory, filepath, megaparsec, monoidmap, optparse-applicative, prettyprinter, primitive, process, stm, terminal-size, text, transformers, unix, vector |
