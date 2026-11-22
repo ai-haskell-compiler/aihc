@@ -1,0 +1,62 @@
+extensions:
+  - PatternSynonyms
+  - ViewPatterns
+  - GADTs
+  - DataKinds
+  - PolyKinds
+  - TypeOperators
+modules:
+  - |
+    {-# LANGUAGE PatternSynonyms, DataKinds, TypeOperators #-}
+    module B where
+    import Z
+    data S = S
+    f :: E e (x ': r) -> E e r
+    f (There n) = n
+  - |
+    {-# LANGUAGE PatternSynonyms, ViewPatterns, GADTs, DataKinds, PolyKinds, TypeOperators #-}
+    module Z where
+    import {-# SOURCE #-} B (S)
+    data E (e :: k) (r :: [k]) = E
+    data M e r where
+      MYes :: E e r -> M e (e' ': r)
+    match :: E e r -> M e r
+    match = match
+    pattern There :: () => (r' ~ (e' ': r)) => E e r -> E e r'
+    pattern There e <- (match -> MYes e)
+annotated:
+  - |-
+    {-# LANGUAGE PatternSynonyms, DataKinds, TypeOperators #-}
+    module B where
+    import Z
+    data S = S
+         │   └─ type: S
+         └─ type: Type
+    f :: E e (x ': r) -> E e r
+    f (There n) = n
+    │  │     └─ type: Z.E e r
+    │  └─ type: Z.E e r → Z.E e ('GHC.Types.: x r); type-args: Type, ': x r, e, e', r; evidence: given ': x r ~ ': e' r
+    └─ type: ∀ e x r. Z.E e ('GHC.Types.: x r) → Z.E e r
+  - |-
+    {-# LANGUAGE PatternSynonyms, ViewPatterns, GADTs, DataKinds, PolyKinds, TypeOperators #-}
+    module Z where
+    import {-# SOURCE #-} B (S)
+    data E (e :: k) (r :: [k]) = E
+         └─ type: k → [k] → Type └─ type: ∀ k e r. E e r
+    data M e r where
+         └─ type: k0 → [k0] → Type
+      MYes :: E e r -> M e (e' ': r)
+      └─ type: ∀ k0 e r r e'. (r ~ ('GHC.Types.: e' r)) ⇒ E e r → M e r
+    match :: E e r -> M e r
+    match = match
+    │       └─ type: E e r → M e r; type-args: k0, e, r
+    └─ type: ∀ k0 e r. E e r → M e r
+    pattern There :: () => (r' ~ (e' ': r)) => E e r -> E e r'
+    pattern There e <- (match -> MYes e)
+    │                   ││        │    └─ type: E e r
+    │                   ││        └─ type: E e r → M e r'; type-args: k0, e, r', r, e'; evidence: given r' ~ ': e' r
+    │                   └─ type: E e r'
+    │                   └─ type: E e r' → M e r'; type-args: k0, e, r'
+    └─ type: ∀ k0 r' e e' r. (r' ~ ('GHC.Types.: e' r)) ⇒ E e r → E e r'
+status: pass
+reason: A module of an import cycle uses a pattern synonym of a module that it imports without a SOURCE pragma. The type checker checks the pattern synonym first, so the use gives the universal type arguments first, then the existential type arguments.
