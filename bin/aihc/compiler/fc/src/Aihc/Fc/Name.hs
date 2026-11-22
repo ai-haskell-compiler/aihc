@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Names and sorts for System FC.
 module Aihc.Fc.Name
@@ -23,8 +25,11 @@ import Aihc.Tc.Types (Unique (..))
 import Control.DeepSeq (NFData (..))
 import Data.Bits (xor)
 import Data.Text (Text)
+import Data.Text.Array (pattern ByteArray)
+import Data.Text.Internal qualified as TI
 import Data.Text qualified as T
 import Data.Word (Word64)
+import GHC.Exts (isTrue#, reallyUnsafePtrEquality#)
 import GHC.Generics (Generic)
 import Numeric (showHex)
 
@@ -88,9 +93,9 @@ data Name = Name
 -- Compare origins before text. Different local uniques need no text comparison.
 instance Eq Name where
   left == right =
-    nameOrigin left == nameOrigin right
+    sameOrigin (nameOrigin left) (nameOrigin right)
       && nameSort left == nameSort right
-      && nameText left == nameText right
+      && sameText (nameText left) (nameText right)
 
 -- Local uniques distinguish most local names without a text comparison.
 -- Top-level names keep their lexical order.
@@ -101,11 +106,43 @@ instance Ord Name where
   compare left right =
     case (nameOrigin left, nameOrigin right) of
       (OriginLocal unique, OriginLocal other) ->
-        compare unique other <> compare (nameText left) (nameText right) <> compare (nameSort left) (nameSort right)
+        compare unique other <> compareText (nameText left) (nameText right) <> compare (nameSort left) (nameSort right)
       (OriginLocal {}, OriginTop {}) -> LT
       (OriginTop {}, OriginLocal {}) -> GT
-      (OriginTop {}, OriginTop {}) ->
-        compare (nameText left) (nameText right) <> compare (nameSort left) (nameSort right) <> compare (nameOrigin left) (nameOrigin right)
+      (OriginTop (PackageId leftPackage) leftModule, OriginTop (PackageId rightPackage) rightModule) ->
+        compareText (nameText left) (nameText right)
+          <> compare (nameSort left) (nameSort right)
+          <> compareText leftPackage rightPackage
+          <> compareText leftModule rightModule
+
+-- | Whether two texts share their bytes: the same array, offset and
+-- length. Names that come from one interface share the texts of their
+-- package and module, so two equal names often need no walk of the bytes.
+sharedText :: Text -> Text -> Bool
+sharedText (TI.Text (ByteArray left) leftOffset leftLength) (TI.Text (ByteArray right) rightOffset rightLength) =
+  isTrue# (reallyUnsafePtrEquality# left right) && leftOffset == rightOffset && leftLength == rightLength
+{-# INLINE sharedText #-}
+
+-- | The order of 'Text', without a walk of shared bytes.
+compareText :: Text -> Text -> Ordering
+compareText left right
+  | sharedText left right = EQ
+  | otherwise = compare left right
+{-# INLINE compareText #-}
+
+-- | The equality of 'Text', without a walk of shared bytes.
+sameText :: Text -> Text -> Bool
+sameText left right = sharedText left right || left == right
+{-# INLINE sameText #-}
+
+-- | The equality of 'Origin', without a walk of shared bytes.
+sameOrigin :: Origin -> Origin -> Bool
+sameOrigin left right =
+  case (left, right) of
+    (OriginLocal leftUnique, OriginLocal rightUnique) -> leftUnique == rightUnique
+    (OriginTop (PackageId leftPackage) leftModule, OriginTop (PackageId rightPackage) rightModule) ->
+      sameText leftPackage rightPackage && sameText leftModule rightModule
+    _ -> False
 
 -- | The lexical order for emitted layouts and ordered transformations.
 lexicalNameKey :: Name -> (Text, Sort, Origin)
