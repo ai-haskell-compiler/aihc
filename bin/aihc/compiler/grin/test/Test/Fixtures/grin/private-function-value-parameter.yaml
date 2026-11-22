@@ -1,0 +1,49 @@
+source: |
+  module Test (agree) where
+  data Sign = Minus | Plus
+  data Answer = Yes | No
+  data Pair = Pair !Sign !Sign
+  agree :: Pair -> Answer
+  agree (Pair left right) = same left right
+  same :: Sign -> Sign -> Answer
+  same Minus Minus = Yes
+  same Plus Plus = Yes
+  same _ _ = No
+status: pass
+reason: The private function evaluates its first parameter first, and each alternative of that case evaluates its second parameter first. The only call gives two strict fields, which are values. Thus the function does not evaluate its parameters, and the call evaluates nothing.
+expected: |-
+  scope 1 = "" Test
+
+  constructor 1.Minus []
+
+  constructor 1.Plus%1 []
+
+  constructor 1.Yes []
+
+  constructor 1.No%1 []
+
+  pub constructor 1.Pair [BoxedRep Lifted, BoxedRep Lifted]
+
+  pub global 1.agree = (P1.$agree$p$p/1)
+
+  pub 1.$agree$p$p (x :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case_value :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    left :: BoxedRep Lifted, right :: BoxedRep Lifted <-
+      fetch (C1.Pair) (case_value :: BoxedRep Lifted)
+    call @(BoxedRep Lifted) 1.$same (left :: BoxedRep Lifted) (right :: BoxedRep Lifted)
+
+  1.$same (x :: BoxedRep Lifted) (y :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (x :: BoxedRep Lifted) as case_value :: BoxedRep Lifted of
+      data 1.Minus ->
+        case (y :: BoxedRep Lifted) as case_value%1 :: BoxedRep Lifted of
+          data 1.Minus ->
+            constant global-ref 1.Yes
+          _ ->
+            constant global-ref 1.No
+      data 1.Plus%1 ->
+        case (y :: BoxedRep Lifted) as case_value%2 :: BoxedRep Lifted of
+          data 1.Plus%1 ->
+            constant global-ref 1.Yes
+          _ ->
+            constant global-ref 1.No

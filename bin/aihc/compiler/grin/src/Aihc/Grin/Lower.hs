@@ -92,8 +92,10 @@ data LocalFunction = LocalFunction
     localFunctionExported :: !Bool,
     localFunctionCaptures :: ![Fc.Name],
     -- | For each logical parameter, whether each call gives a pointer to a
-    -- value in weak-head normal form. See 'valueParameters'. A top-level
-    -- function has no such parameter: an unknown call can enter it.
+    -- value in weak-head normal form. See 'valueParameters'. A public
+    -- top-level function has no such parameter: an unknown call can enter
+    -- it. A private top-level function has them only when the program uses
+    -- it in saturated direct calls alone. See 'localFunctionTable'.
     localFunctionValueParameters :: ![Bool]
   }
 
@@ -320,7 +322,7 @@ lowerValueDecl env declaration = do
       -- function of the value, and 'lazyNode' the body of its thunk.
       node <-
         case Map.lookup (Fc.valName declaration) (lowerLocalFunctions env) of
-          Just function -> snd <$> makeClosure env (Just (localFunctionEntry function)) (Fc.valBody declaration)
+          Just function -> snd <$> makeClosureWith (localFunctionValueParameters function) env (Just (localFunctionEntry function)) (Fc.valBody declaration)
           Nothing -> snd <$> lazyNode env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       case Map.lookup (Fc.valName declaration) (lowerPublicEntries env) of
         Just entry
@@ -1347,6 +1349,11 @@ lowerLocalFunctionApplication env resultRep name function arguments
       closure <- freshVar "local_function" liftedGrinRep
       body <- lowerCallArguments env "argument" (zip (valueFlags <> repeat False) arguments) (applyArgumentGroups resultRep (GrinVarValue closure))
       pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure entry (localFunctionLayouts function)) captures)) body)
+  -- A private top-level function with value parameters is entered with
+  -- each such argument evaluated, as a direct call does.
+  | or valueFlags = do
+      globalName <- valueGlobalName env name
+      lowerCallArguments env "argument" (zip (valueFlags <> repeat False) arguments) (applyArgumentGroups resultRep (GrinGlobalValue globalName))
   | otherwise = do
       globalName <- valueGlobalName env name
       lowerDynamicApplication env resultRep (GrinGlobalValue globalName) arguments
@@ -1917,6 +1924,87 @@ saturatedUses arities expression =
   where
     check = saturatedUses arities
 
+-- | The value parameters of each candidate function that every call of the
+-- program gives a value without an evaluation: a case binder, a binder of
+-- a strict field, a nullary constructor, or a value parameter of the
+-- function that makes the call. A candidate has its parameter names and
+-- the parameters that its body evaluates first. The result is the largest
+-- set of flags that the calls keep, so a parameter that only recursive
+-- calls give stays a value parameter.
+settledCallParameters :: LowerEnv -> [Fc.ValDecl] -> Map Fc.Name ([Fc.Name], [Bool]) -> Map Fc.Name [Bool]
+settledCallParameters env declarations candidates = loop (Map.map snd candidates)
+  where
+    loop flags =
+      let refuted = foldMap (declarationRefutes flags) declarations
+          next = Map.mapWithKey (\name current -> [flag && not (Set.member (name, position) refuted) | (position, flag) <- zip [0 :: Int ..] current]) flags
+       in if next == flags then flags else loop next
+    declarationRefutes flags declaration =
+      let own = case Map.lookup (Fc.valName declaration) candidates of
+            Just (names, _) -> Set.fromList [name | (name, True) <- zip names (Map.findWithDefault [] (Fc.valName declaration) flags)]
+            Nothing -> Set.empty
+       in refutes flags own (Fc.valBody declaration)
+    refutes :: Map Fc.Name [Bool] -> Set Fc.Name -> Fc.Expr -> Set (Fc.Name, Int)
+    refutes flags settled expression =
+      case collectApplications expression of
+        (Fc.ExVar name, arguments)
+          | Just current <- Map.lookup name flags ->
+              Set.fromList [(name, position) | (position, True, argument) <- zip3 [0 ..] current arguments, not (isSettled settled argument)]
+                <> foldMap (refutes flags settled) arguments
+        _ -> case expression of
+          Fc.ExApp function argument -> refutes flags settled function <> refutes flags settled argument
+          Fc.ExTyApp inner _ -> refutes flags settled inner
+          Fc.ExLam binder inner -> refutes flags (Set.delete (Fc.binderName binder) settled) inner
+          Fc.ExTyLam _ inner -> refutes flags settled inner
+          Fc.ExLet binding inner -> refutes flags settled (Fc.bindRhs binding) <> refutes flags (Set.delete (Fc.binderName (Fc.bindBinder binding)) settled) inner
+          Fc.ExRec bindings inner ->
+            let inside = foldr (Set.delete . Fc.binderName . Fc.bindBinder) settled bindings
+             in foldMap (refutes flags inside . Fc.bindRhs) bindings <> refutes flags inside inner
+          Fc.ExCase scrutinee binder alternatives ->
+            refutes flags settled scrutinee
+              <> foldMap (\alternative -> refutes flags (alternativeSettled settled binder alternative) (Fc.altRhs alternative)) alternatives
+          Fc.ExCast inner _ -> refutes flags settled inner
+          Fc.ExAbsurd inner _ -> refutes flags settled inner
+          Fc.ExForeignCall _ _ arguments -> foldMap (refutes flags settled) arguments
+          _ -> Set.empty
+    -- The binders of an alternative hide the outer names, and the case
+    -- binder and the binders of strict fields point to values. See
+    -- 'lowerAlt'.
+    alternativeSettled settled binder alternative =
+      let names = map Fc.binderName (Fc.altBinders alternative)
+          strict = case Fc.altCon alternative of
+            Fc.AltData name
+              | not (isUnboxedConstructor env name) -> Map.findWithDefault [] name (TypeOf.teConStrictFields (lowerTypes env))
+            _ -> []
+          values = [name | (position, name) <- zip [0 :: Int ..] names, position `elem` strict] <> maybe [] (pure . Fc.binderName) binder
+       in foldr Set.insert (foldr Set.delete settled names) values
+    isSettled settled argument =
+      case stripValueWrappers argument of
+        Fc.ExVar name -> Set.member name settled || isNullaryConstructor env name
+        _ -> False
+
+-- | The names of the map that the expression uses in any other way than
+-- a direct call with all their arguments. See 'saturatedUses'.
+unsaturatedUses :: Map Fc.Name Int -> Fc.Expr -> Set Fc.Name
+unsaturatedUses arities expression =
+  case collectApplications expression of
+    (Fc.ExVar name, arguments)
+      | Just arity <- Map.lookup name arities ->
+          (if length arguments >= arity then id else Set.insert name) (foldMap check arguments)
+    _ -> case expression of
+      Fc.ExApp function argument -> check function <> check argument
+      Fc.ExTyApp inner _ -> check inner
+      Fc.ExLam _ inner -> check inner
+      Fc.ExTyLam _ inner -> check inner
+      Fc.ExLet binding inner -> check (Fc.bindRhs binding) <> check inner
+      Fc.ExRec bindings inner -> foldMap (check . Fc.bindRhs) bindings <> check inner
+      Fc.ExCase scrutinee _ alternatives -> check scrutinee <> foldMap (check . Fc.altRhs) alternatives
+      Fc.ExCast inner _ -> check inner
+      Fc.ExAbsurd inner _ -> check inner
+      Fc.ExForeignCall _ _ arguments -> foldMap check arguments
+      _ -> Set.empty
+  where
+    check = unsaturatedUses arities
+
 -- | Allocate a recursive binding group and continue with the environment
 -- that sees it.
 lowerRecBindings :: LowerEnv -> [Fc.Bind] -> (LowerEnv -> LowerM GrinExpr) -> LowerM GrinExpr
@@ -2181,13 +2269,18 @@ closureLayouts = map (map grinVarRuntimeRep) . closureParameters
 -- no code: a loop over a structure with strict fields gives such a field
 -- to the next iteration. See 'lowerCallArguments'.
 valueParameters :: LowerEnv -> Fc.Expr -> ClosureShape -> [Bool]
-valueParameters env rhs shape
+valueParameters = valueParametersWith headStrictVariables
+
+-- | 'valueParameters' with the walk that finds the variables the body
+-- evaluates first.
+valueParametersWith :: (Fc.Expr -> Set Fc.Name) -> LowerEnv -> Fc.Expr -> ClosureShape -> [Bool]
+valueParametersWith strictVariables env rhs shape
   | length names /= Set.size (Set.fromList names) = map (const False) names
   | otherwise = zipWith isValue names (closureParameters shape)
   where
     (_, binders, body) = collectLambdas env rhs
     names = map Fc.binderName binders
-    strict = headStrictVariables body
+    strict = strictVariables body
     isValue name group =
       case group of
         [variable] -> Set.member name strict && isLiftedRuntimeRep (grinVarRuntimeRep variable)
@@ -2205,18 +2298,34 @@ valueParameterEnv flags shape =
 -- anything else: the scrutinee of its first case, and the scrutinee of
 -- the first case of the only alternative of that case, and so on.
 headStrictVariables :: Fc.Expr -> Set Fc.Name
-headStrictVariables = go Set.empty
+headStrictVariables = strictVariablesWith False
+
+-- | The free variables that an expression evaluates before it does
+-- anything else: the scrutinee of its first case, and each variable that
+-- every alternative of that case evaluates before it does anything else,
+-- and so on. Unlike 'headStrictVariables', a case of more alternatives
+-- does not stop the walk.
+pathStrictVariables :: Fc.Expr -> Set Fc.Name
+pathStrictVariables = strictVariablesWith True
+
+-- | The walk of 'headStrictVariables' and 'pathStrictVariables'. With the
+-- flag, a case of more alternatives gives the variables that every
+-- alternative evaluates first. Without it, such a case stops the walk.
+strictVariablesWith :: Bool -> Fc.Expr -> Set Fc.Name
+strictVariablesWith everyAlternative = go Set.empty
   where
     go bound expression =
       case expression of
         Fc.ExCast inner _ -> go bound inner
         Fc.ExCase scrutinee binder alternatives
           | Just name <- variable scrutinee ->
-              let rest =
-                    case alternatives of
-                      alternative NE.:| [] ->
-                        go (foldr (Set.insert . Fc.binderName) bound (maybe id (:) binder (Fc.altBinders alternative))) (Fc.altRhs alternative)
-                      _ -> Set.empty
+              let inAlternative alternative =
+                    go (foldr (Set.insert . Fc.binderName) bound (maybe id (:) binder (Fc.altBinders alternative))) (Fc.altRhs alternative)
+                  rest = case alternatives of
+                    alternative NE.:| [] -> inAlternative alternative
+                    _
+                      | everyAlternative -> foldr1 Set.intersection (NE.map inAlternative alternatives)
+                      | otherwise -> Set.empty
                in if Set.member name bound then rest else Set.insert name rest
         _ -> Set.empty
     variable expression =
@@ -2248,11 +2357,17 @@ closureShape env expression = do
 -- closure, so no caller gives the values themselves. The result has the
 -- environment nodes that the closure node needs, with their pointers.
 makeClosure :: LowerEnv -> Maybe FunctionName -> Fc.Expr -> LowerM ([(GrinVar, GrinNode)], GrinNode)
-makeClosure env entry expression = do
+makeClosure = makeClosureWith []
+
+-- | 'makeClosure' for a function with value parameters: the body reads
+-- each parameter of a set flag as a pointer to a value. See
+-- 'valueParameters'.
+makeClosureWith :: [Bool] -> LowerEnv -> Maybe FunctionName -> Fc.Expr -> LowerM ([(GrinVar, GrinNode)], GrinNode)
+makeClosureWith valueFlags env entry expression = do
   let captures = capturedVariables env expression
   functionName <- maybe (freshFunction "closure") pure entry
   shape <- closureShape env expression
-  loweredBody <- lowerExpr (closureBodyEnv shape) (closureBody shape)
+  loweredBody <- lowerExpr (valueParameterEnv valueFlags shape) (closureBody shape)
   if isNothing entry && length captures >= closureEnvironmentThreshold
     then do
       let environmentName = unFunctionName functionName <> "$env"
@@ -2629,10 +2744,18 @@ constructorArityTable types =
 -- | Name the entry function of every top-level function before any code is
 -- lowered, so that a call of one compiles to a direct call and a suspension
 -- of one to a plain thunk node.
+--
+-- A private function that the program uses only in saturated direct calls
+-- can get value parameters, as a local function does. No other module can
+-- name it, and no closure of it exists, so each entry comes from a call
+-- that gives a value to each value parameter. Here a parameter is a value
+-- parameter only when each call already has a value for it, so that no
+-- call evaluates an argument that the function did not evaluate before.
+-- See 'valueParameters' and 'settledCallParameters'.
 localFunctionTable :: LowerEnv -> Fc.Program -> LowerM (Map Fc.Name LocalFunction)
-localFunctionTable env program =
-  Map.fromList
-    <$> sequence
+localFunctionTable env program = do
+  shaped <-
+    sequence
       [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
           shape <- closureShape env (Fc.valBody declaration)
           -- A function of the shape of its public entry is that entry.
@@ -2642,13 +2765,37 @@ localFunctionTable env program =
                 publicEntryResultRep public == closureResultRep shape ->
                   pure (publicEntryName public)
             _ -> withCurrentValue (Fc.valName declaration) (freshFunction "")
-          pure
-            ( Fc.valName declaration,
-              LocalFunction entry (closureLayouts shape) (closureResultRep shape) (Fc.valVis declaration == Fc.Pub) [] (map (const False) (closureLayouts shape))
-            )
+          let public = Fc.valVis declaration == Fc.Pub
+              flags
+                | public || Set.member (Fc.valName declaration) unsaturated = map (const False) (closureLayouts shape)
+                | otherwise = valueParametersWith pathStrictVariables env (Fc.valBody declaration) shape
+          pure (declaration, LocalFunction entry (closureLayouts shape) (closureResultRep shape) public [] flags)
       | Fc.DeclVal declaration <- Fc.programDecls program,
         isFunctionExpression (Fc.valBody declaration)
       ]
+  let candidates =
+        Map.fromList
+          [ (Fc.valName declaration, (parameterNames declaration, localFunctionValueParameters function))
+          | (declaration, function) <- shaped,
+            or (localFunctionValueParameters function)
+          ]
+      settled = settledCallParameters env [declaration | Fc.DeclVal declaration <- Fc.programDecls program] candidates
+  pure
+    ( Map.fromList
+        [ (Fc.valName declaration, function {localFunctionValueParameters = Map.findWithDefault (localFunctionValueParameters function) (Fc.valName declaration) settled})
+        | (declaration, function) <- shaped
+        ]
+    )
+  where
+    parameterNames declaration = let (_, binders, _) = collectLambdas env (Fc.valBody declaration) in map Fc.binderName binders
+    arities =
+      Map.fromList
+        [ (Fc.valName declaration, functionArity (Fc.valBody declaration))
+        | Fc.DeclVal declaration <- Fc.programDecls program,
+          Fc.valVis declaration /= Fc.Pub,
+          isFunctionExpression (Fc.valBody declaration)
+        ]
+    unsaturated = Set.unions [unsaturatedUses arities (Fc.valBody declaration) | Fc.DeclVal declaration <- Fc.programDecls program]
 
 -- | GRIN identifies a top-level name by its package, its module, and its text.
 -- Globals and constructor tags use the same encoding, so that the printer, the
