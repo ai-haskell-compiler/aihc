@@ -535,8 +535,7 @@ void aihc_allocation_profile_register(AihcAllocationTable *table) {
   do {
     table->next = head;
   } while (!__atomic_compare_exchange_n(&aihc_allocation_tables, &head, table,
-                                        1, __ATOMIC_RELEASE,
-                                        __ATOMIC_ACQUIRE));
+                                        1, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
 }
 
 /* One line of the allocation report: an info table name and its counts,
@@ -590,7 +589,8 @@ static AihcAllocationEntry *aihc_allocation_entries(uint64_t *count) {
   qsort(entries, used, sizeof(*entries), aihc_allocation_name_order);
   uint64_t merged = 0;
   for (uint64_t index = 0; index < used; ++index) {
-    if (merged != 0 && strcmp(entries[merged - 1].name, entries[index].name) == 0) {
+    if (merged != 0 &&
+        strcmp(entries[merged - 1].name, entries[index].name) == 0) {
       entries[merged - 1].objects += entries[index].objects;
       entries[merged - 1].words += entries[index].words;
     } else {
