@@ -360,4 +360,8 @@ main = do
   -- A splice lifts a byte array, as the derived instance of a type with a
   -- byte array field does. The program gets the same bytes.
   print (Exts.toList ($(lift (Exts.fromList [1, 2, 255] :: ByteArray)) :: ByteArray))
+  -- A splice finds names in its scope: a type and a data constructor of
+  -- the module, a name with a module qualifier, and a name that is not in
+  -- scope.
+  putStrLn $(do Just shape <- lookupTypeName "Shape"; Just circle <- lookupValueName "Circle"; qualified <- lookupValueName "Exts.toList"; missing <- lookupValueName "noSuchName"; litE (stringL (show (shape == ''Shape, circle == 'Circle, qualified /= Nothing, missing))))
   mapM_ putStrLn quasiLines

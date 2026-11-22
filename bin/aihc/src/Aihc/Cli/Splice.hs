@@ -51,7 +51,7 @@ import Aihc.Resolve (OperatorFixity)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, patternResultFromTree, typeResultFromTree)
 import Aihc.Th.Reify (exportedFixity, fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
-import Aihc.Th.Request (Request (..), RequestName (..), reportedFailure, requestFromTree)
+import Aihc.Th.Request (Request (..), RequestName (..), lookupNameReply, reportedFailure, requestFromTree)
 import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
@@ -318,6 +318,7 @@ describeRequests made =
         RequestReifyFixity name _ -> Just name
         RequestReport {} -> Nothing
         RequestLocation -> Nothing
+        RequestLookupName {} -> Nothing
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
@@ -344,6 +345,9 @@ answerRequest fromGuest toGuest lookupName reify fixity location requests bytes 
             RequestUnknown -> pure (Right Nothing)
           pure (encodeReply (fixityTree <$> answer))
         RequestLocation -> pure (encodeTree location)
+        RequestLookupName isType scoped ->
+          let namespace = if isType then ResolutionNamespaceType else ResolutionNamespaceTerm
+           in pure (encodeTree (toGuest (lookupNameReply (lookupName namespace scoped))))
     Left message -> ioError (userError (T.unpack message))
   where
     facts question name requested =

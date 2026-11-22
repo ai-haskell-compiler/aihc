@@ -11,10 +11,12 @@ module Aihc.Th.Request
   ( Request (..),
     RequestName (..),
     requestFromTree,
+    lookupNameReply,
     reportedFailure,
   )
 where
 
+import Data.Char (isUpper)
 import Aihc.Parser.Syntax (Name)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (nameFromTree)
@@ -40,6 +42,10 @@ data Request
     RequestReifyFixity !Text !RequestName
   | -- | Give the source location of the splice.
     RequestLocation
+  | -- | Find a name in the scope of the splice, for @lookupTypeName@
+    -- ('True') or @lookupValueName@ ('False'). The name has no package,
+    -- and it can have a module qualifier.
+    RequestLookupName !Bool !Name
   deriving (Eq, Show)
 
 -- | The name of a request for facts.
@@ -71,6 +77,8 @@ requestFromTree tree =
     TreeNode "ReifyFixity" [TreeNode "Name" [TreeNode "OccName" [TreeString occurrence], flavour]] ->
       Right (RequestReifyFixity occurrence (requestName occurrence flavour))
     TreeNode "Location" [] -> Right RequestLocation
+    TreeNode "LookupName" [TreeNode "True" [], name] -> RequestLookupName True <$> nameFromTree name
+    TreeNode "LookupName" [TreeNode "False" [], name] -> RequestLookupName False <$> nameFromTree name
     TreeNode name _ -> Left ("The compiler does not know the splice request " <> name <> ".")
     _ -> Left "A splice request is not a constructor."
 
@@ -90,6 +98,34 @@ requestName occurrence flavour =
       | space `elem` ["VarName", "DataName", "FldName"] = Just ResolutionNamespaceTerm
       | space == "TcClsName" = Just ResolutionNamespaceType
       | otherwise = Nothing
+
+-- | The @Maybe Name@ reply to 'RequestLookupName': the top-level entity
+-- that the compiler found in the scope of the splice, bound to its package
+-- and its module, or 'Nothing'. A term with a name that starts with an
+-- upper-case letter or a colon is a data constructor.
+lookupNameReply :: Maybe GlobalName -> Tree
+lookupNameReply found =
+  case found of
+    Nothing -> TreeNode "Nothing" []
+    Just global ->
+      TreeNode
+        "Just"
+        [ TreeNode
+            "Name"
+            [ TreeNode "OccName" [TreeString (globalNameText global)],
+              TreeNode
+                "NameG"
+                [ TreeNode (space global) [],
+                  TreeNode "PkgName" [TreeString (packageIdText (globalNamePackage global))],
+                  TreeNode "ModName" [TreeString (globalNameModule global)]
+                ]
+            ]
+        ]
+  where
+    space global
+      | globalNameNamespace global == ResolutionNamespaceType = "TcClsName"
+      | Just (first, _) <- T.uncons (globalNameText global), isUpper first || first == ':' = "DataName"
+      | otherwise = "VarName"
 
 -- | The errors that a splice reported, as one message. A splice that
 -- reported an error fails, also when it gives a result.

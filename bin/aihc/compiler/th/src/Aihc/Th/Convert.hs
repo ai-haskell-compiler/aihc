@@ -101,6 +101,7 @@ declaration tree =
       dependencies' <- list dependencies >>= mapM functionalDependency
       items <- list members >>= fmap concat . mapM classItem
       pure (DeclClass (ClassDecl (if null context' then Nothing else Just context') (PrefixBinderHead className binders') dependencies' items))
+    TreeNode "ForeignD" [foreign'] -> DeclForeign <$> foreignDeclaration foreign'
     _ -> unsupported "declaration" tree
   where
     -- A pragma in an instance, such as @INLINE@, does not change the
@@ -174,6 +175,45 @@ declaration tree =
       case clauseTree of
         TreeNode "Clause" [patterns, body, locals] -> Match [] MatchHeadPrefix <$> (list patterns >>= mapM patternFromTree) <*> rightSide body locals
         _ -> unsupported "clause" clauseTree
+
+-- | A foreign import or a foreign export. The entity text has the same
+-- meaning as the string of the declaration in the source text. An empty
+-- entity text gives the Haskell name as the entity, as with GHC.
+foreignDeclaration :: Tree -> Either Text ForeignDecl
+foreignDeclaration tree =
+  case tree of
+    TreeNode "ImportF" [convention, safety, TreeString entity, name, signature] -> do
+      safety' <- case safety of
+        TreeNode "Safe" [] -> Right Safe
+        TreeNode "Unsafe" [] -> Right Unsafe
+        TreeNode "Interruptible" [] -> Right Interruptible
+        _ -> unsupported "foreign call safety" safety
+      declaration' ForeignImport convention (Just safety') (importEntity (T.strip entity)) name signature
+    TreeNode "ExportF" [convention, TreeString entity, name, signature] ->
+      declaration' ForeignExport convention Nothing (exportEntity (T.strip entity)) name signature
+    _ -> unsupported "foreign declaration" tree
+  where
+    declaration' direction convention safety entity name signature = do
+      convention' <- case convention of
+        TreeNode "CCall" [] -> Right CCall
+        TreeNode "CApi" [] -> Right CApi
+        TreeNode "StdCall" [] -> Right StdCall
+        TreeNode "Prim" [] -> Right CPrim
+        TreeNode "JavaScript" [] -> Right JavaScript
+        _ -> unsupported "calling convention" convention
+      ForeignDecl direction convention' safety entity <$> binderFromTree name <*> typeFromTree signature
+    importEntity entity
+      | T.null entity = ForeignEntityOmitted
+      | entity == "dynamic" = ForeignEntityDynamic
+      | entity == "wrapper" = ForeignEntityWrapper
+      | entity == "static" = ForeignEntityStatic Nothing
+      | Just rest <- T.stripPrefix "static " entity = ForeignEntityStatic (Just rest)
+      | entity == "&" = ForeignEntityAddress Nothing
+      | Just rest <- T.stripPrefix "&" entity = ForeignEntityAddress (Just rest)
+      | otherwise = ForeignEntityNamed entity
+    exportEntity entity
+      | T.null entity = ForeignEntityOmitted
+      | otherwise = ForeignEntityNamed entity
 
 -- | A data constructor. A @ForallC@ gives the binders and the context of
 -- the constructor in it.
