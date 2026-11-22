@@ -2085,7 +2085,8 @@ maximumRoots expression =
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinAllocate _ _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinSafepoint _ roots) body -> max (length roots) (maximumRoots body)
-    GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
+    GrinBind _ (GrinForeignCallExpr call _) body
+      | needsForeignFrame (grinForeignCallTarget call) -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
@@ -2109,6 +2110,7 @@ needsForeignFrame target = case target of
   GrinForeignAddress -> False
   GrinForeignFunctionAddress _ -> False
   GrinForeignWrapper _ -> False
+  GrinForeignUnsafeFunction -> False
   _ -> True
 
 hasForeignCall :: (GrinForeignTarget -> Bool) -> GrinExpr -> Bool
@@ -3237,11 +3239,19 @@ compileForeignCall ctx env foreignCall arguments =
       _ -> failWith (LowerUnsupportedExpression "callback creation requires one closure")
 
 -- | Spill live heap pointers while C can call Haskell and collect.
+--
+-- An unsafe call of a named C function is a plain C call. It cannot call
+-- Haskell, so it cannot collect, and it keeps the capability, so no other
+-- capability collects while it runs. Thus it needs no root spill and no
+-- foreign frame. An unsafe dynamic call keeps the frame: a function pointer
+-- can be a Haskell callback, and the frame lets the runtime refuse to enter
+-- it.
 protectedForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM ([Typed], ValueEnv)
 protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
   GrinForeignAddress -> (,env) <$> compileForeignCall ctx env call arguments
   GrinForeignFunctionAddress _ -> (,env) <$> compileForeignCall ctx env call arguments
   GrinForeignWrapper _ -> (,env) <$> compileForeignCall ctx env call arguments
+  GrinForeignUnsafeFunction -> (,env) <$> compileForeignCall ctx env call arguments
   target -> do
     let roots = [(var, value) | (var, value) <- Map.toAscList env, isPointerRuntimeRep (grinVarRuntimeRep var)]
         allowed = target `notElem` [GrinForeignUnsafeFunction, GrinForeignUnsafeDynamic]
