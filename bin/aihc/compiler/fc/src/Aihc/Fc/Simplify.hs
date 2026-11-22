@@ -2922,6 +2922,21 @@ rebuildCall env headExpr' args' = do
         all (either (const True) (\argument -> all (`unused` argument) bound)) args' -> do
           rhs <- simplifyApp (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) args'
           pure (mkCase (spEnv env) scrutinee binder (alternative {altRhs = rhs} NE.:| []))
+    -- A case of several alternatives in the head takes a small effectful
+    -- argument into each alternative. The scrutinee still goes first, and
+    -- only one alternative runs, so the effect still runs once. The fused
+    -- loop of an @ST@ action has this form after its @>>@ is inlined:
+    -- @(case x ==# n of { 1# -> done; _ -> go (x +# 1#) }) (write s)@.
+    -- In each alternative the call of the loop then takes the state token
+    -- and needs no closure.
+    ExCase scrutinee binder alternatives
+      | any (effectfulArgument env) args',
+        all (either (const True) (\argument -> copiable env argument || smallEffect env argument)) args',
+        let bound = foldMap (pure . binderName) binder <> concatMap (map binderName . altBinders) (NE.toList alternatives),
+        all (either (const True) (\argument -> all (`unused` argument) bound)) args',
+        (length alternatives - 1) * sum [exprSize (spEnv env) argument | Right argument <- args'] <= effectCopyLimit -> do
+          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative) args') alternatives
+          pure (mkCase (spEnv env) scrutinee binder alternatives')
     ExLet {}
       | not (null args'),
         not (all (either (const True) (copiable env)) args') ->
@@ -2987,6 +3002,21 @@ rebuildCall env headExpr' args' = do
           pushed' <- pushed
           rebuildApp env pushed' args'
     _ -> rebuildOther env headExpr' args'
+
+-- | A primitive call with an effect whose arguments are all copiable,
+-- such as the write of a state token. A copy of it in each alternative of
+-- a case is a few nodes. See 'rebuildCall'.
+smallEffect :: Simpl -> Expr -> Bool
+smallEffect env argument =
+  case argument of
+    ExForeignCall call _ arguments -> foreignCallConvention call == Prim && all (copiable env) arguments
+    _ -> False
+
+-- | The most nodes that the copies of the arguments of an application may
+-- add when the application moves into the alternatives of a case. See
+-- 'rebuildCall'.
+effectCopyLimit :: Int
+effectCopyLimit = 32
 
 -- | An argument that is not trivial, has an unlifted type, and is not a
 -- primitive call without an effect, such as the state token that an
