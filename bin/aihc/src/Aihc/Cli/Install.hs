@@ -646,6 +646,10 @@ data CompiledPackageModules = CompiledPackageModules
 
 data BackendPhaseTimings = BackendPhaseTimings
   { backendDesugarNs :: !Word64,
+    -- | The time of the System FC optimizer. The optimized program is
+    -- forced inside this timer, so that its work is not in the GRIN time
+    -- or in the native time.
+    backendOptimizeNs :: !Word64,
     backendGrinNs :: !Word64,
     backendNativeNs :: !Word64,
     backendOtherNs :: !Word64
@@ -655,13 +659,14 @@ instance Semigroup BackendPhaseTimings where
   left <> right =
     BackendPhaseTimings
       { backendDesugarNs = backendDesugarNs left + backendDesugarNs right,
+        backendOptimizeNs = backendOptimizeNs left + backendOptimizeNs right,
         backendGrinNs = backendGrinNs left + backendGrinNs right,
         backendNativeNs = backendNativeNs left + backendNativeNs right,
         backendOtherNs = backendOtherNs left + backendOtherNs right
       }
 
 instance Monoid BackendPhaseTimings where
-  mempty = BackendPhaseTimings 0 0 0 0
+  mempty = BackendPhaseTimings 0 0 0 0 0
 
 data PackageTaskContext = PackageTaskContext
   { taskModuleCompileConfig :: !ModuleCompileConfig,
@@ -3948,7 +3953,7 @@ withOtherTime started ended timings =
     { backendOtherNs = extra
     }
   where
-    accounted = backendDesugarNs timings + backendGrinNs timings + backendNativeNs timings
+    accounted = backendDesugarNs timings + backendOptimizeNs timings + backendGrinNs timings + backendNativeNs timings
     elapsed = ended - started
     extra
       | elapsed > accounted = elapsed - accounted
@@ -3958,6 +3963,7 @@ renderBackendPhaseTotals :: BackendPhaseTimings -> String
 renderBackendPhaseTotals timings =
   unlines
     [ "desugar total: " <> renderDuration (backendDesugarNs timings),
+      "optimize total: " <> renderDuration (backendOptimizeNs timings),
       "grin total: " <> renderDuration (backendGrinNs timings),
       "native total: " <> renderDuration (backendNativeNs timings),
       "other total: " <> renderDuration (backendOtherNs timings)
@@ -4054,16 +4060,16 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
 -- state of the unit is gone.
 compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [Fc.Program] -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
 compileUnitFcModules primPackage config capiOptions verbose outputPaths interfaces pending = do
-  (grinNs, nativeNs) <-
+  (optimizeNs, grinNs, nativeNs) <-
     if lto
-      then pure (0, 0)
+      then pure (0, 0, 0)
       else do
         -- Each module is inlined on its own: the program is not known here.
         -- The modules of a unit are optimized in the order the unit holds
         -- them, and each one reads the interfaces of the modules it
         -- imports. A module of the same unit is in a cycle with this one,
         -- so it offers nothing: its own passes have not run.
-        optimized <- forM (pendingFcModules pending) $ \fcModule -> do
+        (optimized, optimizeElapsed) <- measureTime . forM (pendingFcModules pending) $ \fcModule -> do
           let grafted = Fc.graftIndexed index (fcProgram fcModule)
               env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted}
           unless (null interfaces) $
@@ -4071,14 +4077,16 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
           let stripped = Fc.stripInterfaces primPackage grafted program
           lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped
-          pure fcModule {fcProgram = stripped}
-        compileFcModules primPackage config verbose outputPaths optimized
+          fcModule {fcProgram = stripped} <$ evaluate (force stripped)
+        (grinElapsed, nativeElapsed) <- compileFcModules primPackage config verbose outputPaths optimized
+        pure (optimizeElapsed, grinElapsed, nativeElapsed)
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM (uncurry buildCapiStub) (pendingCapiStubs pending))
   pure
     ( BackendPhaseTimings
         { backendDesugarNs = 0,
+          backendOptimizeNs = optimizeNs,
           backendGrinNs = grinNs,
           backendNativeNs = nativeNs + capiNs,
           backendOtherNs = 0
