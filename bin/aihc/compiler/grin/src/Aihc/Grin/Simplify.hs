@@ -689,9 +689,10 @@ inlineLeafCalls program
         [ (grinFunctionName function, function)
         | function <- grinFunctions program,
           grinFunctionResultRep function /= ResultForwarded,
-          leafExpr (grinFunctionBody function),
+          leafExpr diverging (grinFunctionBody function),
           exprNodeCount (grinFunctionBody function) <= leafInlineSize
         ]
+    diverging = divergingFunctions program
     inlineFunction function = do
       body <- inlineExpr (grinFunctionBody function)
       pure function {grinFunctionBody = body}
@@ -713,12 +714,15 @@ inlineLeafCalls program
 leafInlineSize :: Int
 leafInlineSize = 100
 
-leafExpr :: GrinExpr -> Bool
-leafExpr expression =
+leafExpr :: Set FunctionName -> GrinExpr -> Bool
+leafExpr diverging expression =
   case expression of
     GrinConstant _ -> True
-    GrinBind _ value body -> leafExpr value && leafExpr body
-    GrinCase _ _ alternatives -> all (leafExpr . grinAltRhs) alternatives
+    GrinBind _ value body -> leafExpr diverging value && leafExpr diverging body
+    GrinCase _ _ alternatives -> all (leafExpr diverging . grinAltRhs) alternatives
+    -- A call that never returns runs only on a failure path, such as the
+    -- error of a bounds check.
+    GrinCall _ callee _ -> Set.member callee diverging
     GrinFetch {} -> True
     GrinPrimitiveCall _ name _ -> not (primitiveAllocates name || primitiveInitializes name || controlPrimitive name)
     _ -> False
