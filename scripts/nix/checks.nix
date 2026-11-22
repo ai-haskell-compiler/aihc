@@ -129,8 +129,6 @@
     # tool; the standalone one, not GHC's wrapper, which adds
     # GHC's own C flags and include directory.
     export AIHC_HSC2HS=${pkgs.haskellPackages.hsc2hs}/bin/hsc2hs
-    # The install tests preprocess a .chs fixture with the real c2hs.
-    export AIHC_C2HS=${pkgs.haskellPackages.c2hs}/bin/c2hs
     # The wasm32-wasip3 entries of the seed store are keyed by
     # the sysroot they were built against, so reading them
     # takes the same sysroot the seed store derivation used.
