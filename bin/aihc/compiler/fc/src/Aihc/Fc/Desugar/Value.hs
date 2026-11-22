@@ -3631,6 +3631,12 @@ desugarAnnotatedExpr annotation inner = do
               count <- listLength list
               let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)) intHashType)
               ExApp (ExApp method size) <$> desugarExpr list
+        Syn.EAnn resolutionAnnotation sequence'
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromList" -> do
+              method <- desugarResolvedOccurrence annotation resolution
+              ExApp method <$> desugarExpr sequence'
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
