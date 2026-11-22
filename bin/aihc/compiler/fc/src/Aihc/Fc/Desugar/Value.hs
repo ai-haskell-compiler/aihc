@@ -1239,7 +1239,11 @@ desugarClassDefaults classDecl = do
   -- A default method with several equations parses as one item per equation,
   -- so the equations are collected before the worker is emitted: one worker
   -- per method, not one per equation.
-  mapM (uncurry desugarDefaultWorker) (groupDefaultEquations equations)
+  -- An @INLINE@ pragma in the class body is for the default method, so the
+  -- worker takes it: an instance that leaves the method out calls the
+  -- worker, and a copy at that call knows the instance.
+  let specs = classInlineSpecs (Syn.classDeclItems classDecl)
+  mapM (\(annotation, matches) -> desugarDefaultWorker (Map.findWithDefault InlineDefault (tcInstanceMethodName annotation) specs) annotation matches) (groupDefaultEquations equations)
   where
     defaultItem maybeAnnotation item =
       case item of
@@ -1270,8 +1274,8 @@ valueDeclMatches valueDecl =
     Syn.FunctionBind _ sourceMatches -> sourceMatches
     Syn.PatternBind _ _ rhs -> [emptyMatch rhs]
 
-desugarDefaultWorker :: TcInstanceMethodAnnotation -> [Syn.Match] -> ValueM Decl
-desugarDefaultWorker annotation matches = do
+desugarDefaultWorker :: InlineSpec -> TcInstanceMethodAnnotation -> [Syn.Match] -> ValueM Decl
+desugarDefaultWorker spec annotation matches = do
   let workerType = tcInstanceMethodType annotation
       methodName = tcInstanceMethodName annotation
   body <- desugarMatches workerType matches
@@ -1284,7 +1288,7 @@ desugarDefaultWorker annotation matches = do
             -- the worker by name, and no export list mentions @$dm@ names,
             -- so a default worker is always public.
             valVis = Pub,
-            valInline = InlineDefault,
+            valInline = spec,
             valName = topName moduleOrigin (defaultMethodName methodName),
             valType = convertedType,
             valBody = body
@@ -1857,6 +1861,16 @@ inlinePragmaSpecs decls = Map.fromList (mapMaybe declSpec decls)
     declSpec decl =
       case Syn.peelDeclAnn decl of
         Syn.DeclPragma pragma -> inlinePragmaSpec pragma
+        _ -> Nothing
+
+-- | The inline pragmas among the items of a class, by method name.
+classInlineSpecs :: [Syn.ClassDeclItem] -> Map Text InlineSpec
+classInlineSpecs items = Map.fromList (mapMaybe itemSpec items)
+  where
+    itemSpec item =
+      case item of
+        Syn.ClassItemAnn _ inner -> itemSpec inner
+        Syn.ClassItemPragma pragma -> inlinePragmaSpec pragma
         _ -> Nothing
 
 -- | The inline pragmas among the items of an instance, by method name.
