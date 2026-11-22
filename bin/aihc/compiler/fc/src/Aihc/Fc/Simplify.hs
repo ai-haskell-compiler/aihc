@@ -2436,16 +2436,25 @@ bindingEnv env0 binder rhs
 -- calls with all its arguments in tail position. Such a function shares
 -- a continuation, as the case of a case makes it, and a copy at each call
 -- would copy the continuation again. See 'caseOfCase'.
+--
+-- A local function whose body is not larger than 'tinyLocalSize' is a
+-- candidate at each site, also when no call reduces it. A copy of such a
+-- body is about as large as the call. A join point can become this small
+-- after it is made: the case of a case shares a large alternative, and a
+-- later worker/wrapper split leaves only a call of the worker in it. The
+-- lowering then compiles each call of the join point as a call of a
+-- separate function, and a loop that goes through the join point does two
+-- calls in each iteration.
 localCandidateEnv :: Simpl -> Binder -> Expr -> Expr -> Simpl
 localCandidateEnv env binder rhs body
   | isLiftedBinder (spEnv env) binder,
     not (isStrictBinder (spEnv env) binder),
     functionArity rhs > 0,
     Set.notMember name mentioned,
-    any (\parameter -> parameterScrutinised parameter || any (>= 1) (parameterCallArities parameter)) (guidanceParameters guidance),
+    reducing || tiny,
     not (largeJoinPoint env name rhs body) =
       env
-        { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
+        { spInline = Map.insert name (Candidate rhs (if reducing then SitesReducing else SitesUnconditional) False guidance) (spInline env),
           spLocalCandidates = Map.insert name mentioned (spLocalCandidates env)
         }
   | otherwise = env
@@ -2453,6 +2462,13 @@ localCandidateEnv env binder rhs body
     name = binderName binder
     mentioned = exprFreeNames rhs
     guidance = candidateGuidance (spEnv env) (spArity (spFixed env)) rhs
+    reducing = any (\parameter -> parameterScrutinised parameter || any (>= 1) (parameterCallArities parameter)) (guidanceParameters guidance)
+    tiny = exprSize (spEnv env) (underLambdas rhs) <= tinyLocalSize
+
+-- | The largest body of a local function that is a candidate at each site.
+-- See 'localCandidateEnv'.
+tinyLocalSize :: Int
+tinyLocalSize = 6
 
 -- | Whether a let binds a join point whose copies would be large: a
 -- function that the body calls more than once, always with all its
