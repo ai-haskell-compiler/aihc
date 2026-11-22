@@ -176,8 +176,9 @@ the compiler passes as `-isysroot`, and `AIHC_APPLE_CLANG` selects the Clang
 executable, which under Nix should be the unwrapped one because the wrapper
 adds Linux-only arguments. The Nix package `cross-examples-apple-arm64` sets
 both, fetching the SDK the way nixpkgs does for its Darwin toolchain.
-On each host, the compiler gives Clang macOS 11.0 as the oldest macOS for
-the objects.
+On each host, the compiler gives Clang macOS 12.0 as the oldest macOS for
+the objects. macOS 12 is the first macOS on which the linker writes chained
+fixups, which are smaller than the older rebase opcodes.
 
 `aihc link-exe` finishes the bundle on a host that has the linker for the
 target, such as a Mac for `apple-arm64` objects compiled on Linux:
