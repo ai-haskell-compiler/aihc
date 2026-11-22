@@ -1,0 +1,32 @@
+program: |
+  constructor Unit []
+
+  constructor Box [IntRep]
+
+  $join (flag :: IntRep) (box :: BoxedRep Lifted) -> BoxedRep Lifted =
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        constant (box :: BoxedRep Lifted)
+
+  $entry (flag :: IntRep) (n :: IntRep) -> BoxedRep Lifted =
+    box :: BoxedRep Lifted <-
+      store (CBox (n :: IntRep))
+    call @(BoxedRep Lifted) $join (flag :: IntRep) (box :: BoxedRep Lifted)
+expected: |-
+  constructor Unit []
+
+  constructor Box [IntRep]
+
+  $join (flag :: IntRep) (box_field%1 :: IntRep) -> BoxedRep Lifted =
+    case (flag :: IntRep) as selected :: IntRep of
+      (0 :: IntRep) ->
+        constant global-ref Unit
+      _ ->
+        store (CBox (box_field%1 :: IntRep))
+
+  $entry (flag :: IntRep) (n :: IntRep) -> BoxedRep Lifted =
+    call @(BoxedRep Lifted) $join (flag :: IntRep) (n :: IntRep)
+status: pass
+reason: each call of the function gives the parameter a node that the caller stores for the call alone, so the function takes the fields and stores the node in the branch that uses it
