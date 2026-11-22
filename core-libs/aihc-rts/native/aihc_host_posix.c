@@ -433,11 +433,16 @@ static int64_t aihc_posix_open(AihcIoRequest *request) {
   handle->backend_token = (uintptr_t)descriptor;
   handle->capabilities = capabilities;
   handle->closed = 0;
+  handle->nonblocking = 1;
   return 0;
 }
 
+/* A descriptor that the runtime did not open can lose O_NONBLOCK, because
+   another process can share it. Thus each request on it reads its flags
+   again. A descriptor that the runtime opened keeps the flag. */
 static int aihc_posix_prepare(AihcIoRequest *request) {
-  if (request->kind == AIHC_IO_OPEN || request->kind == AIHC_IO_TIMER) {
+  if (request->kind == AIHC_IO_OPEN || request->kind == AIHC_IO_TIMER ||
+      request->handle->nonblocking) {
     return 0;
   }
   int descriptor = aihc_posix_descriptor(request->handle);
