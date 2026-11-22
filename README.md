@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC weekly highlights: a compiler that builds itself and learns from conflicts](https://blog.aihc.app/posts/2026-11-13-aihc-highlights/)** (13 Nov 2026)
+**[GHC not required](https://blog.aihc.app/posts/2026-11-21-ghc-not-required/)** (21 Nov 2026)
 
-Default-configuration self-compilation, a single-capability STM fix, PubGrub dependency solving, and precise n+k parser support.
+A compiler written in Haskell needs a Haskell compiler, and the only pre-compiled one was GHC. A Haskell interpreter in 19,464 lines of C99 now builds AIHC from source, with no pre-compiled executables in the chain.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
