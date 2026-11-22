@@ -44,6 +44,7 @@ import Aihc.Resolve.Syntax
     peelExprAnn,
     qualifyName,
   )
+import Aihc.Resolve.Syntax.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -69,7 +70,6 @@ import Control.Applicative ((<|>))
 import Control.Monad (forM_, mfilter, when, zipWithM)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Char (isLower, isUpper)
-import Data.Data (Data, cast, gmapQ)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
@@ -269,20 +269,31 @@ untypedQuoteSplices expr =
     ETHPatQuote pat -> quoteBodySplices pat
     _ -> []
 
-quoteBodySplices :: (Data a) => a -> [Expr]
-quoteBodySplices node
-  | Just expr <- cast node =
-      case expr of
-        ETHSplice inner -> [inner]
-        _
-          | isTemplateHaskellQuote expr -> []
-          | otherwise -> descend
-  | Just ty <- cast node, TSplice inner <- ty = [inner]
-  | Just pat <- cast node, PSplice inner <- pat = [inner]
-  | Just decl <- cast node, DeclSplice inner <- decl = [inner]
-  | otherwise = descend
-  where
-    descend = concat (gmapQ quoteBodySplices node)
+quoteBodySplices :: (Walkable a) => a -> [Expr]
+quoteBodySplices =
+  runCollect
+    ( walk
+        idWalk
+          { walkExpr = \children expr ->
+              case expr of
+                ETHSplice inner -> collected [inner]
+                _
+                  | isTemplateHaskellQuote expr -> collected []
+                  | otherwise -> children expr,
+            walkType = \children ty ->
+              case ty of
+                TSplice inner -> collected [inner]
+                _ -> children ty,
+            walkPattern = \children pat ->
+              case pat of
+                PSplice inner -> collected [inner]
+                _ -> children pat,
+            walkDecl = \children decl ->
+              case decl of
+                DeclSplice inner -> collected [inner]
+                _ -> children decl
+          }
+    )
 
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do

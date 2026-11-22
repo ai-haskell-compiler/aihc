@@ -1,6 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Resolve
   ( -- * Resolving a unit
@@ -31,19 +30,13 @@ module Aihc.Resolve
     RecKnotVariables (..),
     Identifier (..),
     displayIdentifier,
-    annotationResolution,
     resolutionOf,
     nameResolution,
     termResolution,
-    typeResolution,
     binderResolution,
     binderEntity,
     nameEntity,
     nameOrigin,
-    pattern DeclResolution,
-    pattern EResolution,
-    pattern PResolution,
-    pattern TResolution,
 
     -- * Exports between units
     ModuleExports,
@@ -91,10 +84,10 @@ import Aihc.Resolve.Span
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.FromParser
 import Aihc.Resolve.Syntax.ToParser (toParserExpr)
+import Aihc.Resolve.Syntax.Traverse (Walkable, collectResolutions)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
-import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -1725,16 +1718,13 @@ independentActions = go Set.empty
        in Set.disjoint uses bound && go (Set.union bound patLocals) rest
 
 -- | The local entities that the resolutions of a resolved node name.
-localEntities :: (Data a) => a -> Set.Set Entity
-localEntities node
-  | Just result <- cast node = resultLocals result
-  | Just (_ :: Text) <- cast node = Set.empty
-  | otherwise = Set.unions (gmapQ localEntities node)
+localEntities :: (Walkable a) => a -> Set.Set Entity
+localEntities = Set.fromList . collectResolutions localEntity
   where
-    resultLocals result =
+    localEntity result =
       case result of
-        ResolutionOk Resolved {resolutionTarget = target@EntityLocal {}} -> Set.singleton target
-        _ -> Set.empty
+        ResolutionOk Resolved {resolutionTarget = target@EntityLocal {}} -> Just target
+        _ -> Nothing
 
 -- | The argument of the last statement of an applicative do block. The
 -- statement must be @return e@, @pure e@, @return $ e@, or @pure $ e@.
