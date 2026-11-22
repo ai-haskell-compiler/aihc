@@ -59,8 +59,10 @@ where
 
 import Aihc.Grin.Allocation (placeGrinAllocations)
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
+import Aihc.Grin.Primitive (primitiveAllocates, primitiveInitializes)
 import Aihc.Grin.Syntax
 import Control.Applicative ((<|>))
+import Control.Monad.Trans.State.Strict (State, evalState, state)
 import Data.Bifunctor (first)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List qualified as List
@@ -100,9 +102,10 @@ data Env = Env
 
 -- | Simplify every function body of a program.
 simplifyGrinProgram :: GrinProgram -> GrinProgram
-simplifyGrinProgram program0 =
+simplifyGrinProgram program00 =
   placeGrinAllocations program {grinFunctions = map simplifyFunction (grinFunctions program)}
   where
+    program0 = inlineLeafCalls program00
     workers = boxWorkers program0
     -- The new workers join the program. A worker that no call names goes
     -- in the sweep that follows. A program that an earlier run made has
@@ -658,3 +661,104 @@ simplifyStoreRec env bindings body = allocate (forget (map fst bindings) env) co
                     (foldMap (freeNodeVars . snd) group <> restFree) `Set.difference` Set.fromList vars
                   )
                 else (rest', restFree)
+
+-- * Leaf functions
+
+-- | Copy the body of a small leaf function into each direct call of it
+-- that is not a tail call.
+--
+-- A leaf function calls nothing, allocates nothing, and evaluates
+-- nothing: its body has only binds, cases, constants, fetches and
+-- primitive calls that neither allocate nor transfer control. A call of
+-- such a function that is not a tail call needs a continuation frame
+-- after the CPS conversion, with every value that is live after the call,
+-- and a return through it. A copy of the body needs neither. A test of a
+-- few bytes that a scanning loop does for each byte is such a function,
+-- such as @startsHsBlockComment@ in @aihc-cpp@: each call pushed a frame of
+-- twelve words. A tail call needs no frame, so it stays a call.
+--
+-- The copy gets fresh names for the binders of the body. A body with more
+-- than 'leafInlineSize' nodes stays a call.
+inlineLeafCalls :: GrinProgram -> GrinProgram
+inlineLeafCalls program
+  | Map.null leaves = program
+  | otherwise = program {grinFunctions = evalState (mapM inlineFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)}
+  where
+    leaves =
+      Map.fromList
+        [ (grinFunctionName function, function)
+        | function <- grinFunctions program,
+          grinFunctionResultRep function /= ResultForwarded,
+          leafExpr (grinFunctionBody function),
+          exprNodeCount (grinFunctionBody function) <= leafInlineSize
+        ]
+    inlineFunction function = do
+      body <- inlineExpr (grinFunctionBody function)
+      pure function {grinFunctionBody = body}
+    inlineExpr expression =
+      case expression of
+        GrinBind vars (GrinCall rep callee arguments) body
+          | Just leaf <- Map.lookup callee leaves,
+            grinFunctionResultRep leaf == rep,
+            length (grinFunctionParameters leaf) == length arguments -> do
+              copy <- copyLeaf (Map.fromList (zip (grinFunctionParameters leaf) arguments)) (grinFunctionBody leaf)
+              GrinBind vars copy <$> inlineExpr body
+        GrinBind vars value body -> GrinBind vars <$> inlineExpr value <*> inlineExpr body
+        GrinStoreRec bindings body -> GrinStoreRec bindings <$> inlineExpr body
+        GrinCase value binder alternatives ->
+          GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> inlineExpr (grinAltRhs alternative)) alternatives
+        _ -> pure expression
+
+-- | The most nodes of a leaf function that 'inlineLeafCalls' copies.
+leafInlineSize :: Int
+leafInlineSize = 100
+
+leafExpr :: GrinExpr -> Bool
+leafExpr expression =
+  case expression of
+    GrinConstant _ -> True
+    GrinBind _ value body -> leafExpr value && leafExpr body
+    GrinCase _ _ alternatives -> all (leafExpr . grinAltRhs) alternatives
+    GrinFetch {} -> True
+    GrinPrimitiveCall _ name _ -> not (primitiveAllocates name || primitiveInitializes name || controlPrimitive name)
+    _ -> False
+  where
+    controlPrimitive name =
+      name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#", "maskAsyncExceptions#", "maskUninterruptible#", "unmaskAsyncExceptions#", "killThread#", "raise#", "raiseIO#", "catch#"]
+
+exprNodeCount :: GrinExpr -> Int
+exprNodeCount expression =
+  case expression of
+    GrinBind _ value body -> 1 + exprNodeCount value + exprNodeCount body
+    GrinCase _ _ alternatives -> 1 + sum (map (exprNodeCount . grinAltRhs) alternatives)
+    _ -> 1
+
+-- | A copy of a leaf body with the arguments in place of the parameters,
+-- and a fresh name for each binder.
+copyLeaf :: Map GrinVar GrinValue -> GrinExpr -> State Int GrinExpr
+copyLeaf substitution expression =
+  case expression of
+    GrinConstant values -> pure (GrinConstant (map value values))
+    GrinFetch tag operand -> pure (GrinFetch tag (value operand))
+    GrinPrimitiveCall rep name operands -> pure (GrinPrimitiveCall rep name (map value operands))
+    GrinBind vars bound body -> do
+      bound' <- copyLeaf substitution bound
+      fresh <- traverse freshVar vars
+      body' <- copyLeaf (Map.union (Map.fromList (zip vars (map GrinVarValue fresh))) substitution) body
+      pure (GrinBind fresh bound' body')
+    GrinCase scrutinee binder alternatives -> do
+      binder' <- freshVar binder
+      let inner = Map.insert binder (GrinVarValue binder') substitution
+      alternatives' <- traverse (alternative inner) alternatives
+      pure (GrinCase (value scrutinee) binder' alternatives')
+    _ -> pure expression
+  where
+    value operand =
+      case operand of
+        GrinVarValue var -> Map.findWithDefault operand var substitution
+        _ -> operand
+    alternative inner alt = do
+      binders <- traverse freshVar (grinAltBinders alt)
+      rhs <- copyLeaf (Map.union (Map.fromList (zip (grinAltBinders alt) (map GrinVarValue binders))) inner) (grinAltRhs alt)
+      pure alt {grinAltBinders = binders, grinAltRhs = rhs}
+    freshVar var = state (\unique -> (var {grinVarUnique = unique}, unique + 1))
