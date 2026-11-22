@@ -2877,19 +2877,19 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
       emitValue "heap_fits" I1 (Binary And I1 (typedOperand below) (typedOperand enough))
   collect <- freshLabel "gc_collect"
   reserved <- freshLabel "gc_reserved"
-  parameters <- forM vars $ \var -> do
-    parameter <- fresh (varBase var)
-    pure (var, parameter)
-  heap <- fresh "hp"
-  let heapArguments current = [contextHeap current]
-  terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
-  beginColdBlock collect []
   replay <- gets stateReplay
-  endReplay
   case replay of
     -- The code before the reservation only read values, so the function
     -- can run again from its entry after the collection. See 'Replay'.
+    -- The cold path does not come back to the reserved block, so the
+    -- block keeps the names of the roots and the heap context. New names
+    -- there would get other registers than the names before the
+    -- reservation, because the cold path also reads those, and each entry
+    -- of the function would then move every root to its new register.
     Just (Replay code arguments repush) -> do
+      terminate (Branch (typedOperand fits) (Target reserved []) (Target collect []))
+      beginColdBlock collect []
+      endReplay
       helper <- requireHelper (HelperCollectReplay [(ty, root) | (_, ty, root) <- arguments])
       replayContext <- case repush of
         Nothing -> pure context
@@ -2898,7 +2898,17 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
           pure context {contextStack = typedOperand stack}
       srt <- useSrt ctx
       terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), srt, words']))
+      beginBlock reserved []
+      pure (Map.fromList [(var, Typed root Ptr) | (var, root) <- zip vars rootOperands] `Map.union` env)
     Nothing -> do
+      parameters <- forM vars $ \var -> do
+        parameter <- fresh (varBase var)
+        pure (var, parameter)
+      heap <- fresh "hp"
+      let heapArguments current = [contextHeap current]
+      terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
+      beginColdBlock collect []
+      endReplay
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))
       -- The compare above is the reservation, so this is the collector rather
@@ -2913,9 +2923,9 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
         loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
       collected <- loadHeapContext capability context
       terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
-  beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
-  setContext context {contextHeap = OperandVar heap}
-  pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
+      beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
+      setContext context {contextHeap = OperandVar heap}
+      pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
 
 -- | Bind the result variables of a direct expression, converting each value
 -- to the representation of its variable.
