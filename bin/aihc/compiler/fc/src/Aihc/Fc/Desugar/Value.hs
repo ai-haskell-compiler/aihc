@@ -3633,6 +3633,14 @@ desugarAnnotatedExpr annotation inner = do
                 _ -> do
                   method <- desugarResolvedOccurrence annotation resolution
                   ExApp method <$> desugarExpr operand
+        Syn.EAnn resolutionAnnotation (Syn.EGetField record field)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            isGetFieldResolution resolution ->
+              ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
+        Syn.EAnn resolutionAnnotation (Syn.EGetFieldProjection fields)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            isGetFieldResolution resolution ->
+              desugarGetFieldProjection annotation resolution fields
         Syn.EAnn resolutionAnnotation primitiveLiteral
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceType,
@@ -3864,6 +3872,29 @@ desugarSectionL annotation operand operator
       operator' <- desugarInfixOperator operator
       operand' <- desugarExpr operand
       shareSectionOperand operand operand' (\shared -> ExLam binder (ExApp (ExApp operator' shared) (ExVar (binderName binder))))
+
+-- | Whether a resolution names the getField syntax term of record dot
+-- syntax.
+isGetFieldResolution :: ResolutionAnnotation -> Bool
+isGetFieldResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionIdentifier resolution == IdentifierNamed "getField"
+
+-- | The getField occurrence that selects one field of record dot syntax.
+-- The type checker puts the occurrence annotation on the field name.
+desugarFieldSelection :: ResolutionAnnotation -> Syn.Name -> ValueM Expr
+desugarFieldSelection resolution field =
+  case mapMaybe Syn.fromAnnotation (Syn.nameAnns field) of
+    annotation : _ -> desugarResolvedOccurrence annotation resolution
+    [] -> failValue ("record dot field " <> T.unpack (Syn.nameText field) <> " has no checked getField occurrence")
+
+-- | A record dot projection such as @(.x.y)@ is the function
+-- @\\r -> getField \@"y" (getField \@"x" r)@.
+desugarGetFieldProjection :: TcAnnotation -> ResolutionAnnotation -> [Syn.Name] -> ValueM Expr
+desugarGetFieldProjection annotation resolution fields = do
+  binder <- freshBinder "_record" =<< sectionArgumentType annotation
+  selections <- mapM (desugarFieldSelection resolution) fields
+  pure (ExLam binder (foldl (flip ExApp) (ExVar (binderName binder)) selections))
 
 desugarSectionR :: TcAnnotation -> Syn.Name -> Syn.Expr -> ValueM Expr
 desugarSectionR annotation operator operand = do

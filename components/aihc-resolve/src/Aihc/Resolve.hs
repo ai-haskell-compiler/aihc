@@ -1079,9 +1079,13 @@ resolveExpr expr =
       pure (R.ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
       R.ERecordUpd <$> resolveExpr record <*> resolveRecordUpdateFields fields
-    EGetField record name ->
-      R.EGetField <$> resolveExpr record <*> pure (fromParserName name)
-    EGetFieldProjection {} -> pure (fromParserExpr expr)
+    -- Record dot syntax applies the getField syntax term, as GHC does.
+    -- The expression e.x is getField at the label "x", applied to e.
+    -- A projection such as (.x.y) applies getField for each field in turn.
+    EGetField record name -> do
+      record' <- resolveExpr record
+      annotateSyntaxTerm "getField" (R.EGetField record' (fromParserName name))
+    EGetFieldProjection {} -> annotateSyntaxTerm "getField" (fromParserExpr expr)
     ETypeSig inner ty ->
       R.ETypeSig <$> resolveExpr inner <*> resolveType ty
     EParen inner ->
@@ -1403,6 +1407,7 @@ builtinSyntaxTerm info name =
         "fromString",
         "fromListN",
         "toList",
+        "getField",
         "negate",
         "==",
         ">=",
