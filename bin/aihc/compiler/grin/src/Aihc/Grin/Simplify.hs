@@ -684,45 +684,63 @@ inlineLeafCalls program
   | Map.null leaves = program
   | otherwise = program {grinFunctions = evalState (mapM inlineFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)}
   where
-    leaves =
-      Map.fromList
-        [ (grinFunctionName function, function)
-        | function <- grinFunctions program,
-          grinFunctionResultRep function /= ResultForwarded,
-          leafExpr diverging (grinFunctionBody function),
-          exprNodeCount (grinFunctionBody function) <= leafInlineSize
-        ]
     diverging = divergingFunctions program
+    -- The leaves, as a fixpoint: a call of another leaf is allowed, and
+    -- its copy is part of the copy. The size counts the copies of the
+    -- leaves that a body calls.
+    leaves = grow Map.empty
+    grow known =
+      let known' =
+            Map.fromList
+              [ (grinFunctionName function, (function, size))
+              | function <- grinFunctions program,
+                grinFunctionResultRep function /= ResultForwarded,
+                leafExpr diverging (Map.keysSet known) (grinFunctionName function) (grinFunctionBody function),
+                let size = leafSize known (grinFunctionBody function),
+                size <= leafInlineSize
+              ]
+       in if Map.keysSet known' == Map.keysSet known then known' else grow known'
     inlineFunction function = do
       body <- inlineExpr (grinFunctionBody function)
       pure function {grinFunctionBody = body}
     inlineExpr expression =
       case expression of
         GrinBind vars (GrinCall rep callee arguments) body
-          | Just leaf <- Map.lookup callee leaves,
+          | Just (leaf, _) <- Map.lookup callee leaves,
             grinFunctionResultRep leaf == rep,
             length (grinFunctionParameters leaf) == length arguments -> do
-              copy <- copyLeaf (Map.fromList (zip (grinFunctionParameters leaf) arguments)) (grinFunctionBody leaf)
+              copy <- copyLeaf leafCall (Map.fromList (zip (grinFunctionParameters leaf) arguments)) (grinFunctionBody leaf)
               GrinBind vars copy <$> inlineExpr body
         GrinBind vars value body -> GrinBind vars <$> inlineExpr value <*> inlineExpr body
         GrinStoreRec bindings body -> GrinStoreRec bindings <$> inlineExpr body
         GrinCase value binder alternatives ->
           GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> inlineExpr (grinAltRhs alternative)) alternatives
         _ -> pure expression
+    -- A call of a leaf inside a copy, with the result layout of the leaf.
+    leafCall rep callee arguments =
+      case Map.lookup callee leaves of
+        Just (leaf, _)
+          | grinFunctionResultRep leaf == rep,
+            length (grinFunctionParameters leaf) == length arguments ->
+              Just (Map.fromList (zip (grinFunctionParameters leaf) arguments), grinFunctionBody leaf)
+        _ -> Nothing
 
 -- | The most nodes of a leaf function that 'inlineLeafCalls' copies.
 leafInlineSize :: Int
 leafInlineSize = 100
 
-leafExpr :: Set FunctionName -> GrinExpr -> Bool
-leafExpr diverging expression =
+leafExpr :: Set FunctionName -> Set FunctionName -> FunctionName -> GrinExpr -> Bool
+leafExpr diverging known self expression =
   case expression of
     GrinConstant _ -> True
-    GrinBind _ value body -> leafExpr diverging value && leafExpr diverging body
-    GrinCase _ _ alternatives -> all (leafExpr diverging . grinAltRhs) alternatives
+    GrinBind _ value body -> leafExpr diverging known self value && leafExpr diverging known self body
+    GrinCase _ _ alternatives -> all (leafExpr diverging known self . grinAltRhs) alternatives
     -- A call that never returns runs only on a failure path, such as the
-    -- error of a bounds check.
-    GrinCall _ callee _ -> Set.member callee diverging
+    -- error of a bounds check. A call of another leaf gets a copy too.
+    GrinCall _ callee _ -> Set.member callee diverging || (callee /= self && Set.member callee known)
+    -- An unsafe call of a named C function is a plain C call: it cannot
+    -- call Haskell, so it needs no frame.
+    GrinForeignCallExpr call _ -> grinForeignCallTarget call == GrinForeignUnsafeFunction
     GrinFetch {} -> True
     GrinPrimitiveCall _ name _ -> not (primitiveAllocates name || primitiveInitializes name || controlPrimitive name)
     _ -> False
@@ -730,26 +748,31 @@ leafExpr diverging expression =
     controlPrimitive name =
       name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#", "maskAsyncExceptions#", "maskUninterruptible#", "unmaskAsyncExceptions#", "killThread#", "raise#", "raiseIO#", "catch#"]
 
-exprNodeCount :: GrinExpr -> Int
-exprNodeCount expression =
+-- | The nodes of a leaf body, with the copies of the leaves it calls.
+leafSize :: Map FunctionName (GrinFunction, Int) -> GrinExpr -> Int
+leafSize known expression =
   case expression of
-    GrinBind _ value body -> 1 + exprNodeCount value + exprNodeCount body
-    GrinCase _ _ alternatives -> 1 + sum (map (exprNodeCount . grinAltRhs) alternatives)
+    GrinBind _ value body -> 1 + leafSize known value + leafSize known body
+    GrinCase _ _ alternatives -> 1 + sum (map (leafSize known . grinAltRhs) alternatives)
+    GrinCall _ callee _ | Just (_, size) <- Map.lookup callee known -> size
     _ -> 1
 
 -- | A copy of a leaf body with the arguments in place of the parameters,
 -- and a fresh name for each binder.
-copyLeaf :: Map GrinVar GrinValue -> GrinExpr -> State Int GrinExpr
-copyLeaf substitution expression =
+copyLeaf :: (GrinResultRep -> FunctionName -> [GrinValue] -> Maybe (Map GrinVar GrinValue, GrinExpr)) -> Map GrinVar GrinValue -> GrinExpr -> State Int GrinExpr
+copyLeaf leafCall substitution expression =
   case expression of
+    GrinCall rep callee operands
+      | Just (inner, body) <- leafCall rep callee (map value operands) -> copyLeaf leafCall inner body
+    GrinForeignCallExpr call operands -> pure (GrinForeignCallExpr call (map value operands))
     GrinConstant values -> pure (GrinConstant (map value values))
     GrinFetch tag operand -> pure (GrinFetch tag (value operand))
     GrinPrimitiveCall rep name operands -> pure (GrinPrimitiveCall rep name (map value operands))
     GrinCall rep callee operands -> pure (GrinCall rep callee (map value operands))
     GrinBind vars bound body -> do
-      bound' <- copyLeaf substitution bound
+      bound' <- copyLeaf leafCall substitution bound
       fresh <- traverse freshVar vars
-      body' <- copyLeaf (Map.union (Map.fromList (zip vars (map GrinVarValue fresh))) substitution) body
+      body' <- copyLeaf leafCall (Map.union (Map.fromList (zip vars (map GrinVarValue fresh))) substitution) body
       pure (GrinBind fresh bound' body')
     GrinCase scrutinee binder alternatives -> do
       binder' <- freshVar binder
@@ -764,6 +787,6 @@ copyLeaf substitution expression =
         _ -> operand
     alternative inner alt = do
       binders <- traverse freshVar (grinAltBinders alt)
-      rhs <- copyLeaf (Map.union (Map.fromList (zip (grinAltBinders alt) (map GrinVarValue binders))) inner) (grinAltRhs alt)
+      rhs <- copyLeaf leafCall (Map.union (Map.fromList (zip (grinAltBinders alt) (map GrinVarValue binders))) inner) (grinAltRhs alt)
       pure alt {grinAltBinders = binders, grinAltRhs = rhs}
     freshVar var = state (\unique -> (var {grinVarUnique = unique}, unique + 1))
