@@ -605,6 +605,8 @@ ignoredPragma pragma =
           True
     PragmaDeprecated _ -> True
     PragmaWarning _ -> True
+    -- A cost-centre pragma on a declaration is a profiler hint.
+    PragmaSCC _ -> True
     -- GHC ignores a file-header pragma between declarations.
     PragmaLanguage _ -> True
     PragmaUnknown rawText ->
