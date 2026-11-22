@@ -4035,10 +4035,33 @@ mkLet env bind body
   -- that use it, when an alternative does not use it. Each path still
   -- allocates it at most once, and a path that does not use it allocates
   -- nothing. A worker builds its unboxed parameters again this way, and
-  -- often only one branch needs the box.
+  -- often only one branch needs the box. It also moves into the join
+  -- points that use it, so that a join point does not take the box as an
+  -- argument that each call allocates. A path that uses it and then calls
+  -- such a join point allocates it two times.
   | lifted,
     isConstructorOfTrivials rhs =
-      pure (fst (sinkGroupWith EveryAlternative (exprValueNames rhs) [bind] (ExLet bind) body))
+      pure (fst (sinkGroupWith EveryAlternativeAndJoin (exprValueNames rhs) [bind] (ExLet bind) body))
+  -- A small case that a second evaluation costs less than a thunk moves
+  -- into each use, also into the join points that use it. See
+  -- 'repeatableValue'. The guards of @scanLineDepthOnly@ in @aihc-cpp@
+  -- read the next byte in a lazy let, and the guards after the first
+  -- become join points. Each byte allocated a thunk for the read.
+  | lifted,
+    not (spSpeculative env),
+    ExCase {} <- rhs,
+    repeatableValue env rhs,
+    snd (sinkGroupWith EveryUseAndJoin (exprFreeNames rhs) [bind] (ExLet bind) body) = do
+      before <- get
+      copy <- freshenExpr rhs
+      let copiedBind = bind {bindRhs = copy}
+          moved = fst (sinkGroupWith EveryUseAndJoin (exprValueNames copy) [copiedBind] (ExLet copiedBind) body)
+      result <- simplifyExpr env {spSpeculative = True} moved
+      if exprSize (spEnv env) result - exprSize (spEnv env) (ExLet bind body) <= repeatableGrowth
+        then pure result
+        else do
+          restoreSite before
+          sinkGroup [bind] (flip (foldr ExLet)) body
   -- A shared case can move into separate branches that need its result.
   -- Each path evaluates it at most once. Simplification can then remove
   -- the thunk and its result box. The growth budget limits code copies.
@@ -4176,6 +4199,16 @@ data SinkMode
     -- path uses it. This suits a small group that a use in an
     -- alternative can then remove.
     EveryUse
+  | -- | As 'EveryAlternative', and the body of each join point that uses
+    -- the group gets a copy too. A path that uses the group and then calls
+    -- such a join point allocates two copies. Thus this suits only a
+    -- constructor of trivial arguments, which only allocates.
+    EveryAlternativeAndJoin
+  | -- | Each alternative that uses the group gets a copy, and so does the
+    -- body of each join point that uses it. A path that uses the group
+    -- and then calls such a join point evaluates two copies. Thus this
+    -- suits only a group that 'repeatableValue' accepts.
+    EveryUseAndJoin
   deriving (Eq)
 
 -- | Move a let or a recursive group into the one alternative of a case
@@ -4235,6 +4268,12 @@ sinkGroupWith mode rhsNames binds wrap expr0
           | all (safeBinder . bindBinder) inners,
             not (any (uses . bindRhs) inners) ->
               ExRec inners `first` go rest
+        ExLet inner rest
+          | mode `elem` [EveryUseAndJoin, EveryAlternativeAndJoin],
+            safeBinder (bindBinder inner),
+            Just parameters <- joinParameters inner rest,
+            all safeBinder parameters ->
+              (ExLet inner {bindRhs = intoJoin (bindRhs inner)} (fst (goAlternative rest)), True)
         ExCase scrutinee binder alternatives
           | movable expr ->
               (ExCase scrutinee binder (fmap (\alternative -> alternative {altRhs = fst (goAlternative (altRhs alternative))}) alternatives), True)
@@ -4242,6 +4281,11 @@ sinkGroupWith mode rhsNames binds wrap expr0
     goAlternative expr
       | not (uses expr) = (expr, True)
       | otherwise = go expr
+    -- The body of a join point gets the group, under its parameters.
+    intoJoin expr =
+      case expr of
+        ExLam parameter inner -> ExLam parameter (intoJoin inner)
+        _ -> fst (goAlternative expr)
     -- Whether the group can enter a case.
     movable expr =
       case expr of
@@ -4253,6 +4297,8 @@ sinkGroupWith mode rhsNames binds wrap expr0
               EveryAlternative -> any (avoids . altRhs) alternatives
               OneAlternative -> length (filter (uses . altRhs) alternatives) == 1
               EveryUse -> True
+              EveryUseAndJoin -> True
+              EveryAlternativeAndJoin -> any (avoids . altRhs) alternatives
         _ -> False
     -- Whether a path through the expression does not use the group.
     avoids expr = not (uses expr) || avoidsUsed expr
@@ -4268,6 +4314,72 @@ sinkGroupWith mode rhsNames binds wrap expr0
             not (any (uses . bindRhs) inners) ->
               avoidsUsed rest
         _ -> movable expr
+
+-- | Whether a lazy value is so cheap that two evaluations of it cost less
+-- than a thunk: a small case on a primitive operand whose alternatives
+-- bind primitive results, read memory, and give a literal, a variable, a
+-- constructor of trivial arguments, or a call of a function that never
+-- returns. It allocates nothing but its result and calls nothing that
+-- returns.
+--
+-- A read of memory with the token @realWorld#@ is the form of
+-- @accursedUnutterablePerformIO@, which reads memory that does not change.
+-- A copy of the read at each use gives the same value. Any other call
+-- with a state token can have an effect, so the value is not accepted.
+repeatableValue :: Simpl -> Expr -> Bool
+repeatableValue env expr = exprSize (spEnv env) expr <= repeatableSize && go (spEnv env) expr
+  where
+    go typeEnv value =
+      case value of
+        ExLit {} -> True
+        ExVar {} -> True
+        ExCast inner _ -> go typeEnv inner
+        ExCase scrutinee binder alternatives ->
+          primitive scrutinee
+            && not (any (isLiftedBinder typeEnv) binder)
+            && all (\alternative -> go (extendBinders typeEnv (altBinders alternative)) (altRhs alternative)) alternatives
+        ExLet (Bind binder rhs) inner ->
+          not (isLiftedBinder typeEnv binder) && primitive rhs && go (extendBinder typeEnv binder) inner
+        _
+          | (ExVar head', args) <- collectSpine value,
+            all (either (const True) isTrivial) args ->
+              isConstructorName head' || diverges typeEnv (spDiverging (spFixed env)) value
+          | otherwise -> False
+    primitive value =
+      isTrivial value
+        || case value of
+          ExForeignCall call _ arguments ->
+            foreignCallConvention call == Prim
+              && repeatablePrimitive (nameText (foreignCallName call)) arguments
+              && all primitive arguments
+          _ -> False
+
+-- | The largest value that 'repeatableValue' accepts.
+repeatableSize :: Int
+repeatableSize = 24
+
+-- | The largest growth of the program that the copies of one repeatable
+-- value can give. The rule does not use the growth budget, because the
+-- copies replace a thunk on each path that runs them. The value is small,
+-- so this limit permits about five uses.
+repeatableGrowth :: Int
+repeatableGrowth = 160
+
+-- | Whether a primitive call gives the same result at each evaluation and
+-- has no effect: a safe primitive, the state token @realWorld#@, a
+-- @touch#@, or a read of memory at an address with the token
+-- @realWorld#@.
+repeatablePrimitive :: Text -> [Expr] -> Bool
+repeatablePrimitive name arguments =
+  isSafePrimitive name
+    || name == "realWorld#"
+    || name == "touch#"
+    || ("read" `T.isPrefixOf` name && "OffAddr#" `T.isSuffixOf` name && any isRealWorld arguments)
+  where
+    isRealWorld argument =
+      case argument of
+        ExForeignCall call _ [] -> nameText (foreignCallName call) == "realWorld#"
+        _ -> False
 
 -- | Accept a growth of the program: always when nothing grows, and in
 -- budget mode while the allowance and the site limit permit it.
