@@ -8,14 +8,14 @@ module GHC.IO.FD.Position
   )
 where
 
-import Data.Bool (Bool)
+import Data.Bool (Bool (..))
 import Foreign.C.Error (throwErrnoIfMinus1Retry)
 import Foreign.C.Types (CInt (..))
 import GHC.IO (IO)
 import GHC.Int (Int64)
 import GHC.Integer (Integer)
 import GHC.Internal.Base (Monad (..), String)
-import GHC.Internal.Classes (Eq (..))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (SeekMode (..))
 import GHC.Num (Num (..))
 import GHC.Real (fromIntegral, toInteger)
@@ -41,12 +41,25 @@ descriptorSeek location descriptor mode offset = do
 -- | The size of the file in bytes. The descriptor moves to the end of the
 -- file and then back to its position, so the next transfer starts where it
 -- would start without this call.
+--
+-- A regular file gives its size with one fstat call. Another descriptor
+-- moves its position to the end and back, with three lseek calls.
 descriptorSize :: String -> CInt -> IO Integer
 descriptorSize location descriptor = do
+  size <- c_regular_file_size descriptor
+  case size >= 0 of
+    True -> return (toInteger size)
+    False -> descriptorSizeBySeek location descriptor
+
+descriptorSizeBySeek :: String -> CInt -> IO Integer
+descriptorSizeBySeek location descriptor = do
   position <- throwErrnoIfMinus1Retry location (c_lseek descriptor 0 seekCurrent)
   end <- throwErrnoIfMinus1Retry location (c_lseek descriptor 0 seekEnd)
   _ <- throwErrnoIfMinus1Retry location (c_lseek descriptor position seekSet)
   return (toInteger end)
+
+foreign import capi unsafe "aihc_stat.h aihc_regular_file_size"
+  c_regular_file_size :: CInt -> IO Int64
 
 foreign import capi unsafe "unistd.h lseek"
   c_lseek :: CInt -> Int64 -> CInt -> IO Int64
