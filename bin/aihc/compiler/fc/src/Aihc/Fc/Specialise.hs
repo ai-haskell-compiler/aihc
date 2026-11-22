@@ -123,8 +123,8 @@ specialiseProgram program =
 -- dictionaries name, see 'dictionaryTypes'.
 specialiseTopProgram :: PackageId -> Home -> Program -> (Program, SpecialiseReport)
 specialiseTopProgram primPackage home program =
-  let initial = TopState (maxLocalUnique program + 1) names Map.empty MonoidMap.empty Set.empty allowance mempty
-      (decls, final) = runState (rounds 3 (programDecls program)) initial
+  let initial = TopState (maxLocalUnique program + 1) names Map.empty MonoidMap.empty Set.empty allowance mempty Map.empty
+      (decls, final) = runState (rounds 3 (programDecls program) >>= partialRounds 2) initial
    in if topReport final == mempty then (program, topReport final) else (tidyProgram program {programDecls = decls}, topReport final)
   where
     names = Set.fromList [valName declaration | DeclVal declaration <- programDecls program]
@@ -223,6 +223,231 @@ specialiseTopProgram primPackage home program =
               modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
               pure (rebuildCall (ExVar copy) (keptArguments (staticTypes reduced prefix) prefix (take count arguments) <> drop count arguments))
         _ -> pure (rebuildCall function arguments)
+    -- A call whose dictionary arguments are static up to the type
+    -- variables of the caller gets a copy too. The copy fixes the static
+    -- dictionaries and the types that they name, takes the type variables
+    -- of the caller as its first type parameters, and keeps the other
+    -- type and dictionary parameters. An instance method that calls a
+    -- default method with its own dictionary is such a call:
+    --
+    -- > $cnewArray = Λs i. λ$dIx. $dmnewArray @(STUArray s) @Int @(ST s) @i ($fMArraySTUArray @s) $dIx
+    --
+    -- The copy knows the instance, so the simplifier resolves the methods
+    -- of the dictionary, and the monad of the default method is known.
+    -- A call whose key is closed is the business of 'rounds'.
+    partialRounds :: Int -> [Decl] -> State TopState [Decl]
+    partialRounds 0 decls = pure decls
+    partialRounds remaining decls = do
+      current <- get
+      let found = execState (mapM_ (onValue (walkCallsTyped partialCollect)) decls) Map.empty
+          unseen = [(key, binders) | (key, (binders, _)) <- List.sortOn (\(key, (_, count)) -> (negate count, key)) (Map.toList found), Map.notMember key (topPartial current)]
+      copies <- concat <$> mapM (uncurry makePartialCopy) unseen
+      if null copies
+        then pure decls
+        else do
+          rewritten <- mapM (onValue (walkCallsTyped partialRewrite)) (decls <> copies)
+          partialRounds (remaining - 1) rewritten
+    partialCollect :: Map.Map Name Binder -> Map.Map Name Expr -> Expr -> [Arg] -> State (Map.Map PartialKey ([Binder], Int)) Expr
+    partialCollect typeScope aliases function arguments = do
+      case partialCall typeScope aliases function arguments of
+        Just (key, binders, _) -> modify' (Map.insertWith (\_ (old, count) -> (old, count + 1)) key (binders, 1))
+        Nothing -> pure ()
+      pure (rebuildCall function arguments)
+    partialRewrite :: Map.Map Name Binder -> Map.Map Name Expr -> Expr -> [Arg] -> State TopState Expr
+    partialRewrite typeScope aliases function arguments = do
+      current <- get
+      case partialCall typeScope aliases function arguments of
+        Just (key, _, actual)
+          | Just copy <- Map.lookup key (topPartial current),
+            ExVar name <- function,
+            Just (_, prefix, _) <- Map.lookup name candidates -> do
+              let PartialKey _ mask _ = key
+                  count = prefixLength prefix
+                  (typeArguments, dictionaryArguments) = splitAt (length (prefixTypes prefix)) (take count arguments)
+                  determined = partialDetermined prefix mask
+                  keptTypes = [argument | (binder, argument) <- zip (prefixTypes prefix) typeArguments, binderName binder `Set.notMember` determined]
+                  keptDictionaries = [argument | (False, argument) <- zip mask dictionaryArguments]
+              modify' (\st -> st {topReport = topReport st <> SpecialiseReport 0 0 1})
+              pure (rebuildCall (ExVar copy) (map (Left . TyVar) actual <> keptTypes <> keptDictionaries <> drop count arguments))
+        _ -> pure (rebuildCall function arguments)
+    -- The key of a partial copy for a call, the binders of the canonical
+    -- type variables, and the type variables of the caller in the order of
+    -- the canonical ones.
+    partialCall :: Map.Map Name Binder -> Map.Map Name Expr -> Expr -> [Arg] -> Maybe (PartialKey, [Binder], [Name])
+    partialCall typeScope aliases function arguments = do
+      ExVar name <- Just function
+      (_, prefix, _) <- Map.lookup name candidates
+      let typeCount = length (prefixTypes prefix)
+          count = prefixLength prefix
+      True <- Just (length arguments >= count)
+      let (typeArguments, dictionaryArguments) = splitAt typeCount (take count arguments)
+      types <- mapM (either Just (const Nothing)) typeArguments
+      dictionaries <- mapM (either (const Nothing) (Just . substExpr aliases)) dictionaryArguments
+      -- A closed call is the business of the closed copies.
+      False <- Just (staticKey Set.empty (map Left types <> map Right dictionaries))
+      let mask = map staticUpToTypes dictionaries
+      True <- Just (or mask)
+      let determined = partialDetermined prefix mask
+          content =
+            [Left argument | (binder, argument) <- zip (prefixTypes prefix) types, binderName binder `Set.member` determined]
+              <> [Right argument | (True, argument) <- zip mask dictionaries]
+      variables <- List.nub . concat <$> mapM argumentTypeVariables content
+      kinds <- mapM (\variable -> binderType <$> Map.lookup variable typeScope) variables
+      let canonical = [Name ("$t" <> T.pack (show index)) SortTypeVariable (OriginLocal (Unique (negate (index + 1)))) | index <- [0 .. length variables - 1]]
+          renaming = Map.fromList (zip variables (map TyVar canonical))
+          rename = either (Left . substTypes renaming) (Right . substTypeExpr renaming)
+          binders = zipWith Binder canonical (map (substTypes renaming) kinds)
+      pure (PartialKey name mask (map rename content), binders, variables)
+    makePartialCopy :: PartialKey -> [Binder] -> State TopState [Decl]
+    makePartialCopy key@(PartialKey name mask content) binders = do
+      current <- get
+      case Map.lookup name candidates of
+        Just (declaration, prefix, inner)
+          | MonoidMap.get name (topCounts current) < Sum specialisationLimit,
+            let determined = partialDetermined prefix mask
+                determinedBinders = [binder | binder <- prefixTypes prefix, binderName binder `Set.member` determined]
+                (typeContent, dictionaryContent) = splitAt (length determinedBinders) content
+                typeSubst = Map.fromList (zip (map binderName determinedBinders) (lefts typeContent))
+                kept = [binder {binderType = substTypes typeSubst (binderType binder)} | binder <- prefixTypes prefix, binderName binder `Set.notMember` determined]
+                keptDictionaries = [binder {binderType = substTypes typeSubst (binderType binder)} | (False, binder) <- zip mask (prefixDictionaries prefix)]
+                fixed = zip [binder | (True, binder) <- zip mask (prefixDictionaries prefix)] (rights dictionaryContent)
+                substitutions = Map.fromList [(binderName binder, argument) | (binder, argument) <- fixed, isTrivial argument]
+                lets = [(binder, argument) | (binder, argument) <- fixed, not (isTrivial argument)]
+                inside = substTypeExpr typeSubst (foldr (\(binder, argument) rest -> ExLet (Bind binder argument) rest) (substExpr substitutions inner) lets)
+                body = foldr ExTyLam (foldr ExTyLam (foldr ExLam inside keptDictionaries) kept) binders
+                cost = 1 + exprSize env body,
+            Just instantiated <- instantiatePartial prefix determined (lefts typeContent) mask (valType declaration),
+            cost <= 256,
+            cost <= topBudget current -> do
+              let copyName = freshTopName home (topNames current) name 0
+                  (body', supply) = freshenExprFrom (topSupply current) body
+                  first = MonoidMap.nullKey name (topCounts current)
+              put
+                current
+                  { topSupply = supply,
+                    topNames = Set.insert copyName (topNames current),
+                    topPartial = Map.insert key copyName (topPartial current),
+                    topCounts = MonoidMap.adjust (+ 1) name (topCounts current),
+                    topBudget = topBudget current - cost,
+                    topReport = topReport current <> SpecialiseReport (if first then 1 else 0) 1 0
+                  }
+              pure [DeclVal declaration {valVis = Private, valName = copyName, valType = foldr TyForAll instantiated binders, valBody = body'}]
+        _ -> pure []
+
+-- | The type parameters of a prefix that the fixed dictionaries of a
+-- partial copy name.
+partialDetermined :: Prefix -> [Bool] -> Set Name
+partialDetermined prefix mask =
+  Set.intersection
+    (Set.fromList (map binderName (prefixTypes prefix)))
+    (Set.unions [typeVariables (binderType binder) | (True, binder) <- zip mask (prefixDictionaries prefix)])
+
+-- | Whether a dictionary argument names only top-level values, with any
+-- types: a constant instance at the types of the caller.
+staticUpToTypes :: Expr -> Bool
+staticUpToTypes expr =
+  case expr of
+    ExVar name | OriginTop {} <- nameOrigin name -> True
+    ExTyApp function _ -> staticUpToTypes function
+    ExApp function argument -> staticUpToTypes function && staticUpToTypes argument
+    _ -> False
+
+-- | The local type variables of an argument of a partial key, in the order
+-- they first occur. 'Nothing' for an argument that a partial key does not
+-- take.
+argumentTypeVariables :: Arg -> Maybe [Name]
+argumentTypeVariables argument =
+  case argument of
+    Left ty -> Just (typeVariablesInOrder ty)
+    Right expr -> exprVariables expr
+  where
+    exprVariables expr =
+      case expr of
+        ExVar _ -> Just []
+        ExTyApp function ty -> (<> typeVariablesInOrder ty) <$> exprVariables function
+        ExApp function inner -> (<>) <$> exprVariables function <*> exprVariables inner
+        _ -> Nothing
+
+-- | The local type variables of a type, in the order they first occur.
+typeVariablesInOrder :: Type -> [Name]
+typeVariablesInOrder = List.nub . go Set.empty
+  where
+    go bound ty =
+      case ty of
+        TyVar name
+          | Set.member name bound -> []
+          | OriginLocal {} <- nameOrigin name -> [name]
+          | otherwise -> []
+        TyCon _ -> []
+        TyLit _ _ -> []
+        TyApp function argument -> go bound function <> go bound argument
+        TyFun left right argument result -> concatMap (go bound) [left, right, argument, result]
+        TyForAll binder body -> go bound (binderType binder) <> go (Set.insert (binderName binder) bound) body
+        TyEq left right -> go bound left <> go bound right
+
+-- | The type of a partial copy without the quantifiers of the canonical
+-- type variables: the type of the function at the fixed types, with the
+-- other quantifiers kept, and without the arrows of the fixed
+-- dictionaries.
+instantiatePartial :: Prefix -> Set Name -> [Type] -> [Bool] -> Type -> Maybe Type
+instantiatePartial prefix determined = go (prefixTypes prefix)
+  where
+    go binders types mask ty =
+      case (binders, ty) of
+        (parameter : rest, TyForAll binder body)
+          | binderName parameter `Set.member` determined,
+            argument : more <- types ->
+              go rest more mask (substType (binderName binder) argument body)
+          | binderName parameter `Set.member` determined -> Nothing
+          | otherwise -> TyForAll binder <$> go rest types mask body
+        ([], _) | null types -> arrows mask ty
+        _ -> Nothing
+    arrows mask ty =
+      case (mask, ty) of
+        ([], _) -> Just ty
+        (True : rest, TyFun _ _ _ result) -> arrows rest result
+        (False : rest, TyFun left right argument result) -> TyFun left right argument <$> arrows rest result
+        _ -> Nothing
+
+-- | 'walkCalls' with the type binders in scope at each call.
+walkCallsTyped :: (Monad m) => (Map.Map Name Binder -> Map.Map Name Expr -> Expr -> [Arg] -> m Expr) -> Expr -> m Expr
+walkCallsTyped action = go Map.empty Map.empty
+  where
+    go types aliases expr = case expr of
+      ExVar {} -> pure expr
+      ExLit {} -> pure expr
+      ExCoercion {} -> pure expr
+      ExApp {} -> spine types aliases expr
+      ExTyApp {} -> spine types aliases expr
+      ExLam binder body -> ExLam binder <$> go types (forget [binder] aliases) body
+      ExTyLam binder body -> ExTyLam binder <$> go (Map.insert (binderName binder) binder types) (forget [binder] aliases) body
+      ExLet (Bind binder rhs) body -> do
+        rhs' <- go types aliases rhs
+        let argument = substExpr aliases rhs'
+            inner = forget [binder] aliases
+            next
+              | isDictionaryType (binderType binder), staticKey Set.empty [Right argument] = Map.insert (binderName binder) argument inner
+              | otherwise = inner
+        ExLet (Bind binder rhs') <$> go types next body
+      ExRec binds body -> do
+        let inner = forget (map bindBinder binds) aliases
+        ExRec <$> mapM (\(Bind binder rhs) -> Bind binder <$> go types inner rhs) binds <*> go types inner body
+      ExCase scrutinee binder alternatives -> do
+        let inner = forget (maybe [] pure binder) aliases
+            onAlt alternative = do
+              let altTypes = List.foldl' (\scope typeBinder -> Map.insert (binderName typeBinder) typeBinder scope) types (altTypeBinders alternative)
+              rhs <- go altTypes (forget (altTypeBinders alternative <> altBinders alternative) inner) (altRhs alternative)
+              pure alternative {altRhs = rhs}
+        ExCase <$> go types aliases scrutinee <*> pure binder <*> traverse onAlt alternatives
+      ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> go types aliases scrutinee
+      ExCast body coercion -> (`ExCast` coercion) <$> go types aliases body
+      ExForeignCall call types' arguments -> ExForeignCall call types' <$> mapM (go types aliases) arguments
+    spine types aliases expr = do
+      let (function, arguments) = collectSpine expr
+      function' <- go types aliases function
+      arguments' <- mapM (traverse (go types aliases)) arguments
+      action types aliases function' arguments'
+    forget binders aliases = foldr (Map.delete . binderName) aliases binders
 
 -- | State shared by all rounds, so each limit applies to the whole pass.
 data TopState = TopState
@@ -234,8 +459,18 @@ data TopState = TopState
     -- dictionaries name.
     topReduced :: Set Name,
     topBudget :: Int,
-    topReport :: SpecialiseReport
+    topReport :: SpecialiseReport,
+    -- | The copies for calls whose static dictionaries name type
+    -- variables of the caller. See 'partialRounds'.
+    topPartial :: Map.Map PartialKey Name
   }
+
+-- | The key of a copy for a call whose dictionary arguments are static up
+-- to the type variables of the caller: the function, which dictionary
+-- slots the copy fixes, and the type and dictionary arguments of those
+-- slots, with the type variables of the caller in canonical names.
+data PartialKey = PartialKey !Name ![Bool] ![Arg]
+  deriving (Eq, Ord)
 
 -- | The type parameters of a prefix that a copy is made for: all of them,
 -- or with 'True' the ones that a dictionary parameter names. The other
