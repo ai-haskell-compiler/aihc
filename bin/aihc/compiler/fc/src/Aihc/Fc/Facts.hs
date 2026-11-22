@@ -186,12 +186,68 @@ allOrders :: Set Ordering
 allOrders = Set.fromList [LT, EQ, GT]
 
 -- | The facts after a strict let of a variable: a variable bound to a
--- comparison stands for that comparison.
+-- comparison stands for that comparison, and a variable bound to a
+-- conversion or to a sum with a literal gets the range of its value.
 learnBinding :: Name -> Expr -> Facts -> Facts
 learnBinding name rhs facts =
   case comparisonCall rhs of
     Just definition -> facts {factDefinitions = Map.insert name definition (factDefinitions facts)}
-    Nothing -> facts
+    Nothing -> case valueBounds facts rhs of
+      Just (low, high) -> narrow name (\range -> range {rangeLow = maxBound' (rangeLow range) low, rangeHigh = minBound' (rangeHigh range) high}) facts
+      Nothing -> facts
+
+-- | The lowest and the highest value of an expression, when the facts
+-- give both. A conversion that keeps the value gives the bounds of its
+-- operand, within the values of its source type. For example, after
+-- @case ltWord8# v 64# of 1# -> ...@, @word2Int# (word8ToWord# v)@ is
+-- from 0 to 63, so a later @<# 0#@ or @<# 64#@ on it is decided. A sum or
+-- a difference with a literal moves finite bounds, when the result
+-- cannot wrap.
+valueBounds :: Facts -> Expr -> Maybe (Integer, Integer)
+valueBounds facts expr =
+  case expr of
+    ExLit literal _ -> (\value -> (value, value)) <$> literalValue literal
+    ExVar name -> do
+      range <- rangeOf facts name
+      (,) <$> rangeLow range <*> rangeHigh range
+    ExForeignCall call [] [argument]
+      | foreignCallConvention call == Prim ->
+          case nameText (foreignCallName call) of
+            "word8ToWord#" -> Just (widened 255 argument)
+            "word16ToWord#" -> Just (widened 65535 argument)
+            "word32ToWord#" -> Just (widened 4294967295 argument)
+            "word2Int#" -> nonNegative =<< valueBounds facts argument
+            "int2Word#" -> nonNegative =<< valueBounds facts argument
+            "ord#" -> valueBounds facts argument
+            "chr#" -> valueBounds facts argument
+            _ -> Nothing
+    ExForeignCall call [] [left, ExLit literal _]
+      | foreignCallConvention call == Prim,
+        Just value <- literalValue literal -> do
+          (low, high) <- valueBounds facts left
+          moved <- case nameText (foreignCallName call) of
+            "+#" -> Just (low + value, high + value)
+            "-#" -> Just (low - value, high - value)
+            _ -> Nothing
+          if fst moved >= negate safeBound && snd moved <= safeBound then Just moved else Nothing
+    _ -> Nothing
+  where
+    -- The operand of a widening conversion has a value of the narrow type,
+    -- so a range with one bound is enough.
+    widened top argument =
+      case argument of
+        ExVar name
+          | Just range <- rangeOf facts name ->
+              (maybe 0 (max 0) (rangeLow range), maybe top (min top) (rangeHigh range))
+        _ -> case valueBounds facts argument of
+          Just (low, high) -> (max 0 low, min top high)
+          Nothing -> (0, top)
+    nonNegative (low, high)
+      | low >= 0 && high <= safeBound = Just (low, high)
+      | otherwise = Nothing
+    -- Far from the limits of a 64-bit word, so no conversion or sum here
+    -- can wrap.
+    safeBound = 2 ^ (62 :: Int)
 
 -- | Record that the order of two operands is one of the given orders. An
 -- empty set records nothing: no value can enter such a scope.
