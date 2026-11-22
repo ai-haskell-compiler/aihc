@@ -199,18 +199,15 @@ expected: |-
         1#cIntRep →
           cZ;
         _ →
-          let x{1} : FUN @cIntRep @sLiftedRep tInt# (tNat → tNat) =
-            λ(unused _pat : tInt#) (r : tNat).
-              cS r;
           rec {
             go : tNat → tInt → tNat =
-              λ(x{2} : tNat) (x2 : tInt).
+              λ(x{1} : tNat) (x2 : tInt).
                 let! cI# (k{1} : tInt#) = x2;
                 case k{1} of {
                   1#cIntRep →
-                    x{1} lit (0#cIntRep) :: tInt# cZ;
+                    cS cZ;
                   _ →
-                    x{1} lit (0#cIntRep) :: tInt# (go (cS x{2}) (cI# (prim -# k{1} lit (1#cIntRep) :: tInt#)))
+                    cS (go (cS x{1}) (cI# (prim -# k{1} lit (1#cIntRep) :: tInt#)))
                 }
           } in
           go y x

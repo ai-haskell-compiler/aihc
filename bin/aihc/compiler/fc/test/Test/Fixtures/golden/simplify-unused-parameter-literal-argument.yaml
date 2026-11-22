@@ -10,13 +10,13 @@ modules:
   zero :: Int
   zero = I# 0#
 
-  pair :: Int -> Int -> [Int]
-  pair x y = [x, y, x, y]
+  pair :: Int -> Int -> Int -> Int -> [Int]
+  pair w x y z = [w, x, y, z]
 
   choose :: Bool -> [Int] -> Int -> Int -> [Int]
   choose flag items a b =
     let fallback :: [Int] -> [Int]
-        fallback ignored = pair a b
+        fallback ignored = pair a b a b
      in case flag of
           True -> fallback items
           False -> case items of
@@ -55,15 +55,15 @@ expected: |-
   pub val 1.vzero :: tInt
     = cI# lit (0#cIntRep) :: tInt#
 
-  val 1.vpair :: tInt → tInt → t[] tInt
-    = λ(x : tInt) (y : tInt).
-      c: @tInt x (c: @tInt y (c: @tInt x (c: @tInt y (c[] @tInt))))
+  val 1.vpair :: tInt → tInt → tInt → tInt → t[] tInt
+    = λ(x : tInt) (y : tInt) (z : tInt) (x1 : tInt).
+      c: @tInt x (c: @tInt y (c: @tInt z (c: @tInt x1 (c[] @tInt))))
 
   pub val 1.vchoose :: tBool → t[] tInt → tInt → tInt → t[] tInt
     = λ(x : tBool) (y : t[] tInt) (z : tInt) (x1 : tInt).
       let fallback : FUN @cIntRep @sLiftedRep tInt# (t[] tInt) =
         λ(unused x{1} : tInt#).
-          vpair z x1;
+          vpair z x1 z x1;
       case x of {
         cTrue →
           fallback lit (0#cIntRep) :: tInt#;
