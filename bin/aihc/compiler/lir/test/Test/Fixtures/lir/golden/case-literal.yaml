@@ -22,7 +22,7 @@ expected: |
     %header_word_8 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_9 = and i64 %header_word_8, -4
     %header_10 = ptr.from_int %info_word_9
-    %entry_11 = load.invariant code [%header_10 + 24] align 1 word
+    %entry_11 = load.invariant code [%header_10 + 16] align 1 word
     %forward_14 = eq code %entry_11, null
     br %forward_14, continue_slow_12, continue_enter_13
 
@@ -36,7 +36,7 @@ expected: |
     %header_word_15 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_16 = and i64 %header_word_15, -4
     %header_17 = ptr.from_int %info_word_16
-    %entry_18 = load.invariant code [%header_17 + 24] align 1 word
+    %entry_18 = load.invariant code [%header_17 + 16] align 1 word
     %forward_21 = eq code %entry_18, null
     br %forward_21, continue_slow_19, continue_enter_20
 
@@ -50,7 +50,7 @@ expected: |
     %header_word_22 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_23 = and i64 %header_word_22, -4
     %header_24 = ptr.from_int %info_word_23
-    %entry_25 = load.invariant code [%header_24 + 24] align 1 word
+    %entry_25 = load.invariant code [%header_24 + 16] align 1 word
     %forward_28 = eq code %entry_25, null
     br %forward_28, continue_slow_26, continue_enter_27
 

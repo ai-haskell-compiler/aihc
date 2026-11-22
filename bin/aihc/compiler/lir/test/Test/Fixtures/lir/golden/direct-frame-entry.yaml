@@ -32,7 +32,7 @@ expected: |
     %header_word_4 = load i64 [%$cps_return_3] align 8 region stack
     %info_word_5 = and i64 %header_word_4, -4
     %header_6 = ptr.from_int %info_word_5
-    %entry_7 = load.invariant code [%header_6 + 24] align 1 word
+    %entry_7 = load.invariant code [%header_6 + 16] align 1 word
     %forward_10 = eq code %entry_7, null
     br %forward_10, continue_slow_8, continue_enter_9
 
@@ -84,7 +84,7 @@ expected: |
     %header_word_45 = load i64 [%stored_43] align 8 region stack
     %info_word_46 = and i64 %header_word_45, -4
     %header_47 = ptr.from_int %info_word_46
-    %entry_48 = load.invariant code [%header_47 + 24] align 1 word
+    %entry_48 = load.invariant code [%header_47 + 16] align 1 word
     %forward_51 = eq code %entry_48, null
     br %forward_51, continue_slow_49, continue_enter_50
 
@@ -99,17 +99,17 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
   data mut @aihc_lir_srt_0 align 8 = { i64 0, i32 1, i32 0, ptr @aihc_entry_value }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_2, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_52: ptr, %sp_53: ptr, %base_54: ptr, %value_55: ptr, %code_56: code, %srt_57: ptr, %words_58: i64) {
   entry:

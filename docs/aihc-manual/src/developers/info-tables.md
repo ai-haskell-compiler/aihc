@@ -20,7 +20,6 @@ Each info table contains these fields:
 | --- | --- |
 | `identity` | Identifies the function or the saturated constructor. |
 | `field_is_pointer` | Points to a byte map that identifies managed pointers. For an object that requires arguments, the map also includes the fields that the arguments will supply. |
-| `next` | Points to the table for the next application stage. |
 | `backend_entry` | Gives the entry address that has the backend calling convention. |
 | `srt` | Points to the static reference table of the code, or is null. |
 | `field_count` | Gives the number of payload fields in the object. One byte: an object has at most 255 fields. |
@@ -29,6 +28,7 @@ Each info table contains these fields:
 | `object_kind` | Identifies a node, closure, thunk, partial constructor, or special run-time object. |
 | `needs_eval` | Is `1` for a thunk, `2` for an indirection, and `0` for a value. A thunk under evaluation keeps the value `1`. |
 | `constructor_index` | Gives the index of a constructor in its data declaration, from zero. It is `0` for other objects. Two bytes: a data type has at most 65536 constructors. |
+| `next` | Points to the table for the next application stage. Only the table of a partial constructor, or of a closure that requires two or more argument groups, has this field. |
 
 The garbage collector uses `field_count` and `field_is_pointer` to find managed pointers.
 It reads only the first `field_count` bytes of the map.
@@ -62,7 +62,7 @@ stored fields:    0  ->  1
 The backend entry of a stage takes all remaining arguments of that stage.
 One application supplies a maximum of four argument groups.
 Thus, a stage has a backend entry only when one to four argument groups remain.
-The last table requires one argument group and has no `next` value.
+The last table requires one argument group and has no `next` field.
 No object holds all the arguments, so no table describes that object.
 A saturated call of a known function calls the generated code directly.
 
@@ -109,7 +109,6 @@ Its table has the following logical values:
 | --- | --- |
 | `identity` | The generated `total` function. |
 | `field_is_pointer` | One byte of `0` for the owner word, then one byte for `x` and one byte for `y`. |
-| `next` | Null. |
 | `backend_entry` | The backend entry for `total`. |
 | `srt` | Null. |
 | `field_count` | `3` |
@@ -154,7 +153,7 @@ The backend supplies two info tables:
 | Table | Object kind | `field_count` | `next` |
 | --- | --- | ---: | --- |
 | `Pair` partial | Partial constructor | 2 | The saturated table. |
-| `Pair` saturated | Node | 2 | Null. |
+| `Pair` saturated | Node | 2 | No field. |
 
 `Pair` and `Pair first` both use the partial table and differ only in the count
 they store:
@@ -207,7 +206,8 @@ Linked constructor table names keep constructor identities equal across compilat
 
 The WebAssembly backend emits the same fields in WebAssembly assembly data.
 Its pointers are 32 bits and its counts, kind values, and flags are one byte each.
-Thus, its table is 28 bytes instead of the 48-byte table on 64-bit native targets.
+Thus, its table is 24 bytes instead of the 40-byte table on 64-bit native targets.
+A table with the `next` field is one word larger on each target.
 
 WebAssembly calls require a compatible function type.
 Its run-time adapter converts `backend_entry` to the required function type.

@@ -5,6 +5,7 @@ module Test.Grin.Srt (tests) where
 import Aihc.Grin.Srt
 import Aihc.Grin.Syntax
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -63,23 +64,28 @@ tests =
       testCase "a known call becomes a child table" $
         assertEqual
           "callsTwo"
-          (Just (StaticReferenceTable [] [FunctionName "usesCaf", FunctionName "usesImported"]))
+          (Just (StaticReferenceTable [] [owner "usesCaf", owner "usesImported"]))
           (tableOf "callsTwo"),
       testCase "a table with no objects and one child uses the table of the child" $
         assertEqual
           "callsUsesCaf"
-          (Just (FunctionName "usesCaf"))
+          (ownerOf "usesCaf")
           (ownerOf "callsUsesCaf"),
       testCase "a chain of such tables uses the table at its end" $
         assertEqual
           "callsCallsUsesCaf"
-          (Just (FunctionName "usesCaf"))
+          (ownerOf "usesCaf")
           (ownerOf "callsCallsUsesCaf"),
       testCase "children that become one table make the table shared" $
         assertEqual
           "callsSameTwice"
-          (Just (FunctionName "usesCaf"))
+          (ownerOf "usesCaf")
           (ownerOf "callsSameTwice"),
+      testCase "functions with the same table share one table" $
+        assertEqual
+          "usesCafByVar"
+          (ownerOf "usesCaf")
+          (ownerOf "usesCafByVar"),
       testCase "a call to a table-free function adds no child" $
         assertEqual
           "callsUsesNil"
@@ -88,7 +94,7 @@ tests =
       testCase "a future thunk inherits its table" $
         assertEqual
           "storesThunk"
-          (Just (FunctionName "usesCaf"))
+          (ownerOf "usesCaf")
           (ownerOf "storesThunk"),
       testCase "self recursion drops the self child" $
         assertEqual
@@ -98,8 +104,8 @@ tests =
       testCase "mutual recursion reaches a fixed point" $
         assertEqual
           "mutual tables"
-          [ (Just (FunctionName "mutualB"), Just (StaticReferenceTable ["caf"] [])),
-            (Just (FunctionName "mutualB"), Just (StaticReferenceTable ["caf"] []))
+          [ (ownerOf "usesCaf", Just (StaticReferenceTable ["caf"] [])),
+            (ownerOf "usesCaf", Just (StaticReferenceTable ["caf"] []))
           ]
           [(ownerOf "mutualA", tableOf "mutualA"), (ownerOf "mutualB", tableOf "mutualB")],
       testCase "only reaching functions get a table" $
@@ -107,9 +113,6 @@ tests =
           "table names"
           [ "callsTwo",
             "mutualB",
-            "recursesOnCaf",
-            "usesCaf",
-            "usesCafByVar",
             "usesImported",
             "usesImportedByVar"
           ]
@@ -118,6 +121,7 @@ tests =
   where
     tableOf name = lookupStaticReferenceTable (programStaticReferences program) (FunctionName name)
     ownerOf name = staticReferenceOwner (programStaticReferences program) (FunctionName name)
+    owner name = fromMaybe (FunctionName name) (ownerOf name)
 
 program :: GrinProgram
 program =

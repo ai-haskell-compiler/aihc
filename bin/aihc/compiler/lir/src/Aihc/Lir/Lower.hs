@@ -1740,6 +1740,9 @@ lowerInfo info = do
     failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
     failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
+  let hasNext = infoHasNext (infoObjectKind info) (infoRemainingArity info)
+  when (isJust (infoNext info) && not hasNext) $
+    failWith (LowerUnsupportedValue ("an info table with a next stage that its kind does not allow: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
   entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
@@ -1752,7 +1755,6 @@ lowerInfo info = do
             dataFields =
               [ infoIdentity info,
                 maybe DataNull (`DataSymbol` 0) bitmap,
-                maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode entry,
                 maybe DataNull (`DataSymbol` 0) (infoSrt info),
                 DataInt I16 (toInteger (length fields)),
@@ -1762,6 +1764,7 @@ lowerInfo info = do
                 DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
                 DataInt I16 (toInteger (infoConstructorIndex info))
               ]
+                <> [maybe DataNull (`DataSymbol` 0) (infoNext info) | hasNext]
           }
     )
 
@@ -2675,7 +2678,6 @@ replayInfo shape = do
               dataFields =
                 [ DataCode (Just entry),
                   maybe DataNull (`DataSymbol` 0) bitmap,
-                  DataNull,
                   DataCode (Just entry),
                   DataSymbol replaySrtMarker 0,
                   DataInt I16 (toInteger (replayArgumentSlot - 1 + length shape)),
@@ -5336,8 +5338,7 @@ applySlow capability context current continuation continuationSlot arguments gro
 applyPartial :: Context -> Operand -> Operand -> Operand -> Int -> [(Var, Type)] -> Label -> LowerM ()
 applyPartial context function continuation header groups values slow = do
   target <- targetM
-  let width = toInteger (lowerWordSize target)
-      nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (width * toInteger infoNextIndex)) (wordAlignment 1))
+  let nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (infoNextOffset target)) (wordAlignment 1))
   next <- foldM (\current _ -> nextStage current) header [1 .. groups]
   held <- loadInfoFieldCount "held" header
   total <- loadInfoFieldCount "total" next
@@ -5399,10 +5400,23 @@ applyOverSaturated context function continuation header supplied held = do
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.
-infoWordFieldCount, infoNextIndex, infoBackendEntryIndex :: Int
-infoWordFieldCount = 5
-infoNextIndex = 2
-infoBackendEntryIndex = 3
+infoWordFieldCount, infoBackendEntryIndex :: Int
+infoWordFieldCount = 4
+infoBackendEntryIndex = 2
+
+-- | The byte offset of the next word of an info table, after the eight bytes
+-- of the byte fields. Only a table for which 'infoHasNext' holds has it.
+infoNextOffset :: LowerTarget -> Integer
+infoNextOffset target = toInteger (lowerWordSize target * infoWordFieldCount + 8)
+
+-- | Whether an info table has the next word: a partial constructor names the
+-- table of its saturated constructor, and a closure that takes two or more
+-- argument groups names the table after one more group. Other tables do not
+-- have the word, so most tables are one word smaller.
+infoHasNext :: Int -> Int -> Bool
+infoHasNext objectKind remainingArity =
+  objectKind == runtimeObjectPartialConstructor
+    || (objectKind == runtimeObjectClosure && remainingArity >= 2)
 
 -- | The fields of an info table after the word fields, as byte offsets from
 -- the end of the word fields. The field count and the constructor index

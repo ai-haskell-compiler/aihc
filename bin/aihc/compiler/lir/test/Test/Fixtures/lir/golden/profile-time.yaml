@@ -27,7 +27,7 @@ expected: |
     %header_word_4 = load i64 [%$cps_return_3] align 8 region stack
     %info_word_5 = and i64 %header_word_4, -4
     %header_6 = ptr.from_int %info_word_5
-    %entry_7 = load.invariant code [%header_6 + 24] align 1 word
+    %entry_7 = load.invariant code [%header_6 + 16] align 1 word
     %forward_10 = eq code %entry_7, null
     br %forward_10, continue_slow_8, continue_enter_9
 
@@ -78,7 +78,7 @@ expected: |
     %header_word_41 = load i64 [%stored_39] align 8 region stack
     %info_word_42 = and i64 %header_word_41, -4
     %header_43 = ptr.from_int %info_word_42
-    %entry_44 = load.invariant code [%header_43 + 24] align 1 word
+    %entry_44 = load.invariant code [%header_43 + 16] align 1 word
     %forward_47 = eq code %entry_44, null
     br %forward_47, continue_slow_45, continue_enter_46
 
@@ -91,7 +91,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x01\x00" }
 
-  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
+  data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_0, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
   data @aihc_time_profile_name_0 align 1 = { bytes "$other", i8 0 }
 
@@ -111,7 +111,7 @@ expected: |
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_1, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_48: ptr, %sp_49: ptr, %base_50: ptr, %value_51: ptr, %code_52: code, %srt_53: ptr, %words_54: i64) {
   entry:

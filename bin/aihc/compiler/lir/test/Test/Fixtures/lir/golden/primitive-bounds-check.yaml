@@ -52,7 +52,7 @@ expected: |
     %header_word_22 = load i64 [%$cps_return$gc_10] align 8 region stack
     %info_word_23 = and i64 %header_word_22, -4
     %header_24 = ptr.from_int %info_word_23
-    %entry_25 = load.invariant code [%header_24 + 24] align 1 word
+    %entry_25 = load.invariant code [%header_24 + 16] align 1 word
     %forward_28 = eq code %entry_25, null
     br %forward_28, continue_slow_26, continue_enter_27
 
@@ -65,7 +65,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_0, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_0, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_29: ptr, %sp_30: ptr, %base_31: ptr, %value_32: ptr, %code_33: code, %srt_34: ptr, %words_35: i64) {
   entry:

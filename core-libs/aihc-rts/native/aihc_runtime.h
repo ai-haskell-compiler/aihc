@@ -153,18 +153,17 @@ struct AihcSrt {
   uintptr_t entries[];
 };
 
-/* Five word-wide fields followed by five byte-wide ones, so Lir addresses
-   word field k at offset k words and byte field j at offset 5 words + j on
-   every target. See the "Info tables" section of docs/lir.md. */
+/* Four word-wide fields followed by the byte fields, so Lir addresses word
+   field k at offset k words and byte field j at offset 4 words + j on every
+   target. A table that names a next stage has one more word after the byte
+   fields. See AihcInfoWithNext and the "Info tables" section of
+   docs/lir.md. */
 struct AihcInfo {
   uintptr_t identity;
   /* One byte per slot of the saturated object. A partial constructor indexes
      the same array as the finished one: the slots it has filled are a prefix
      of the slots the saturated constructor holds. */
   const uint8_t *field_is_pointer;
-  /* The info table of the saturated constructor, for a partial constructor.
-     Null for every other kind. */
-  const AihcInfo *next;
   /* Backend-owned dynamic entry. Lir gives this word its own callable
      type. */
   AihcBackendEntry backend_entry;
@@ -192,10 +191,24 @@ struct AihcInfo {
   uint8_t needs_eval;
   /* The index of a constructor in its data declaration, and zero for every
      other kind. A case with many alternatives selects its alternative from
-     this field. The field uses padding, so the table stays 48 bytes on a
-     64-bit target and 28 bytes on wasm32. */
+     this field. The field uses padding, so the table is 40 bytes on a
+     64-bit target and 24 bytes on wasm32. */
   uint16_t constructor_index;
 };
+
+/* The info table of an object that has a next stage. A partial constructor
+   names the table of the saturated constructor. A closure that takes two or
+   more argument groups names the table of the closure after one more group.
+   No other table has the next word, so read it only through
+   aihc_info_next, and only for these two kinds. */
+typedef struct AihcInfoWithNext {
+  AihcInfo info;
+  const AihcInfo *next;
+} AihcInfoWithNext;
+
+static inline const AihcInfo *aihc_info_next(const AihcInfo *info) {
+  return ((const AihcInfoWithNext *)(const void *)info)->next;
+}
 
 struct AihcValue {
   /* Ordinarily an unmodified info-table pointer. During semispace collection,
@@ -693,7 +706,7 @@ static inline uint64_t aihc_partial_applied(const AihcValue *value) {
 /* The slots a partial constructor still needs. The saturated info table names
    the full width. */
 static inline uint64_t aihc_partial_total(const AihcValue *value) {
-  return aihc_value_info_table(value)->next->field_count;
+  return aihc_info_next(aihc_value_info_table(value))->field_count;
 }
 
 static inline AihcSlot *aihc_partial_fields(AihcValue *value) {

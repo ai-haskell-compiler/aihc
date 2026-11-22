@@ -45,7 +45,7 @@ expected: |
     %header_word_16 = load i64 [%$cps_return$gc_10] align 8 region stack
     %info_word_17 = and i64 %header_word_16, -4
     %header_18 = ptr.from_int %info_word_17
-    %entry_19 = load.invariant code [%header_18 + 24] align 1 word
+    %entry_19 = load.invariant code [%header_18 + 16] align 1 word
     %forward_22 = eq code %entry_19, null
     br %forward_22, continue_slow_20, continue_enter_21
 
@@ -58,15 +58,15 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Box_0 align 8 = { ptr @aihc_c_aihc_entry_Box_0, ptr @aihc_lir_bitmap_0, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_1 align 1 = { bytes "\x01\x01" }
 
-  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, ptr null, code null, ptr null, i16 2, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Pair_0 align 8 = { ptr @aihc_c_aihc_entry_Pair_0, ptr @aihc_lir_bitmap_1, code null, ptr null, i16 2, i8 0, i8 0, i8 0, i8 0, i16 0 }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x00\x00\x00\x01" }
 
-  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_2, ptr null, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
+  data @aihc_lir_replay_info_p align 8 = { code @aihc_lir_replay_entry_p, ptr @aihc_lir_bitmap_2, code @aihc_lir_replay_entry_p, ptr @aihc_replay_srt, i16 4, i8 1, i8 0, i8 1, i8 0, i16 0 }
 
   func @aihc_lir_collect_replay_p(%hp_23: ptr, %sp_24: ptr, %base_25: ptr, %value_26: ptr, %code_27: code, %srt_28: ptr, %words_29: i64) {
   entry:

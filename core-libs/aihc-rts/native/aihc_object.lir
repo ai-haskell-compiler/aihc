@@ -113,6 +113,8 @@ entry:
   return %bitmap
 }
 
+; Only a partial constructor, and a closure that takes two or more argument
+; groups, have the next word. Do not call this for another table.
 inline func @aihc_info_next(%header: ptr) -> ptr {
 entry:
   %next_info = load.invariant ptr [%header + @AIHC_INFO_NEXT_OFFSET] align 1 word

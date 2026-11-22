@@ -38,30 +38,30 @@ _Static_assert(offsetof(AihcCapability, stack_limit) == 9 * sizeof(void *) + 16,
 /* Five words, five bytes, one byte of padding, and a two-byte constructor
    index, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
-_Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
+_Static_assert(sizeof(AihcInfo) == 4 * sizeof(void *) + 8,
                "info-table size ABI");
 _Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 8,
                "info-table bitmap ABI");
-_Static_assert(offsetof(AihcInfo, next) == 16, "info-table next ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 24,
+_Static_assert(offsetof(AihcInfo, backend_entry) == 16,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 32, "info-table SRT ABI");
-_Static_assert(offsetof(AihcInfo, field_count) == 40,
+_Static_assert(offsetof(AihcInfo, srt) == 24, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 32,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 42,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 34,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 43,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 35,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 44,
+_Static_assert(offsetof(AihcInfo, object_kind) == 36,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 45,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 37,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, constructor_index) == 46,
+_Static_assert(offsetof(AihcInfo, constructor_index) == 38,
                "info-table constructor-index ABI");
-_Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 40, "info-table size ABI");
+_Static_assert(offsetof(AihcInfoWithNext, next) == 40, "info-table next ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 12, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 16, "SRT entries ABI");
@@ -81,23 +81,23 @@ _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
                "info-table bitmap ABI");
-_Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 12,
+_Static_assert(offsetof(AihcInfo, backend_entry) == 8,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 16, "info-table SRT ABI");
-_Static_assert(offsetof(AihcInfo, field_count) == 20,
+_Static_assert(offsetof(AihcInfo, srt) == 12, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 16,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 22,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 18,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 23,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 19,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 24,
+_Static_assert(offsetof(AihcInfo, object_kind) == 20,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 25,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 21,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, constructor_index) == 26,
+_Static_assert(offsetof(AihcInfo, constructor_index) == 22,
                "info-table constructor-index ABI");
-_Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 24, "info-table size ABI");
+_Static_assert(offsetof(AihcInfoWithNext, next) == 24, "info-table next ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
@@ -1263,9 +1263,12 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
   const AihcInfo *next = info;
   for (uint64_t stage = 0; stage < stages; ++stage) {
     const AihcInfo *current = next;
-    next = current->next;
-    if (current->remaining_arity == 0 || next == NULL ||
-        next->remaining_arity + 1 != current->remaining_arity ||
+    /* Only a closure that takes two or more groups has a next stage. */
+    if (current->remaining_arity < 2) {
+      aihc_fail("application does not match static info-table transition");
+    }
+    next = aihc_info_next(current);
+    if (next == NULL || next->remaining_arity + 1 != current->remaining_arity ||
         next->field_count < current->field_count) {
       aihc_fail("application does not match static info-table transition");
     }
@@ -1282,9 +1285,11 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
    table it already has. */
 const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
                                               uint64_t applied) {
-  const AihcInfo *saturated = info->next;
-  if (info->object_kind != AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
-      saturated == NULL) {
+  if (info->object_kind != AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    aihc_fail("applied a value that is not a partial constructor");
+  }
+  const AihcInfo *saturated = aihc_info_next(info);
+  if (saturated == NULL) {
     aihc_fail("applied a value that is not a partial constructor");
   }
   if (applied > saturated->field_count) {
