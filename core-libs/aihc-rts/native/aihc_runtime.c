@@ -4970,8 +4970,8 @@ static size_t aihc_freed_stable_ptr_capacity = 0;
 static int aihc_freed_stable_ptr_lock = 0;
 
 static void aihc_freed_stable_ptr_acquire(void) {
-  while (__atomic_exchange_n(&aihc_freed_stable_ptr_lock, 1,
-                             __ATOMIC_ACQUIRE)) {
+  while (
+      __atomic_exchange_n(&aihc_freed_stable_ptr_lock, 1, __ATOMIC_ACQUIRE)) {
   }
 }
 
@@ -4998,8 +4998,7 @@ void hs_free_stable_ptr(void *stable_ptr) {
     aihc_freed_stable_ptrs = grown;
     aihc_freed_stable_ptr_capacity = capacity;
   }
-  aihc_freed_stable_ptrs[aihc_freed_stable_ptr_count++] =
-      (uintptr_t)stable_ptr;
+  aihc_freed_stable_ptrs[aihc_freed_stable_ptr_count++] = (uintptr_t)stable_ptr;
   aihc_freed_stable_ptr_release();
 }
 
