@@ -237,6 +237,9 @@ struct AihcIoHandle {
   uint32_t capabilities;
   uint8_t append;
   uint8_t closed;
+  /* The runtime opened the descriptor itself with O_NONBLOCK. Another
+     process does not share it, so a request needs no check of its flags. */
+  uint8_t nonblocking;
 };
 
 struct AihcIoRequest {
