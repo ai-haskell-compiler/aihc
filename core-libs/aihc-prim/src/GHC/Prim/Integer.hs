@@ -54,7 +54,6 @@ import GHC.Prim
     and#,
     clz#,
     compareInt#,
-    compareInt#,
     copyAddrToByteArray#,
     copyByteArray#,
     eqWord#,
