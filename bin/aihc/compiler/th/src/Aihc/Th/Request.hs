@@ -16,11 +16,11 @@ module Aihc.Th.Request
   )
 where
 
-import Data.Char (isUpper)
 import Aihc.Parser.Syntax (Name)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (nameFromTree)
 import Aihc.Th.Wire (Tree (..))
+import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 
