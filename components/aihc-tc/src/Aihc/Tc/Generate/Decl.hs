@@ -504,10 +504,10 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
       moduleExtensions = map moduleUnitExtensions units
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-  mapM_ (atDecl predeclareTypeConstructor) declarations
+  mapM_ (atDecl (predeclareTypeConstructor Nothing)) declarations
   mapM_ (atDecl predeclareTypeLevelDataConstructors) declarations
   mapM_ (atDecl registerDeclaredRecordPatSyn) declarations
-  standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
+  standaloneKindSchemes <- convertStandaloneKindSignatures declarations standaloneKindSignatures
   mapM_ (atDecl (registerTypeDeclHeader associatedFamilyClasses standaloneKindSchemes)) declarations
   let structuralDeclarations =
         [ (resolvedModuleOrigin modu, declaration)
@@ -4426,10 +4426,43 @@ classParamKinds classHead = do
   let kinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
   pure (Map.fromList (zip classParamNames kinds))
 
-predeclareTypeConstructor :: Decl -> TcM ()
-predeclareTypeConstructor declaration =
+-- | Convert the standalone kind signatures of a declaration group. A
+-- signature can name another type constructor of the group, as
+-- @SWrappedSing :: forall k (a :: k). WrappedSing a -> Type@ names
+-- @WrappedSing :: k -> Type@. That constructor must have its signature
+-- kind, which each use instantiates afresh. A provisional kind meta would
+-- take the kind @k1 -> Type@ of the first use, and then disagree with the
+-- signature @k -> Type@. Thus, the signatures are converted in dependency
+-- order, and each scheme replaces the provisional kind of its constructor.
+convertStandaloneKindSignatures :: [Decl] -> Map GlobalName Type -> TcM (Map GlobalName TypeScheme)
+convertStandaloneKindSignatures declarations signatures = foldM convert Map.empty ordered
+  where
+    ordered = concatMap flattenSignatures (stronglyConnComp [(key, key, references kind) | (key, kind) <- Map.toList signatures])
+    flattenSignatures (AcyclicSCC key) = [key]
+    flattenSignatures (CyclicSCC keys) = keys
+    references kind =
+      [ target
+      | annotation <- annotationList kind,
+        Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
+        EntityGlobal global <- [resolutionTarget resolution],
+        let target = global {globalNameNamespace = resolutionNamespace resolution},
+        Map.member target signatures
+      ]
+    owners = Map.fromListWith (\_ first -> first) [(key, declaration) | declaration <- declarations, key <- declarationTypeKeys declaration]
+    convert schemes key = do
+      scheme <- standaloneKindSigToScheme (signatures Map.! key)
+      forM_ (Map.lookup key owners) $
+        atDecl (predeclareTypeConstructor (Just (key, scheme)))
+      pure (Map.insert key scheme schemes)
+
+-- | Predeclare the type constructors of a declaration. Without a scheme,
+-- each constructor gets a provisional kind meta. With the key and the
+-- scheme of a standalone kind signature, only that constructor changes,
+-- and it gets the scheme.
+predeclareTypeConstructor :: Maybe (GlobalName, TypeScheme) -> Decl -> TcM ()
+predeclareTypeConstructor knownScheme declaration =
   case declaration of
-    DeclAnn _ inner -> predeclareTypeConstructor inner
+    DeclAnn _ inner -> predeclareTypeConstructor knownScheme inner
     DeclData dataDeclaration ->
       let binder = binderHeadName (dataDeclHead dataDeclaration)
           name = unqualifiedNameText binder
@@ -4446,26 +4479,33 @@ predeclareTypeConstructor declaration =
     DeclClass classDeclaration -> do
       let binder = binderHeadName (classDeclHead classDeclaration)
       predeclare binder (unqualifiedNameText binder) (length (binderHeadParams (classDeclHead classDeclaration))) ClassTyCon
-      mapM_ (predeclareTypeConstructor . DeclTypeFamilyDecl) (classDeclTypeFamilies classDeclaration)
+      mapM_ (predeclareTypeConstructor knownScheme . DeclTypeFamilyDecl) (classDeclTypeFamilies classDeclaration)
     DeclTypeFamilyDecl familyDeclaration ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDeclaration) of
         Just binder -> predeclare binder (unqualifiedNameText binder) (length (typeFamilyDeclParams familyDeclaration)) TypeFamilyTyCon
         Nothing -> pure ()
     _ -> pure ()
   where
-    predeclare binder name arity flavor = do
-      kinds <- getKinds
-      provisionalKind <-
-        case flavor of
-          ClassTyCon -> foldr KFun (constraintKind kinds) <$> replicateM arity freshKindMeta
-          _ -> freshKindMeta
+    predeclare binder name arity flavor =
+      case knownScheme of
+        Just (key, scheme)
+          | resolvedTypeKey binder == Just key -> store binder name arity flavor scheme
+          | otherwise -> pure ()
+        Nothing -> do
+          kinds <- getKinds
+          provisionalKind <-
+            case flavor of
+              ClassTyCon -> foldr KFun (constraintKind kinds) <$> replicateM arity freshKindMeta
+              _ -> freshKindMeta
+          store binder name arity flavor (Scheme [] [] [] provisionalKind)
+    store binder name arity flavor scheme = do
       tyCon <- mkDeclaredTyCon binder name arity
       storeTyConInfo
         TyConInfo
           { tciName = name,
             tciArity = arity,
             tciTyCon = tyCon,
-            tciKindScheme = Scheme [] [] [] provisionalKind,
+            tciKindScheme = scheme,
             tciFlavor = flavor,
             tciTypeSynonym = Nothing,
             tciInjectivity = Nothing
@@ -4476,7 +4516,14 @@ storeTyConInfo info = do
   existing <- lookupTyConByIdentity (tciTyCon info)
   case existing of
     Just provisional -> do
-      unifyKinds (typeSchemeBody (tciKindScheme provisional)) (typeSchemeBody (tciKindScheme info))
+      -- A provisional kind with binders is the scheme of a standalone
+      -- kind signature (see 'convertStandaloneKindSignatures'). The
+      -- registration converts the same signature, but it can name the
+      -- binders with other variables. Only a provisional kind meta needs
+      -- the unification.
+      case tciKindScheme provisional of
+        ForAll [] _ provisionalKind -> unifyKinds provisionalKind (typeSchemeBody (tciKindScheme info))
+        _ -> pure ()
       replaceTyConEnvPermanent info
     Nothing -> extendTyConEnvPermanent info
 
