@@ -2939,9 +2939,11 @@ static void aihc_trace(AihcGcContext *context) {
    generation as the floor of its referents. */
 static void aihc_scan_remembered_of(AihcGcContext *context,
                                     AihcCapability *capability) {
-  /* A hot object has one entry for each store since the last compaction,
-     so the set is compacted before each entry costs a scan. */
-  aihc_remembered_compact(capability);
+  /* The set is not compacted here. A duplicate entry costs one more scan
+     of an object whose referents are already copied, and the insertion
+     compacts the set when it is full. A sort at each collection cost more
+     than the duplicates it removed: in aihc-cpp-stackage it removed 184
+     of 330,043 entries. */
   AihcValue **entries = capability->remembered;
   uint64_t count = capability->remembered_count;
   capability->remembered = NULL;
