@@ -27,4 +27,15 @@ static inline int aihc_s_isblk(mode_t mode) { return S_ISBLK(mode); }
 static inline int aihc_s_isfifo(mode_t mode) { return S_ISFIFO(mode); }
 static inline int aihc_s_issock(mode_t mode) { return S_ISSOCK(mode); }
 
+/* The size of a regular file, with one fstat call. The result is -1 for a
+   descriptor that is not a regular file, and for an fstat error. Then the
+   caller finds the size with lseek. */
+static inline long long aihc_regular_file_size(int descriptor) {
+  struct stat st;
+  if (fstat(descriptor, &st) != 0 || !S_ISREG(st.st_mode)) {
+    return -1;
+  }
+  return (long long)st.st_size;
+}
+
 #endif
