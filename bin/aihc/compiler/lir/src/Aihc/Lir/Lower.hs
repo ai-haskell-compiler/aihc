@@ -663,11 +663,16 @@ lowerEnvironment options gcProgram =
             <> [(grinExternName extern, map repType (grinExternParameters extern)) | extern <- grinExternFunctions program]
         )
     staticReferences = programStaticReferences program
-    srtSymbols =
+    -- A function whose table was removed uses the symbol of the table
+    -- that replaces it. See 'staticReferenceShared'.
+    ownSrtSymbols =
       Map.fromList
         [ (name, Symbol ("aihc_lir_srt_" <> T.pack (show index)))
         | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
         ]
+    srtSymbols =
+      ownSrtSymbols
+        <> Map.mapMaybe (`Map.lookup` ownSrtSymbols) (staticReferenceShared staticReferences)
     constructorLayouts =
       [ (grinConstructorName constructor, grinConstructorLayouts constructor)
       | constructor <- grinConstructors program
@@ -1929,7 +1934,6 @@ lowerStaticReferenceTables env = do
     forM_ (mfilter (`Set.member` named) (Map.lookup name (envSrtSymbols env))) $ \symbol -> do
       let objects = map globalSymbol (srtObjects table)
           children = [child | name' <- srtChildren table, Just child <- [Map.lookup name' (envSrtSymbols env)]]
-          word = wordField target
       mapM_ requireExternData objects
       emitItem
         ( ItemData
@@ -1938,7 +1942,9 @@ lowerStaticReferenceTables env = do
                 Internal
                 True
                 (toInteger (lowerWordSize target))
-                ( [word 0, word (toInteger (length objects)), word (toInteger (length children))]
+                -- The two counts are 32 bits wide, so they use one word on a
+                -- 64-bit target. See struct AihcSrt in the runtime.
+                ( [wordField target 0, DataInt I32 (toInteger (length objects)), DataInt I32 (toInteger (length children))]
                     <> [DataSymbol object 0 | object <- objects]
                     <> [DataSymbol child 0 | child <- children]
                 )

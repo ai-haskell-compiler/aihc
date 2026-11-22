@@ -137,18 +137,19 @@ typedef uint8_t AihcFrameKind;
    tables of the functions its code calls directly, so the collector walks the
    graph instead of the compiler flattening it.
 
-   Backends emit one word-uniform record per table: the walk link, the two
-   counts, then object_count static object addresses followed by child_count
-   table addresses. The link is mutable, so tables belong in a writable
-   section even though info tables themselves are read-only. */
+   Backends emit one record per table: the walk link, the two 32-bit counts,
+   then object_count static object addresses followed by child_count table
+   addresses. The two counts use one word on a 64-bit target. The link is
+   mutable, so tables belong in a writable section even though info tables
+   themselves are read-only. */
 struct AihcSrt {
   /* Null until a collection walks this table, then the next walked table.
      Recursive functions make the table graph cyclic, so the collector links
      every table it walks and clears the whole list when the collection
      ends. */
   AihcSrt *walked;
-  uintptr_t object_count;
-  uintptr_t child_count;
+  uint32_t object_count;
+  uint32_t child_count;
   uintptr_t entries[];
 };
 

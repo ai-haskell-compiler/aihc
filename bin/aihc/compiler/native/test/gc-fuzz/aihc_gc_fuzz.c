@@ -1494,8 +1494,8 @@ static void command_srt(char **tokens, size_t count) {
   }
   AihcSrt *srt = checked_calloc(1, sizeof(*srt) + (size_t)(objects + children) *
                                                       sizeof(uintptr_t));
-  srt->object_count = objects;
-  srt->child_count = children;
+  srt->object_count = (uint32_t)objects;
+  srt->child_count = (uint32_t)children;
   srts[index] = srt;
   for (uint64_t entry = 0; entry < objects; ++entry) {
     const char *token = tokens[4 + entry];

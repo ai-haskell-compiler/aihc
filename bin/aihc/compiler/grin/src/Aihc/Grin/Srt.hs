@@ -20,6 +20,7 @@ module Aihc.Grin.Srt
     StaticReferenceTable (..),
     StaticReferences (..),
     lookupStaticReferenceTable,
+    staticReferenceOwner,
     programStaticObjects,
     programStaticReferences,
     staticNodeIsTraced,
@@ -58,19 +59,31 @@ data StaticReferenceTable = StaticReferenceTable
   }
   deriving (Eq, Show, Read)
 
--- | Every non-empty table in one program, and the static objects that need
--- collector tracing at all.
+-- | Every table in one program, and the static objects that need collector
+-- tracing at all.
+--
+-- A function that has no table of its own can use the table of another
+-- function. 'staticReferenceShared' gives that function.
 data StaticReferences = StaticReferences
   { staticReferenceTables :: !(Map FunctionName StaticReferenceTable),
+    staticReferenceShared :: !(Map FunctionName FunctionName),
     staticReferenceTracedObjects :: !(Set Text)
   }
   deriving (Eq, Show, Read)
 
--- | The table of one function, or 'Nothing' when the function reaches no
--- traced static object. Backends emit no symbol for an absent table.
+-- | The function whose table a function uses, or 'Nothing' when the function
+-- reaches no traced static object. Backends emit no symbol for an absent
+-- table.
+staticReferenceOwner :: StaticReferences -> FunctionName -> Maybe FunctionName
+staticReferenceOwner references name
+  | Map.member name (staticReferenceTables references) = Just name
+  | otherwise = Map.lookup name (staticReferenceShared references)
+
+-- | The table that a function uses, or 'Nothing' when the function reaches no
+-- traced static object.
 lookupStaticReferenceTable :: StaticReferences -> FunctionName -> Maybe StaticReferenceTable
 lookupStaticReferenceTable references name =
-  Map.lookup name (staticReferenceTables references)
+  staticReferenceOwner references name >>= (`Map.lookup` staticReferenceTables references)
 
 -- | Every object the backends emit into the data section: the program's
 -- declared globals followed by the nullary constructors that only appear as
@@ -135,15 +148,19 @@ staticNodeIsTraced node =
 programStaticReferences :: GrinProgram -> StaticReferences
 programStaticReferences program =
   StaticReferences
-    { staticReferenceTables =
-        Map.fromList
-          [ (name, StaticReferenceTable objects (children name))
-          | name <- Set.toAscList reaching,
-            let objects = MonoidMap.get name directObjects
-          ],
+    { staticReferenceTables = tables,
+      staticReferenceShared = shared,
       staticReferenceTracedObjects = tracedNames
     }
   where
+    (tables, shared) =
+      shareTables
+        ( Map.fromList
+            [ (name, StaticReferenceTable objects (children name))
+            | name <- Set.toAscList reaching,
+              let objects = MonoidMap.get name directObjects
+            ]
+        )
     localObjects = programStaticObjects program
     tracedNames =
       Set.fromList [staticObjectName object | object <- localObjects, staticObjectTraced object]
@@ -194,6 +211,44 @@ programStaticReferences program =
            in walkCallers (foldr Set.insert found new) (new <> rest)
     children name =
       Set.toAscList (Set.intersection reaching (MonoidMap.get name directCalls))
+
+-- | Remove each table that names no object and only one child table.
+-- Such a table names the same static objects as its child, so its function
+-- uses the table of the child. The result gives the remaining tables and,
+-- for each removed table, the function whose table replaces it.
+--
+-- After a removal, two children of a table can be the same table, and a
+-- table can name itself. The children are then made unique and the table
+-- itself is removed from them. A table can then name only one child, so the
+-- step repeats until no table changes.
+--
+-- Each table names a traced static object or a child table that does, so a
+-- chain of removed tables ends at a table that names an object. A cycle of
+-- such tables cannot occur.
+shareTables :: Map FunctionName StaticReferenceTable -> (Map FunctionName StaticReferenceTable, Map FunctionName FunctionName)
+shareTables = go Map.empty
+  where
+    go shared tables
+      | Map.null removed = (tables, shared)
+      | otherwise = go shared' (Map.mapWithKey (rewrite shared') kept)
+      where
+        removed = Map.mapMaybe onlyChild tables
+        kept = Map.difference tables removed
+        resolve name = maybe name resolve (Map.lookup name removed)
+        shared' = Map.map resolve (shared <> removed)
+    onlyChild table =
+      case table of
+        StaticReferenceTable [] [child] -> Just child
+        _ -> Nothing
+    rewrite shared name table =
+      table
+        { srtChildren =
+            Set.toAscList
+              ( Set.delete
+                  name
+                  (Set.fromList [Map.findWithDefault child child shared | child <- srtChildren table])
+              )
+        }
 
 -- | A function mentions a static object either through an explicit global
 -- reference or through a free variable, which the backends materialize as a

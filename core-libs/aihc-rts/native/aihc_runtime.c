@@ -63,8 +63,8 @@ _Static_assert(offsetof(AihcInfo, constructor_index) == 46,
                "info-table constructor-index ABI");
 _Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
-_Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
-_Static_assert(offsetof(AihcSrt, entries) == 24, "SRT entries ABI");
+_Static_assert(offsetof(AihcSrt, child_count) == 12, "SRT child-count ABI");
+_Static_assert(offsetof(AihcSrt, entries) == 16, "SRT entries ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
