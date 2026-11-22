@@ -1,0 +1,24 @@
+extensions:
+- TypeFamilies
+- GADTs
+- ConstraintKinds
+- KindSignatures
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, GADTs, ConstraintKinds, KindSignatures, ExistentialQuantification #-}
+  module Test where
+  import GHC.Types (Constraint)
+  data Dict (c :: Constraint) where
+    Dict :: c => Dict c
+  data Unit = Unit
+  data Maybe a = Nothing | Just a
+  type family G a where
+    G Unit = Unit
+    G a = Maybe a
+  data D r = forall p. D (Dict (r ~ Maybe p, Maybe p ~ G p))
+  mk :: (r ~ Maybe p, Maybe p ~ G p) => D r
+  mk = D Dict
+reason: a reflexive coercion over an equality inside a constraint tuple relates dictionary
+  types of the class ~, not bare proof types
+status: pass
