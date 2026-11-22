@@ -496,14 +496,13 @@ standaloneFamilyInstance headTypes =
   case reverse headTypes of
     TcTyCon targetTyCon targetArguments : _ -> do
       instances <- getDataFamilyInstances
-      pure $ case
-        [ info
-        | info <- instances,
-          TcTyCon family instanceArguments <- [dfiiFamilyType info],
-          family == targetTyCon,
-          length targetArguments <= length instanceArguments,
-          Just _ <- [matchTypes (take (length targetArguments) instanceArguments) targetArguments]
-        ] of
+      pure $ case [ info
+                  | info <- instances,
+                    TcTyCon family instanceArguments <- [dfiiFamilyType info],
+                    family == targetTyCon,
+                    length targetArguments <= length instanceArguments,
+                    Just _ <- [matchTypes (take (length targetArguments) instanceArguments) targetArguments]
+                  ] of
         [info] -> Just info
         _ -> Nothing
     _ -> pure Nothing
