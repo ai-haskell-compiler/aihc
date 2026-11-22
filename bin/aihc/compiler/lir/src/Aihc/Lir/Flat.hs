@@ -64,8 +64,8 @@ where
 
 import Control.Monad (when)
 import Control.Monad.ST (ST)
-import Data.Array.Base (getNumElements)
-import Data.Array.ST (STUArray, newArray, readArray, writeArray)
+import Data.Array.Base (MArray, getNumElements, unsafeNewArray_, unsafeWrite)
+import Data.Array.ST (STUArray, readArray, writeArray)
 import Data.Array.Unboxed (Array, UArray, bounds, listArray, (!))
 import Data.Array.Unsafe (unsafeFreeze)
 import Data.Bits (complement, countTrailingZeros, shiftL, (.&.), (.|.))
@@ -79,15 +79,26 @@ boxedArray size = listArray (0, size - 1)
 
 {-# INLINE newInts #-}
 newInts :: Int -> Int -> ST s (STUArray s Int Int)
-newInts size = newArray (0, size - 1)
+newInts = newFilled
 
 {-# INLINE newBools #-}
 newBools :: Int -> Bool -> ST s (STUArray s Int Bool)
-newBools size = newArray (0, size - 1)
+newBools = newFilled
 
 {-# INLINE newWords #-}
 newWords :: Int -> ST s (STUArray s Int Word64)
-newWords size = newArray (0, size - 1) 0
+newWords size = newFilled size 0
+
+-- | A new array with the value in each element. The default 'newArray' of
+-- the class writes the elements from a list of the indices. A compiler
+-- that does not fuse that list allocates a cell, a boxed index and two
+-- thunks for each element, so this loop writes them directly.
+{-# INLINE newFilled #-}
+newFilled :: (MArray (STUArray s) e (ST s)) => Int -> e -> ST s (STUArray s Int e)
+newFilled size value = do
+  array <- unsafeNewArray_ (0, size - 1)
+  forUpTo size (\index -> unsafeWrite array index value)
+  pure array
 
 {-# INLINE freezeInts #-}
 freezeInts :: STUArray s Int Int -> ST s (UArray Int Int)
