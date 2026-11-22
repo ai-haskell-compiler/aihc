@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
   )
 where
 
-import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier)
+import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier)
 import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -454,7 +454,7 @@ inferMonoTypeSig sp inner tyAnn sigTy = do
 --
 -- The resolver gives the Integer type when the built-in scope has it.
 -- The argument type of the method then equals Integer.
-inferOverloadedIntegerLiteral :: Maybe SourceSpan -> Maybe ResolutionAnnotation -> ResolutionResult -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedIntegerLiteral :: Maybe SourceSpan -> Maybe Resolved -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
 inferOverloadedIntegerLiteral ambient integerResolution =
   inferOverloadedLiteral ambient "fromInteger" (maybe [] pure integerResolution)
 
@@ -463,7 +463,7 @@ inferOverloadedIntegerLiteral ambient integerResolution =
 -- @literalResolutions@ holds the resolution of the type of the argument of
 -- the method, when the resolver gives it. The argument type of the method
 -- must then equal that type.
-inferOverloadedLiteral :: Maybe SourceSpan -> Text -> [ResolutionAnnotation] -> ResolutionResult -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedLiteral :: Maybe SourceSpan -> Text -> [Resolved] -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
 inferOverloadedLiteral ambient methodName literalResolutions resolutionAnn resolution literalExpr = do
   let sp = resolutionSpan resolution <|> ambient
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
@@ -498,7 +498,7 @@ inferOverloadedLiteral ambient methodName literalResolutions resolutionAnn resol
           []
   pure (annotatePendingExprAt sp pending (EResolved resolutionAnn literalExpr), resultTy, methodCts <> [methodEq] <> literalCts)
 
-inferPrimitiveLiteral :: ResolutionResult -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferPrimitiveLiteral :: ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
 inferPrimitiveLiteral resolutionAnn resolution literalExpr = do
   maybeInfo <- lookupResolvedTypeSyntax resolution
   case maybeInfo of
@@ -517,23 +517,23 @@ isPrimitiveLiteral expr =
     _ -> False
 
 -- | Whether a resolver annotation names the given syntax term.
-isSyntaxTermResolution :: Text -> ResolutionAnnotation -> Bool
+isSyntaxTermResolution :: Text -> Resolved -> Bool
 isSyntaxTermResolution name resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution == IdentifierNamed name
 
-isFromIntegerResolution :: ResolutionAnnotation -> Bool
+isFromIntegerResolution :: Resolved -> Bool
 isFromIntegerResolution = isSyntaxTermResolution "fromInteger"
 
 -- | Whether a resolver annotation names the method that sequences a do statement.
-isDoMethodResolution :: ResolutionAnnotation -> Bool
+isDoMethodResolution :: Resolved -> Bool
 isDoMethodResolution resolution =
   isSyntaxTermResolution ">>=" resolution || isSyntaxTermResolution ">>" resolution
 
-isIfThenElseResolution :: ResolutionAnnotation -> Bool
+isIfThenElseResolution :: Resolved -> Bool
 isIfThenElseResolution = isSyntaxTermResolution "ifThenElse"
 
-isArithSeqResolution :: ResolutionAnnotation -> Bool
+isArithSeqResolution :: Resolved -> Bool
 isArithSeqResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution
@@ -1722,7 +1722,7 @@ inferMultiWayIf sp alternatives = do
 --
 -- The method annotation sits inside the result annotation. The desugarer
 -- applies the method to the condition and the two branches.
-inferRebindableIf :: Maybe SourceSpan -> ResolutionResult -> ResolutionAnnotation -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
+inferRebindableIf :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
   (cond', condTy, condCts) <- inferExpr cond
   (thenE', thenTy, thenCts) <- inferExpr thenE
@@ -1745,7 +1745,7 @@ inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
 --
 -- The method annotation sits inside the result annotation. The desugarer
 -- applies the method to the operand.
-inferNegate :: Maybe SourceSpan -> ResolutionResult -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferNegate :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
 inferNegate sp resolutionAnn resolution inner = do
   (inner', innerTy, innerCts) <- inferExpr inner
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "negate" resolution
@@ -1788,7 +1788,7 @@ inferTuple sp flavor elems = do
       pure (Just e', ty, cts)
 
 -- | An overloaded list applies fromListN to its length and an ordinary list.
-inferOverloadedList :: Maybe SourceSpan -> ResolutionResult -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedList :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
 inferOverloadedList sp resolutionAnn resolution inner = do
   (list', listTy, listCts) <- inferExprAt sp inner
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromListN" resolution
@@ -1895,7 +1895,7 @@ inferArithSeqNode sp arithSeq =
       pure (ArithSeqAnn ann inner', resultTy, cts)
     _ -> abortTc "arithmetic sequence is missing its resolved method"
 
-inferResolvedArithSeq :: Maybe SourceSpan -> ResolutionResult -> ResolutionAnnotation -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
+inferResolvedArithSeq :: Maybe SourceSpan -> ResolutionResult -> Resolved -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
 inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
   (arithSeq', argumentTypes, argumentCts) <- inferArithSeqForm arithSeq
   let methodName = displayIdentifier (resolutionIdentifier resolution)
@@ -1909,7 +1909,7 @@ inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
   pure (annotated, resultTy, argumentCts <> methodCts <> [methodEquality])
 
 -- | Instantiate a resolved syntax method such as enumFrom or ifThenElse.
-inferResolvedSyntaxMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedSyntaxMethod :: Maybe SourceSpan -> Text -> Resolved -> TcM (TcType, [TcType], [Ct])
 inferResolvedSyntaxMethod sp methodName resolution = do
   mBinder <- lookupResolvedTerm methodName (resolutionTarget resolution)
   case mBinder of
@@ -2262,9 +2262,9 @@ inferDoStmt end expected ambient stmt rest =
 -- @return@, and @>>=@ methods of its desugaring, the knot variables of a
 -- segment of an @mdo@ block, and its statements.
 data RecStmtParts = RecStmtParts
-  { recMfix :: !(ResolutionResult, ResolutionAnnotation),
-    recReturn :: !(ResolutionResult, ResolutionAnnotation),
-    recBind :: !(ResolutionResult, ResolutionAnnotation),
+  { recMfix :: !(ResolutionResult, Resolved),
+    recReturn :: !(ResolutionResult, Resolved),
+    recBind :: !(ResolutionResult, Resolved),
     recKnot :: !(Maybe (RecKnotVariables, Set.Set Entity)),
     recStmts :: ![DoStmt Expr]
   }
@@ -2401,7 +2401,7 @@ finishRecGroup sp innerTy binders = do
           pure (cts <> [equality])
         Nothing -> abortTc ("rec group variable missing from type environment: " <> show key)
 
-inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> ResolutionResult -> ResolutionAnnotation -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> ResolutionResult -> Resolved -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
   case stmt of
     DoResolved failAnn (DoBind pat action)
@@ -2435,8 +2435,8 @@ inferResolvedDoBind ::
   Maybe TcType ->
   Maybe SourceSpan ->
   ResolutionResult ->
-  ResolutionAnnotation ->
-  Maybe (ResolutionResult, ResolutionAnnotation) ->
+  Resolved ->
+  Maybe (ResolutionResult, Resolved) ->
   Pattern ->
   Expr ->
   [DoStmt Expr] ->
@@ -2481,7 +2481,7 @@ inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat
 -- resolved type of the literal.
 --
 -- The list is empty when the built-in scope does not give that type.
-resolvedLiteralCts :: Maybe SourceSpan -> ResolutionAnnotation -> TcType -> TcM [Ct]
+resolvedLiteralCts :: Maybe SourceSpan -> Resolved -> TcType -> TcM [Ct]
 resolvedLiteralCts sp literalResolution argumentTy = do
   maybeInfo <- lookupResolvedTypeSyntax literalResolution
   case maybeInfo of
@@ -2494,7 +2494,7 @@ resolvedLiteralCts sp literalResolution argumentTy = do
 -- the expected type. The evidence of that equality is the cast the
 -- desugarer puts on the method: a given equality can be what makes the
 -- method fit the statement.
-inferDoMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcType -> TcM (PendingTcAnnotation, EvVar, [Ct])
+inferDoMethod :: Maybe SourceSpan -> Text -> Resolved -> TcType -> TcM (PendingTcAnnotation, EvVar, [Ct])
 inferDoMethod sp methodName resolution expectedTy = do
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   ev <- freshEvVar

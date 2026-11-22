@@ -24,10 +24,10 @@ module Aihc.Resolve.Types
     Entity (.., GlobalTerm),
     globalTerm,
     Resolution (..),
-    ResolutionAnnotation (..),
+    Resolved (..),
     RecKnotVariables (..),
     ResolutionResult (..),
-    resolutionResultAnnotation,
+    resolvedOf,
     annotationResolution,
     resolutionOf,
     nameResolution,
@@ -162,11 +162,11 @@ globalTerm :: PackageId -> Text -> Text -> Entity
 globalTerm = GlobalTerm
 
 -- | The outcome of one lookup inside the resolver: the entity, or the
--- reason there is none. Only 'Resolved' leaves the resolver as a
--- 'ResolutionAnnotation'. 'Unresolved' leaves it as a 'ResolveError'.
+-- reason there is none. Only 'Found' leaves the resolver as a
+-- 'Resolved'. 'NotFound' leaves it as a 'ResolveError'.
 data Resolution
-  = Resolved !Entity
-  | Unresolved String
+  = Found !Entity
+  | NotFound String
   deriving (Eq, Show)
 
 -- | The source identifier that caused one resolution request.
@@ -208,7 +208,7 @@ instance NFData Identifier
 instance NFData ResolutionNamespace
 
 -- | A resolution that succeeded, attached to the syntax it resolves.
-data ResolutionAnnotation = ResolutionAnnotation
+data Resolved = Resolved
   { -- | Where the identifier is in the source, or 'Nothing' for syntax the
     -- compiler synthesized.
     resolutionSpan :: !(Maybe SourceSpan),
@@ -221,13 +221,13 @@ data ResolutionAnnotation = ResolutionAnnotation
 -- | The outcome of one resolution in the syntax tree that the resolver
 -- gives: the resolution, or the error that the resolver found.
 data ResolutionResult
-  = ResolutionOk !ResolutionAnnotation
+  = ResolutionOk !Resolved
   | ResolutionError !ResolveError
   deriving (Data, Eq, Show)
 
 -- | The successful resolution of a result, if it is one.
-resolutionResultAnnotation :: ResolutionResult -> Maybe ResolutionAnnotation
-resolutionResultAnnotation result =
+resolvedOf :: ResolutionResult -> Maybe Resolved
+resolvedOf result =
   case result of
     ResolutionOk annotation -> Just annotation
     ResolutionError _ -> Nothing
@@ -242,29 +242,29 @@ newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
   deriving (Data, Eq, Show)
 
 -- | The resolution that one annotation carries, if it is one.
-annotationResolution :: Annotation -> Maybe ResolutionAnnotation
+annotationResolution :: Annotation -> Maybe Resolved
 annotationResolution = fromAnnotation
 
 -- | The first resolution of the given namespace among some annotations.
-resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe ResolutionAnnotation
+resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe Resolved
 resolutionOf wanted = find (wanted . resolutionNamespace) . mapMaybe annotationResolution
 
 -- | The first resolution of a name occurrence, in any namespace.
-nameResolution :: Name -> Maybe ResolutionAnnotation
+nameResolution :: Name -> Maybe Resolved
 nameResolution = listToMaybe . mapMaybe annotationResolution . nameAnns
 
 -- | The term resolution of a name occurrence.
-termResolution :: Name -> Maybe ResolutionAnnotation
+termResolution :: Name -> Maybe Resolved
 termResolution = resolutionOf (== ResolutionNamespaceTerm) . nameAnns
 
 -- | The type resolution of a name occurrence. A promoted data constructor
 -- at the type level resolves in the term namespace, so this is any
 -- resolution that is not of a module.
-typeResolution :: Name -> Maybe ResolutionAnnotation
+typeResolution :: Name -> Maybe Resolved
 typeResolution = resolutionOf (/= ResolutionNamespaceModule) . nameAnns
 
 -- | The resolution of a binder, whatever namespace it binds in.
-binderResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
+binderResolution :: UnqualifiedName -> Maybe Resolved
 binderResolution = listToMaybe . mapMaybe annotationResolution . unqualifiedNameAnns
 
 -- | The entity that a binder defines.
@@ -285,7 +285,7 @@ nameOrigin name =
 
 -- | One failed resolution. The resolver records it in the unit's
 -- 'ResolveFailure' and attaches it to the syntax in place of a
--- 'ResolutionAnnotation'.
+-- 'Resolved'.
 data ResolveError = ResolveError
   { resolveErrorSpan :: !(Maybe SourceSpan),
     resolveErrorName :: !Text,
@@ -304,14 +304,14 @@ resolveErrorAt span' identifier namespace message =
       resolveErrorMessage = message
     }
 
-pattern DeclResolution :: ResolutionAnnotation -> Decl
+pattern DeclResolution :: Resolved -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
 
-pattern PResolution :: ResolutionAnnotation -> Pattern
+pattern PResolution :: Resolved -> Pattern
 pattern PResolution resolution <- PAnn (fromAnnotation -> Just resolution) _
 
-pattern TResolution :: ResolutionAnnotation -> Type
+pattern TResolution :: Resolved -> Type
 pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
 
-pattern EResolution :: ResolutionAnnotation -> Expr
+pattern EResolution :: Resolved -> Expr
 pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _

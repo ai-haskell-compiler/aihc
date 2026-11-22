@@ -18,7 +18,7 @@ module Aihc.Tc.Generate.Record
   )
 where
 
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), globalTerm)
+import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), globalTerm)
 import Aihc.Resolve.Syntax
   ( Name (..),
     NameType (..),
@@ -156,14 +156,14 @@ synthesizedRecordLocal text = do
         NameVarId
         text
         []
-        (Just (ResolutionOk (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
+        (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
     )
 
 -- | A resolved occurrence of a record head. The pattern and the expression
 -- of a record update expansion use it.
 recordHeadNameSyntax :: RecordHead -> Name
 recordHeadNameSyntax head' =
-  Name (Just moduleName') nameType' text [] (Just (ResolutionOk (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (globalTerm packageId moduleName' text))))
+  Name (Just moduleName') nameType' text [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (globalTerm packageId moduleName' text))))
   where
     (packageId, moduleName') = rhOrigin head'
     text = rhName head'

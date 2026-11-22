@@ -25,7 +25,7 @@
 module Aihc.Resolve.Syntax
   ( -- * Resolutions
     ResolutionResult (..),
-    ResolutionAnnotation (..),
+    Resolved (..),
     ResolveError (..),
     RecKnotVariables (..),
 
@@ -41,10 +41,10 @@ module Aihc.Resolve.Syntax
     renderUnqualifiedName,
 
     -- * Reading resolutions
-    nameResolutionAnnotation,
-    binderResolutionAnnotation,
-    termResolutionAnnotation,
-    typeResolutionAnnotation,
+    nameResolved,
+    binderResolved,
+    termResolved,
+    typeResolved,
     resolvedNameEntity,
     resolvedBinderEntity,
     resolvedNameOrigin,
@@ -234,11 +234,11 @@ import Aihc.Resolve.Types
     GlobalName (..),
     PackageId,
     RecKnotVariables (..),
-    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolutionResult (..),
     ResolveError (..),
-    resolutionResultAnnotation,
+    Resolved (..),
+    resolvedOf,
   )
 import Data.Data (Data)
 import Data.Map.Strict qualified as Map
@@ -263,36 +263,36 @@ qualifyName qualifier name =
   Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name)
 
 -- | The successful resolution of a name occurrence, in any namespace.
-nameResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
-nameResolutionAnnotation name = resolutionResultAnnotation =<< nameResolution name
+nameResolved :: Name -> Maybe Resolved
+nameResolved name = resolvedOf =<< nameResolution name
 
 -- | The successful resolution of a binder, whatever namespace it binds in.
-binderResolutionAnnotation :: UnqualifiedName -> Maybe ResolutionAnnotation
-binderResolutionAnnotation name = resolutionResultAnnotation =<< unqualifiedNameResolution name
+binderResolved :: UnqualifiedName -> Maybe Resolved
+binderResolved name = resolvedOf =<< unqualifiedNameResolution name
 
 -- | The term resolution of a name occurrence.
-termResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
-termResolutionAnnotation name =
-  case nameResolutionAnnotation name of
+termResolved :: Name -> Maybe Resolved
+termResolved name =
+  case nameResolved name of
     Just annotation | resolutionNamespace annotation == ResolutionNamespaceTerm -> Just annotation
     _ -> Nothing
 
 -- | The type resolution of a name occurrence. A promoted data constructor
 -- at the type level resolves in the term namespace, so this is any
 -- resolution that is not of a module.
-typeResolutionAnnotation :: Name -> Maybe ResolutionAnnotation
-typeResolutionAnnotation name =
-  case nameResolutionAnnotation name of
+typeResolved :: Name -> Maybe Resolved
+typeResolved name =
+  case nameResolved name of
     Just annotation | resolutionNamespace annotation /= ResolutionNamespaceModule -> Just annotation
     _ -> Nothing
 
 -- | The entity that a name occurrence stands for, in any namespace.
 resolvedNameEntity :: Name -> Maybe Entity
-resolvedNameEntity = fmap resolutionTarget . nameResolutionAnnotation
+resolvedNameEntity = fmap resolutionTarget . nameResolved
 
 -- | The entity that a binder defines.
 resolvedBinderEntity :: UnqualifiedName -> Maybe Entity
-resolvedBinderEntity = fmap resolutionTarget . binderResolutionAnnotation
+resolvedBinderEntity = fmap resolutionTarget . binderResolved
 
 -- | The package and the module that define the top-level entity a name
 -- occurrence stands for. A local binder or built-in syntax gives 'Nothing'.

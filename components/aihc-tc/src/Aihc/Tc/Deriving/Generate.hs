@@ -18,7 +18,7 @@ module Aihc.Tc.Deriving.Generate
   )
 where
 
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Resolve.Syntax
   ( Annotation,
     ArrowKind (..),
@@ -1987,7 +1987,7 @@ freshLocal gen text = do
         NameVarId
         text
         (genSpanAnns gen)
-        (Just (ResolutionOk (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
+        (Just (ResolutionOk (Resolved (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
@@ -2073,7 +2073,7 @@ atLiteral gen = maybe id (LitAnn . mkAnnotation) (genSpan gen)
 primitiveIntTypeAnnotation :: Gen -> ResolutionResult
 primitiveIntTypeAnnotation gen =
   ResolutionOk
-    (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (EntityGlobal (GlobalName primTypeName primTypePackage primTypeModule ResolutionNamespaceType)))
+    (Resolved (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (EntityGlobal (GlobalName primTypeName primTypePackage primTypeModule ResolutionNamespaceType)))
   where
     (primTypePackage, primTypeModule, primTypeName) =
       referenceIdentityOf gen (derivingIntPrimType (genReferences gen))
@@ -2085,7 +2085,7 @@ resolvedName sp packageId moduleName' nameType namespace text =
     nameType
     text
     (map mkAnnotation (maybeToList sp))
-    (Just (ResolutionOk (ResolutionAnnotation sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))))
+    (Just (ResolutionOk (Resolved sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))))
 
 tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
 tyConNameSyntax sp tyCon =

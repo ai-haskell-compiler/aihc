@@ -16,7 +16,7 @@ module Aihc.Tc.Generate.Decl
   )
 where
 
-import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), resolutionResultAnnotation)
+import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), resolvedOf)
 import Aihc.Resolve.Syntax
   ( Annotation,
     BangType (..),
@@ -83,14 +83,14 @@ import Aihc.Resolve.Syntax
     ValueDecl (..),
     binderHeadName,
     binderHeadParams,
-    binderResolutionAnnotation,
+    binderResolved,
     fromAnnotation,
     gadtBodyResultType,
     instanceHeadName,
     mkAnnotation,
     moduleExports,
     moduleName,
-    nameResolutionAnnotation,
+    nameResolved,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
@@ -887,10 +887,10 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
     nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
     signatures = collectStandaloneKindSignatures (map snd declarations)
     kindResolutions declaration =
-      concat [collectResolutions resolutionResultAnnotation kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
+      concat [collectResolutions resolvedOf kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
     dependencies declaration =
       [ owner
-      | resolution <- collectResolutions resolutionResultAnnotation declaration <> kindResolutions declaration,
+      | resolution <- collectResolutions resolvedOf declaration <> kindResolutions declaration,
         EntityGlobal global <- [resolutionTarget resolution],
         Just owner <- [Map.lookup global {globalNameNamespace = resolutionNamespace resolution} owners]
       ]
@@ -3774,7 +3774,7 @@ patSynUse key name argBinders =
     nameType'
       | ":" `T.isPrefixOf` name = NameConSym
       | otherwise = NameConId
-    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (ResolutionAnnotation Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)))
+    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)))
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
@@ -3804,7 +3804,7 @@ patSynArgNames args =
 patSynBinderSpan :: UnqualifiedName -> Maybe SourceSpan
 patSynBinderSpan binder =
   unqualifiedNameSpan binder
-    <|> (resolutionSpan =<< binderResolutionAnnotation binder)
+    <|> (resolutionSpan =<< binderResolved binder)
 
 -- | The binder in a pattern that has the given name.
 patternVarBinder :: Text -> Pattern -> Maybe UnqualifiedName
@@ -3843,7 +3843,7 @@ synthesizedLocal unique text =
     NameVarId
     text
     []
-    (Just (ResolutionOk (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
+    (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -4231,7 +4231,7 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
 
 resolvedTypeKey :: UnqualifiedName -> Maybe GlobalName
 resolvedTypeKey name = do
-  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} <- binderResolutionAnnotation name
+  Resolved {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} <- binderResolved name
   pure global {globalNameNamespace = namespace}
 
 -- | Register the head of a type-level declaration. A type constructor is
@@ -5146,8 +5146,8 @@ sourceTypeKey home ty =
 -- instances on one axiom key.
 typeConKey :: (Text, Text) -> Name -> Text
 typeConKey home name =
-  case binderResolutionAnnotation (unqualifiedFromResolvedName name) of
-    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global}
+  case binderResolved (unqualifiedFromResolvedName name) of
+    Just Resolved {resolutionTarget = EntityGlobal global}
       | (packageIdText (globalNamePackage global), globalNameModule global) /= home ->
           packageIdText (globalNamePackage global) <> ":" <> globalNameModule global <> "." <> globalNameText global
     _ -> nameText name
@@ -6147,8 +6147,8 @@ typeResultKind _ kind = kind
 -- 'wiredDeclarationIdentity'.
 mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
 mkDeclaredTyCon binder name arity =
-  case binderResolutionAnnotation binder of
-    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} ->
+  case binderResolved binder of
+    Just Resolved {resolutionTarget = EntityGlobal global} ->
       wiredDeclarationIdentity (mkTyConWithOrigin (globalNamePackage global) (globalNameModule global) name arity)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
@@ -6265,7 +6265,7 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
     -- The module that declares the constructor decides on PolyKinds.
     constructorPolyKinds names = case names of
       name : _
-        | Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} <- binderResolutionAnnotation name ->
+        | Just Resolved {resolutionTarget = EntityGlobal global} <- binderResolved name ->
             isPolyKindOrigin (packageIdText (globalNamePackage global), globalNameModule global)
       _ -> pure False
     -- A built-in form declares the constructor the wiring already names,
@@ -6640,7 +6640,7 @@ patternSpan pat =
     -- The resolver gives a constructor occurrence its span.
     nameSpan name =
       sourceSpanFromAnns (nameAnns name)
-        <|> (resolutionSpan =<< nameResolutionAnnotation name)
+        <|> (resolutionSpan =<< nameResolved name)
 
 typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =

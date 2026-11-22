@@ -25,9 +25,9 @@ module Aihc.Resolve
     ResolutionNamespace (..),
 
     -- * Annotations
-    ResolutionAnnotation (..),
+    Resolved (..),
     ResolutionResult (..),
-    resolutionResultAnnotation,
+    resolvedOf,
     RecKnotVariables (..),
     Identifier (..),
     displayIdentifier,
@@ -161,7 +161,7 @@ moduleTopLevelName :: Builtins -> ModuleExports -> ModuleUnit -> ResolutionNames
 moduleTopLevelName (Builtins builtinScope) exports unit =
   \namespace name ->
     case resolve namespace scope name of
-      Resolved (EntityGlobal global) -> Just global
+      Found (EntityGlobal global) -> Just global
       _ -> Nothing
   where
     package = moduleUnitPackage unit
@@ -562,7 +562,7 @@ bindRuleBinders =
         let name = ruleBinderName binder
             key = renderUnqualifiedName name
         entity <- freshLocal
-        name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Resolved entity) name
+        name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Found entity) name
         pure (insertTerm key entity bound, acc <> [R.RuleBinder (ruleBinderAnns binder) name' ty'])
 
 -- | Whether the head of a resolved rule left-hand side is a top-level
@@ -587,7 +587,7 @@ ruleLhsHeadIsTopLevel expr =
 
 -- | The entity of a resolved name occurrence, if it resolved.
 resolvedNameTarget :: R.Name -> Maybe Entity
-resolvedNameTarget name = resolutionTarget <$> (resolutionResultAnnotation =<< R.nameResolution name)
+resolvedNameTarget name = resolutionTarget <$> (resolvedOf =<< R.nameResolution name)
 
 -- | Pragmas that only give optimisation or documentation hints.
 -- The resolver accepts them and does not resolve their contents.
@@ -802,10 +802,10 @@ instanceMethodDefinition headClass scope name =
       | methodLists@(_ : _) <- classMethodLists className resolvedClass ->
           Just
             ( if any (rendered `elem`) methodLists
-                then Resolved (classMethod classGlobal)
-                else Unresolved ("not a method of the class " <> T.unpack className)
+                then Found (classMethod classGlobal)
+                else NotFound ("not a method of the class " <> T.unpack className)
             )
-      | not (classInScope className resolvedClass) -> Just (Resolved (classMethod classGlobal))
+      | not (classInScope className resolvedClass) -> Just (Found (classMethod classGlobal))
     _ -> Just (lookupTerm rendered scope)
   where
     rendered = renderUnqualifiedName name
@@ -813,11 +813,11 @@ instanceMethodDefinition headClass scope name =
     -- resolved method name comes from the resolved class name.
     classMethod classGlobal = globalTerm (globalNamePackage classGlobal) (globalNameModule classGlobal) (unqualifiedNameText name)
     classInScope className resolvedClass =
-      any (\candidate -> lookupType className candidate == Resolved resolvedClass) (scope : Map.elems (scopeQualifiedModules scope))
+      any (\candidate -> lookupType className candidate == Found resolvedClass) (scope : Map.elems (scopeQualifiedModules scope))
     classMethodLists className resolvedClass =
       [ methods
       | candidate <- scope : Map.elems (scopeQualifiedModules scope),
-        lookupType className candidate == Resolved resolvedClass,
+        lookupType className candidate == Found resolvedClass,
         Just methods <- [Map.lookup className (scopeMethods candidate)]
       ]
 
@@ -852,7 +852,7 @@ associatedTypeInstanceScope headClass scope lhs =
     associatedTypeLists className resolvedClass =
       [ families
       | candidate <- scope : Map.elems (scopeQualifiedModules scope),
-        lookupType className candidate == Resolved resolvedClass,
+        lookupType className candidate == Found resolvedClass,
         Just families <- [Map.lookup className (scopeAssociatedTypes candidate)]
       ]
 
@@ -1012,7 +1012,7 @@ resolveExpr expr =
       -- quote. The quote gives an unbound variable, and the code that gets
       -- the syntax tree finds its binder.
       case termUseResolution scope name of
-        Unresolved _
+        NotFound _
           | inQuote,
             isNothing (nameQualifier name),
             nameType name == NameVarId ->
@@ -1089,7 +1089,7 @@ resolveExpr expr =
     EList items -> do
       items' <- mapM resolveExpr items
       sp <- currentSpan
-      annotation <- resolution sp IdentifierList ResolutionNamespaceTerm (Resolved EntitySyntax)
+      annotation <- resolution sp IdentifierList ResolutionNamespaceTerm (Found EntitySyntax)
       info <- currentModuleInfo
       let list = R.EResolved annotation (R.EList items')
       if OverloadedLists `elem` moduleInfoExtensions info
@@ -1098,7 +1098,7 @@ resolveExpr expr =
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
       sp <- currentSpan
-      annotation <- resolution sp (IdentifierTuple flavor (length items)) ResolutionNamespaceTerm (Resolved EntitySyntax)
+      annotation <- resolution sp (IdentifierTuple flavor (length items)) ResolutionNamespaceTerm (Found EntitySyntax)
       pure (R.EResolved annotation (R.ETuple flavor items'))
     EUnboxedSum alt arity inner ->
       R.EUnboxedSum alt arity <$> resolveExpr inner
@@ -1242,7 +1242,7 @@ integerTypeAnnotation :: Maybe SourceSpan -> ResolveM (Maybe ResolutionResult)
 integerTypeAnnotation sp = do
   info <- currentModuleInfo
   case lookupType "Integer" (moduleInfoBuiltinScope info) of
-    Unresolved _ -> pure Nothing
+    NotFound _ -> pure Nothing
     resolved -> Just <$> resolution sp (IdentifierNamed "Integer") ResolutionNamespaceType resolved
 
 -- | Give an expression the syntax term that its desugaring applies.
@@ -1395,7 +1395,7 @@ builtinSyntaxTerm :: ModuleInfo -> Text -> Resolution
 builtinSyntaxTerm info name =
   if name `elem` builtinSyntaxTermNames
     then lookupTerm name (moduleInfoBuiltinScope info)
-    else Unresolved "unknown built-in syntax term"
+    else NotFound "unknown built-in syntax term"
   where
     builtinSyntaxTermNames =
       [ "fromInteger",
@@ -1424,10 +1424,10 @@ builtinSyntaxTerm info name =
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> Resolution
 rebindableSyntaxTerm info scope name =
   case lookupTerm name scope of
-    Resolved (EntityGlobal global)
+    Found (EntityGlobal global)
       | globalNameModule global == "Prelude",
         not (moduleInfoExplicitPreludeImport info) ->
-          Unresolved "unbound"
+          NotFound "unbound"
     resolved -> resolved
 
 resolveMaybeExpr :: Maybe Expr -> ResolveM (Maybe R.Expr)
@@ -1733,7 +1733,7 @@ localEntities node
   where
     resultLocals result =
       case result of
-        ResolutionOk ResolutionAnnotation {resolutionTarget = target@EntityLocal {}} -> Set.singleton target
+        ResolutionOk Resolved {resolutionTarget = target@EntityLocal {}} -> Set.singleton target
         _ -> Set.empty
 
 -- | The argument of the last statement of an applicative do block. The
@@ -1753,8 +1753,8 @@ returnedExpr info expr =
         _ -> e
     builtinTarget name =
       case lookupTerm name (moduleInfoBuiltinScope info) of
-        Resolved entity -> Just entity
-        Unresolved _ -> Nothing
+        Found entity -> Just entity
+        NotFound _ -> Nothing
     isReturn fun =
       case peelExpr fun of
         R.EVar name ->
@@ -1916,7 +1916,7 @@ resolveRecGroupStmt targets stmt =
       stmts' <- mapM (resolveRecGroupStmt targets) stmts
       annotateRecStmt (R.DoRecStmt stmts')
   where
-    definition name = Resolved <$> Map.lookup (renderUnqualifiedName name) targets
+    definition name = Found <$> Map.lookup (renderUnqualifiedName name) targets
 
 -- | Give a @rec@ statement the methods of its desugaring: @mfix@ ties the
 -- knot, @return@ gives the tuple of the group variables, and @>>=@ binds
@@ -2026,7 +2026,7 @@ annotateArithSeqMethod name arithSeq = do
 resolveBoundDecls :: Map.Map Text Entity -> Map.Map Text Scope -> [Decl] -> ResolveM [R.Decl]
 resolveBoundDecls binderTargets signatureScopes decls = do
   mixedErrors <- mixedImplicitParamErrors decls
-  decls' <- resolveBindingGroup (\name -> Resolved <$> Map.lookup (renderUnqualifiedName name) binderTargets) signatureScopes decls
+  decls' <- resolveBindingGroup (\name -> Found <$> Map.lookup (renderUnqualifiedName name) binderTargets) signatureScopes decls
   pure (zipWith (maybe id R.DeclError) mixedErrors decls')
 
 -- | The error of each implicit-parameter binding in a group that also has
@@ -2083,7 +2083,7 @@ bindPattern pat =
       sp <- currentSpan
       entity <- freshLocal
       let key = renderUnqualifiedName name
-      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Resolved entity) name
+      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Found entity) name
       pure (termScope key entity, R.PVar name')
     PTypeBinder binder -> do
       entity <- freshLocal
@@ -2131,7 +2131,7 @@ bindPattern pat =
       here <- currentSpan
       let aliasKey = renderUnqualifiedName alias
       aliasEntity <- freshLocal
-      alias' <- resolveUnqualifiedNameTo (spanStartNameSpan here aliasKey) ResolutionNamespaceTerm (Resolved aliasEntity) alias
+      alias' <- resolveUnqualifiedNameTo (spanStartNameSpan here aliasKey) ResolutionNamespaceTerm (Found aliasEntity) alias
       let aliasScope = termScope aliasKey aliasEntity
       (innerScope, inner') <- bindPattern inner
       pure (unionScope innerScope aliasScope, R.PAs alias' inner')
@@ -2164,7 +2164,7 @@ bindPattern pat =
         mapM
           ( \(fieldName, entity) -> do
               let binder = (mkUnqualifiedName NameVarId fieldName) {unqualifiedNameAnns = map mkAnnotation (maybeToList sp)}
-              binder' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Resolved entity) binder
+              binder' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Found entity) binder
               pure
                 R.RecordField
                   { R.recordFieldName = R.mkName Nothing NameVarId fieldName,
@@ -2185,7 +2185,7 @@ bindPattern pat =
       sp <- currentSpan
       entity <- freshLocal
       let key = renderUnqualifiedName name
-      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Resolved entity) name
+      name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Found entity) name
       pat' <- annotateNPlusKPattern name' lit
       pure (termScope key entity, pat')
     PSplice expr -> do
@@ -2598,14 +2598,14 @@ resolveType ty =
     TTuple flavor promotion items -> do
       items' <- mapM resolveType items
       sp <- currentSpan
-      syntaxResolution <- resolution sp (IdentifierTuple flavor (length items)) (typePromotionNamespace promotion) (Resolved EntitySyntax)
+      syntaxResolution <- resolution sp (IdentifierTuple flavor (length items)) (typePromotionNamespace promotion) (Found EntitySyntax)
       pure (annotateTypeSyntax sp syntaxResolution (R.TTuple flavor promotion items'))
     TUnboxedSum items ->
       R.TUnboxedSum <$> mapM resolveType items
     TList promotion items -> do
       items' <- mapM resolveType items
       sp <- currentSpan
-      syntaxResolution <- resolution sp IdentifierList (typePromotionNamespace promotion) (Resolved EntitySyntax)
+      syntaxResolution <- resolution sp IdentifierList (typePromotionNamespace promotion) (Found EntitySyntax)
       pure (annotateTypeSyntax sp syntaxResolution (R.TList promotion items'))
     TParen inner ->
       R.TParen <$> resolveType inner
@@ -2751,7 +2751,7 @@ resolveTermUse name = do
 -- or the term that the scope gives for its name.
 termUseResolution :: Scope -> Name -> Resolution
 termUseResolution scope name =
-  maybe (resolveTermName scope name) (Resolved . EntityGlobal) (exactTerm name)
+  maybe (resolveTermName scope name) (Found . EntityGlobal) (exactTerm name)
 
 -- | Resolve a term name that has its own place in the source, such as an
 -- infix operator. The parser gives the name the span of its token. A name
@@ -2796,7 +2796,7 @@ ambiguousFixityName ambient name = do
       (sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan ambient (nameText name))
       (IdentifierNamed (nameText name))
       ResolutionNamespaceTerm
-      (Unresolved "ambiguous fixity")
+      (NotFound "ambiguous fixity")
   pure (nameWithResult name result)
 
 -- | Apply operator fixities to a type chain and keep each promotion.
@@ -2828,7 +2828,7 @@ resolveInfixType ty = do
       sp <- currentSpan
       scope <- currentScope
       case lookupType (nameText name) scope of
-        Unresolved _ -> pure (fromParserName name)
+        NotFound _ -> pure (fromParserName name)
         resolved -> resolveNameTo sp ResolutionNamespaceType resolved name
     resolveAmbiguous ambient ambiguous operator
       | resolvedInfixIndex operator == resolvedInfixIndex ambiguous = do
@@ -2838,7 +2838,7 @@ resolveInfixType ty = do
               (sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan ambient (nameText name))
               (IdentifierNamed (nameText name))
               (typePromotionNamespace promotion)
-              (Unresolved "ambiguous fixity")
+              (NotFound "ambiguous fixity")
           pure (nameWithResult name result, promotion)
       | otherwise = resolvedInfixName <$> resolveOperator operator
 
@@ -2861,11 +2861,11 @@ resolveTypeConstructorUse promotion name =
       sp <- currentSpan
       scope <- currentScope
       info <- currentModuleInfo
-      case maybe (resolveTypeName scope name) (Resolved . EntityGlobal) (exactType name) of
-        unresolved@(Unresolved _)
+      case maybe (resolveTypeName scope name) (Found . EntityGlobal) (exactType name) of
+        unresolved@(NotFound _)
           | DataKinds `elem` moduleInfoExtensions info ->
               case termUseResolution scope name of
-                Unresolved _ -> resolveNameTo sp ResolutionNamespaceType unresolved name
+                NotFound _ -> resolveNameTo sp ResolutionNamespaceType unresolved name
                 resolved -> resolveNameTo sp ResolutionNamespaceTerm resolved name
         resolved -> resolveNameTo sp ResolutionNamespaceType resolved name
     -- A promoted constructor of a splice result has an 'ExactTerm' mark.
@@ -2896,7 +2896,7 @@ resolveScopedTypeVariableUse name = do
   -- A type variable the scope does not know is left alone: the binder that
   -- would give it a meaning may be implicit, so this is no error.
   case resolved of
-    Unresolved _ -> pure (fromParserUnqualifiedName name)
+    NotFound _ -> pure (fromParserUnqualifiedName name)
     _ -> resolveUnqualifiedNameTo sp ResolutionNamespaceType resolved name
 
 -- | The selector name of each record field label of one declaration. A
@@ -2948,7 +2948,7 @@ resolveDataConDefinitions scope firstConstructor =
         R.TupleCon {} -> pure current
         R.UnboxedSumCon {} -> pure current
         R.ListCon {} -> do
-          result <- resolution ambient IdentifierList ResolutionNamespaceTerm (Resolved EntitySyntax)
+          result <- resolution ambient IdentifierList ResolutionNamespaceTerm (Found EntitySyntax)
           pure (R.DataConResolved result current)
 
     resolveConstructor span' name =
@@ -2975,5 +2975,5 @@ resolveDataConDefinitions scope firstConstructor =
       let rendered = R.renderUnqualifiedName name
        in case firstConstructor >>= \constructor -> Map.lookup (fieldSelectorName rendered constructor) (scopeTerms scope) of
             Just entity ->
-              name {R.unqualifiedNameResolution = Just (ResolutionOk (ResolutionAnnotation (spanStartNameSpan span' rendered) (IdentifierNamed rendered) ResolutionNamespaceTerm entity))}
+              name {R.unqualifiedNameResolution = Just (ResolutionOk (Resolved (spanStartNameSpan span' rendered) (IdentifierNamed rendered) ResolutionNamespaceTerm entity))}
             Nothing -> name

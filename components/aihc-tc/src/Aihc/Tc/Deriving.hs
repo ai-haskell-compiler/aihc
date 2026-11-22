@@ -26,7 +26,7 @@ import Aihc.Resolve.Syntax
     UnqualifiedName,
     binderHeadName,
     binderHeadParams,
-    binderResolutionAnnotation,
+    binderResolved,
     fromAnnotation,
     instanceHeadName,
     mkAnnotation,
@@ -76,7 +76,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   let targetName = unqualifiedNameText (binderHeadName targetHead)
   targetInfo <-
-    case binderResolutionAnnotation (binderHeadName targetHead) of
+    case binderResolved (binderHeadName targetHead) of
       Just resolution -> lookupResolvedTypeSyntax resolution
       Nothing -> lookupTyCon targetName
   case targetInfo of

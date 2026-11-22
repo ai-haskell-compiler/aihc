@@ -1230,7 +1230,7 @@ resolveTypeName scope name =
 resolveQualifiedName :: Scope -> (Text -> Scope -> Resolution) -> Text -> Name -> Resolution
 resolveQualifiedName scope lookupName qualifier name =
   case Map.lookup qualifier (scopeQualifiedModules scope) of
-    Nothing -> Unresolved ("unknown qualified import: " <> T.unpack qualifier)
+    Nothing -> NotFound ("unknown qualified import: " <> T.unpack qualifier)
     Just qualifiedScope -> lookupName (nameText name) qualifiedScope
 
 moduleKey :: Module -> Text
@@ -1317,11 +1317,11 @@ insertQualifiedModule qualifier imported scope =
 
 lookupTerm :: Text -> Scope -> Resolution
 lookupTerm name scope =
-  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTerms scope))
+  maybe (NotFound "unbound") Found (Map.lookup name (scopeTerms scope))
 
 lookupType :: Text -> Scope -> Resolution
 lookupType name scope =
-  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTypes scope))
+  maybe (NotFound "unbound") Found (Map.lookup name (scopeTypes scope))
 
 lookupFixity :: Text -> Scope -> OperatorFixity
 lookupFixity name scope =

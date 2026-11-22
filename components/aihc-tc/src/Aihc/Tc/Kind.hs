@@ -51,7 +51,7 @@ module Aihc.Tc.Kind
   )
 where
 
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
 import Aihc.Resolve.Syntax
   ( BuiltinCon (..),
     ForallTelescope (..),
@@ -549,7 +549,7 @@ convertTypeLiteral literal =
     TypeLitSymbol value _ -> TyLitSymbol value
     TypeLitChar value _ -> TyLitChar value
 
-convertPromotedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
+convertPromotedSyntaxType :: TvKindEnv -> Resolved -> Type -> TcM (TcType, TcType)
 convertPromotedSyntaxType tvEnv resolution syntax =
   case peelTypeHead syntax of
     TList _ arguments ->
@@ -638,7 +638,7 @@ dataTupleType flavor argumentTypes = do
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)
 
-convertResolvedConstructorApplication :: TvKindEnv -> ResolutionAnnotation -> [Type] -> TcM (TcType, TcType)
+convertResolvedConstructorApplication :: TvKindEnv -> Resolved -> [Type] -> TcM (TcType, TcType)
 convertResolvedConstructorApplication tvEnv resolution arguments = do
   maybeInfo <- lookupResolvedTypeSyntax resolution
   case maybeInfo of

@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Bind
   )
 where
 
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -42,7 +42,7 @@ import Aihc.Resolve.Syntax
     ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
-    nameResolutionAnnotation,
+    nameResolved,
     peelDeclAnn,
     unqualifiedNameText,
   )
@@ -288,7 +288,7 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
         Just annotation -> name {nameAnns = nameAnns name <> [mkAnnotation annotation]}
 
     occurrencePending schemes name =
-      case nameResolutionAnnotation name of
+      case nameResolved name of
         Just resolution
           | resolutionNamespace resolution == ResolutionNamespaceTerm -> do
               key <- resolvedTermKey name
@@ -325,7 +325,7 @@ declTermReferences decl = do
         ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     hasTermResolution name =
-      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolutionAnnotation name)
+      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolved name)
 
 -- | The binders that a declaration defines.
 declaredBinderKeys :: Decl -> TcM [Entity]

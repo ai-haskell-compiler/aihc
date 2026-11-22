@@ -24,8 +24,8 @@ import Aihc.Resolve
     Identifier (..),
     PackageId (..),
     RecKnotVariables (..),
-    ResolutionAnnotation (..),
     ResolutionNamespace (..),
+    Resolved (..),
     displayIdentifier,
     packageIdText,
     recordSelectorNames,
@@ -2725,20 +2725,20 @@ requiredPatternMethodResultType name pattern' = do
     Just result -> pure result
     Nothing -> failValue ("invalid checked pattern method type for " <> T.unpack name)
 
-requiredPatternOccurrence :: Text -> Syn.Pattern -> ValueM (TcAnnotation, ResolutionAnnotation)
+requiredPatternOccurrence :: Text -> Syn.Pattern -> ValueM (TcAnnotation, Resolved)
 requiredPatternOccurrence name pattern' =
   maybe
     (failValue ("missing checked " <> T.unpack name <> " occurrence for overloaded literal pattern"))
     pure
     (patternOccurrence name pattern')
 
-patternOccurrence :: Text -> Syn.Pattern -> Maybe (TcAnnotation, ResolutionAnnotation)
+patternOccurrence :: Text -> Syn.Pattern -> Maybe (TcAnnotation, Resolved)
 patternOccurrence target = go Nothing
   where
     go currentType pattern' =
       case pattern' of
         Syn.PAnn annotation inner ->
-          case (Syn.fromAnnotation annotation :: Maybe TcAnnotation, Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation) of
+          case (Syn.fromAnnotation annotation :: Maybe TcAnnotation, Syn.fromAnnotation annotation :: Maybe Resolved) of
             (Just checked, _) -> go (Just checked) inner
             (_, Just resolution)
               | resolutionIdentifier resolution == IdentifierNamed target,
@@ -3364,7 +3364,7 @@ overloadedListView pattern' =
   case pattern' of
     Syn.PAnn methodAnnotation (Syn.PAnn resolutionAnnotation inner)
       | Just checked <- Syn.fromAnnotation methodAnnotation :: Maybe TcAnnotation,
-        Just resolution <- Syn.fromAnnotation resolutionAnnotation :: Maybe ResolutionAnnotation,
+        Just resolution <- Syn.fromAnnotation resolutionAnnotation :: Maybe Resolved,
         resolutionNamespace resolution == ResolutionNamespaceTerm,
         resolutionIdentifier resolution == IdentifierNamed "toList",
         Just listType <- patternType inner ->
@@ -3719,7 +3719,7 @@ instantiateAnnotated annotation inner = do
 -- these two types give @negate (fromInteger n) == fromInteger (negate n)@,
 -- also for the minimum Int. Other instances can break this law, so they
 -- keep the call.
-negateFoldsIntoLiteral :: PackageId -> TcAnnotation -> ResolutionAnnotation -> ResolutionAnnotation -> Bool
+negateFoldsIntoLiteral :: PackageId -> TcAnnotation -> Resolved -> Resolved -> Bool
 negateFoldsIntoLiteral primPackage annotation negateResolution literalResolution =
   classMethod "negate" negateResolution && classMethod "fromInteger" literalResolution && knownType
   where
@@ -3739,7 +3739,7 @@ negateFoldsIntoLiteral primPackage annotation negateResolution literalResolution
         _ -> False
 
 -- | The checked overloaded integer literal that a negation applies to.
-negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, ResolutionAnnotation, Integer)
+negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, Resolved, Integer)
 negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
@@ -3758,14 +3758,14 @@ negatableIntegerLiteral expression =
           negatableIntegerLiteral inner
     _ -> Nothing
 
-isIfThenElseResolution :: ResolutionAnnotation -> Bool
+isIfThenElseResolution :: Resolved -> Bool
 isIfThenElseResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution == IdentifierNamed "ifThenElse"
 
 -- | RebindableSyntax applies the checked ifThenElse method to the
 -- condition and the two branches.
-desugarRebindableIf :: TcAnnotation -> ResolutionAnnotation -> Syn.Expr -> Syn.Expr -> Syn.Expr -> ValueM Expr
+desugarRebindableIf :: TcAnnotation -> Resolved -> Syn.Expr -> Syn.Expr -> Syn.Expr -> ValueM Expr
 desugarRebindableIf annotation resolution condition thenExpression elseExpression = do
   method <- desugarResolvedOccurrence annotation resolution
   arguments <- mapM desugarExpr [condition, thenExpression, elseExpression]
@@ -5542,7 +5542,7 @@ desugarRecStmt statement inner rest = do
 -- the type annotation and the cast before it belong to it. A
 -- 'TcRecKnotOccurrence' marker comes before the occurrence annotation of
 -- its variable.
-recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)], Maybe TcAnnotation, [(Entity, TcAnnotation)])
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)], Maybe TcAnnotation, [(Entity, TcAnnotation)])
 recStmtAnnotations = go Nothing Nothing
   where
     go cast annotation statement =
@@ -5572,12 +5572,12 @@ recStmtKnotVariables statement =
     _ -> Nothing
 
 -- | The checked methods of a statement.
-recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)]
+recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)]
 recStmtMethods statement =
   let (methods, _, _) = recStmtAnnotations statement
    in methods
 
-recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, ResolutionAnnotation)] -> ValueM Expr
+recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)] -> ValueM Expr
 recStmtMethod name methods =
   case [(cast, annotation, resolution) | (cast, annotation, resolution) <- methods, resolutionIdentifier resolution == IdentifierNamed name] of
     [(cast, Just annotation, resolution)] -> do
@@ -5897,7 +5897,7 @@ directPatternBindings pattern' binder ty =
 -- | The sequencing method of a @do@ statement, cast onto the type the
 -- statement uses it at when a given equality made it fit. The statement has
 -- no expression node for the method, so the cast is a statement annotation.
-desugarDoMethod :: Syn.DoStmt Syn.Expr -> TcAnnotation -> ResolutionAnnotation -> ValueM Expr
+desugarDoMethod :: Syn.DoStmt Syn.Expr -> TcAnnotation -> Resolved -> ValueM Expr
 desugarDoMethod statement annotation resolution = do
   method <- desugarResolvedOccurrence annotation resolution
   case doMethodCast statement of
@@ -5918,7 +5918,7 @@ peelDoStatement statement =
     Syn.DoAnn _ inner -> peelDoStatement inner
     _ -> statement
 
-requiredDoBindOccurrence :: Syn.DoStmt Syn.Expr -> ValueM (TcAnnotation, ResolutionAnnotation)
+requiredDoBindOccurrence :: Syn.DoStmt Syn.Expr -> ValueM (TcAnnotation, Resolved)
 requiredDoBindOccurrence statement =
   case doBindOccurrence statement of
     Just occurrence -> pure occurrence
@@ -5927,7 +5927,7 @@ requiredDoBindOccurrence statement =
 -- | The checked @>>=@ or @>>@ method of a statement: the first type
 -- annotation and the first resolution from the outside. The @fail@ method
 -- of a bind statement is inside them.
-doBindOccurrence :: Syn.DoStmt Syn.Expr -> Maybe (TcAnnotation, ResolutionAnnotation)
+doBindOccurrence :: Syn.DoStmt Syn.Expr -> Maybe (TcAnnotation, Resolved)
 doBindOccurrence = go Nothing Nothing
   where
     go maybeAnnotation maybeResolution statement =
@@ -5935,7 +5935,7 @@ doBindOccurrence = go Nothing Nothing
         Syn.DoAnn annotation inner ->
           go
             (maybeAnnotation <|> (Syn.fromAnnotation annotation :: Maybe TcAnnotation))
-            (maybeResolution <|> (Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation))
+            (maybeResolution <|> (Syn.fromAnnotation annotation :: Maybe Resolved))
             inner
         _ -> (,) <$> maybeAnnotation <*> maybeResolution
 
@@ -6727,14 +6727,14 @@ typeableTypeView ty =
       pure (packageIdText package, "GHC.Types", "(->)", arguments)
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)
 
-desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr
+desugarResolvedOccurrence :: TcAnnotation -> Resolved -> ValueM Expr
 desugarResolvedOccurrence annotation resolution = do
   name <- resolvedAnnotationName resolution
   types <- mapM convertCheckedType (tcAnnTypeArgs annotation)
   evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
   desugarTermReference name types evidence (seqTermArgumentTypes annotation)
 
-resolvedAnnotationName :: ResolutionAnnotation -> ValueM Name
+resolvedAnnotationName :: Resolved -> ValueM Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
     EntityGlobal global -> pure (globalFcName global)
@@ -6742,7 +6742,7 @@ resolvedAnnotationName resolution =
       binderName . fst <$> lookupLocal local (displayIdentifier (resolutionIdentifier resolution))
     EntitySyntax -> failValue ("syntax identifier reached ordinary occurrence " <> T.unpack (displayIdentifier (resolutionIdentifier resolution)))
 
-desugarOverloadedInteger :: TcAnnotation -> ResolutionAnnotation -> Integer -> ValueM Expr
+desugarOverloadedInteger :: TcAnnotation -> Resolved -> Integer -> ValueM Expr
 desugarOverloadedInteger annotation resolution value = do
   fromIntegerExpression <- desugarResolvedOccurrence annotation resolution
   integer <- desugarIntegerLiteral value
@@ -6756,13 +6756,13 @@ desugarOverloadedInteger annotation resolution value = do
 --
 -- The argument type is the String of the method, so the literal is the
 -- ordinary [Char] desugaring.
-desugarOverloadedString :: TcAnnotation -> ResolutionAnnotation -> Text -> ValueM Expr
+desugarOverloadedString :: TcAnnotation -> Resolved -> Text -> ValueM Expr
 desugarOverloadedString annotation resolution value = do
   fromStringExpression <- desugarResolvedOccurrence annotation resolution
   string <- desugarStringValue value
   pure (ExApp fromStringExpression string)
 
-desugarOverloadedRational :: TcAnnotation -> ResolutionAnnotation -> Rational -> ValueM Expr
+desugarOverloadedRational :: TcAnnotation -> Resolved -> Rational -> ValueM Expr
 desugarOverloadedRational annotation resolution value = do
   fromRationalExpression <- desugarResolvedOccurrence annotation resolution
   rational <- desugarRationalLiteral value
@@ -7129,12 +7129,12 @@ nameTermKey sourceName = do
   resolution <- termResolution sourceName
   resolutionTermKey resolution
 
-unqualifiedTermResolution :: Syn.UnqualifiedName -> Maybe ResolutionAnnotation
+unqualifiedTermResolution :: Syn.UnqualifiedName -> Maybe Resolved
 unqualifiedTermResolution = resolutionOf (== ResolutionNamespaceTerm) . Syn.unqualifiedNameAnns
 
 -- | Built-in syntax denotes a wired constructor rather than a binder, so
 -- it has no term key; an occurrence of one is desugared from its shape.
-resolutionTermKey :: ResolutionAnnotation -> Maybe Entity
+resolutionTermKey :: Resolved -> Maybe Entity
 resolutionTermKey resolution =
   case resolutionTarget resolution of
     local@EntityLocal {} -> Just local

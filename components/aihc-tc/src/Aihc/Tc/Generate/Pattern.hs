@@ -23,7 +23,7 @@ module Aihc.Tc.Generate.Pattern
   )
 where
 
-import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..), resolutionResultAnnotation)
+import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), resolvedOf)
 import Aihc.Resolve.Syntax
   ( Annotation,
     BuiltinCon (..),
@@ -779,7 +779,7 @@ resolvedIntegerPatternType pat =
     resolution : _ -> fmap (\info -> TcTyCon (tciTyCon info) []) <$> lookupResolvedTypeSyntax resolution
     [] -> pure Nothing
 
-requiredPrimitiveLiteralResolution :: Pattern -> TcM ResolutionAnnotation
+requiredPrimitiveLiteralResolution :: Pattern -> TcM Resolved
 requiredPrimitiveLiteralResolution pat =
   case [resolution | resolution <- patternResolutions pat, resolutionNamespace resolution == ResolutionNamespaceType] of
     resolution : _ -> pure resolution
@@ -959,7 +959,7 @@ wantedMethodEq sp method actual expected = do
       (LitOrigin sp)
       sp
 
-inferResolvedPatternMethod :: Maybe SourceSpan -> Text -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
+inferResolvedPatternMethod :: Maybe SourceSpan -> Text -> Resolved -> TcM (TcType, [TcType], [Ct])
 inferResolvedPatternMethod sp displayName resolution = do
   mBinder <- lookupResolvedTerm displayName (resolutionTarget resolution)
   case mBinder of
@@ -977,7 +977,7 @@ predToCt sp name pred' = do
   ev <- freshEvVar
   pure (mkWantedCt pred' ev (OccurrenceOf name) sp)
 
-requiredPatternResolution :: Text -> Pattern -> TcM ResolutionAnnotation
+requiredPatternResolution :: Text -> Pattern -> TcM Resolved
 requiredPatternResolution name pat =
   case [resolution | resolution <- patternResolutions pat, resolutionIdentifier resolution == IdentifierNamed name, resolutionNamespace resolution == ResolutionNamespaceTerm] of
     resolution : _ -> pure resolution
@@ -985,11 +985,11 @@ requiredPatternResolution name pat =
       emitError Nothing (OtherError ("missing resolver annotation for overloaded pattern method " <> T.unpack name))
       abortTc ("missing resolver annotation for overloaded pattern method " <> T.unpack name)
 
-patternResolutions :: Pattern -> [ResolutionAnnotation]
+patternResolutions :: Pattern -> [Resolved]
 patternResolutions pat =
   case pat of
     PAnn _ inner -> patternResolutions inner
-    PResolved result inner -> maybeToList (resolutionResultAnnotation result) <> patternResolutions inner
+    PResolved result inner -> maybeToList (resolvedOf result) <> patternResolutions inner
     PParen inner -> patternResolutions inner
     PStrict inner -> patternResolutions inner
     PIrrefutable inner -> patternResolutions inner
