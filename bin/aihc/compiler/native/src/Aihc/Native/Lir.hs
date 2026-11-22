@@ -646,14 +646,54 @@ compileFunctionTo backend output signatures index input state =
             framed = hasBlockFrame ctx (blockLabel block)
         emitStatements [nbLabel backend (ctxLabels ctx Map.! blockLabel block) | not entry]
         when framed $ emitStatements (enterBlockFrame backend ctx entry block)
+        let lastNumber = first + length instructions - 1
+            tailCtx = jumpArgumentInPlace ctx (blockInstructions block) instructions (blockTerminator block)
         forM_ (zip [first ..] instructions) $ \(number, instruction) ->
-          native (coldCallSaves backend ctx number <$> compileInstruction backend ctx instruction) >>= emitStatements
+          let instructionCtx = if number == lastNumber then tailCtx else ctx
+           in native (coldCallSaves backend instructionCtx number <$> compileInstruction backend instructionCtx instruction) >>= emitStatements
         when framed $ emitStatements (nbBlockFrameLeave backend (layoutSize (ctxLayout ctx)))
-        let terminatorCtx = ctx {ctxNonNullCode = Map.findWithDefault Set.empty (blockLabel block) nonNull}
+        let terminatorCtx = tailCtx {ctxNonNullCode = Map.findWithDefault Set.empty (blockLabel block) nonNull}
         native (compileTerminator backend terminatorCtx (blockLabel <$> next) fused (blockTerminator block)) >>= emitStatements
       native (functionTrapTrampolines backend) >>= emitStatements
       (_, pending) <- lift (lift get)
       forM_ pending (lift . lift . lift . output)
+
+-- | Put the result of the last instruction of a block in the register of
+-- the block parameter that a jump gives it to, when nothing else reads the
+-- result. The jump then moves nothing for it.
+--
+-- A loop that adds one to its index computes the new index in a register
+-- of its own, because the old index stays live to the end of the loop in
+-- the conservative intervals of the allocator. The jump back to the head
+-- then copies the new index to the register of the old one. The register of
+-- the parameter holds the old value only, and nothing after the last
+-- instruction reads it, unless another argument of the jump does. Thus the
+-- instruction can write the new value there directly.
+jumpArgumentInPlace :: (Eq register) => Ctx register -> [Instruction] -> [Instruction] -> Terminator -> Ctx register
+jumpArgumentInPlace ctx original instructions terminator =
+  case (reverse instructions, terminator) of
+    (Instruction [result] operation : _, Jump (Target label arguments))
+      | plainOperation operation,
+        not (null original),
+        instructionResults (last original) == [result],
+        MonoidMap.get result (ctxReads ctx) == 1,
+        Map.notMember result (ctxFusions ctx),
+        Map.notMember result (ctxRotations ctx),
+        [index] <- [index | (index, OperandVar argument) <- zip [0 :: Int ..] arguments, argument == result],
+        (parameter, _) : _ <- drop index (MonoidMap.get label (ctxBlockParameters ctx)),
+        Just target <- Map.lookup parameter registers,
+        Just current <- Map.lookup result registers,
+        current /= target,
+        and [Map.lookup other registers /= Just target | (position, OperandVar other) <- zip [0 :: Int ..] arguments, position /= index] ->
+          ctx {ctxLayout = (ctxLayout ctx) {layoutRegisters = Map.insert result target registers}}
+    _ -> ctx
+  where
+    registers = layoutRegisters (ctxLayout ctx)
+    plainOperation operation =
+      case operation of
+        Binary {} -> True
+        PtrAdd {} -> True
+        _ -> False
 
 -- | The code values that each block knows are not null. A value is known
 -- in a block when each path into the block takes the branch of a comparison
