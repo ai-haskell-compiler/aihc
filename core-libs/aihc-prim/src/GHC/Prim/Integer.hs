@@ -859,6 +859,8 @@ compareLargeInteger# left right =
                 0# -> 0#
                 1# -> compareMagnitudes# left right
                 _ -> 0# -# compareMagnitudes# left right
+-- A call keeps each inlined comparison small.
+{-# NOINLINE compareLargeInteger# #-}
 
 -- | Equality without an ordering. The representation is canonical, thus
 -- values with different constructors are not equal. A test against a small
