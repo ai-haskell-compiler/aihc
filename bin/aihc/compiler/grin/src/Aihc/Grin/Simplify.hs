@@ -745,6 +745,7 @@ copyLeaf substitution expression =
     GrinConstant values -> pure (GrinConstant (map value values))
     GrinFetch tag operand -> pure (GrinFetch tag (value operand))
     GrinPrimitiveCall rep name operands -> pure (GrinPrimitiveCall rep name (map value operands))
+    GrinCall rep callee operands -> pure (GrinCall rep callee (map value operands))
     GrinBind vars bound body -> do
       bound' <- copyLeaf substitution bound
       fresh <- traverse freshVar vars
