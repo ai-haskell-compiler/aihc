@@ -20,11 +20,10 @@ expected: |
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %value_3: ptr, %$cps_return_4: ptr) {
   entry:
     %header_word_9 = load i64 [%value_3] align 8 region heap
-    %info_word_10 = and i64 %header_word_9, -4
-    %header_11 = ptr.from_int %info_word_10
-    %constructor_index_12 = load.invariant i16 [%header_11 + 38] align 2
-    %constructor_index_13 = zext i16 %constructor_index_12 to i64
-    switch i64 %constructor_index_13 {
+    %header_10 = ptr.from_int %header_word_9
+    %constructor_index_11 = load.invariant i16 [%header_10 + 38] align 2
+    %constructor_index_12 = zext i16 %constructor_index_11 to i64
+    switch i64 %constructor_index_12 {
       0 -> alt_5
       1 -> alt_6
       2 -> alt_7
@@ -32,61 +31,61 @@ expected: |
     }
 
   alt_5:
-    %header_word_14 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_15 = and i64 %header_word_14, -4
-    %header_16 = ptr.from_int %info_word_15
-    %entry_17 = load.invariant code [%header_16 + 16] align 1 word
-    %forward_20 = eq code %entry_17, null
-    br %forward_20, continue_slow_18, continue_enter_19
+    %header_word_13 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_14 = and i64 %header_word_13, -4
+    %header_15 = ptr.from_int %info_word_14
+    %entry_16 = load.invariant code [%header_15 + 16] align 1 word
+    %forward_19 = eq code %entry_16, null
+    br %forward_19, continue_slow_17, continue_enter_18
 
-  cold continue_slow_18:
+  cold continue_slow_17:
     tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, 0)
 
-  continue_enter_19:
-    tailcall.indirect %entry_17(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 0) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_18:
+    tailcall.indirect %entry_16(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 0) : (ptr, ptr, ptr, ptr, i64)
 
   alt_6:
-    %header_word_21 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_22 = and i64 %header_word_21, -4
-    %header_23 = ptr.from_int %info_word_22
-    %entry_24 = load.invariant code [%header_23 + 16] align 1 word
-    %forward_27 = eq code %entry_24, null
-    br %forward_27, continue_slow_25, continue_enter_26
+    %header_word_20 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_21 = and i64 %header_word_20, -4
+    %header_22 = ptr.from_int %info_word_21
+    %entry_23 = load.invariant code [%header_22 + 16] align 1 word
+    %forward_26 = eq code %entry_23, null
+    br %forward_26, continue_slow_24, continue_enter_25
 
-  cold continue_slow_25:
+  cold continue_slow_24:
     tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, 1)
 
-  continue_enter_26:
-    tailcall.indirect %entry_24(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 1) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_25:
+    tailcall.indirect %entry_23(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 1) : (ptr, ptr, ptr, ptr, i64)
 
   alt_7:
-    %header_word_28 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_29 = and i64 %header_word_28, -4
-    %header_30 = ptr.from_int %info_word_29
-    %entry_31 = load.invariant code [%header_30 + 16] align 1 word
-    %forward_34 = eq code %entry_31, null
-    br %forward_34, continue_slow_32, continue_enter_33
+    %header_word_27 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_28 = and i64 %header_word_27, -4
+    %header_29 = ptr.from_int %info_word_28
+    %entry_30 = load.invariant code [%header_29 + 16] align 1 word
+    %forward_33 = eq code %entry_30, null
+    br %forward_33, continue_slow_31, continue_enter_32
 
-  cold continue_slow_32:
+  cold continue_slow_31:
     tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, 2)
 
-  continue_enter_33:
-    tailcall.indirect %entry_31(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 2) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_32:
+    tailcall.indirect %entry_30(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, 2) : (ptr, ptr, ptr, ptr, i64)
 
   alt_8:
-    %payload_35 = load i64 [%value_3 + 8] align 8 region heap
-    %header_word_36 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_37 = and i64 %header_word_36, -4
-    %header_38 = ptr.from_int %info_word_37
-    %entry_39 = load.invariant code [%header_38 + 16] align 1 word
-    %forward_42 = eq code %entry_39, null
-    br %forward_42, continue_slow_40, continue_enter_41
+    %payload_34 = load i64 [%value_3 + 8] align 8 region heap
+    %header_word_35 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_36 = and i64 %header_word_35, -4
+    %header_37 = ptr.from_int %info_word_36
+    %entry_38 = load.invariant code [%header_37 + 16] align 1 word
+    %forward_41 = eq code %entry_38, null
+    br %forward_41, continue_slow_39, continue_enter_40
 
-  cold continue_slow_40:
-    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %payload_35)
+  cold continue_slow_39:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %payload_34)
 
-  continue_enter_41:
-    tailcall.indirect %entry_39(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %payload_35) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_40:
+    tailcall.indirect %entry_38(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %payload_34) : (ptr, ptr, ptr, ptr, i64)
   }
 status: pass
 reason: |

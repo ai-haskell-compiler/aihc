@@ -1115,6 +1115,13 @@ loadObjectHeader region object = loadSlot region "header_word" I64 object 0 >>= 
 loadObjectHeaderDependent :: Region -> Operand -> LowerM (Typed, Typed)
 loadObjectHeaderDependent region object = loadSlotDependent region "header_word" I64 object 0 >>= headerTable
 
+-- | The info table of an evaluated constructor. Only a thunk header carries
+-- the two low bits, so the header of a constructor needs no mask.
+loadConstructorInfo :: Operand -> LowerM Typed
+loadConstructorInfo object = do
+  header <- loadSlot HeapRegion "header_word" I64 object 0
+  emitValue "header" Ptr (PtrFromInt (typedOperand header))
+
 headerTable :: Typed -> LowerM (Typed, Typed)
 headerTable header = do
   info <- emitValue "info_word" I64 (Binary And I64 (typedOperand header) (OperandLiteral (LitInt (-4))))
@@ -3562,7 +3569,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [value])
       | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> do
           object <- pointerValue ctx env value
-          header <- loadObjectInfo HeapRegion object
+          header <- loadConstructorInfo object
           index <- loadInfoConstructorIndex (typedOperand header)
           bind [index]
     ("not#", [value]) -> do
@@ -4783,14 +4790,14 @@ compileCase ctx env scrutinee binder alternatives = do
               let indices = [index | (_, index, _) <- constructors]
               when (Set.size (Set.fromList indices) /= length indices) $
                 failWith (LowerUnsupportedExpression "two alternatives of one case give the same constructor index")
-              header <- loadObjectInfo HeapRegion (typedOperand typed)
+              header <- loadConstructorInfo (typedOperand typed)
               index <- loadInfoConstructorIndex (typedOperand header)
               terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
             else do
               -- The header of a saturated constructor names its saturated
               -- table, and a case only sees saturated constructors, so the
               -- table address itself is the identity.
-              identity <- loadObjectInfo HeapRegion (typedOperand typed)
+              identity <- loadConstructorInfo (typedOperand typed)
               checks <- forM constructors $ \(name, _, label) -> do
                 let symbol = constructorInfoSymbol name 0
                 unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
