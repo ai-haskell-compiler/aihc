@@ -207,7 +207,8 @@ typedef struct AihcInfoWithNext {
 } AihcInfoWithNext;
 
 static inline const AihcInfo *aihc_info_next(const AihcInfo *info) {
-  return ((const AihcInfoWithNext *)(const void *)info)->next;
+  /* The table is the first member of AihcInfoWithNext. */
+  return ((const AihcInfoWithNext *)info)->next;
 }
 
 struct AihcValue {
