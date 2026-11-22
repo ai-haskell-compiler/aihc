@@ -584,7 +584,7 @@ quoted dynamic binders = go
         -- The variable becomes an unbound variable of the syntax tree.
         Nothing
           | isNothing (nameQualifier name),
-            nameType name == NameVarId ->
+            nameType name `elem` [NameVarId, NameVarSym] ->
               Just (call "unboundVarE" [dynamicName (nameText name)])
         _ -> Nothing
 

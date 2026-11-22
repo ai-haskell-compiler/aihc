@@ -1013,14 +1013,14 @@ resolveExpr expr =
     EVar name -> do
       inQuote <- inExpressionQuote
       scope <- currentScope
-      -- GHC accepts a variable that is not in scope in an expression
-      -- quote. The quote gives an unbound variable, and the code that gets
-      -- the syntax tree finds its binder.
+      -- GHC accepts a variable that is not in scope in a quote, also an
+      -- operator. The quote gives an unbound variable, and the code that
+      -- gets the syntax tree finds its binder.
       case termUseResolution scope name of
         Unresolved _
           | inQuote,
             isNothing (nameQualifier name),
-            nameType name == NameVarId ->
+            nameType name `elem` [NameVarId, NameVarSym] ->
               pure (fromParserExpr expr)
         _ -> R.EVar <$> resolveTermUse name
     -- An implicit parameter has no lexical binder. The type checker
