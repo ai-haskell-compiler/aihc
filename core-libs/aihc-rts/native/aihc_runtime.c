@@ -4961,6 +4961,58 @@ int64_t nocldstop = 0;
 
 uint64_t aihc_clock_monotonic_ns(void) { return aihc_host_monotonic_ns(); }
 
+/* The stable pointers that C code freed and that GHC.Stable did not yet
+   remove from its table. A spin lock keeps the record, because C code can
+   free a pointer on each capability. */
+static uintptr_t *aihc_freed_stable_ptrs = NULL;
+static size_t aihc_freed_stable_ptr_count = 0;
+static size_t aihc_freed_stable_ptr_capacity = 0;
+static int aihc_freed_stable_ptr_lock = 0;
+
+static void aihc_freed_stable_ptr_acquire(void) {
+  while (__atomic_exchange_n(&aihc_freed_stable_ptr_lock, 1,
+                             __ATOMIC_ACQUIRE)) {
+  }
+}
+
+static void aihc_freed_stable_ptr_release(void) {
+  __atomic_store_n(&aihc_freed_stable_ptr_lock, 0, __ATOMIC_RELEASE);
+}
+
+void hs_free_stable_ptr(void *stable_ptr) {
+  if (stable_ptr == NULL) {
+    return;
+  }
+  aihc_freed_stable_ptr_acquire();
+  if (aihc_freed_stable_ptr_count == aihc_freed_stable_ptr_capacity) {
+    size_t capacity = aihc_freed_stable_ptr_capacity == 0
+                          ? 16
+                          : aihc_freed_stable_ptr_capacity * 2;
+    uintptr_t *grown =
+        realloc(aihc_freed_stable_ptrs, capacity * sizeof(*grown));
+    if (grown == NULL) {
+      /* The value stays alive. This is a leak, not a fault. */
+      aihc_freed_stable_ptr_release();
+      return;
+    }
+    aihc_freed_stable_ptrs = grown;
+    aihc_freed_stable_ptr_capacity = capacity;
+  }
+  aihc_freed_stable_ptrs[aihc_freed_stable_ptr_count++] =
+      (uintptr_t)stable_ptr;
+  aihc_freed_stable_ptr_release();
+}
+
+uintptr_t aihc_take_freed_stable_ptr(void) {
+  uintptr_t stable_ptr = 0;
+  aihc_freed_stable_ptr_acquire();
+  if (aihc_freed_stable_ptr_count > 0) {
+    stable_ptr = aihc_freed_stable_ptrs[--aihc_freed_stable_ptr_count];
+  }
+  aihc_freed_stable_ptr_release();
+  return stable_ptr;
+}
+
 int64_t aihc_capability_count(void) {
   return (int64_t)__atomic_load_n(&aihc_machine.capability_count,
                                   __ATOMIC_ACQUIRE);
