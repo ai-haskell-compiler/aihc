@@ -519,8 +519,9 @@ writes no file. An empty value counts as an unset variable.
 
 ### Allocation profile
 
-`aihc build --profile-allocations` makes a whole-program build (the flag
-implies `--lto`) that counts the heap objects the program allocates. The
+`aihc build --profile-allocations` makes a build that counts the heap
+objects the program allocates. Each unit gets the counters, the
+dependencies too, at the optimization level of the build. The
 statistics object then has one more field, `allocations`: one entry for each
 info table that allocated, the most bytes first.
 
@@ -541,17 +542,22 @@ info table that allocated, the most bytes first.
   list, so the sum of the list can be less than `allocated_bytes`.
   Continuation frames live on thread stacks, so they are not in the list
   either.
-- The counters cost a load, an add, and a store for each count at each
-  allocation, so a profiled program runs more slowly. Only measure the
-  counts of such a program, not its time.
+- The counters cost a load, an add, a store, and a compare for each count
+  at each allocation, so a profiled program runs more slowly. Only measure
+  the counts of such a program, not its time.
+- The counters are not atomic. With more than one capability, two
+  capabilities can lose a count of each other, so the counts are a lower
+  bound. Use `+RTS -N1` for exact counts.
 
 The lowering keeps two counters for each info table (the objects and the
-words) in the exported data `aihc_allocation_profile_counts`, with the names
-in `aihc_allocation_profile_names` and their number in
-`aihc_allocation_profile_size`. Only the whole-program object defines them,
-because the counters of two units would have the same symbols. The `main` of
-the entry unit calls `aihc_allocation_profile_register` with the three before
-the machine starts, and `aihc_runtime_statistics_report` writes the entries.
+words) in the internal data `aihc_allocation_profile_counts` of each unit,
+with the names in `aihc_allocation_profile_names`. The internal table
+`aihc_allocation_profile_table` of the unit holds their number and the
+addresses of both (`AihcAllocationTable` in `aihc_runtime.h`). When a
+counter of the unit counts its first object, the code calls
+`aihc_allocation_profile_register` with the table, and the runtime adds it
+to its list. `aihc_runtime_statistics_report` adds up the entries of all
+tables by name and writes them.
 
 ### Time profile
 

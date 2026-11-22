@@ -349,7 +349,7 @@ buildOptionsParser =
     <*> checkPrimBoundsOption
     <*> OA.switch
       ( OA.long "profile-allocations"
-          <> OA.help "Count the heap objects that the program allocates, by info table, and write the counts to the AIHC_RTS_STATS file. Implies --lto"
+          <> OA.help "Count the heap objects that the program allocates, by info table, and write the counts to the AIHC_RTS_STATS file"
       )
     <*> OA.switch
       ( OA.long "profile-time"

@@ -119,12 +119,12 @@ lirModuleDefinesCode lirModule = any definesCode (moduleItems lirModule)
 -- | Compile the entry unit of an executable to @object@. The entry starts
 -- the runtime and enters the program; the entry of every executable is the
 -- same, so it is generated rather than read from a source. With the
--- profile flags, the entry registers the allocation counters and the time
--- profile tables of the program. The entry also holds the default RTS
+-- profile flag, the entry registers the time profile tables of the
+-- program. The entry also holds the default RTS
 -- options of the executable.
-compileEntryObject :: Bool -> Bool -> Bool -> [Text] -> NativeTarget -> FilePath -> FilePath -> IO ()
-compileEntryObject lto profileAllocations profileTime runtimeOptions target directory object = do
-  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileAllocations profileTime runtimeOptions)
+compileEntryObject :: Bool -> Bool -> [Text] -> NativeTarget -> FilePath -> FilePath -> IO ()
+compileEntryObject lto profileTime runtimeOptions target directory object = do
+  entryModule <- either (ioError . userError . ("Lir entry generation failed: " <>) . show) pure (Lower.lowerEntry (lowerTargetFor target) profileTime runtimeOptions)
   compileLirObject lto target (takeBaseName object) entryModule directory object
 
 -- | Compile GC-GRIN to the object at @path@, or to the source at
