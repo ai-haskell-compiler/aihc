@@ -15,6 +15,14 @@ module GHC.Event
     evtRead,
     evtWrite,
     getSystemEventManager,
+    IOCallback,
+    FdKey,
+    keyFd,
+    Lifetime (..),
+    registerFd,
+    unregisterFd,
+    unregisterFd_,
+    closeFd,
     TimerManager,
     TimeoutCallback,
     TimeoutKey,
@@ -30,7 +38,8 @@ import Data.Bits ((.|.))
 import Data.Unique (Unique, newUnique)
 import GHC.Conc.IO (registerDelay)
 import GHC.Conc.Sync (TVar, atomically, forkIO, newTVarIO, readTVar, retry, writeTVar)
-import Prelude (Bool (..), Eq (..), IO, Int, Maybe (..), Monoid (..), Ord (..), Semigroup (..), return, (>>=))
+import System.Posix.Types (Fd)
+import Prelude (Bool (..), Eq (..), IO, Int, Maybe (..), Monoid (..), Ord (..), Semigroup (..), Show, errorWithoutStackTrace, return, seq, (>>=))
 
 -- | A set of I/O events. Each bit is one event.
 newtype Event = Event Int
@@ -56,6 +65,42 @@ data EventManager
 -- | Get the event manager of the system. The aihc runtime has none.
 getSystemEventManager :: IO (Maybe EventManager)
 getSystemEventManager = return Nothing
+
+-- | The action that the event manager runs when a descriptor is ready.
+type IOCallback = FdKey -> Event -> IO ()
+
+-- | The key of a descriptor registration.
+data FdKey = FdKey
+  { keyFd :: Fd,
+    keyUnique :: Unique
+  }
+  deriving (Eq)
+
+-- | The number of times that a registration can fire.
+data Lifetime = OneShot | MultiShot
+  deriving (Eq, Show)
+
+-- | Register a callback for a descriptor. The aihc runtime has no event
+-- manager, thus no caller can supply the first argument.
+registerFd :: EventManager -> IOCallback -> Fd -> Event -> Lifetime -> IO FdKey
+registerFd manager _ _ _ _ = noEventManager manager
+
+-- | Remove a descriptor registration.
+unregisterFd :: EventManager -> FdKey -> IO ()
+unregisterFd manager _ = noEventManager manager
+
+-- | Remove a descriptor registration. The result tells if the manager must
+-- wake up.
+unregisterFd_ :: EventManager -> FdKey -> IO Bool
+unregisterFd_ manager _ = noEventManager manager
+
+-- | Remove all registrations of a descriptor and close it.
+closeFd :: EventManager -> (Fd -> IO ()) -> Fd -> IO ()
+closeFd manager _ _ = noEventManager manager
+
+-- | 'EventManager' has no values. Thus this function cannot return.
+noEventManager :: EventManager -> a
+noEventManager manager = manager `seq` errorWithoutStackTrace "GHC.Event: the aihc runtime has no event manager"
 
 -- | The timer manager.
 data TimerManager = TimerManager
