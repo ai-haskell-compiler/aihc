@@ -874,7 +874,12 @@ resolveInstanceDeclItem headClass instanceDeclItem =
     InstanceItemAnn ann inner -> R.InstanceItemAnn ann <$> withPushedSpan ann (resolveInstanceDeclItem headClass inner)
     InstanceItemBind valueDecl -> do
       scope <- currentScope
-      R.InstanceItemBind <$> withResetLocalSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
+      -- In a quote, a method must not use the numbers of the local
+      -- binders around the quote again. The change of the quote finds the
+      -- binders of the quote by their numbers.
+      inQuote <- inExpressionQuote
+      let localSupply = if inQuote then id else withResetLocalSupply
+      R.InstanceItemBind <$> localSupply (resolveValueDecl (instanceMethodDefinition headClass scope) valueDecl)
     InstanceItemTypeSig names ty -> do
       scope <- currentScope
       sp <- currentSpan
@@ -1149,17 +1154,27 @@ resolveExpr expr =
     ETHExpQuote inner ->
       R.ETHExpQuote <$> withExpressionQuote True (resolveExpr inner)
     ETHTypedQuote {} -> pure (fromParserExpr expr)
-    -- The body of a declaration or pattern quote stays unresolved. But
-    -- each splice in the body is an expression at the level of the quote,
-    -- and the type checker examines it.
-    ETHDeclQuote decls ->
-      R.ETHDeclQuote <$> mapM (convertDecl quoteSpliceHooks) decls
+    -- The names of a declaration quote with only value bindings, type
+    -- signatures, and instances have the scope of the quote, as the names
+    -- of an expression quote. The binders of the quote are local to the
+    -- quote, as the binders of a let. The change of the quote reads the
+    -- resolutions. The body of a different declaration quote stays
+    -- unresolved. But each splice in the body is an expression at the
+    -- level of the quote, and the type checker examines it.
+    ETHDeclQuote decls
+      | all resolvedQuoteDecl decls -> do
+          (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
+          R.ETHDeclQuote <$> withExpressionQuote True (extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls))
+      | otherwise ->
+          R.ETHDeclQuote <$> mapM (convertDecl quoteSpliceHooks) decls
     -- The names of a type quote have the scope of the quote, as the names
     -- of an expression quote. The change of the quote reads them.
     ETHTypeQuote ty ->
       R.ETHTypeQuote <$> resolveType ty
+    -- The names of a pattern quote have the scope of the quote. The
+    -- change of the quote reads them.
     ETHPatQuote pat ->
-      R.ETHPatQuote <$> convertPattern quoteSpliceHooks pat
+      R.ETHPatQuote . snd <$> withExpressionQuote True (bindPattern pat)
     -- A name quote gives the name of a term or of a type. The change of
     -- the quote into a Template Haskell name reads the resolution.
     ETHNameQuote inner ->
@@ -1167,6 +1182,16 @@ resolveExpr expr =
     ETHTypeNameQuote ty ->
       R.ETHTypeNameQuote <$> resolveType ty
     EProc {} -> R.EResolved . ResolutionError <$> unhandledSyntax ResolutionNamespaceTerm "EProc" <*> pure (fromParserExpr expr)
+
+-- | Whether the resolver resolves a declaration of a declaration quote:
+-- a value binding, a type signature, or an instance.
+resolvedQuoteDecl :: Decl -> Bool
+resolvedQuoteDecl decl =
+  case snd (peelDeclSpan decl) of
+    DeclValue {} -> True
+    DeclTypeSig {} -> True
+    DeclInstance {} -> True
+    _ -> False
 
 -- | Resolve the splices in the unresolved body of a quote.
 --

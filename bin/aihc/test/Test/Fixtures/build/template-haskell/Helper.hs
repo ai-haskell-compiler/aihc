@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, quoteDescribe, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
@@ -46,6 +46,20 @@ deriveDescribe name = do
         (AppT (ConT ''Describe) (ConT name))
         [FunD 'describe [Clause [WildP] (NormalB (LitE (StringL names))) []]]
     ]
+
+-- | An instance of 'Describe' from a declaration quote. The instance head
+-- has a splice, and the method has guards and local values.
+quoteDescribe :: Name -> Q [Dec]
+quoteDescribe name =
+  [d|
+    instance Describe $(conT name) where
+      describe _
+        | null text = "none"
+        | otherwise = text ++ suffix
+        where
+          suffix = "!"
+          text = $(stringE (nameBase name))
+    |]
 
 -- | Whether a name is the name of 'Mode'. The name quote of this module
 -- and the name quote of the caller must give the same name.
