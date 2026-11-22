@@ -2754,7 +2754,8 @@ constructorArityTable types =
 -- See 'valueParameters' and 'settledCallParameters'.
 localFunctionTable :: LowerEnv -> Fc.Program -> LowerM (Map Fc.Name LocalFunction)
 localFunctionTable env program = do
-  shaped <- sequence
+  shaped <-
+    sequence
       [ withLowerContext ("value " <> show (Fc.valName declaration)) $ do
           shape <- closureShape env (Fc.valBody declaration)
           -- A function of the shape of its public entry is that entry.
