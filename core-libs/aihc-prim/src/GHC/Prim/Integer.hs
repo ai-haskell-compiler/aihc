@@ -43,6 +43,7 @@ where
 
 import GHC.Prim
   ( Addr#,
+    compareInt#,
     ByteArray#,
     Int#,
     MutableByteArray#,
@@ -838,8 +839,14 @@ divideMagnitudeByWord# magnitude divisor mutable index remainder state =
           case writeWordArray# mutable index quotientWord state of
             state1 -> divideMagnitudeByWord# magnitude divisor mutable (index -# 1#) nextRemainder state1
 
+-- | The order of two values as -1, 0 or 1. Two 'IS' values are one
+-- comparison of their fields. The other values go to a call.
 compareInteger# :: Integer -> Integer -> Int#
-compareInteger# left right =
+compareInteger# (IS left) (IS right) = compareInt# left right
+compareInteger# left right = compareLargeInteger# left right
+
+compareLargeInteger# :: Integer -> Integer -> Int#
+compareLargeInteger# left right =
   let leftSign = signInteger# left
       rightSign = signInteger# right
    in case leftSign <# rightSign of
