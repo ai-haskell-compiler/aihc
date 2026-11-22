@@ -51,7 +51,7 @@ expected: |
     br %heap_fits_17, gc_reserved_19(%$cps_return_14, %hp_11), gc_collect_18
 
   cold gc_collect_18:
-    tailcall @aihc_lir_collect_replay_p(%hp_11, %sp_12, %base_13, %$cps_return_14, @aihc_f_aihc_entry___sentry, @aihc_lir_srt_1, 0)
+    tailcall @aihc_lir_collect_replay_p(%hp_11, %sp_12, %base_13, %$cps_return_14, @aihc_f_aihc_entry___sentry, @aihc_lir_srt_0, 0)
 
   gc_reserved_19(%$cps_return$gc_20: ptr, %hp_21: ptr):
     %sp_22 = ptr.add %sp_12, 16
@@ -105,9 +105,7 @@ expected: |
 
   data @aihc_lir_info_0 align 8 = { code @aihc_f_aihc_entry___sentry__ucont, ptr @aihc_lir_bitmap_1, ptr null, code @aihc_f_aihc_entry___sentry__ucont, ptr null, i16 1, i8 1, i8 1, i8 1, i8 0, i16 0 }
 
-  data mut @aihc_lir_srt_1 align 8 = { i64 0, i64 0, i64 1, ptr @aihc_lir_srt_2 }
-
-  data mut @aihc_lir_srt_2 align 8 = { i64 0, i64 1, i64 0, ptr @aihc_entry_value }
+  data mut @aihc_lir_srt_0 align 8 = { i64 0, i32 1, i32 0, ptr @aihc_entry_value }
 
   data @aihc_lir_bitmap_2 align 1 = { bytes "\x00\x00\x00\x01" }
 
