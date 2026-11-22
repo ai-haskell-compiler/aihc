@@ -53,8 +53,8 @@ import Data.Ratio
 import Data.Void
 import Data.Word
 import GHC.Exts
-import qualified GHC.IsList as IsList
 import GHC.Internal.TH.Syntax
+import GHC.IsList qualified as IsList
 import Numeric.Natural
 import Prelude
 
