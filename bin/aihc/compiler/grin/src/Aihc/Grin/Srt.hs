@@ -57,7 +57,7 @@ data StaticReferenceTable = StaticReferenceTable
   { srtObjects :: ![Text],
     srtChildren :: ![FunctionName]
   }
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Every table in one program, and the static objects that need collector
 -- tracing at all.
@@ -214,8 +214,10 @@ programStaticReferences program =
 
 -- | Remove each table that names no object and only one child table.
 -- Such a table names the same static objects as its child, so its function
--- uses the table of the child. The result gives the remaining tables and,
--- for each removed table, the function whose table replaces it.
+-- uses the table of the child. Also remove each table that names the same
+-- objects and the same children as another table, so that its function
+-- uses that table. The result gives the remaining tables and, for each
+-- removed table, the function whose table replaces it.
 --
 -- After a removal, two children of a table can be the same table, and a
 -- table can name itself. The children are then made unique and the table
@@ -232,7 +234,12 @@ shareTables = go Map.empty
       | Map.null removed = (tables, shared)
       | otherwise = go shared' (Map.mapWithKey (rewrite shared') kept)
       where
-        removed = Map.mapMaybe onlyChild tables
+        single = Map.mapMaybe onlyChild tables
+        -- Of the tables with the same objects and children, the first
+        -- table in name order stays.
+        firsts = Map.fromListWith (\_ first -> first) [(table, name) | (name, table) <- Map.toAscList (Map.difference tables single)]
+        same = Map.fromList [(name, first) | (name, table) <- Map.toList (Map.difference tables single), Just first <- [Map.lookup table firsts], first /= name]
+        removed = single <> same
         kept = Map.difference tables removed
         resolve name = maybe name resolve (Map.lookup name removed)
         shared' = Map.map resolve (shared <> removed)

@@ -8,7 +8,6 @@ extern func @aihc_gc_allocate(ptr, i64) -> ptr cc c
 data @aihc_prompt_tag_info align 8 = {
   ptr null,   ; identity
   ptr null,   ; field_is_pointer
-  ptr null,   ; next
   code null,  ; backend_entry
   ptr null,   ; srt
   i16 0,      ; field_count

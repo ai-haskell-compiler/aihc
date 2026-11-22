@@ -3,18 +3,20 @@
 ; Named offsets select unsigned bytes, the 16-bit field count, and
 ; pointer-sized fields on each target.
 ; The fifth result also checks the needs_eval byte of @info.
+; Only @info has the next word after its byte fields.
 
 data @bitmap align 1 = { bytes "\x81" }
 data @next align 8 = {
-  ptr null, ptr null, ptr null, code null, ptr null,
+  ptr null, ptr null, code null, ptr null,
   i16 7, i8 0, i8 0, i8 0, i8 0, i16 0
 }
 data @info align 8 = {
-  ptr @next, ptr @bitmap, ptr @next, code @entry, ptr @bitmap,
-  i16 300, i8 254, i8 253, i8 252, i8 251, i16 0
+  ptr @next, ptr @bitmap, code @entry, ptr @bitmap,
+  i16 300, i8 254, i8 253, i8 252, i8 251, i16 0,
+  ptr @next
 }
 data @empty align 8 = {
-  ptr null, ptr null, ptr null, code null, ptr null,
+  ptr null, ptr null, code null, ptr null,
   i16 0, i8 0, i8 0, i8 0, i8 0, i16 0
 }
 
@@ -60,13 +62,10 @@ entry:
   %zero_bytes = or i64 %zero_kind_arity_count, %zero_needs_eval
   %bytes_clear = eq i64 %zero_bytes, 0
   %null_entry = load code [@empty + @AIHC_INFO_ENTRY_OFFSET] align 1 word
-  %null_next = load ptr [@empty + @AIHC_INFO_NEXT_OFFSET] align 1 word
   %null_bitmap = load ptr [@empty + @AIHC_INFO_BITMAP_OFFSET] align 1 word
   %entry_clear = eq code %null_entry, null
-  %next_clear = eq ptr %null_next, null
   %bitmap_clear = eq ptr %null_bitmap, null
   %code_and_bytes_clear = and i1 %bytes_clear, %entry_clear
-  %pointers_clear = and i1 %next_clear, %bitmap_clear
-  %all_clear = and i1 %code_and_bytes_clear, %pointers_clear
+  %all_clear = and i1 %code_and_bytes_clear, %bitmap_clear
   return %kind, %arity, %count, %answer, %pointers_match, %all_clear, %flag_word, %next_count
 }

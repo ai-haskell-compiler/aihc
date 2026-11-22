@@ -22,7 +22,7 @@ expected: |
     %header_word_9 = load i64 [%value_3] align 8 region heap
     %info_word_10 = and i64 %header_word_9, -4
     %header_11 = ptr.from_int %info_word_10
-    %constructor_index_12 = load.invariant i16 [%header_11 + 46] align 2
+    %constructor_index_12 = load.invariant i16 [%header_11 + 38] align 2
     %constructor_index_13 = zext i16 %constructor_index_12 to i64
     switch i64 %constructor_index_13 {
       0 -> alt_5
@@ -35,7 +35,7 @@ expected: |
     %header_word_14 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_15 = and i64 %header_word_14, -4
     %header_16 = ptr.from_int %info_word_15
-    %entry_17 = load.invariant code [%header_16 + 24] align 1 word
+    %entry_17 = load.invariant code [%header_16 + 16] align 1 word
     %forward_20 = eq code %entry_17, null
     br %forward_20, continue_slow_18, continue_enter_19
 
@@ -49,7 +49,7 @@ expected: |
     %header_word_21 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_22 = and i64 %header_word_21, -4
     %header_23 = ptr.from_int %info_word_22
-    %entry_24 = load.invariant code [%header_23 + 24] align 1 word
+    %entry_24 = load.invariant code [%header_23 + 16] align 1 word
     %forward_27 = eq code %entry_24, null
     br %forward_27, continue_slow_25, continue_enter_26
 
@@ -63,7 +63,7 @@ expected: |
     %header_word_28 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_29 = and i64 %header_word_28, -4
     %header_30 = ptr.from_int %info_word_29
-    %entry_31 = load.invariant code [%header_30 + 24] align 1 word
+    %entry_31 = load.invariant code [%header_30 + 16] align 1 word
     %forward_34 = eq code %entry_31, null
     br %forward_34, continue_slow_32, continue_enter_33
 
@@ -78,7 +78,7 @@ expected: |
     %header_word_36 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_37 = and i64 %header_word_36, -4
     %header_38 = ptr.from_int %info_word_37
-    %entry_39 = load.invariant code [%header_38 + 24] align 1 word
+    %entry_39 = load.invariant code [%header_38 + 16] align 1 word
     %forward_42 = eq code %entry_39, null
     br %forward_42, continue_slow_40, continue_enter_41
 

@@ -1010,7 +1010,6 @@ data @aihc_indirection_bitmap align 1 = {
 export data @aihc_indirection_info align 8 = {
   code null,                         ; identity
   ptr @aihc_indirection_bitmap,      ; field_is_pointer
-  ptr null,                          ; next
   code null,                         ; backend_entry
   ptr null,                          ; srt
   i16 1,                             ; field_count
@@ -1031,7 +1030,6 @@ export data @aihc_indirection_info align 8 = {
 export data @aihc_lir_chunk_forward_info align 8 = {
   code null,                         ; identity
   ptr @aihc_indirection_bitmap,      ; field_is_pointer
-  ptr null,                          ; next
   code null,                         ; backend_entry
   ptr null,                          ; srt
   i16 1,                             ; field_count
@@ -1051,7 +1049,6 @@ data @aihc_lir_cps_update_bitmap align 1 = {
 export data @aihc_lir_cps_update_info align 8 = {
   code @aihc_lir_cps_update,              ; identity
   ptr @aihc_lir_cps_update_bitmap,        ; field_is_pointer
-  ptr null,                               ; next
   code @aihc_lir_cps_update_entry,       ; backend_entry
   ptr null,                               ; srt
   i16 2,                                  ; field_count
@@ -1081,7 +1078,6 @@ data @aihc_lir_restore_mask_bitmap align 1 = {
 export data @aihc_lir_restore_mask_info align 8 = {
   code @aihc_lir_restore_mask_entry,      ; identity
   ptr @aihc_lir_restore_mask_bitmap,      ; field_is_pointer
-  ptr null,                               ; next
   code @aihc_lir_restore_mask_entry,      ; backend_entry
   ptr null,                               ; srt
   i16 2,                                  ; field_count
@@ -1112,7 +1108,6 @@ data @aihc_lir_ap_stack_bitmap align 1 = {
 export data @aihc_lir_ap_stack_info align 8 = {
   code @aihc_lir_ap_stack_entry,          ; identity
   ptr @aihc_lir_ap_stack_bitmap,          ; field_is_pointer
-  ptr null,                               ; next
   code @aihc_lir_ap_stack_entry,          ; backend_entry
   ptr null,                               ; srt
   i16 5,                                  ; field_count

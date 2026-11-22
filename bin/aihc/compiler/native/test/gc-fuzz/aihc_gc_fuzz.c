@@ -1568,7 +1568,10 @@ static void command_new(char **tokens, size_t count) {
   }
   uint64_t field_count = 0;
   uint8_t *pointers = parse_bitmap(tokens[3], &field_count);
-  AihcInfo *info = checked_calloc(1, sizeof(*info));
+  /* A partial constructor has the next word after its table. See
+     AihcInfoWithNext. */
+  AihcInfoWithNext *staged = checked_calloc(1, sizeof(*staged));
+  AihcInfo *info = &staged->info;
   info->identity = identity;
   info->field_count = field_count;
   info->field_is_pointer = pointers;
@@ -1595,7 +1598,7 @@ static void command_new(char **tokens, size_t count) {
     saturated->field_is_pointer = pointers;
     saturated->frame_kind = AIHC_FRAME_NONE;
     saturated->object_kind = AIHC_OBJECT_NODE;
-    info->next = saturated;
+    staged->next = saturated;
   }
   uint64_t words = partial ? 2 + field_count : aihc_object_words(info);
   if (words > reserved_words) {

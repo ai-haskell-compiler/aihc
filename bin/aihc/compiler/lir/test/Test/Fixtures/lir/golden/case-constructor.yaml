@@ -24,7 +24,7 @@ expected: |
     %header_word_11 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_12 = and i64 %header_word_11, -4
     %header_13 = ptr.from_int %info_word_12
-    %entry_14 = load.invariant code [%header_13 + 24] align 1 word
+    %entry_14 = load.invariant code [%header_13 + 16] align 1 word
     %forward_17 = eq code %entry_14, null
     br %forward_17, continue_slow_15, continue_enter_16
 
@@ -39,7 +39,7 @@ expected: |
     %header_word_19 = load i64 [%$cps_return_4] align 8 region stack
     %info_word_20 = and i64 %header_word_19, -4
     %header_21 = ptr.from_int %info_word_20
-    %entry_22 = load.invariant code [%header_21 + 24] align 1 word
+    %entry_22 = load.invariant code [%header_21 + 16] align 1 word
     %forward_25 = eq code %entry_22, null
     br %forward_25, continue_slow_23, continue_enter_24
 
@@ -50,7 +50,7 @@ expected: |
     tailcall.indirect %entry_22(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %payload_18) : (ptr, ptr, ptr, ptr, i64)
   }
 
-  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, ptr null, code null, ptr null, i16 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Nothing_0 align 8 = { ptr @aihc_c_aihc_entry_Nothing_0, ptr null, code null, ptr null, i16 0, i8 0, i8 0, i8 0, i8 0, i16 0 }
 status: pass
 reason: |
   A case on a pointer with fewer than four constructor alternatives loads the
