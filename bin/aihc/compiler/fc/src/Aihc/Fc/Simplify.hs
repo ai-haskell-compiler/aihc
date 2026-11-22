@@ -146,6 +146,7 @@ simplifyProgram primPackage phase siteLimit program =
           { spEnv = env,
             spInline = Map.empty,
             spLocals = Map.empty,
+            spLocalArities = Map.empty,
             spLocalDictionaries = Map.empty,
             spExcluded = MonoidMap.empty,
             spCse = Map.empty,
@@ -447,6 +448,10 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
+    -- | The arity of each local function in scope: a lifted binding of a
+    -- lambda. A partial application of such a function does no work, as
+    -- one of a top-level function does not. See 'valueArity'.
+    spLocalArities :: !(Map Name Int),
     -- | Local dictionary bindings whose right-hand side is a call of a
     -- known top-level value, such as an instance function applied to
     -- dictionaries. A case on such a binder selects a field as a case on
@@ -647,7 +652,7 @@ simplifyExpr env0 expr =
         unused name (bindRhs front) ->
           simplifyExpr env (ExLet front (ExRec [bind {bindRhs = rest}] (ExVar name)))
     ExRec binds body -> do
-      let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
+      let inner = withLocalArities binds ((shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)})
       binds' <- mapM (simplifyRecursiveBinding inner) binds
       body' <- simplifyExpr inner body
       case binds' of
@@ -2404,7 +2409,18 @@ inlineCandidate env name candidate args = do
 -- application is recorded for the case of a known constructor, and a
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
-bindingEnv env0 binder rhs
+bindingEnv env0 binder rhs = withLocalArities [Bind binder rhs] (bindingEnvOf env0 binder rhs)
+
+-- | Record the arity of each binding of a lifted lambda as a local
+-- function. See 'spLocalArities'.
+withLocalArities :: [Bind] -> Simpl -> Simpl
+withLocalArities binds env =
+  case [(binderName (bindBinder bind), arity) | bind <- binds, arity <- [functionArity (bindRhs bind)], arity > 0, isLiftedBinder (spEnv env) (bindBinder bind)] of
+    [] -> env
+    arities -> env {spLocalArities = List.foldl' (\current (name, arity) -> Map.insert name arity current) (spLocalArities env) arities}
+
+bindingEnvOf :: Simpl -> Binder -> Expr -> Simpl
+bindingEnvOf env0 binder rhs
   | isKnownConstructor (spArity (spFixed env)) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isDictionaryType (binderType binder),
     (ExVar function, _ : _) <- collectSpine rhs,
@@ -2592,6 +2608,7 @@ shadowNames names env
   -- environment then keeps its own.
   | sameObject evaluated (spEvaluated env)
       && sameObject locals (spLocals env)
+      && sameObject localArities (spLocalArities env)
       && sameObject dictionaries (spLocalDictionaries env)
       && sameObject done (spDone env)
       && sameObject cse (spCse env)
@@ -2603,6 +2620,7 @@ shadowNames names env
       env
         { spEvaluated = evaluated,
           spLocals = locals,
+          spLocalArities = localArities,
           spLocalDictionaries = dictionaries,
           spDone = done,
           spCse = cse,
@@ -2614,6 +2632,7 @@ shadowNames names env
   where
     !evaluated = List.foldl' (flip Set.delete) (spEvaluated env) names
     !locals = List.foldl' (flip Map.delete) (spLocals env) names
+    !localArities = List.foldl' (flip Map.delete) (spLocalArities env) names
     !dictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names
     !done = List.foldl' (flip Map.delete) (spDone env) names
     !cse = if Map.null (spCse env) then spCse env else Map.filter (`Set.notMember` shadowed) (spCse env)
@@ -3573,6 +3592,7 @@ constantCallPattern env headExpr' args' =
             env
               { spInline = Map.empty,
                 spLocals = Map.empty,
+                spLocalArities = Map.empty,
                 spLocalDictionaries = Map.empty,
                 spExcluded = MonoidMap.empty,
                 spCse = Map.empty,
@@ -3959,7 +3979,7 @@ mkLet env bind body
   -- that the two casts cancel and the lambda lands on its arguments.
   | lifted,
     Occurrences 1 True <- uses,
-    (arity, cast) <- movableArity (spArity (spFixed env)) rhs,
+    (arity, cast) <- movableArity (spLocalArities env `Map.union` spArity (spFixed env)) rhs,
     arity > 0,
     saturatedCalls name 1 body == 1,
     maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do

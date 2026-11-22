@@ -1,0 +1,73 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Prim ((+#), (<#))
+  import GHC.Types (Bool (..), Int (..), isTrue#)
+
+  run :: Int -> Int -> Int -> Int
+  run (I# s) (I# n) m =
+    let step (I# k) (I# a) = I# (k +# (a +# s))
+        act = step m
+        go (I# i) acc = case isTrue# (i <# n) of
+          True -> go (I# (i +# 1#)) (act acc)
+          False -> acc
+     in step m (go (I# 0#) (I# s))
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cFalse, 3.cTrue] 3.tBool :: sType;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cFalse :: tBool;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cTrue :: tBool;
+    3.visTrue# :: FUN @cIntRep @sLiftedRep tInt# tBool
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vrun :: tInt → tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt) (z : tInt).
+      let! cI# (s : tInt#) = x;
+      let! cI# (n : tInt#) = y;
+      let step : tInt → tInt → tInt =
+        λ(x{1} : tInt) (y{1} : tInt).
+          let! cI# (k : tInt#) = x{1};
+          let! cI# (a : tInt#) = y{1};
+          cI# (prim +# k (prim +# a s));
+      rec {
+        go : tInt → tInt → tInt =
+          λ(x{1} : tInt) (y{1} : tInt).
+            let! cI# (i : tInt#) = x{1};
+            case visTrue# (prim <# i n) of {
+              cTrue →
+                go (cI# (prim +# i lit (1#cIntRep) :: tInt#)) (step z y{1});
+              cFalse →
+                y{1}
+            }
+      } in
+      step z (go (cI# lit (0#cIntRep) :: tInt#) (cI# s))
+status: pass
+reason: The partial application of a local function has one use, and that use is a call inside a loop. The application moves to the call, so the loop calls the local function with both arguments and builds no closure.
