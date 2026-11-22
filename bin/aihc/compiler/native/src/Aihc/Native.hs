@@ -431,10 +431,15 @@ backendCompiler target =
 -- | The oldest macOS that the objects of the Apple target run on. The triple
 -- has no macOS version. On a macOS host, Clang then uses the version of the
 -- host. On a Linux host, Clang uses a macOS version older than 10.7, and
--- that version has no thread-local storage. macOS 11 is the first macOS on
--- arm64, so the objects are the same on each host.
+-- that version has no thread-local storage. Thus, the argument gives one
+-- version, and the objects are the same on each host.
+--
+-- macOS 12 is the first macOS on which the linker writes chained fixups.
+-- With an older version, the linker writes rebase opcodes in
+-- @__LINKEDIT@, and these opcodes make the executable larger. For example,
+-- they are 209 KB of the aihc-tc-bench executable at @-Os@.
 appleMinimumVersionArgument :: String
-appleMinimumVersionArgument = "-mmacos-version-min=11.0"
+appleMinimumVersionArgument = "-mmacos-version-min=12.0"
 
 -- | The Clang arguments of all code for an ELF target.
 --
