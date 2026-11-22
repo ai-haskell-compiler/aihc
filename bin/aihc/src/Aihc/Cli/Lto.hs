@@ -89,7 +89,7 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       when keepCore $ do
         Fc.writeProgramFile corePath pruned
         verbose "Write FC: program"
-      _ <- compileFcModules primPackage config {compileProfileUnit = compileProfileAllocations config || compileProfileTime config} verbose (const paths) [FcModule "program" Nothing pruned]
+      _ <- compileFcModules primPackage config {compileProfileUnit = compileProfileTime config} verbose (const paths) [FcModule "program" Nothing pruned]
       writeFile stampPath current
   pure object
 

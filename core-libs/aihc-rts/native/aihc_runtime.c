@@ -520,24 +520,86 @@ static char *aihc_append_decimal(char *cursor, uint64_t value) {
   return cursor;
 }
 
-static const char *const *aihc_allocation_names;
-static const uint64_t *aihc_allocation_counts;
-static uint64_t aihc_allocation_size;
+/* The tables of the units that counted an object. Each unit adds its own
+   table, from any capability. */
+static AihcAllocationTable *aihc_allocation_tables;
 
-void aihc_allocation_profile_register(const char *const *names,
-                                      const uint64_t *counts,
-                                      const uint64_t *size) {
-  aihc_allocation_names = names;
-  aihc_allocation_counts = counts;
-  aihc_allocation_size = *size;
+void aihc_allocation_profile_register(AihcAllocationTable *table) {
+  uint64_t unregistered = 0;
+  if (!__atomic_compare_exchange_n(&table->registered, &unregistered, 1, 0,
+                                   __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+    return;
+  }
+  AihcAllocationTable *head =
+      __atomic_load_n(&aihc_allocation_tables, __ATOMIC_ACQUIRE);
+  do {
+    table->next = head;
+  } while (!__atomic_compare_exchange_n(&aihc_allocation_tables, &head, table,
+                                        1, __ATOMIC_RELEASE,
+                                        __ATOMIC_ACQUIRE));
+}
+
+/* One line of the allocation report: an info table name and its counts,
+   summed over the units that have a counter with the name. */
+typedef struct {
+  const char *name;
+  uint64_t objects;
+  uint64_t words;
+} AihcAllocationEntry;
+
+static int aihc_allocation_name_order(const void *left, const void *right) {
+  return strcmp(((const AihcAllocationEntry *)left)->name,
+                ((const AihcAllocationEntry *)right)->name);
 }
 
 /* The order of the allocation report: the most bytes first. */
 static int aihc_allocation_order(const void *left, const void *right) {
-  uint64_t left_words = aihc_allocation_counts[2 * *(const uint64_t *)left + 1];
-  uint64_t right_words =
-      aihc_allocation_counts[2 * *(const uint64_t *)right + 1];
+  uint64_t left_words = ((const AihcAllocationEntry *)left)->words;
+  uint64_t right_words = ((const AihcAllocationEntry *)right)->words;
   return left_words < right_words ? 1 : left_words > right_words ? -1 : 0;
+}
+
+/* The counters of every registered table that counted an object, one entry
+   for each name, the most bytes first. The result is malloc'd. */
+static AihcAllocationEntry *aihc_allocation_entries(uint64_t *count) {
+  uint64_t total = 0;
+  for (AihcAllocationTable *table = aihc_allocation_tables; table != NULL;
+       table = table->next) {
+    total += table->size;
+  }
+  *count = 0;
+  if (total == 0) {
+    return NULL;
+  }
+  AihcAllocationEntry *entries = malloc(total * sizeof(*entries));
+  if (entries == NULL) {
+    aihc_fail("out of memory");
+  }
+  uint64_t used = 0;
+  for (AihcAllocationTable *table = aihc_allocation_tables; table != NULL;
+       table = table->next) {
+    for (uint64_t index = 0; index < table->size; ++index) {
+      if (table->counts[2 * index] != 0) {
+        entries[used].name = table->names[index];
+        entries[used].objects = table->counts[2 * index];
+        entries[used].words = table->counts[2 * index + 1];
+        ++used;
+      }
+    }
+  }
+  qsort(entries, used, sizeof(*entries), aihc_allocation_name_order);
+  uint64_t merged = 0;
+  for (uint64_t index = 0; index < used; ++index) {
+    if (merged != 0 && strcmp(entries[merged - 1].name, entries[index].name) == 0) {
+      entries[merged - 1].objects += entries[index].objects;
+      entries[merged - 1].words += entries[index].words;
+    } else {
+      entries[merged++] = entries[index];
+    }
+  }
+  qsort(entries, merged, sizeof(*entries), aihc_allocation_order);
+  *count = merged;
+  return entries;
 }
 
 /* A JSON string. A name holds no control character, so only a quote and a
@@ -554,26 +616,20 @@ static char *aihc_append_json_string(char *cursor, const char *text) {
   return cursor;
 }
 
-/* The counters as a JSON array, one object for each info table that
+/* The counters as a JSON array, one object for each info table name that
    allocated, the most bytes first. */
-static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
+static char *aihc_append_allocations(char *cursor,
+                                     const AihcAllocationEntry *entries,
+                                     uint64_t count) {
   cursor = aihc_append_text(cursor, ", \"allocations\": [");
-  int first = 1;
-  for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
-    uint64_t site = order[index];
-    uint64_t objects = aihc_allocation_counts[2 * site];
-    if (objects == 0) {
-      continue;
-    }
-    cursor = aihc_append_text(cursor,
-                              first ? "\n  {\"name\": " : ",\n  {\"name\": ");
-    first = 0;
-    cursor = aihc_append_json_string(cursor, aihc_allocation_names[site]);
+  for (uint64_t index = 0; index < count; ++index) {
+    cursor = aihc_append_text(cursor, index == 0 ? "\n  {\"name\": "
+                                                 : ",\n  {\"name\": ");
+    cursor = aihc_append_json_string(cursor, entries[index].name);
     cursor = aihc_append_text(cursor, ", \"objects\": ");
-    cursor = aihc_append_decimal(cursor, objects);
+    cursor = aihc_append_decimal(cursor, entries[index].objects);
     cursor = aihc_append_text(cursor, ", \"bytes\": ");
-    cursor =
-        aihc_append_decimal(cursor, 8 * aihc_allocation_counts[2 * site + 1]);
+    cursor = aihc_append_decimal(cursor, 8 * entries[index].words);
     *cursor++ = '}';
   }
   return aihc_append_text(cursor, "]");
@@ -610,17 +666,10 @@ void aihc_runtime_statistics_report(void) {
      An allocation entry takes its name, which can double with escapes, and
      at most 90 more bytes. */
   size_t capacity = 1024;
-  uint64_t *order = NULL;
-  if (aihc_allocation_size != 0) {
-    order = malloc(aihc_allocation_size * sizeof(uint64_t));
-    if (order == NULL) {
-      aihc_fail("out of memory");
-    }
-    for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
-      order[index] = index;
-      capacity += 2 * strlen(aihc_allocation_names[index]) + 90;
-    }
-    qsort(order, aihc_allocation_size, sizeof(uint64_t), aihc_allocation_order);
+  uint64_t entry_count = 0;
+  AihcAllocationEntry *entries = aihc_allocation_entries(&entry_count);
+  for (uint64_t index = 0; index < entry_count; ++index) {
+    capacity += 2 * strlen(entries[index].name) + 90;
   }
   char *text = malloc(capacity);
   if (text == NULL) {
@@ -662,9 +711,9 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_text(cursor, ", \"gc_gen2_limit_count\": ");
   cursor =
       aihc_append_decimal(cursor, capability->machine->gc_gen2_limit_count);
-  if (order != NULL) {
-    cursor = aihc_append_allocations(cursor, order);
-    free(order);
+  if (entries != NULL) {
+    cursor = aihc_append_allocations(cursor, entries, entry_count);
+    free(entries);
   }
   cursor = aihc_append_text(cursor, "}\n");
   if (aihc_host_write_file(path, text, (size_t)(cursor - text)) != 0) {
