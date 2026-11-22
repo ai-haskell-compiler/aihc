@@ -43,7 +43,6 @@ where
 
 import GHC.Prim
   ( Addr#,
-    compareInt#,
     ByteArray#,
     Int#,
     MutableByteArray#,
@@ -54,6 +53,8 @@ import GHC.Prim
     addWordC#,
     and#,
     clz#,
+    compareInt#,
+    compareInt#,
     copyAddrToByteArray#,
     copyByteArray#,
     eqWord#,
