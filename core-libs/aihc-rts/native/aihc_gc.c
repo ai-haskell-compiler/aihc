@@ -5577,16 +5577,32 @@ AihcValue *aihc_gc_allocate_global(AihcCapability *capability, uint64_t words) {
   return aihc_gc_allocate_global_unlocked(capability, words);
 }
 
-/* Consume a prior reservation. The allocation list is not a root. */
+static AihcValue *aihc_gc_allocate_pinned_block(AihcCapability *capability,
+                                                uint64_t words,
+                                                uint64_t alignment,
+                                                int zero_payload);
+
+/* Consume a prior reservation. The allocation list is not a root. The
+   object reads as zero, because the runtime objects that take this path,
+   such as an IO request, rely on fields that they do not set. */
 AihcValue *aihc_gc_allocate_pinned(AihcCapability *capability, uint64_t words) {
-  return aihc_gc_allocate_pinned_aligned(capability, words, 1);
+  return aihc_gc_allocate_pinned_block(capability, words, 1, 1);
 }
 
-/* Consume a prior reservation for an object whose payload starts two words
-   after the object, at an alignment. The words include the offset of the
-   block in its allocation, as aihc_byte_array_words charges it. */
+/* Consume a prior reservation for a pinned byte array whose payload starts
+   two words after the object, at an alignment. The words include the
+   offset of the block in its allocation, as aihc_byte_array_words charges
+   it. The payload of a new byte array is unspecified, as in GHC, so only
+   the block header and the two words of the object read as zero. */
 AihcValue *aihc_gc_allocate_pinned_aligned(AihcCapability *capability,
                                            uint64_t words, uint64_t alignment) {
+  return aihc_gc_allocate_pinned_block(capability, words, alignment, 0);
+}
+
+static AihcValue *aihc_gc_allocate_pinned_block(AihcCapability *capability,
+                                                uint64_t words,
+                                                uint64_t alignment,
+                                                int zero_payload) {
   size_t bytes = sizeof(AihcPinnedBlock) + words * sizeof(AihcSlot);
   if (words > (SIZE_MAX - sizeof(AihcPinnedBlock)) / sizeof(AihcSlot) ||
       bytes < sizeof(AihcPinnedBlock)) {
@@ -5606,25 +5622,35 @@ AihcValue *aihc_gc_allocate_pinned_aligned(AihcCapability *capability,
         alignment > AIHC_REGION_BYTES ? alignment / AIHC_REGION_BYTES : 1;
     allocation = aihc_regions_acquire_aligned(regions, region_alignment,
                                               AIHC_REGION_PINNED);
-    /* A pinned block reads as zero, as the C allocation below does. */
-    memset(allocation, 0, bytes);
   } else {
     if (bytes > aihc_nursery_room(capability)) {
       aihc_fail("unchecked pinned allocation exceeded reserved heap");
     }
     if (offset == 0) {
-      allocation = calloc(1, bytes);
+      allocation = zero_payload ? calloc(1, bytes) : malloc(bytes);
     } else {
       /* aligned_alloc takes a size that is a multiple of the alignment. */
       size_t rounded = (bytes + alignment - 1) & ~(size_t)(alignment - 1);
       allocation = aligned_alloc(alignment, rounded);
-      if (allocation != NULL) {
+      if (allocation != NULL && zero_payload) {
         memset(allocation, 0, rounded);
       }
     }
     if (allocation == NULL) {
       aihc_fail("out of memory");
     }
+  }
+  /* The block header and the first two words of the object read as zero:
+     a block whose object has no header yet is not initialized. A runtime
+     object reads as zero in full. */
+  size_t zeroed = offset + sizeof(AihcPinnedBlock) + 2 * sizeof(AihcSlot);
+  if (zero_payload || zeroed > bytes) {
+    zeroed = bytes;
+  }
+  /* A small runtime object is zero already: calloc or memset above made
+     it so. */
+  if (aihc_block_is_large(bytes) || !zero_payload) {
+    memset(allocation, 0, zeroed);
   }
   AihcPinnedBlock *block = (AihcPinnedBlock *)(allocation + offset);
   if (offset != 0) {
