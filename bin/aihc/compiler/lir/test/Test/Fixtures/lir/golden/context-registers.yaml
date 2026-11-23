@@ -64,17 +64,17 @@ expected: |
     store ptr %hp_17, [%base_2 + 16] align 1 word
     store ptr %sp_1, [%base_2 + 32] align 1 word
     %result_26 = call @aihc_heap_collect(%base_2, 5, 2, %roots_4, null)
-    %interrupted_27 = ne ptr %result_26, null
-    br %interrupted_27, interrupt_28, collected_29
+    %$cps_return$gc$gc_27 = load ptr [%roots_4] align 8
+    %cell$gc_28 = load ptr [%roots_4 + 8] align 8
+    %hp_29 = load ptr [%base_2 + 16] align 1 word
+    %interrupted_30 = ne ptr %result_26, null
+    br %interrupted_30, interrupt_31, collected_32
 
-  cold interrupt_28:
+  cold interrupt_31:
     tailcall @aihc_lir_resume(%base_2, %result_26)
 
-  collected_29:
-    %$cps_return$gc$gc_30 = load ptr [%roots_4] align 8
-    %cell$gc_31 = load ptr [%roots_4 + 8] align 8
-    %hp_32 = load ptr [%base_2 + 16] align 1 word
-    jump gc_reserved_22(%$cps_return$gc$gc_30, %cell$gc_31, %hp_32)
+  collected_32:
+    jump gc_reserved_22(%$cps_return$gc$gc_27, %cell$gc_28, %hp_29)
 
   gc_reserved_22(%$cps_return$gc$gc_23: ptr, %cell$gc_24: ptr, %hp_25: ptr):
     %hp_33 = ptr.add %hp_25, 16

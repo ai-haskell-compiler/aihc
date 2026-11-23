@@ -2700,9 +2700,18 @@ replayInfo shape = do
       )
   pure (OperandLiteral (LitSymbol symbol))
 
-callHeapCollect :: Operand -> [Operand] -> LowerM ()
-callHeapCollect capability arguments = do
+-- | Call the collector, and then run the given action before the test of
+-- an interrupt. The action reads the relocated roots from the root array
+-- and the heap context. Its loads only read memory, and the path of an
+-- interrupt does not use their results. Thus only the block of the call
+-- reads the root array, which is a stack allocation, and the native backend
+-- can give that block a frame of its own. A read of the array in the next
+-- block made a frame for the full function, and each entry of the function
+-- then built and removed that frame.
+callHeapCollect :: Operand -> [Operand] -> LowerM a -> LowerM a
+callHeapCollect capability arguments afterCall = do
   resume <- callRuntime "aihc_heap_collect" [Ptr, I64, I64, Ptr, Ptr] [Ptr] (capability : arguments)
+  result <- afterCall
   interrupted <- emitValue "interrupted" I1 (Compare Ne Ptr resume (OperandLiteral LitNull))
   deliver <- freshLabel "interrupt"
   collected <- freshLabel "collected"
@@ -2710,6 +2719,7 @@ callHeapCollect capability arguments = do
   beginColdBlock deliver []
   resumeTransfer capability resume
   beginBlock collected []
+  pure result
 
 compileCpsPrimitive :: FunctionCtx -> ValueEnv -> GrinRep -> Text -> [GrinValue] -> GrinValue -> LowerM ()
 compileCpsPrimitive ctx env runtimeRep name arguments continuation =
@@ -2925,10 +2935,11 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
       capability <- capabilityOperand context
       storeContext capability context
       srt <- useSrt ctx
-      callHeapCollect capability [words', OperandLiteral (LitInt (toInteger (length roots))), array, srt]
-      relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
-        loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
-      collected <- loadHeapContext capability context
+      (relocated, collected) <- callHeapCollect capability [words', OperandLiteral (LitInt (toInteger (length roots))), array, srt] $ do
+        relocated <- forM (zip [0 :: Int ..] vars) $ \(index, var) ->
+          loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
+        collected <- loadHeapContext capability context
+        pure (relocated, collected)
       terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
       beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
       setContext context {contextHeap = OperandVar heap}

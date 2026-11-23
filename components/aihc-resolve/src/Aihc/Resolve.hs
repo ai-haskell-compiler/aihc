@@ -95,6 +95,7 @@ import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ)
+import Data.Either (partitionEithers)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -1069,8 +1070,15 @@ resolveExpr expr =
       pure (R.ELetDecls decls' body')
     ECase scrutinee alts ->
       R.ECase <$> resolveExpr scrutinee <*> mapM resolveCaseAlt alts
-    EArithSeq arithSeq ->
-      R.EArithSeq <$> resolveArithSeq arithSeq
+    EArithSeq arithSeq -> do
+      sequence' <- R.EArithSeq <$> resolveArithSeq arithSeq
+      info <- currentModuleInfo
+      -- Under OverloadedLists, GHC applies fromList to an arithmetic
+      -- sequence. The sequence does not have a static length, thus it does
+      -- not use fromListN.
+      if OverloadedLists `elem` moduleInfoExtensions info
+        then annotateSyntaxTerm "fromList" sequence'
+        else pure sequence'
     ERecordCon name fields wildcard -> do
       name' <- resolveTermUse name
       fields' <- resolveRecordFields fields
@@ -1080,9 +1088,13 @@ resolveExpr expr =
       pure (R.ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
       R.ERecordUpd <$> resolveExpr record <*> resolveRecordUpdateFields fields
-    EGetField record name ->
-      R.EGetField <$> resolveExpr record <*> pure (fromParserName name)
-    EGetFieldProjection {} -> pure (fromParserExpr expr)
+    -- Record dot syntax applies the getField syntax term, as GHC does.
+    -- The expression e.x is getField at the label "x", applied to e.
+    -- A projection such as (.x.y) applies getField for each field in turn.
+    EGetField record name -> do
+      record' <- resolveExpr record
+      annotateSyntaxTerm "getField" (R.EGetField record' (fromParserName name))
+    EGetFieldProjection {} -> annotateSyntaxTerm "getField" (fromParserExpr expr)
     ETypeSig inner ty ->
       R.ETypeSig <$> resolveExpr inner <*> resolveType ty
     EParen inner ->
@@ -1402,8 +1414,10 @@ builtinSyntaxTerm info name =
       [ "fromInteger",
         "fromRational",
         "fromString",
+        "fromList",
         "fromListN",
         "toList",
+        "getField",
         "negate",
         "==",
         ">=",
@@ -1678,6 +1692,10 @@ resolveDoStmt isLast stmt =
 -- and it needs only a Functor or an Applicative instance. A block of a
 -- different form stays a monadic do block.
 --
+-- The block can also have let statements between the binds. A let
+-- statement must not use a variable that an earlier pattern binds. As in
+-- GHC, the let statements then go around the applicative expression.
+--
 -- GHC also splits a block with dependencies into independent segments.
 -- This rewrite does not do that.
 --
@@ -1694,17 +1712,20 @@ applicativeDo sourceStmts stmts = do
     || length binderNames /= Set.size (Set.fromList binderNames)
     then pure Nothing
     else case List.unsnoc (map R.peelDoStmtAnn stmts) of
-      Just (args@(_ : _), R.DoExpr final)
-        | Just actions <- traverse applicativeArg args,
+      Just (args, R.DoExpr final)
+        | Just parts <- traverse applicativeArg args,
+          (lets, actions@(_ : _)) <- partitionEithers parts,
           independentActions actions,
+          independentLets parts,
           Just result <- returnedExpr info final ->
-            Just <$> applicativeExpr actions result
+            Just . flip (foldr R.ELetDecls) lets <$> applicativeExpr actions result
       _ -> pure Nothing
   where
     applicativeArg stmt =
       case stmt of
-        R.DoBind pat action | lazyPattern pat -> Just (pat, action)
-        R.DoExpr action -> Just (R.PWildcard, action)
+        R.DoBind pat action | lazyPattern pat -> Just (Right (pat, action))
+        R.DoExpr action -> Just (Right (R.PWildcard, action))
+        R.DoLetDecls decls -> Just (Left decls)
         _ -> Nothing
     lazyPattern pat =
       case R.peelPatternAnn pat of
@@ -1713,6 +1734,19 @@ applicativeDo sourceStmts stmts = do
         R.PWildcard -> True
         R.PIrrefutable {} -> True
         _ -> False
+
+-- | Whether no let statement uses a variable that an earlier pattern binds.
+-- As in GHC, such let statements move to the start of the block. Thus they
+-- go around the applicative expression, and each action and the result can
+-- use their variables.
+independentLets :: [Either [R.Decl] (R.Pattern, R.Expr)] -> Bool
+independentLets = go Set.empty
+  where
+    go _ [] = True
+    go bound (Left decls : rest) =
+      Set.disjoint (localEntities decls) bound && go bound rest
+    go bound (Right (pat, _) : rest) =
+      go (Set.union bound (localEntities pat)) rest
 
 -- | Whether no action or pattern uses a variable that an earlier pattern
 -- binds.

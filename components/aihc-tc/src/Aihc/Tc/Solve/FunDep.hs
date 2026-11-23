@@ -202,7 +202,20 @@ improveFromPredicate givens info dependency constraint other =
               -- the two constraints could still be about different types.
               -- An occurrence whose kind a given equality refined is still
               -- the same variable.
-              when (sameTypes (determiners arguments') (determiners otherArguments')) $
+              --
+              -- The given equalities can make them equal too. A GADT match
+              -- on @HSCons _ rest@ against @HSet (e ': els)@ gives @(e ':
+              -- els) ~ (e' ': elems)@, and @rest :: HSet elems@. A wanted
+              -- @HRemove elems t0 i@ then has the determiners of a given
+              -- @HRemove els elsx i@ after the rewrite of @elems@ to @els@.
+              equal <-
+                if sameTypes (determiners arguments') (determiners otherArguments')
+                  then pure True
+                  else do
+                    rewrites <- givenRewrites givens
+                    let rewrite = map (applyGivenSubst rewrites) . determiners
+                    pure (not (null rewrites) && sameTypes (rewrite arguments') (rewrite otherArguments'))
+              when equal $
                 improveEqualities givens (determined dependency arguments') (determined dependency otherArguments')
             _ -> pure ()
     _ -> pure ()

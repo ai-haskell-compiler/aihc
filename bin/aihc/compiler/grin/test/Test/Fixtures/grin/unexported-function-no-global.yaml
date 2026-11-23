@@ -14,8 +14,10 @@ expected: |-
 
   pub 1.$visible$i$i (x :: IntRep) -> IntRep =
     argument :: IntRep <-
-      call @IntRep 1.$helper (x :: IntRep)
-    call @IntRep 1.$helper (argument :: IntRep)
+      primitive-call @IntRep +# (x :: IntRep) (1 :: IntRep)
+    argument%1 :: IntRep <-
+      primitive-call @IntRep *# (argument :: IntRep) (2 :: IntRep)
+    call @IntRep 1.$helper (argument%1 :: IntRep)
 extensions:
 - MagicHash
 modules:

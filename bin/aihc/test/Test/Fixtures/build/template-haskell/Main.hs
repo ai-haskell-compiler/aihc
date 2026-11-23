@@ -366,5 +366,8 @@ main = do
   -- A splice lifts a byte array, as the derived instance of a type with a
   -- byte array field does. The program gets the same bytes.
   print (Exts.toList ($(lift (Exts.fromList [1, 2, 255] :: ByteArray)) :: ByteArray))
+  -- A splice lifts constructors of base types. The names of the
+  -- constructors are the names in these libraries.
+  print ($(lift (Nothing :: Maybe Int, Just 'j', Left 3 :: Either Int Bool)) :: (Maybe Int, Maybe Char, Either Int Bool))
   mapM_ putStrLn quasiLines
   putStrLn $pathVariable

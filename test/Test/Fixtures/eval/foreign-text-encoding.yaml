@@ -1,0 +1,41 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word8)
+    import Foreign.Marshal.Array (peekArray)
+    import Foreign.Ptr (castPtr)
+    import qualified GHC.Foreign as GHC
+    import GHC.IO.Encoding (mkTextEncoding)
+
+    bytes :: String -> String -> IO (Int, [Word8], String)
+    bytes name string = do
+      encoding <- mkTextEncoding name
+      GHC.withCStringLen encoding string $ \(pointer, count) -> do
+        encoded <- peekArray count (castPtr pointer)
+        decoded <- GHC.peekCStringLen encoding (pointer, count)
+        return (count, encoded, decoded)
+
+    main :: IO ()
+    main = do
+      bytes "UTF-16LE" ".\233" >>= print
+      bytes "UTF-16BE" "a\128512" >>= print
+      bytes "UTF-16" "a" >>= print
+      bytes "UTF-32LE" "a" >>= print
+      bytes "UTF-16LE//ROUNDTRIP" "x" >>= print
+      encoding <- mkTextEncoding "UTF-16LE"
+      GHC.withCString encoding "ab" (GHC.peekCString encoding) >>= print
+expression: main
+stdout: |
+  (4,[46,0,233,0],".\233")
+  (6,[0,97,216,61,222,0],"a\128512")
+  (4,[254,255,0,97],"a")
+  (4,[97,0,0,0],"a")
+  (2,[120,0],"x")
+  "ab"
+output: |
+  ()
+status: pass
+reason: GHC.Foreign encodes and decodes UTF-16 and UTF-32 strings in the code units of the encoding, as in base
