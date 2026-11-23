@@ -755,8 +755,20 @@ projectApplication env (left, right) =
 
 -- | Project equal nominal arguments from the same outer constructor.
 -- Zero selects the last argument, after any implicit kind arguments.
+--
+-- Type equality reduces type family applications (see 'typesEqual'), so a
+-- side can be a family application that reduces to a constructor
+-- application. The type checker gives @nth 0 (co)@ for
+-- @co : Append (x ': xs) r ~ (e ': r')@, because the left side reduces to
+-- @x ': Append xs r@. Thus, when the written sides do not project, the
+-- reduced sides are projected.
 projectNominalArgument :: TypeEnv -> Int -> (Type, Type) -> Maybe (Type, Type)
-projectNominalArgument env index (left, right)
+projectNominalArgument env index (left, right) =
+  projectWrittenNominalArgument env index (left, right)
+    <|> projectWrittenNominalArgument env index (reduceType env left, reduceType env right)
+
+projectWrittenNominalArgument :: TypeEnv -> Int -> (Type, Type) -> Maybe (Type, Type)
+projectWrittenNominalArgument env index (left, right)
   | index < 0 = Nothing
   | otherwise = case (left, right) of
       (TyFun _ _ leftDomain leftRange, TyFun _ _ rightDomain rightRange) ->

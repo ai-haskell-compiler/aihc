@@ -1,0 +1,29 @@
+extensions:
+- DataKinds
+- PolyKinds
+- RankNTypes
+- StandaloneKindSignatures
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, RankNTypes, StandaloneKindSignatures #-}
+  module Test where
+  import GHC.Types
+  type SW :: forall j (a :: j). W a -> Type
+  data SW ws = SW
+  type W :: k -> Type
+  data W a = W
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, RankNTypes, StandaloneKindSignatures #-}
+  module Test where
+  import GHC.Types
+  type SW :: forall j (a :: j). W a -> Type
+  data SW ws = SW
+       │       └─ type: ∀ j a ws. SW ws
+       └─ type: W a → Type
+  type W :: k -> Type
+  data W a = W
+       │     └─ type: ∀ k a. W a
+       └─ type: k → Type
+status: pass
+reason: a standalone kind signature that names another constructor of the group instantiates the signature kind of that constructor
