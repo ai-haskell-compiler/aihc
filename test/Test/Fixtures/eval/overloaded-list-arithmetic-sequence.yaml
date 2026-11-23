@@ -1,0 +1,27 @@
+extensions:
+  - OverloadedLists
+  - TypeFamilies
+modules:
+  - |
+    {-# LANGUAGE OverloadedLists, TypeFamilies #-}
+    module Test where
+
+    import Prelude
+    import GHC.IsList (IsList (..))
+
+    newtype Box = Box [Int]
+
+    instance IsList Box where
+      type Item Box = Int
+      fromList = Box
+      toList (Box xs) = xs
+
+    result :: Bool
+    result = case [1 .. 4] of
+      Box xs -> sum xs == 10
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: Under OverloadedLists, an arithmetic sequence applies fromList to the list.
