@@ -4449,7 +4449,7 @@ predeclareTypeConstructor declaration =
       mapM_ (predeclareTypeConstructor . DeclTypeFamilyDecl) (classDeclTypeFamilies classDeclaration)
     DeclTypeFamilyDecl familyDeclaration ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDeclaration) of
-        Just binder -> predeclare binder (unqualifiedNameText binder) (length (typeFamilyDeclParams familyDeclaration)) TypeFamilyTyCon
+        Just binder -> predeclare binder (unqualifiedNameText binder) (length (typeFamilyVisibleParams familyDeclaration)) TypeFamilyTyCon
         Nothing -> pure ()
     _ -> pure ()
   where
@@ -4700,7 +4700,7 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
     Nothing -> pure Nothing
     Just familyBinder -> do
       let familyName = unqualifiedNameText familyBinder
-          params = typeFamilyDeclParams familyDecl
+          params = typeFamilyVisibleParams familyDecl
           familyDefaults = [familyInst | familyInst <- defaults, typeFamilyInstName familyInst == Just familyName]
       familyTyCon <- mkDeclaredTyCon familyBinder familyName (length params)
       defaultEquation <-
@@ -5284,7 +5284,7 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       emitError Nothing (OtherError "type family head does not name a type family")
     Just familyBinder -> do
       let familyName = unqualifiedNameText familyBinder
-          params = typeFamilyDeclParams familyDecl
+          params = typeFamilyVisibleParams familyDecl
           arity = length params
       -- An associated family shares its kind variables with the class, so
       -- only a top-level family quantifies the kind variables it mentions.
@@ -5350,7 +5350,7 @@ typeFamilyInjectivePositions familyDecl =
     Just (TypeFamilyInjectiveSig _ injectivity) ->
       Just
         [ position
-        | (position, param) <- zip [0 ..] (typeFamilyDeclParams familyDecl),
+        | (position, param) <- zip [0 ..] (typeFamilyVisibleParams familyDecl),
           tyVarBinderName param `elem` typeFamilyInjectivityDetermined injectivity
         ]
     _ -> Nothing
@@ -6216,6 +6216,12 @@ synonymBodyScope kindScheme binders params =
 -- @k@ in @type T \@k = ...@, is not a parameter. See 'invisibleHeadBinders'.
 visibleHeadParams :: [TyVarBinder] -> [TyVarBinder]
 visibleHeadParams = filter ((== TyVarBVisible) . tyVarBinderVisibility)
+
+-- | The parameters of a type family head. An invisible binder, as @k@
+-- in @type family Sing \@k :: k -> Type@, names a specified variable of
+-- the standalone kind signature and is not a parameter.
+typeFamilyVisibleParams :: TypeFamilyDecl -> [TyVarBinder]
+typeFamilyVisibleParams = visibleHeadParams . typeFamilyDeclParams
 
 -- | Each invisible binder of a declaration head names the next specified
 -- variable of the standalone kind signature, as in GHC. In @type TyCon1
