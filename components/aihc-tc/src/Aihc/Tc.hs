@@ -139,20 +139,24 @@ where
 import Aihc.Parser.Syntax (Extension (..), Module)
 import Aihc.Resolve (ResolvedModule (..))
 import Aihc.Resolve.Syntax qualified as R
-import Aihc.Resolve.Syntax.ToParser (toParserModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Bindings (moduleBindings, moduleDiagnostics)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
-import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, internalAbortDiagnostic)
+import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, checkedParserModule, internalAbortDiagnostic)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomIndex, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
+import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
+import Data.Functor.Identity (Identity (..))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 
@@ -197,19 +201,30 @@ typecheckModuleSccWithFacts config = typecheckWithFacts (typecheckModuleSccWithS
 
 -- | Use the same module identity and interface rules for both check orders.
 --
--- The check gives resolved syntax trees. This function changes them into
--- parser syntax trees for the phases after the type checker.
-typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([R.Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
+-- The check gives final syntax trees of the type checker. This function
+-- changes them into parser syntax trees for the phases after the type
+-- checker.
+typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Final.Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
 typecheckWithFacts check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the modules add no types, evidence, or diagnostics.
-  | all (null . R.moduleDecls . resolvedModuleSyntax) resolved = (map (toParserModule . annotateIdentity) resolved, emptyTcInterface)
+  | all (null . R.moduleDecls . resolvedModuleSyntax) resolved = (map (checkedParserModule . annotateIdentity) resolved, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (checkedModules, finalState) = check initialState resolved
-       in (map toParserModule checkedModules, tcInterfaceDifference initialState finalState)
+       in (map checkedParserModule checkedModules, tcInterfaceDifference initialState finalState)
   where
-    annotateIdentity unit = withModuleIdentity (resolvedModulePackage unit) (resolvedModuleSyntax unit)
+    annotateIdentity unit = uncheckedModule (withModuleIdentity (resolvedModulePackage unit) (fromResolved (resolvedModuleSyntax unit)))
+
+-- | A module that the type checker did not check. It keeps only the
+-- identity of the module.
+uncheckedModule :: Pending.Module -> Final.Module
+uncheckedModule = runIdentity . fromPending (pure . plainInfo)
+  where
+    plainInfo item =
+      case item of
+        Pending.InfoModuleIdentity identity -> Just (Final.InfoModuleIdentity identity)
+        _ -> Nothing
 
 -- | The state before the check of a module group. The tables of terms,
 -- type constructors, data types, classes, pattern synonyms, and foreign
@@ -261,11 +276,11 @@ exportedGlobalTerms = Map.mapMaybe binderScheme
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([R.Module], TcState)
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Final.Module], TcState)
 typecheckModuleSccWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( case map resolvedModuleSyntax resolved of
+      ( case map (uncheckedModule . fromResolved . resolvedModuleSyntax) resolved of
           [] -> []
           first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
         st
@@ -292,11 +307,11 @@ typecheckModuleSccWithState config st resolved =
           tcEnvPostfixOperators = any (elem PostfixOperators) extensions
         }
 
-typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (R.Module, TcState)
+typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Final.Module, TcState)
 typecheckModuleWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (resolvedModuleSyntax resolved),
+      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (uncheckedModule (fromResolved (resolvedModuleSyntax resolved))),
         st
       )
     Right (annotatedModule, st') ->

@@ -16,7 +16,22 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
-import Aihc.Resolve.Syntax
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Constraint
+import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
+import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme, zonkKind)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.Syntax.Pending
   ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
@@ -37,31 +52,19 @@ import Aihc.Resolve.Syntax
     ResolutionResult (..),
     Rhs (..),
     SourceSpan,
+    TcInfo (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotateFunCast,
+    annotateRhsCast,
+    annotationSpan,
+    mkSpanAnnotation,
     nameResolved,
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve.Syntax.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..), annotateFunCast, annotateRhsCast, pendingAnnotation)
-import Aihc.Tc.Constraint
-import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
-import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
-import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme, zonkKind)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
-import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
@@ -273,9 +276,9 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
           case pending of
             Nothing -> pure expr
             Just annotation ->
-              pure $ case mapMaybe fromAnnotation (nameAnns name) of
-                (sp :: SourceSpan) : _ -> EAnn (mkAnnotation sp) (EAnn (mkAnnotation annotation) (EVar name))
-                [] -> EAnn (mkAnnotation annotation) (EVar name)
+              pure $ case mapMaybe annotationSpan (nameAnns name) of
+                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (InfoType annotation) (EVar name))
+                [] -> ETc (InfoType annotation) (EVar name)
         EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
         ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
         ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
@@ -285,7 +288,7 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
       pending <- occurrencePending schemes name
       pure $ case pending of
         Nothing -> name
-        Just annotation -> name {nameAnns = nameAnns name <> [mkAnnotation annotation]}
+        Just annotation -> name {nameTc = nameTc name <> [InfoType annotation]}
 
     occurrencePending schemes name =
       case nameResolved name of
@@ -414,6 +417,9 @@ inferImplicitParamDecl inferExpr decl =
     DeclAnn ann inner -> do
       (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
       pure (DeclAnn ann inner', name, ty, cts)
+    DeclTc ann inner -> do
+      (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
+      pure (DeclTc ann inner', name, ty, cts)
     DeclError err inner -> do
       (inner', name, ty, cts) <- inferImplicitParamDecl inferExpr inner
       pure (DeclError err inner', name, ty, cts)
@@ -426,7 +432,7 @@ inferImplicitParamDecl inferExpr decl =
           Just whereDecls -> do
             (whereDecls', expr', ty, cts) <- inferLocalDecls inferExpr whereDecls (inferExpr expr)
             pure (expr', Just whereDecls', ty, cts)
-      let annotated = DeclAnn (mkAnnotation (pendingAnnotation ty [] [] [])) (DeclImplicitParam name expr' maybeDecls')
+      let annotated = DeclTc (InfoType (pendingAnnotation ty [] [] [])) (DeclImplicitParam name expr' maybeDecls')
       pure (annotated, name, ty, cts)
     _ -> abortTc "implicit-parameter group contains another declaration"
 
@@ -477,9 +483,8 @@ annotateLocalBindingDecls generalized binders decls = do
 annotateLocalBindingDecl :: Set.Set Entity -> Map Entity TcBinder -> Decl -> TcM Decl
 annotateLocalBindingDecl generalized binders decl =
   case decl of
-    DeclAnn ann (DeclValue (PatternBind mult pat rhs))
-      | Just pending <- fromAnnotation ann,
-        Nothing <- patternBinderName pat -> do
+    DeclTc (InfoType pending) (DeclValue (PatternBind mult pat rhs))
+      | Nothing <- patternBinderName pat -> do
           keys <- patternBinderKeyList pat
           let schemes = [(name, scheme) | (name, key) <- zip (patternBinderNames pat) keys, Set.member key generalized, Just (TcIdBinder scheme _) <- [Map.lookup key binders]]
               rhsTyVars = List.nub (concat [tyVars | (_, ForAll tyVars _ _) <- schemes])
@@ -488,8 +493,9 @@ annotateLocalBindingDecl generalized binders decl =
             else do
               pendings <- mapM (binderPending rhsTyVars) schemes
               let pending' = pending {pendingTcAnnType = foldr TcForAllTy (pendingTcAnnType pending) rhsTyVars}
-              pure (DeclAnn (mkAnnotation pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
+              pure (DeclTc (InfoType pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl generalized binders inner
+    DeclTc ann inner -> DeclTc ann <$> annotateLocalBindingDecl generalized binders inner
     DeclError ann inner -> DeclError ann <$> annotateLocalBindingDecl generalized binders inner
     DeclValue (PatternBind _ pat _)
       | Nothing <- patternBinderName pat -> pure decl
@@ -499,7 +505,7 @@ annotateLocalBindingDecl generalized binders decl =
         case keys of
           key : _
             | Just binder <- Map.lookup key binders ->
-                pure (DeclAnn (mkAnnotation (pendingAnnotation (binderType binder) [] [] [])) decl)
+                pure (DeclTc (InfoType (pendingAnnotation (binderType binder) [] [] [])) decl)
           _ -> pure decl
     _ -> pure decl
   where
@@ -534,22 +540,22 @@ monomorphicBinder sigs placeholders name =
 inferRhsWithLocals :: InferExpr -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 inferRhsWithLocals inferExpr rhs =
   case rhs of
-    UnguardedRhs sp expr maybeDecls ->
+    UnguardedRhs sp rhsInfos expr maybeDecls ->
       case maybeDecls of
         Nothing -> do
           (expr', ty, cts) <- inferExpr expr
-          pure (UnguardedRhs sp expr' Nothing, ty, cts)
+          pure (UnguardedRhs sp rhsInfos expr' Nothing, ty, cts)
         Just decls -> do
           (decls', expr', ty, cts) <- inferLocalDecls inferExpr decls (inferExpr expr)
-          pure (UnguardedRhs sp expr' (Just decls'), ty, cts)
-    GuardedRhss anns guardedRhss maybeDecls ->
+          pure (UnguardedRhs sp rhsInfos expr' (Just decls'), ty, cts)
+    GuardedRhss anns rhsInfos guardedRhss maybeDecls ->
       case maybeDecls of
         Nothing -> do
           (guardedRhss', ty, cts) <- inferGuardedRhss inferExpr guardedRhss
-          pure (GuardedRhss anns guardedRhss' Nothing, ty, cts)
+          pure (GuardedRhss anns rhsInfos guardedRhss' Nothing, ty, cts)
         Just decls -> do
           (decls', guardedRhss', ty, cts) <- inferLocalDecls inferExpr decls (inferGuardedRhss inferExpr guardedRhss)
-          pure (GuardedRhss anns guardedRhss' (Just decls'), ty, cts)
+          pure (GuardedRhss anns rhsInfos guardedRhss' (Just decls'), ty, cts)
 
 -- | Infer guarded alternatives. Each body has the shared result type.
 inferGuardedRhss :: InferExpr -> [GuardedRhs Expr] -> TcM ([GuardedRhs Expr], TcType, [Ct])
@@ -793,6 +799,7 @@ restrictedBinderKeys groups = do
     isVariablePattern pat =
       case pat of
         PAnn _ inner -> isVariablePattern inner
+        PTc _ inner -> isVariablePattern inner
         PResolved _ inner -> isVariablePattern inner
         PParen inner -> isVariablePattern inner
         PVar {} -> True
@@ -847,6 +854,9 @@ inferLocalSingleDecl inferExpr sigs scopedSigs placeholders decl =
     DeclAnn ann inner -> do
       (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
       pure (DeclAnn ann inner', cts, schemes)
+    DeclTc ann inner -> do
+      (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
+      pure (DeclTc ann inner', cts, schemes)
     DeclError err inner -> do
       (inner', cts, schemes) <- inferLocalSingleDecl inferExpr sigs scopedSigs placeholders inner
       pure (DeclError err inner', cts, schemes)
@@ -890,7 +900,7 @@ inferLocalPatternDecl inferExpr placeholders mult pat rhs = do
   let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
   -- The declaration records the type of the right-hand side.
   -- 'annotateLocalBindingDecl' generalizes it with the group.
-  pure (DeclAnn (mkAnnotation (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts, schemes)
+  pure (DeclTc (InfoType (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts, schemes)
   where
     isPolymorphicType ty =
       case ty of
@@ -910,6 +920,7 @@ strictBinderSignature sigs pat =
     strictPatternBinderName pattern' =
       case pattern' of
         PAnn _ inner -> strictPatternBinderName inner
+        PTc _ inner -> strictPatternBinderName inner
         PResolved _ inner -> strictPatternBinderName inner
         PParen inner -> strictPatternBinderName inner
         PStrict inner -> patternBinderName inner
@@ -927,9 +938,9 @@ inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name sc
   instantiation <- instantiateWithArgs scheme
   forceCts <- mapM wantedForce (instPreds instantiation)
   let forcePending = pendingAnnotation (instType instantiation) (instTypeArgs instantiation) (map ctEvVar forceCts) []
-      pat' = PAnn (mkAnnotation TcPatternInstantiation) (PAnn (mkAnnotation forcePending) pat)
+      pat' = PTc InfoPatternInstantiation (PTc (InfoType forcePending) pat)
       declPending = pendingAnnotation (schemeToType scheme) [] [] []
-  pure (DeclAnn (mkAnnotation declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
+  pure (DeclTc (InfoType declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
   where
     wantedForce predicate = do
       evidence <- freshEvVar
@@ -1127,7 +1138,7 @@ tcMatchEquation argTys resTy match = do
   pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, remainingCts)
 
 sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
-sourceSpanFromAnnotations = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
+sourceSpanFromAnnotations = listToMaybe . mapMaybe annotationSpan
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do
@@ -1140,8 +1151,8 @@ unifyMatchRhs inferExpr expectedTy match = do
 rhsSourceSpan :: Rhs body -> Maybe SourceSpan
 rhsSourceSpan rhs =
   case rhs of
-    UnguardedRhs annotations _ _ -> sourceSpanFromAnnotations annotations
-    GuardedRhss annotations _ _ -> sourceSpanFromAnnotations annotations
+    UnguardedRhs annotations _ _ _ -> sourceSpanFromAnnotations annotations
+    GuardedRhss annotations _ _ _ -> sourceSpanFromAnnotations annotations
 
 shouldGeneralizeLocal :: Set.Set Entity -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do
@@ -1168,6 +1179,7 @@ isStrictPatternBind decl =
     patternIsStrict pat =
       case pat of
         PAnn _ inner -> patternIsStrict inner
+        PTc _ inner -> patternIsStrict inner
         PResolved _ inner -> patternIsStrict inner
         PParen inner -> patternIsStrict inner
         PStrict _ -> True
@@ -1249,6 +1261,7 @@ replaceDeclFunctionMatches :: [Match] -> Decl -> Decl
 replaceDeclFunctionMatches matches decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replaceDeclFunctionMatches matches inner)
+    DeclTc ann inner -> DeclTc ann (replaceDeclFunctionMatches matches inner)
     DeclError ann inner -> DeclError ann (replaceDeclFunctionMatches matches inner)
     DeclValue (FunctionBind name _) -> DeclValue (FunctionBind name matches)
     _ -> decl
@@ -1259,6 +1272,7 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
     extractSig (DeclTypeSig names ty) =
       mapM (fmap (,ty) . resolvedLocalTermKey) names
     extractSig (DeclAnn _ inner) = extractSig inner
+    extractSig (DeclTc _ inner) = extractSig inner
     extractSig (DeclError _ inner) = extractSig inner
     extractSig _ = pure []
 
@@ -1266,6 +1280,7 @@ patternBinderName :: Pattern -> Maybe UnqualifiedName
 patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
+patternBinderName (PTc _ inner) = patternBinderName inner
 patternBinderName (PResolved _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
@@ -1285,7 +1300,7 @@ freeVarsDecl decl =
       patVars <- freeVarsPattern pat
       binders <- patternBinderKeys pat
       pure (Set.difference (vars <> patVars) binders)
-    DeclImplicitParam _ expr maybeDecls -> freeVarsRhs (UnguardedRhs [] expr maybeDecls)
+    DeclImplicitParam _ expr maybeDecls -> freeVarsRhs (UnguardedRhs [] [] expr maybeDecls)
     DeclTypeSig {} -> pure Set.empty
     DeclPatSyn patSyn -> do
       patVars <- freeVarsPattern (patSynDeclPat patSyn)
@@ -1310,6 +1325,7 @@ freeVarsPattern :: Pattern -> TcM (Set.Set Entity)
 freeVarsPattern pat =
   case pat of
     PAnn _ inner -> freeVarsPattern inner
+    PTc _ inner -> freeVarsPattern inner
     PResolved result inner -> do
       innerVars <- freeVarsPattern inner
       insertSyntaxTermKey result innerVars
@@ -1336,8 +1352,8 @@ freeVarsPattern pat =
 freeVarsRhs :: Rhs Expr -> TcM (Set.Set Entity)
 freeVarsRhs rhs =
   case rhs of
-    UnguardedRhs _ expr maybeDecls -> withWhereDecls maybeDecls (freeVarsExpr expr)
-    GuardedRhss _ alternatives maybeDecls -> withWhereDecls maybeDecls (Set.unions <$> mapM freeVarsGuardedRhs alternatives)
+    UnguardedRhs _ _ expr maybeDecls -> withWhereDecls maybeDecls (freeVarsExpr expr)
+    GuardedRhss _ _ alternatives maybeDecls -> withWhereDecls maybeDecls (Set.unions <$> mapM freeVarsGuardedRhs alternatives)
   where
     withWhereDecls maybeDecls bodyVars =
       case maybeDecls of
@@ -1378,6 +1394,7 @@ freeVarsExpr expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
+    ETc _ inner -> freeVarsExpr inner
     EResolved result inner -> do
       innerVars <- freeVarsExpr inner
       insertSyntaxTermKey result innerVars
@@ -1463,6 +1480,7 @@ freeVarsCompStmts stmts bodyVars =
   case stmts of
     [] -> bodyVars
     CompAnn _ inner : rest -> freeVarsCompStmts (inner : rest) bodyVars
+    CompTc _ inner : rest -> freeVarsCompStmts (inner : rest) bodyVars
     CompGen pat source : rest -> do
       sourceVars <- freeVarsExpr source
       patVars <- freeVarsPattern pat
@@ -1493,6 +1511,7 @@ compStmtsBinderKeys stmts =
     binderKeys stmt =
       case stmt of
         CompAnn _ inner -> compStmtsBinderKeys [inner]
+        CompTc _ inner -> compStmtsBinderKeys [inner]
         CompGen pat _ -> patternBinderKeys pat
         CompLetDecls decls -> declBinderKeys decls
         _ -> pure Set.empty
@@ -1518,6 +1537,7 @@ freeVarsDoStmts stmts =
     stmt : rest ->
       case stmt of
         DoAnn _ inner -> freeVarsDoStmts (inner : rest)
+        DoTc _ inner -> freeVarsDoStmts (inner : rest)
         DoRecKnot _ inner -> freeVarsDoStmts (inner : rest)
         DoResolved result inner -> do
           vars <- freeVarsDoStmts (inner : rest)
@@ -1546,6 +1566,7 @@ freeVarsArithSeq :: ArithSeq -> TcM (Set.Set Entity)
 freeVarsArithSeq arithSeq =
   case arithSeq of
     ArithSeqAnn _ inner -> freeVarsArithSeq inner
+    ArithSeqTc _ inner -> freeVarsArithSeq inner
     ArithSeqResolved result inner -> do
       innerVars <- freeVarsArithSeq inner
       insertSyntaxTermKey result innerVars

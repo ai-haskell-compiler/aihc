@@ -52,7 +52,12 @@ module Aihc.Tc.Kind
 where
 
 import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
-import Aihc.Resolve.Syntax
+import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
+import Aihc.Tc.Syntax.Pending
   ( BuiltinCon (..),
     ForallTelescope (..),
     ForallVis (..),
@@ -67,8 +72,8 @@ import Aihc.Resolve.Syntax
     TypeLiteral (..),
     TypePromotion (..),
     UnqualifiedName (..),
+    annotationSpan,
     forallTelescopeBinders,
-    fromAnnotation,
     instanceHeadName,
     nameText,
     peelTypeHead,
@@ -76,11 +81,6 @@ import Aihc.Resolve.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
@@ -364,7 +364,7 @@ checkSurfaceType tvEnv ty expected = do
 surfaceTypeSpan :: Type -> Maybe SourceSpan
 surfaceTypeSpan ty =
   case ty of
-    TAnn ann inner -> fromAnnotation ann <|> surfaceTypeSpan inner
+    TAnn ann inner -> annotationSpan ann <|> surfaceTypeSpan inner
     TResolved _ inner -> surfaceTypeSpan inner
     TParen inner -> surfaceTypeSpan inner
     _ -> Nothing
@@ -1039,7 +1039,7 @@ typeVariableOperator name promotion
   | promotion == Unpromoted,
     isNothing (nameQualifier name),
     nameType name == NameVarId =
-      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name))
+      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name) (nameTc name))
   | otherwise = Nothing
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Normalize deriving syntax into typed plans for later strategy-specific
 -- checking and System FC lowering. This module checks the shared structure;
@@ -12,28 +11,6 @@ module Aihc.Tc.Deriving
   )
 where
 
-import Aihc.Resolve.Syntax
-  ( Annotation,
-    BinderHead,
-    Decl (..),
-    DerivingClause (..),
-    DerivingStrategy (..),
-    Extension,
-    Name (..),
-    SourceSpan,
-    StandaloneDerivingDecl (..),
-    Type (..),
-    UnqualifiedName,
-    binderHeadName,
-    binderHeadParams,
-    binderResolved,
-    fromAnnotation,
-    instanceHeadName,
-    mkAnnotation,
-    nameText,
-    tyVarBinderName,
-    unqualifiedNameText,
-  )
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -48,6 +25,28 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
+import Aihc.Tc.Syntax.Pending
+  ( Annotation,
+    BinderHead,
+    Decl (..),
+    DerivingClause (..),
+    DerivingStrategy (..),
+    Extension,
+    Name (..),
+    SourceSpan,
+    StandaloneDerivingDecl (..),
+    TcInfo (..),
+    Type (..),
+    UnqualifiedName,
+    annotationSpan,
+    binderHeadName,
+    binderHeadParams,
+    binderResolved,
+    instanceHeadName,
+    nameText,
+    tyVarBinderName,
+    unqualifiedNameText,
+  )
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
@@ -67,7 +66,7 @@ annotateAttachedDerivingTc extensions targetFlavor targetHead clauses decl = do
 annotateDerivingPlans :: [TcDerivingPlan] -> Decl -> Decl
 annotateDerivingPlans [] decl = decl
 annotateDerivingPlans plans decl =
-  DeclAnn (mkAnnotation (TcDerivingAnnotation plans)) decl
+  DeclTc (InfoDeriving (TcDerivingAnnotation plans)) decl
 
 checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
 checkAttachedDerivingPlans _ _ targetHead [] = do
@@ -638,12 +637,12 @@ nameSourceSpan = sourceSpanFromAnns . nameAnns
 
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns annotations =
-  listToMaybe [sourceSpan | annotation <- annotations, Just sourceSpan <- [fromAnnotation @SourceSpan annotation]]
+  listToMaybe [sourceSpan | annotation <- annotations, Just sourceSpan <- [annotationSpan annotation]]
 
 typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
-    TAnn annotation inner -> fromAnnotation @SourceSpan annotation <|> typeSpan inner
+    TAnn annotation inner -> annotationSpan annotation <|> typeSpan inner
     TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner

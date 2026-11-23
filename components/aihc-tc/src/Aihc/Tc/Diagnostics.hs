@@ -1,14 +1,16 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Attach type diagnostics to their source nodes.
+-- | Give type diagnostics to the modules of the final tree, and attach
+-- them to their source nodes in the bridge to the parser tree.
 module Aihc.Tc.Diagnostics
   ( annotateModuleDiagnostics,
     attachSccDiagnostics,
-    collectTcDiagnostics,
+    checkedParserModule,
     internalAbortDiagnostic,
   )
 where
 
+import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -32,8 +34,12 @@ import Aihc.Resolve.Syntax
     mkAnnotation,
     sourceSpanSourceName,
   )
-import Aihc.Resolve.Syntax.Traverse (Walk (..), collectAnnotations, idWalk, walk)
+import Aihc.Resolve.Syntax.ToParser (toParserModule)
+import Aihc.Resolve.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.ToResolved (ToResolved (..))
+import Aihc.Tc.Syntax.Traverse (collectAnnotations)
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.List qualified as List
@@ -49,7 +55,7 @@ import Data.Text (Text)
 -- located diagnostics is attached in one walk of the module, because a
 -- walk for each diagnostic makes a large module with many diagnostics
 -- quadratic.
-attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]
+attachSccDiagnostics :: [TcDiagnostic] -> [Final.Module] -> [Final.Module]
 attachSccDiagnostics diagnostics modules =
   zipWith annotateInOrder [0 :: Int ..] modules
   where
@@ -75,19 +81,32 @@ attachSccDiagnostics diagnostics modules =
     annotateInOrder index m =
       foldl (flip annotateModuleDiagnostics) m (diagnosticRuns [diagnostic | (target, diagnostic) <- routed, target == index])
 
--- | Split diagnostics into runs that 'annotateModuleDiagnostics' can attach
+-- | Split diagnostics into runs that 'attachModuleDiagnostics' can attach
 -- together without a change of order. It attaches located diagnostics before
 -- unlocated ones, so each unlocated diagnostic is a run of its own.
 diagnosticRuns :: [TcDiagnostic] -> [[TcDiagnostic]]
 diagnosticRuns =
   List.groupBy (\left right -> isJust (diagLoc left) && isJust (diagLoc right))
 
-moduleSourceNames :: Module -> [Text]
+moduleSourceNames :: Final.Module -> [Text]
 moduleSourceNames modu =
-  map sourceSpanSourceName (maybeToList (spanFromAnnotations (moduleAnns modu)))
+  map sourceSpanSourceName (maybeToList (spanFromAnnotations (Final.moduleAnns modu)))
 
-annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
+-- | Give a module one group of diagnostics. The bridge to the parser tree
+-- attaches the group in one walk.
+annotateModuleDiagnostics :: [TcDiagnostic] -> Final.Module -> Final.Module
 annotateModuleDiagnostics diagnostics m =
+  m {Final.moduleTcDiagnostics = Final.moduleTcDiagnostics m <> [diagnostics]}
+
+-- | The parser tree of a checked module. Each diagnostic of the module is
+-- an annotation on the node of its exact span, or on the module when it
+-- has no span.
+checkedParserModule :: Final.Module -> P.Module
+checkedParserModule m =
+  toParserModule (foldl (flip attachModuleDiagnostics) (toResolved m) (Final.moduleTcDiagnostics m))
+
+attachModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
+attachModuleDiagnostics diagnostics m =
   let (located, unlocated) = partitionDiagnostics diagnostics
       moduleWithLocated = attachLocatedDiagnostics m located
    in moduleWithLocated {moduleAnns = moduleAnns moduleWithLocated <> map mkAnnotation unlocated}
@@ -251,9 +270,6 @@ spanFromAnnotations =
 
 spanFromAnnotation :: Annotation -> Maybe SourceSpan
 spanFromAnnotation = fromAnnotation
-
-collectTcDiagnostics :: Module -> [TcDiagnostic]
-collectTcDiagnostics = collectAnnotations fromAnnotation
 
 internalAbortDiagnostic :: String -> TcDiagnostic
 internalAbortDiagnostic msg =

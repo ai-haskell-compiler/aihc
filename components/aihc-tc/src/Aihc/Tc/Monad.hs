@@ -168,13 +168,13 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), Resolved (..), displayIdentifier, globalTerm)
-import Aihc.Resolve.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), binderResolved, nameText, resolvedNameOrigin, termResolved, typeResolved, unqualifiedNameText)
-import Aihc.Tc.Annotations (TcForeignImportInfo)
+import Aihc.Tc.Annotations (PendingTcAnnotation, TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvForClassArguments, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Interface (FactEnv, ModuleOrigin, emptyFactEnv, factEnvClass, factEnvClasses, factEnvDataType, factEnvDataTypes, factEnvModuleDataTypes, factEnvPatSyn, factEnvPatSyns, factEnvTerm, factEnvTyCon, factEnvTyCons)
+import Aihc.Tc.Syntax.Pending (Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), binderResolved, nameText, resolvedNameOrigin, termResolved, typeResolved, unqualifiedNameText)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)
@@ -605,7 +605,7 @@ data TcState = TcState
     -- | The occurrence annotation of each generalized variable of a
     -- recursive @do@ group at the knot of the group. 'inferRecStmt'
     -- takes them after the statements of the group.
-    tcsRecKnotOccurrences :: !(Map Entity Annotation)
+    tcsRecKnotOccurrences :: !(Map Entity PendingTcAnnotation)
   }
   deriving (Show)
 
@@ -870,12 +870,12 @@ withRecBinders binders action = do
 
 -- | Record the occurrence annotation of a generalized group variable at
 -- the knot of its recursive @do@ group.
-recordRecKnotOccurrence :: Entity -> Annotation -> TcM ()
+recordRecKnotOccurrence :: Entity -> PendingTcAnnotation -> TcM ()
 recordRecKnotOccurrence key annotation =
   lift (modify' (\s -> s {tcsRecKnotOccurrences = Map.insert key annotation (tcsRecKnotOccurrences s)}))
 
 -- | Take the knot occurrence annotations of the given group variables.
-takeRecKnotOccurrences :: [Entity] -> TcM [(Entity, Annotation)]
+takeRecKnotOccurrences :: [Entity] -> TcM [(Entity, PendingTcAnnotation)]
 takeRecKnotOccurrences keys = do
   occurrences <- lift (gets tcsRecKnotOccurrences)
   lift (modify' (\s -> s {tcsRecKnotOccurrences = foldr Map.delete (tcsRecKnotOccurrences s) keys}))

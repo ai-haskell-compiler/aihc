@@ -1,17 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeApplications #-}
 
--- | Finalize type-checker annotations after constraint solving.
+-- | Finalize the type checker information after constraint solving.
 module Aihc.Tc.Finalize
   ( finalizeModuleTc,
     recordSchemeKindArguments,
   )
 where
 
-import Aihc.Resolve.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
-import Aihc.Resolve.Syntax.Traverse (traverseAnnotations)
-import Aihc.Resolve.Traverse qualified as P
 import Aihc.Tc.Annotations
   ( CastDirection (..),
     PendingTcAnnotation (..),
@@ -31,7 +27,6 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcMatchArityCast (..),
-    TcPatSynAnnotation (..),
     renderTcType,
   )
 import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
@@ -39,6 +34,9 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
   ( GlobalName,
@@ -72,65 +70,77 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set qualified as Set
 
--- | Convert every pending type-checker annotation in a module to a final
--- annotation. The walk covers every syntax constructor, so a pending
--- annotation cannot escape.
-finalizeModuleTc :: Module -> TcM Module
-finalizeModuleTc = traverseAnnotations finalizeAnnotationTc
+-- | Change the tree that the type checker works on into the final tree.
+-- Each item of pending information becomes final information. The change
+-- covers every syntax constructor, so a pending item cannot escape.
+finalizeModuleTc :: Module -> TcM Final.Module
+finalizeModuleTc = fromPending finalizeInfo
 
-finalizeAnnotationTc :: Annotation -> TcM Annotation
-finalizeAnnotationTc ann =
-  case fromAnnotation @PendingTcCastAnnotation ann of
-    Just (PendingTcCastAnnotation ty ev direction) -> do
+-- | Finalize one item of information. A cast whose proof is not needed
+-- goes away.
+finalizeInfo :: TcInfo -> TcM (Maybe Final.TcInfo)
+finalizeInfo item =
+  case item of
+    InfoCast (PendingTcCastAnnotation ty ev direction) -> do
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       case evidence of
         EvCoercion (Refl _) -> do
           target <- zonkType ty >>= recordKindArguments Nothing
           pure $ case firstMetaType target of
-            Nothing -> mkAnnotation (TcCastAnnotation Nothing target)
-            Just {} -> mkAnnotation ()
+            Nothing -> Just (Final.InfoCast (TcCastAnnotation Nothing target))
+            Just {} -> Nothing
         EvCoercion proof -> do
           let oriented = case direction of
                 CastToRight -> proof
                 CastToLeft -> symmetric proof
           target <- zonkType ty >>= recordKindArguments Nothing
           rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
-          pure (mkAnnotation (TcCastAnnotation (Just oriented) target))
-        EvVarTerm _ -> pure (mkAnnotation ())
+          pure (Just (Final.InfoCast (TcCastAnnotation (Just oriented) target)))
+        EvVarTerm _ -> pure Nothing
         _ -> abortTc "a result cast requires equality evidence"
-    Nothing -> finalizeMatchArityCastTc ann
-
-finalizeMatchArityCastTc :: Annotation -> TcM Annotation
-finalizeMatchArityCastTc ann =
-  case fromAnnotation @PendingTcMatchArityCast ann of
-    Just (PendingTcMatchArityCast ty ev) -> do
+    InfoMatchArityCast (PendingTcMatchArityCast ty ev) -> do
       evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
       arrow <- zonkType ty
       case evidence of
         EvCoercion (Refl _) -> do
           rejectMeta "match arity cast annotation" (firstMetaType arrow)
-          pure (mkAnnotation (TcMatchArityCast Nothing arrow))
+          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast Nothing arrow)))
         EvCoercion proof -> do
           rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
-          pure (mkAnnotation (TcMatchArityCast (Just proof) arrow))
-        EvVarTerm _ -> pure (mkAnnotation ())
+          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast (Just proof) arrow)))
+        EvVarTerm _ -> pure Nothing
         _ -> abortTc "a match arity cast requires equality evidence"
-    Nothing -> finalizeOtherAnnotationTc ann
-
-finalizeOtherAnnotationTc :: Annotation -> TcM Annotation
-finalizeOtherAnnotationTc ann =
-  case fromAnnotation @PendingTcAnnotation ann of
-    Just pending -> mkAnnotation <$> annotationForPendingTc pending
-    Nothing ->
-      case fromAnnotation @TcInstanceMethodAnnotation ann of
-        Just (TcInstanceMethodAnnotation name ty) -> do
-          finalized <- finalizeType ty
-          rejectMeta "instance method annotation" (firstMetaType finalized)
-          pure (mkAnnotation (TcInstanceMethodAnnotation name finalized))
-        Nothing ->
-          case fromAnnotation @TcInstanceAnnotation ann of
-            Just instanceAnnotation -> mkAnnotation <$> finalizeInstanceAnnotation instanceAnnotation
-            Nothing -> finalizeOtherCheckedAnnotationTc ann
+    InfoType pending -> Just . Final.InfoType <$> annotationForPendingTc pending
+    InfoInstanceMethod (TcInstanceMethodAnnotation name ty) -> do
+      finalized <- finalizeType ty
+      rejectMeta "instance method annotation" (firstMetaType finalized)
+      pure (Just (Final.InfoInstanceMethod (TcInstanceMethodAnnotation name finalized)))
+    InfoInstance instanceAnnotation -> Just . Final.InfoInstance <$> finalizeInstanceAnnotation instanceAnnotation
+    -- The matcher, builder, and selector equations are syntax in the
+    -- information. Each one changes as the tree does.
+    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> fromPending finalizeInfo equations
+    -- The checker writes the types of declarations as final information.
+    InfoCheckedType annotation -> do
+      rejectMetaFinalInfo (Final.InfoType annotation)
+      Just . Final.InfoType <$> recordAnnotationKindArguments annotation
+    InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
+    InfoClass annotation -> checked (Final.InfoClass annotation)
+    InfoDeriving annotation -> checked (Final.InfoDeriving annotation)
+    InfoDerivedInstance -> checked Final.InfoDerivedInstance
+    InfoDerivingClauseInstance -> checked Final.InfoDerivingClauseInstance
+    InfoCoercedDeriving plan -> checked (Final.InfoCoercedDeriving plan)
+    InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
+    InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
+    InfoModuleIdentity identity -> checked (Final.InfoModuleIdentity identity)
+    InfoForeignImport annotation -> checked (Final.InfoForeignImport annotation)
+    InfoTypeFamilyInstance info -> checked (Final.InfoTypeFamilyInstance info)
+    InfoDataFamilyInstance info -> checked (Final.InfoDataFamilyInstance info)
+  where
+    -- Information that the checker writes as final keeps its value, but
+    -- it must not have a meta variable.
+    checked final = do
+      rejectMetaFinalInfo final
+      pure (Just final)
 
 -- | Finalize the type and kind copies that an instance header retains.
 finalizeInstanceAnnotation :: TcInstanceAnnotation -> TcM TcInstanceAnnotation
@@ -162,7 +172,7 @@ finalizeInstanceAnnotation annotation = do
             tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
             tcInstanceCoerced = coerced
           }
-  rejectMetaFinalAnnotation (mkAnnotation finalized)
+  rejectMetaFinalInfo (Final.InfoInstance finalized)
   pure finalized
   where
     finalizeMethod method = do
@@ -175,24 +185,6 @@ finalizeInstanceAnnotation annotation = do
             tcClassMethodTyVars = variables,
             tcClassMethodDictType = dictionaryType
           }
-
-finalizeOtherCheckedAnnotationTc :: Annotation -> TcM Annotation
-finalizeOtherCheckedAnnotationTc ann =
-  case fromAnnotation @TcPatSynAnnotation ann of
-    Just patSyn -> do
-      -- The matcher, builder, and selector equations live inside the
-      -- annotation. The walk does not enter an annotation payload.
-      -- They are parser syntax, so the walk of the parser syntax visits them.
-      matcher <- P.traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
-      builder <- traverse (P.traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
-      selectors <- traverse (traverse (P.traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
-      pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
-    Nothing -> do
-      rejectMetaFinalAnnotation ann
-      -- The checker writes the types of declarations as final annotations.
-      case fromAnnotation @TcAnnotation ann of
-        Just annotation -> mkAnnotation <$> recordAnnotationKindArguments annotation
-        Nothing -> pure ann
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do
@@ -519,24 +511,20 @@ rejectMetaTcAnnotation ann =
             <> renderTcType (tidyType kinds (tcAnnType ann))
         )
 
--- | An annotation carries one value, so the first cast that matches is the
--- only one that can. This runs over every annotation of every finalized
--- module, and trying all seven casts each time was most of its cost.
-rejectMetaFinalAnnotation :: Annotation -> TcM ()
-rejectMetaFinalAnnotation ann =
-  case firstJusts
-    [ reject "type annotation" firstMetaTcAnnotation (fromAnnotation @TcAnnotation ann),
-      reject "class annotation" firstMetaClassAnnotation (fromAnnotation @TcClassAnnotation ann),
-      reject "deriving annotation" firstMetaDerivingAnnotation (fromAnnotation @TcDerivingAnnotation ann),
-      reject "instance annotation" firstMetaInstanceAnnotation (fromAnnotation @TcInstanceAnnotation ann),
-      reject "instance method annotation" firstMetaInstanceMethodAnnotation (fromAnnotation @TcInstanceMethodAnnotation ann),
-      reject "data-family instance annotation" firstMetaDataFamilyInstance (fromAnnotation @DataFamilyInstanceInfo ann),
-      reject "type-family instance annotation" firstMetaTypeFamilyInstance (fromAnnotation @TypeFamilyInstanceInfo ann)
-    ] of
-    Nothing -> pure ()
-    Just action -> action
+-- | Abort when an item of final information has a meta variable.
+rejectMetaFinalInfo :: Final.TcInfo -> TcM ()
+rejectMetaFinalInfo item =
+  case item of
+    Final.InfoType annotation -> reject "type annotation" (firstMetaTcAnnotation annotation)
+    Final.InfoClass annotation -> reject "class annotation" (firstMetaClassAnnotation annotation)
+    Final.InfoDeriving annotation -> reject "deriving annotation" (firstMetaDerivingAnnotation annotation)
+    Final.InfoInstance annotation -> reject "instance annotation" (firstMetaInstanceAnnotation annotation)
+    Final.InfoInstanceMethod annotation -> reject "instance method annotation" (firstMetaInstanceMethodAnnotation annotation)
+    Final.InfoDataFamilyInstance info -> reject "data-family instance annotation" (firstMetaDataFamilyInstance info)
+    Final.InfoTypeFamilyInstance info -> reject "type-family instance annotation" (firstMetaTypeFamilyInstance info)
+    _ -> pure ()
   where
-    reject context firstMeta = fmap (rejectMeta ("finalized " <> context) . firstMeta)
+    reject context = rejectMeta ("finalized " <> context)
 
 rejectMeta :: String -> Maybe Unique -> TcM ()
 rejectMeta context maybeMeta =
