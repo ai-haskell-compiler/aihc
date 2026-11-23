@@ -887,20 +887,26 @@ allocationProfileTest =
         )
         (Map.lookup "allocations" statistics)
 
--- | Register three counters, one of them without objects, and write the
--- statistics.
+-- | Register the tables of two units, one of them two times. A counter
+-- without objects is not in the report, and the counts of one name in two
+-- units add up.
 allocationProfileSource :: String
 allocationProfileSource =
   unlines
     [ "#include \"aihc_runtime.h\"",
       "#include \"aihc_runtime_internal.h\"",
       "static const char *const names[] = {\"F \\\"quoted\\\\name\\\"\", \"P empty/1\", \"C big\"};",
-      "static uint64_t counts[] = {1, 4, 0, 0, 5, 10};",
-      "static const uint64_t size = 3;",
+      "static uint64_t counts[] = {1, 4, 0, 0, 3, 6};",
+      "static AihcAllocationTable table = {.size = 3, .names = names, .counts = counts};",
+      "static const char *const other_names[] = {\"C big\"};",
+      "static uint64_t other_counts[] = {2, 4};",
+      "static AihcAllocationTable other = {.size = 1, .names = other_names, .counts = other_counts};",
       "int main(int argc, char *const argv[]) {",
       "  aihc_program_arguments_initialize(argc, argv);",
       "  aihc_program_environment_initialize();",
-      "  aihc_allocation_profile_register(names, counts, &size);",
+      "  aihc_allocation_profile_register(&table);",
+      "  aihc_allocation_profile_register(&other);",
+      "  aihc_allocation_profile_register(&table);",
       "  (void)aihc_machine_new(1);",
       "  aihc_runtime_statistics_report();",
       "  return 0;",

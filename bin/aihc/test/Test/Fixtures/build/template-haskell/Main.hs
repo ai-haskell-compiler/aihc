@@ -41,6 +41,11 @@ nested = [|\y -> $([|y|])|]
 holeCase :: Q Exp
 holeCase = [|case _ of { "a" -> missing; _ -> 'c' }|]
 
+-- | A quote with a constructor that is not in scope. GHC accepts it, and
+-- the syntax tree has an unbound variable.
+holeConstructor :: Q Exp
+holeConstructor = [|Missing|]
+
 -- | A type operator of this module.
 type a :+ b = Either a b
 
@@ -298,6 +303,7 @@ main = do
   showTriple
   runQ nested >>= print
   runQ holeCase >>= print
+  runQ holeConstructor >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))

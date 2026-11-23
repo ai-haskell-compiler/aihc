@@ -533,18 +533,18 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- interfaces of the modules it imports. Only a plan that optimizes
     -- each module on its own sets it. See "Aihc.Fc.Interface".
     compileModuleInterfaces :: !Bool,
-    -- | Count the heap objects of the whole program, as
-    -- @--profile-allocations@ asks. Only the whole-program object and the
-    -- entry get the counters, because the counters of two units would have
-    -- the same symbols.
+    -- | Count the heap objects that each unit allocates, as
+    -- @--profile-allocations@ asks. Each unit has its own counters and
+    -- registers them with the runtime itself.
     compileProfileAllocations :: !Bool,
     -- | Give the whole program the time profile tables and entry stores, as
     -- @--profile-time@ asks. Only the whole-program object and the entry
-    -- get them, for the same reason as 'compileProfileAllocations'.
+    -- get them, because the tables of two units would have the same
+    -- symbols.
     compileProfileTime :: !Bool,
-    -- | Give the units this config compiles the profiles that the config
-    -- asks for. 'compileLtoProgram' sets it for the whole-program object
-    -- alone.
+    -- | Give the units this config compiles the time profile that the
+    -- config asks for. 'compileLtoProgram' sets it for the whole-program
+    -- object alone.
     compileProfileUnit :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
@@ -4244,7 +4244,7 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     -- An @-O1@ or @-O2@ build copies small continuations into their
     -- callers. An @-O0@ build and an @-Os@ build do not, because the
     -- copies make the code larger.
-    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config) (compileOptimization config `elem` [O1, O2])
+    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config) (compileOptimization config `elem` [O1, O2])
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
         if null (Fc.programDecls (fcProgram fcModule))

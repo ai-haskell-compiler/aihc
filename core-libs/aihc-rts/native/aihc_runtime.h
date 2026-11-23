@@ -802,13 +802,24 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
    environment names one. The generated main calls this when the capability
    halts, and aihc_exit_process calls it before the process exits. */
 void aihc_runtime_statistics_report(void);
-/* The allocation counters of a program built with --profile-allocations:
+/* The allocation counters of one unit built with --profile-allocations:
    a name for each info table, a pair of counters for each (the objects and
-   the words), and the number of info tables. The entry registers them
-   before the capability starts, and the statistics report writes them. */
-void aihc_allocation_profile_register(const char *const *names,
-                                      const uint64_t *counts,
-                                      const uint64_t *size);
+   the words), and the number of info tables. The unit writes the table, and
+   the runtime writes the link and the registered flag. */
+typedef struct AihcAllocationTable {
+  /* The two words come first, so the layout has no padding on a host of
+     32-bit or 64-bit pointers. */
+  uint64_t size;
+  uint64_t registered;
+  const char *const *names;
+  uint64_t *counts;
+  struct AihcAllocationTable *next;
+} AihcAllocationTable;
+/* Add the table of a unit to the allocation profile. The code of the unit
+   calls it when a counter of the unit counts its first object, so the
+   tables of the units that allocate nothing stay out. A second call for the
+   same table does nothing. The statistics report writes the tables. */
+void aihc_allocation_profile_register(AihcAllocationTable *table);
 /* The tables of a program built with --profile-time: the code of each
    function, its name, and their number, then the info tables of the
    functions and their number. The entry registers them before the

@@ -224,16 +224,16 @@ lowerModule :: LowerTarget -> ModuleSettings -> GcGrinProgram -> Either LowerErr
 lowerModule target settings =
   lowerProgramWith (libraryOptions target settings)
 
--- | Lower the fixed executable entry unit. With the flags, @main@ registers
--- the allocation counters and the time profile tables of the program with
--- the runtime. The list holds the default RTS options of the executable,
+-- | Lower the fixed executable entry unit. With the flag, @main@ registers
+-- the time profile tables of the program with the runtime. The entry has
+-- no allocation counters: each unit with counters registers its own table. The list holds the default RTS options of the executable,
 -- one option in each element. The @main@ of a POSIX host gives them to the
 -- runtime before the arguments. The WASI P3 entry does not use them: its
 -- driver gives the arguments to the runtime before the entry starts.
-lowerEntry :: LowerTarget -> Bool -> Bool -> [Text] -> Either LowerError Module
-lowerEntry target profileAllocations profileTime runtimeOptions = do
+lowerEntry :: LowerTarget -> Bool -> [Text] -> Either LowerError Module
+lowerEntry target profileTime runtimeOptions = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
+  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = False, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options = lowerProgramWithEntry options []
@@ -2996,6 +2996,16 @@ countAllocation info tag words' = do
   allocated <- loadSlot AnyRegion "words" I64 counters (offset + 8)
   allocated' <- emitValue "words" I64 (Binary Add I64 (typedOperand allocated) (OperandLiteral (LitInt (toInteger words'))))
   storeSlot AnyRegion I64 (typedOperand allocated') counters (offset + 8)
+  -- The first object of a counter registers the table of the unit with
+  -- the runtime. A unit that counts nothing stays out of the report.
+  first <- emitValue "first_object" I1 (Compare Eq I64 (typedOperand objects) (OperandLiteral (LitInt 0)))
+  register <- freshLabel "profile_register"
+  counted <- freshLabel "profile_counted"
+  terminate (Branch (typedOperand first) (Target register []) (Target counted []))
+  beginColdBlock register []
+  _ <- callRuntime "aihc_allocation_profile_register" [Ptr] [] [OperandLiteral (LitSymbol allocationTableSymbol)]
+  terminate (Jump (Target counted []))
+  beginBlock counted []
   where
     -- A linked name separates its package, module and name with control
     -- characters, which a C string cannot hold.
@@ -3006,16 +3016,18 @@ countAllocation info tag words' = do
           GrinClosure name layouts -> "P " <> unFunctionName name <> "/" <> T.pack (show (length layouts))
           GrinThunk name -> "F " <> unFunctionName name
 
--- | The symbols of the allocation profile: the counters, the names, and
--- the number of counters.
-allocationCountsSymbol, allocationNamesSymbol, allocationSizeSymbol :: Symbol
+-- | The symbols of the allocation profile of a unit: the counters, the
+-- names, and the table that the unit gives the runtime. Each unit has its
+-- own, so the symbols are internal.
+allocationCountsSymbol, allocationNamesSymbol, allocationTableSymbol :: Symbol
 allocationCountsSymbol = Symbol "aihc_allocation_profile_counts"
 allocationNamesSymbol = Symbol "aihc_allocation_profile_names"
-allocationSizeSymbol = Symbol "aihc_allocation_profile_size"
+allocationTableSymbol = Symbol "aihc_allocation_profile_table"
 
 -- | The data of the allocation profile of a unit, after its code: the
--- zeroed counters, the name of each, and their number. A unit with no
--- allocation still defines all three, because the entry names them.
+-- zeroed counters, the name of each, and the table of the runtime with
+-- their number. See @AihcAllocationTable@ in the runtime. The runtime
+-- writes the link and the registered flag of the table.
 lowerAllocationProfile :: LowerM ()
 lowerAllocationProfile = do
   target <- targetM
@@ -3024,9 +3036,9 @@ lowerAllocationProfile = do
     let symbol = Symbol ("aihc_allocation_profile_name_" <> T.pack (show index))
     emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes (TE.encodeUtf8 name), DataInt I8 0]))
     pure symbol
-  emitItem (ItemData (DataItem allocationCountsSymbol Export True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
-  emitItem (ItemData (DataItem allocationNamesSymbol Export False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
-  emitItem (ItemData (DataItem allocationSizeSymbol Export False 8 [DataInt I64 (toInteger (length sites))]))
+  emitItem (ItemData (DataItem allocationCountsSymbol Internal True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
+  emitItem (ItemData (DataItem allocationNamesSymbol Internal False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
+  emitItem (ItemData (DataItem allocationTableSymbol Internal True 8 [DataInt I64 (toInteger (length sites)), DataInt I64 0, DataSymbol allocationNamesSymbol 0, DataSymbol allocationCountsSymbol 0, DataNull]))
 
 -- | The symbols of the time profile tables: the code of each function, its
 -- name, and their number, then the info tables of the functions and their
@@ -4904,11 +4916,6 @@ lowerExecutableMain runtimeOptions gcProgram = do
     void (callRuntime "aihc_runtime_default_options" [Ptr, I64] [] [OperandLiteral (LitSymbol optionsSymbol), OperandLiteral (LitInt (toInteger (BS.length optionBytes)))])
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
-  profiling <- gets stateProfileAllocations
-  when profiling $ do
-    mapM_ requireExternData [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol]
-    _ <- callRuntime "aihc_allocation_profile_register" [Ptr, Ptr, Ptr] [] (map (OperandLiteral . LitSymbol) [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol])
-    pure ()
   profilingTime <- gets stateProfileTime
   when profilingTime $ do
     let tables = [timeProfileCodesSymbol, timeProfileNamesSymbol, timeProfileCodeCountSymbol, timeProfileInfosSymbol, timeProfileInfoCountSymbol]

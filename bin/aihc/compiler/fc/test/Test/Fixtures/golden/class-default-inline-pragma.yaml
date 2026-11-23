@@ -1,0 +1,54 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Box = Box
+
+    class Same a where
+      same :: a -> a
+      {-# INLINE same #-}
+      same x = x
+
+    instance Same Box
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tBox :: sType {
+    pub 1.cBox :: tBox
+  }
+
+  pub type 1.t$Dict$Same (a : sType) :: sType {
+    pub 1.c$Dict$Same :: ∀(a : sType). (a → a) → t$Dict$Same a
+  }
+
+  pub val 1.vsame :: ∀(a : sType). t$Dict$Same a → a → a
+    = Λ(a : sType). λ($dSame : t$Dict$Same a).
+      let! c$Dict$Same ($csame : a → a) = $dSame;
+      $csame
+
+  pub val 1.v$dmsame inline :: ∀(a : sType). t$Dict$Same a → a → a
+    = Λ(a : sType). λ(unused $dSame : t$Dict$Same a) (x : a).
+      x
+
+  pub val 1.v$fSameBox :: t$Dict$Same tBox
+    = c$Dict$Same @tBox v$fSameBox$csame
+
+  val 1.v$fSameBox$csame :: tBox → tBox
+    = v$dmsame @tBox v$fSameBox
+status: pass
+reason: The INLINE pragma in the class body is for the default method. Thus the worker of the default method has the inline mark, and the instance that calls the worker can get a copy of it.
