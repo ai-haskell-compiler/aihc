@@ -33,13 +33,13 @@ module Aihc.Tc.Deriving.Context
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (PackageId)
+import Aihc.Resolve.Syntax
   ( Decl (..),
     Module (..),
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (PackageId)
 import Aihc.Tc.Annotations
   ( TcDerivingAnnotation (..),
     TcDerivingContext (..),
@@ -838,6 +838,7 @@ declDerivingPlans decl =
     DeclAnn annotation inner ->
       maybe [] tcDerivingPlans (fromAnnotation @TcDerivingAnnotation annotation)
         <> declDerivingPlans inner
+    DeclError _ inner -> declDerivingPlans inner
     _ -> []
 
 replaceModulePlans :: [TcDerivingPlan] -> Module -> Module
@@ -852,6 +853,7 @@ replaceModulePlans plans modu =
                 (mkAnnotation (derivingAnnotation {tcDerivingPlans = map replacePlan (tcDerivingPlans derivingAnnotation)}))
                 (replaceDecl inner)
           | otherwise -> DeclAnn annotation (replaceDecl inner)
+        DeclError err inner -> DeclError err (replaceDecl inner)
         _ -> decl
     replacePlan original =
       fromMaybe original (find ((== planKey original) . planKey) plans)

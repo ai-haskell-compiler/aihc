@@ -51,12 +51,14 @@ module Aihc.Tc.Kind
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
+import Aihc.Resolve.Syntax
   ( BuiltinCon (..),
     ForallTelescope (..),
     ForallVis (..),
     Name (..),
     NameType (..),
+    ResolutionResult (..),
     SourceSpan,
     TupleFlavor (..),
     TyVarBSpecificity (..),
@@ -74,7 +76,6 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
@@ -193,6 +194,7 @@ hasWildcardType ty =
     TFun _ a b -> hasWildcardType a || hasWildcardType b
     TParen inner -> hasWildcardType inner
     TAnn _ inner -> hasWildcardType inner
+    TResolved _ inner -> hasWildcardType inner
     TContext preds inner -> any hasWildcardType preds || hasWildcardType inner
     TForall _ inner -> hasWildcardType inner
     TTuple _ _ args -> any hasWildcardType args
@@ -234,6 +236,7 @@ flattenSurfaceContext = concatMap flattenItem
     flattenItem ty =
       case ty of
         TAnn _ inner -> flattenItem inner
+        TResolved _ inner -> flattenItem inner
         TParen inner -> flattenItem inner
         TTuple Boxed Unpromoted items -> concatMap flattenItem items
         TCon name _ | nameText name == "()" -> []
@@ -362,6 +365,7 @@ surfaceTypeSpan :: Type -> Maybe SourceSpan
 surfaceTypeSpan ty =
   case ty of
     TAnn ann inner -> fromAnnotation ann <|> surfaceTypeSpan inner
+    TResolved _ inner -> surfaceTypeSpan inner
     TParen inner -> surfaceTypeSpan inner
     _ -> Nothing
 
@@ -389,9 +393,8 @@ requireRuntimeKind ty (tcTy, actual) = do
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty =
   case ty of
-    TAnn ann _
-      | Just resolution <- (fromAnnotation ann :: Maybe ResolutionAnnotation),
-        resolutionNamespace resolution == ResolutionNamespaceTerm ->
+    TResolved (ResolutionOk resolution) _
+      | resolutionNamespace resolution == ResolutionNamespaceTerm ->
           convertNonSynonymTypeWithKinds tvEnv ty
     _ -> do
       expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
@@ -406,9 +409,10 @@ convertNonSynonymTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertNonSynonymTypeWithKinds tvEnv ty = do
   kinds <- getKinds
   case ty of
-    TAnn ann inner ->
-      case fromAnnotation ann of
-        Just resolution
+    TAnn _ inner -> convertSurfaceTypeWithKinds tvEnv inner
+    TResolved result inner ->
+      case result of
+        ResolutionOk resolution
           | resolutionNamespace resolution == ResolutionNamespaceTerm ->
               convertPromotedSyntaxType tvEnv resolution inner
         _ -> convertSurfaceTypeWithKinds tvEnv inner
@@ -545,7 +549,7 @@ convertTypeLiteral literal =
     TypeLitSymbol value _ -> TyLitSymbol value
     TypeLitChar value _ -> TyLitChar value
 
-convertPromotedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
+convertPromotedSyntaxType :: TvKindEnv -> Resolved -> Type -> TcM (TcType, TcType)
 convertPromotedSyntaxType tvEnv resolution syntax =
   case peelTypeHead syntax of
     TList _ arguments ->
@@ -634,7 +638,7 @@ dataTupleType flavor argumentTypes = do
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)
 
-convertResolvedConstructorApplication :: TvKindEnv -> ResolutionAnnotation -> [Type] -> TcM (TcType, TcType)
+convertResolvedConstructorApplication :: TvKindEnv -> Resolved -> [Type] -> TcM (TcType, TcType)
 convertResolvedConstructorApplication tvEnv resolution arguments = do
   maybeInfo <- lookupResolvedTypeSyntax resolution
   case maybeInfo of
@@ -716,6 +720,7 @@ kindApplicationSpine = go []
     go arguments ty =
       case ty of
         TAnn _ inner -> go arguments inner
+        TResolved _ inner -> go arguments inner
         TParen inner -> go arguments inner
         TTypeApp function argument -> go (argument : arguments) function
         _ -> (ty, arguments)
@@ -970,6 +975,7 @@ typeApplicationSpine :: Type -> (Type, [Type])
 typeApplicationSpine = go []
   where
     go arguments (TAnn _ inner) = go arguments inner
+    go arguments (TResolved _ inner) = go arguments inner
     go arguments (TApp function argument) = go (argument : arguments) function
     go arguments (TTypeApp function argument) = go (argument : arguments) function
     go arguments headType = (headType, arguments)
@@ -1033,7 +1039,7 @@ typeVariableOperator name promotion
   | promotion == Unpromoted,
     isNothing (nameQualifier name),
     nameType name == NameVarId =
-      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name))
+      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name))
   | otherwise = Nothing
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
@@ -1959,6 +1965,7 @@ freeTypeVars = nub . go
     go (TList _ args) = concatMap go args
     go (TParen inner) = go inner
     go (TAnn _ inner) = go inner
+    go (TResolved _ inner) = go inner
     go (TKindSig inner kindTy) = go inner ++ go kindTy
     go (TContext preds inner) = concatMap go preds ++ go inner
     -- A variable can occur only in an implicit parameter, as @m@ in
@@ -1976,6 +1983,7 @@ freeTypeVars = nub . go
 
 splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
+splitContext (TResolved _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
 
@@ -1995,6 +2003,7 @@ splitForalls :: Type -> ([TyVarBinder], Type)
 splitForalls ty =
   case ty of
     TAnn _ inner -> splitForalls inner
+    TResolved _ inner -> splitForalls inner
     TParen inner -> splitForalls inner
     TForall telescope inner ->
       let (binders, body) = splitForalls inner
@@ -2093,6 +2102,7 @@ surfaceClassPredToPred tvEnv ty = do
         TApp function _ -> typeHeadOf function
         TParen inner -> typeHeadOf inner
         TAnn _ inner -> typeHeadOf inner
+        TResolved _ inner -> typeHeadOf inner
         other -> other
 
 classPredicateArgKinds :: Name -> Int -> TcM [TcType]
@@ -2127,6 +2137,7 @@ instanceHeadArguments = go []
     go arguments ty =
       case ty of
         TAnn _ inner -> go arguments inner
+        TResolved _ inner -> go arguments inner
         TApp function argument -> go (argument : arguments) function
         TTypeApp function _ -> go arguments function
         TParen inner -> go arguments inner

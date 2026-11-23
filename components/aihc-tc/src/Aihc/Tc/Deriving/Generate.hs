@@ -18,7 +18,8 @@ module Aihc.Tc.Deriving.Generate
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
+import Aihc.Resolve.Syntax
   ( Annotation,
     ArrowKind (..),
     BuiltinCon (..),
@@ -35,6 +36,7 @@ import Aihc.Parser.Syntax
     NameType (..),
     NumericType (..),
     Pattern (..),
+    ResolutionResult (..),
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
@@ -55,7 +57,6 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     qualifyName,
   )
-import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations
   ( TcCoercedDeriving (..),
     TcDerivedInstance (..),
@@ -110,6 +111,7 @@ declDerivedInstances selected references primPackage unlifted origin decl =
           Nothing -> pure []
       rest <- declDerivedInstances selected references primPackage unlifted origin inner
       pure (own <> rest)
+    DeclError _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
     _ -> pure []
 
 -- | The generation context of one plan.
@@ -1930,7 +1932,7 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
   maybe id (InstanceItemAnn . mkAnnotation) (genSpan gen) $
-    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen)) matches)
+    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
@@ -1984,9 +1986,8 @@ freshLocal gen text = do
     ( UnqualifiedName
         NameVarId
         text
-        ( genSpanAnns gen
-            <> [mkAnnotation (ResolutionAnnotation (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))]
-        )
+        (genSpanAnns gen)
+        (Just (ResolutionOk (Resolved (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
@@ -2052,14 +2053,14 @@ intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashL
 
 -- | An unboxed @Int#@ literal.
 intHashLiteral :: Gen -> Integer -> Expr
-intHashLiteral gen value = at gen (EAnn (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#")))
+intHashLiteral gen value = at gen (EResolved (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#")))
 
 -- | An unboxed @Int#@ literal pattern, which matches a tag without the
 -- @Eq@ and @Num@ instances an overloaded literal pattern would ask for.
 intHashPattern :: Gen -> Integer -> Pattern
 intHashPattern gen value =
   atPattern gen $
-    PAnn (primitiveIntTypeAnnotation gen) $
+    PResolved (primitiveIntTypeAnnotation gen) $
       PLit (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
 
 -- | Place a generated literal at the deriving clause, because the checker
@@ -2069,10 +2070,10 @@ atLiteral gen = maybe id (LitAnn . mkAnnotation) (genSpan gen)
 
 -- | The resolution of @Int#@ that a primitive literal carries, which is
 -- what the resolver leaves on one it read from source.
-primitiveIntTypeAnnotation :: Gen -> Annotation
+primitiveIntTypeAnnotation :: Gen -> ResolutionResult
 primitiveIntTypeAnnotation gen =
-  mkAnnotation
-    (ResolutionAnnotation (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (EntityGlobal (GlobalName primTypeName primTypePackage primTypeModule ResolutionNamespaceType)))
+  ResolutionOk
+    (Resolved (genSpan gen) (IdentifierNamed primTypeName) ResolutionNamespaceType (EntityGlobal (GlobalName primTypeName primTypePackage primTypeModule ResolutionNamespaceType)))
   where
     (primTypePackage, primTypeModule, primTypeName) =
       referenceIdentityOf gen (derivingIntPrimType (genReferences gen))
@@ -2083,9 +2084,8 @@ resolvedName sp packageId moduleName' nameType namespace text =
     (Just moduleName')
     nameType
     text
-    ( map mkAnnotation (maybeToList sp)
-        <> [mkAnnotation (ResolutionAnnotation sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))]
-    )
+    (map mkAnnotation (maybeToList sp))
+    (Just (ResolutionOk (Resolved sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))))
 
 tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
 tyConNameSyntax sp tyCon =

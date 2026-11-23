@@ -12,7 +12,7 @@ module Aihc.Tc.Deriving
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve.Syntax
   ( Annotation,
     BinderHead,
     Decl (..),
@@ -26,6 +26,7 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     binderHeadName,
     binderHeadParams,
+    binderResolved,
     fromAnnotation,
     instanceHeadName,
     mkAnnotation,
@@ -33,7 +34,6 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (binderResolution)
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -77,7 +77,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   let targetName = unqualifiedNameText (binderHeadName targetHead)
   targetInfo <-
-    case binderResolution (binderHeadName targetHead) of
+    case binderResolved (binderHeadName targetHead) of
       Just resolution -> lookupResolvedTypeSyntax resolution
       Nothing -> lookupTyCon targetName
   case targetInfo of
@@ -644,6 +644,7 @@ typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
     TAnn annotation inner -> fromAnnotation @SourceSpan annotation <|> typeSpan inner
+    TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner

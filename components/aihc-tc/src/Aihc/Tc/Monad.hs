@@ -167,9 +167,8 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), nameText, unqualifiedNameText)
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), displayIdentifier, globalTerm, nameOrigin, resolutionOf)
-import Aihc.Resolve qualified as Resolve
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), Resolved (..), displayIdentifier, globalTerm)
+import Aihc.Resolve.Syntax (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), binderResolved, nameText, resolvedNameOrigin, termResolved, typeResolved, unqualifiedNameText)
 import Aihc.Tc.Annotations (TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvForClassArguments, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
@@ -795,7 +794,7 @@ resolvedTargetTermKey = resolvedNameTermKey
 
 resolvedUnqualifiedTermKey :: UnqualifiedName -> TcM Entity
 resolvedUnqualifiedTermKey name =
-  case termResolution (unqualifiedNameAnns name) of
+  case termResolution name of
     Just resolution ->
       resolvedNameTermKey (unqualifiedNameText name) (resolutionTarget resolution)
     Nothing ->
@@ -938,14 +937,14 @@ extendResolvedTermEnvPermanent name binder = do
 
 resolvedTermTarget :: Name -> TcM Entity
 resolvedTermTarget name =
-  case Resolve.termResolution name of
+  case termResolved name of
     Just resolution -> pure (resolutionTarget resolution)
     Nothing ->
       abortTc ("missing resolver annotation for term occurrence " <> show (nameText name))
 
 resolvedLocalTermKey :: UnqualifiedName -> TcM Entity
 resolvedLocalTermKey name =
-  case termResolution (unqualifiedNameAnns name) of
+  case termResolution name of
     Just resolution ->
       case resolutionTarget resolution of
         localKey@EntityLocal {} -> pure localKey
@@ -958,10 +957,18 @@ resolvedLocalTermKey name =
 -- resolver chose for an occurrence. An occurrence without a resolver
 -- annotation, or one that names a local binder, gives Nothing.
 resolvedTermOrigin :: Name -> Maybe (PackageId, Text)
-resolvedTermOrigin = nameOrigin
+resolvedTermOrigin = resolvedNameOrigin
 
-termResolution :: [Annotation] -> Maybe ResolutionAnnotation
-termResolution = resolutionOf (== ResolutionNamespaceTerm)
+-- | The term resolution of a binder.
+termResolution :: UnqualifiedName -> Maybe Resolved
+termResolution = binderResolutionIn (== ResolutionNamespaceTerm)
+
+-- | The resolution of a binder, when its namespace is a wanted one.
+binderResolutionIn :: (ResolutionNamespace -> Bool) -> UnqualifiedName -> Maybe Resolved
+binderResolutionIn wanted name =
+  case binderResolved name of
+    Just resolution | wanted (resolutionNamespace resolution) -> Just resolution
+    _ -> Nothing
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
 lookupTyCon = lookupTyConInNamespace ResolutionNamespaceType
@@ -989,33 +996,33 @@ lookupTyConQualifiedInNamespace namespace moduleName name =
 
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
-  case Resolve.typeResolution name of
-    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} ->
+  case typeResolved name of
+    Just Resolved {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} ->
       lookupTyConOrigin namespace (globalNamePackage global) (globalNameModule global) (globalNameText global)
-    Just ResolutionAnnotation {resolutionNamespace = namespace} ->
+    Just Resolved {resolutionNamespace = namespace} ->
       maybe
         (lookupTyConInNamespace namespace (nameText name))
         (\moduleName -> lookupTyConQualifiedInNamespace namespace moduleName (nameText name))
         (nameQualifier name)
     _ -> maybe (lookupTyCon (nameText name)) (\moduleName -> lookupTyConQualified moduleName (nameText name)) (nameQualifier name)
 
-lookupResolvedTypeSyntax :: ResolutionAnnotation -> TcM (Maybe TyConInfo)
+lookupResolvedTypeSyntax :: Resolved -> TcM (Maybe TyConInfo)
 lookupResolvedTypeSyntax resolution =
   case resolution of
-    ResolutionAnnotation
+    Resolved
       { resolutionNamespace = namespace,
         resolutionTarget = EntityGlobal global
       } ->
         lookupTyConOrigin namespace (globalNamePackage global) (globalNameModule global) (globalNameText global)
-    ResolutionAnnotation
+    Resolved
       { resolutionIdentifier = identifier,
         resolutionNamespace = namespace
       } -> lookupTyConInNamespace namespace (displayIdentifier identifier)
 
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
-  case typeResolution (unqualifiedNameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} ->
+  case typeResolution name of
+    Just Resolved {resolutionTarget = EntityGlobal global} ->
       lookupTyConOrigin ResolutionNamespaceType (globalNamePackage global) (globalNameModule global) (globalNameText global)
     _ -> lookupTyCon (unqualifiedNameText name)
 
@@ -1053,8 +1060,9 @@ lookupTyConOrigin namespace packageId moduleName name = do
         | otherwise = key
   lift $ gets $ stateTyCon wiredKey
 
-typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
-typeResolution = resolutionOf (== ResolutionNamespaceType)
+-- | The type resolution of a binder.
+typeResolution :: UnqualifiedName -> Maybe Resolved
+typeResolution = binderResolutionIn (== ResolutionNamespaceType)
 
 extendTyConEnvPermanent :: TyConInfo -> TcM ()
 extendTyConEnvPermanent info = do

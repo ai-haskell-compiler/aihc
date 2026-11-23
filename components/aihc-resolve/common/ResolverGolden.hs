@@ -37,10 +37,10 @@ import Aihc.Resolve
     ModuleUnit (..),
     Package (..),
     PackageId (..),
-    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveError (..),
     ResolveFailure (..),
+    Resolved (..),
     ResolvedModule (..),
     ResolvedUnit (..),
     builtins,
@@ -269,7 +269,7 @@ errorLabel resolveError =
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
 
-annotationLabel :: ResolutionAnnotation -> Text
+annotationLabel :: Resolved -> Text
 annotationLabel ann =
   renderConciseNamespace (resolutionNamespace ann)
     <> " "
