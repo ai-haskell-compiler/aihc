@@ -1,0 +1,38 @@
+program: |
+  primitive quotWord#%1 :: WordRep/2
+  primitive remWord#%2 :: WordRep/2
+  primitive plusWord#%3 :: WordRep/2
+  $entry (value :: WordRep) -> WordRep =
+    (quotient%4 :: WordRep) <- primitive-call @WordRep quotWord# (value :: WordRep) (8 :: WordRep)
+    (remainder%5 :: WordRep) <- primitive-call @WordRep remWord# (value :: WordRep) (64 :: WordRep)
+    (other%6 :: WordRep) <- primitive-call @WordRep quotWord# (value :: WordRep) (10 :: WordRep)
+    (sum%7 :: WordRep) <- primitive-call @WordRep plusWord# (quotient%4 :: WordRep) (remainder%5 :: WordRep)
+    primitive-call @WordRep plusWord# (sum%7 :: WordRep) (other%6 :: WordRep)
+expected: |
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %value_3: i64, %$cps_return_4: ptr) {
+  entry:
+    %result_5 = shr.u i64 %value_3, 3
+    %result_6 = and i64 %value_3, 63
+    %result_7 = div.u i64 %value_3, 10
+    %result_8 = add i64 %result_5, %result_6
+    %result_9 = add i64 %result_8, %result_7
+    %header_word_10 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_11 = and i64 %header_word_10, -4
+    %header_12 = ptr.from_int %info_word_11
+    %entry_13 = load.invariant code [%header_12 + 16] align 1 word
+    %forward_16 = eq code %entry_13, null
+    br %forward_16, continue_slow_14, continue_enter_15
+
+  cold continue_slow_14:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %result_9)
+
+  continue_enter_15:
+    tailcall.indirect %entry_13(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %result_9) : (ptr, ptr, ptr, ptr, i64)
+  }
+status: pass
+reason: >-
+  An unsigned division by a power of two is a right shift, and the unsigned
+  remainder is a mask. A division by a number that is not a power of two
+  stays a division.

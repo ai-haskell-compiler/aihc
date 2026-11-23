@@ -1,0 +1,4 @@
+status: pass
+reason: GHC.Event exports the descriptor callback API of GHC, so the event code of usb resolves.
+needs-base: true
+no-code: true

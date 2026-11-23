@@ -770,10 +770,10 @@ noRequest _ = assertFailure "the closure sent a request"
 
 -- | A build runs the splices of a program in an engine, and the program
 -- has their results. The program has splices in expressions, some with
--- expression quotes, splices in the position of a declaration, and name
--- quotes. The program is for the host target, and the
--- splices run for @wasm32-wasip3@, so the store has the core libraries of
--- the two targets. The program also depends on a package that its C code
+-- expression quotes, splices in the position of a declaration, name
+-- quotes, declaration quotes, and pattern quotes. The program is for the
+-- host target, and the splices run for @wasm32-wasip3@, so the store has
+-- the core libraries of the two targets. The program also depends on a package that its C code
 -- makes only for native targets. The splices do not import that package,
 -- so the builds for the engine must not compile it.
 test_buildSplices :: IO SeedStore -> IO (Maybe SeedStore) -> Assertion
@@ -798,7 +798,7 @@ test_buildSplices getStore getEngineStore = do
           withSplices
       (status, out, err) <- readProcessWithExitCode output [] ""
       assertEqual "exit status" ExitSuccess status
-      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n([DecidedStrict,DecidedLazy,DecidedUnpack],[DecidedLazy])\n(Just (Fixity 6 InfixR),Just (Fixity 5 InfixR),Nothing)\n(0,2,2,True)\n(4,\"4\")\nTrue\nTrue\nTrue\nTrue\n-9223372036854775808\nProxy\nProxy\nShape\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (349,12) (349,177)\n(True,1,[(\"FamInt\",2)])\n42\n(1,5)\nTrue\n(2,True)\n[1,2,255]\n0.5\n0.25\n(True,False)\nTrue\n" out
+      assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\nUnboundVarE Missing\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n([DecidedStrict,DecidedLazy,DecidedUnpack],[DecidedLazy])\n(Just (Fixity 6 InfixR),Just (Fixity 5 InfixR),Nothing)\n(0,2,2,True)\n(4,\"4\")\nTrue\nTrue\nTrue\nTrue\n-9223372036854775808\nProxy\nProxy\nShape\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (366,12) (366,177)\n(True,1,[(\"FamInt\",2)])\n42\n(1,5)\nTrue\n(2,True)\n[1,2,255]\n(True,True,True,Nothing)\n(Nothing,Just 'j',Left 3)\n0.5\n0.25\n(True,False)\nTrue\n(-37,42)\nColour!\n42\n5\np\n\"\"\n" out
       assertEqual "stderr" "" err
 
 -- | A session evaluates each input in one instance. A later input uses the

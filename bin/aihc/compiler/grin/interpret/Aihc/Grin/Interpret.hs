@@ -2140,6 +2140,20 @@ evalPrimitive name [destinationValue, destinationIndex, sourceValue, sourceIndex
             pure next
       carry <- liftEvalIO (foldM step 0 [0 .. fromInteger count - 1])
       pure [wordRuntimeValue carry]
+-- The kernel writes the square of the source limbs, as aihc_limbs_square
+-- does. The result has two times the limbs of the source.
+evalPrimitive "aihcLimbsSquare#" [resultValue, sourceValue, sizeValue] = do
+  let name = "aihcLimbsSquare#"
+  result <- expectByteArrayPrimitiveArgument name resultValue
+  source <- expectByteArrayPrimitiveArgument name sourceValue
+  size <- expectIntPrimitiveArgument name sizeValue
+  _ <- checkedByteArrayRange name result 0 (size * 16)
+  _ <- checkedByteArrayRange name source 0 (size * 8)
+  limbs <- liftEvalIO (mapM (\index -> toInteger <$> (peekByteOff (grinByteArrayContents source) (index * 8) :: IO Word64)) [0 .. fromInteger size - 1])
+  let value = foldr (\limb accumulated -> accumulated * 2 ^ (64 :: Int) + limb) 0 limbs
+      square = value * value
+  liftEvalIO (mapM_ (\index -> pokeByteOff (grinByteArrayContents result) (index * 8) (fromInteger (shiftR square (index * 64) .&. 0xffffffffffffffff) :: Word64)) [0 .. 2 * fromInteger size - 1])
+  pure []
 -- The kernel gives the remainder in the low divisor limbs and zero above
 -- them, as aihc_limbs_divide does.
 evalPrimitive "aihcLimbsDivide#" [quotientValue, dividendValue, topValue, divisorValue, sizeValue, _, wantValue] = do
@@ -2829,6 +2843,11 @@ callForeign foreignCall arguments
     [] <- arguments = do
       now <- liftEvalIO Host.getMonotonicTimeNSec
       pure [RuntimeLit (GrinLitInt Word64Rep (toInteger now))]
+  -- No C code of the interpreted program can call hs_free_stable_ptr. Thus
+  -- the record of freed stable pointers is always empty.
+  | symbol == "aihc_take_freed_stable_ptr",
+    [] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep 0)]
   -- The interpreter runs every thread on one capability.
   | symbol == "aihc_capability_count",
     [] <- arguments =

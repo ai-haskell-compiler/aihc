@@ -109,9 +109,9 @@ withResolution span' identifier namespace target attach =
     -- Settle whether this one failed now rather than leaving a thunk over
     -- the state behind for every name in the module.
     let (annotation, state') = case target of
-          Resolved entity ->
-            (ResolutionOk (ResolutionAnnotation span' identifier namespace entity), state)
-          Unresolved message ->
+          Found entity ->
+            (ResolutionOk (Resolved span' identifier namespace entity), state)
+          NotFound message ->
             let resolveError = resolveErrorAt span' identifier namespace message
              in (ResolutionError resolveError, state {stateErrors = resolveError : stateErrors state})
      in state' `seq` (attach annotation, state')

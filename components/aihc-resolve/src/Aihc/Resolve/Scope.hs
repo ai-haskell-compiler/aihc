@@ -1127,8 +1127,22 @@ filterImportSpec maybeSpec scope =
                   (filter (`Set.member` allowedTerms))
                   (Map.restrictKeys (scopeRecordFields scope) (Set.fromList (concat (Map.elems allowedConstructors))))
               )
+          -- A duplicate field label of the exporting module names only one
+          -- of its selectors. A field of an imported type names the
+          -- selector of that type, as an export item does.
+          fieldSelectors =
+            [ (label, selector, entity)
+            | constructors <- Map.elems allowedConstructors,
+              constructor <- constructors,
+              label <- Map.findWithDefault [] constructor (scopeRecordFields scope),
+              label `Set.member` allowedTerms,
+              let selector = fieldSelectorName label constructor,
+              Just entity <- [Map.lookup selector (scopeTerms scope)]
+            ]
+          ownedSelectors = Map.fromListWith (\_ first -> first) [(label, entity) | (label, _, entity) <- fieldSelectors]
+          selectorNames = Map.fromList [(selector, entity) | (_, selector, entity) <- fieldSelectors]
        in Scope
-            { scopeTerms = Map.restrictKeys (scopeTerms scope) allowedTerms,
+            { scopeTerms = Map.unions [ownedSelectors, selectorNames, Map.restrictKeys (scopeTerms scope) allowedTerms],
               scopeTypes = Map.restrictKeys (scopeTypes scope) allowedTypes,
               scopeConstructors = allowedConstructors,
               scopeRecordFields = Map.restrictKeys (scopeRecordFields scope) allowedTerms `Map.union` importedFields,
@@ -1230,7 +1244,7 @@ resolveTypeName scope name =
 resolveQualifiedName :: Scope -> (Text -> Scope -> Resolution) -> Text -> Name -> Resolution
 resolveQualifiedName scope lookupName qualifier name =
   case Map.lookup qualifier (scopeQualifiedModules scope) of
-    Nothing -> Unresolved ("unknown qualified import: " <> T.unpack qualifier)
+    Nothing -> NotFound ("unknown qualified import: " <> T.unpack qualifier)
     Just qualifiedScope -> lookupName (nameText name) qualifiedScope
 
 moduleKey :: Module -> Text
@@ -1317,11 +1331,11 @@ insertQualifiedModule qualifier imported scope =
 
 lookupTerm :: Text -> Scope -> Resolution
 lookupTerm name scope =
-  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTerms scope))
+  maybe (NotFound "unbound") Found (Map.lookup name (scopeTerms scope))
 
 lookupType :: Text -> Scope -> Resolution
 lookupType name scope =
-  maybe (Unresolved "unbound") Resolved (Map.lookup name (scopeTypes scope))
+  maybe (NotFound "unbound") Found (Map.lookup name (scopeTypes scope))
 
 lookupFixity :: Text -> Scope -> OperatorFixity
 lookupFixity name scope =

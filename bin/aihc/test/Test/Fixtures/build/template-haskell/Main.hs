@@ -9,7 +9,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
 import Quasi (quasiLines)
@@ -40,6 +40,11 @@ nested = [|\y -> $([|y|])|]
 -- and the syntax tree has unbound variables.
 holeCase :: Q Exp
 holeCase = [|case _ of { "a" -> missing; _ -> 'c' }|]
+
+-- | A quote with a constructor that is not in scope. GHC accepts it, and
+-- the syntax tree has an unbound variable.
+holeConstructor :: Q Exp
+holeConstructor = [|Missing|]
 
 -- | A type operator of this module.
 type a :+ b = Either a b
@@ -232,6 +237,17 @@ $(deriveDescribe ''Mode)
 -- this module does not import.
 $(deriveLabel ''Shape)
 
+data Colour = Red
+
+$(quoteDescribe ''Colour)
+
+-- A declaration quote in a splice body, with a signature and a value.
+$( [d|
+     quotedNumber :: Int
+     quotedNumber = 6 * 7
+     |]
+ )
+
 $( do
      signature <- [t|Int -> (Int, String)|]
      pure
@@ -287,6 +303,7 @@ main = do
   showTriple
   runQ nested >>= print
   runQ holeCase >>= print
+  runQ holeConstructor >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))
@@ -364,4 +381,27 @@ main = do
   -- A splice lifts a byte array, as the derived instance of a type with a
   -- byte array field does. The program gets the same bytes.
   print (Exts.toList ($(lift (Exts.fromList [1, 2, 255] :: ByteArray)) :: ByteArray))
+  -- A splice finds names in its scope: a type and a data constructor of
+  -- the module, a name with a module qualifier, and a name that is not in
+  -- scope.
+  putStrLn $(do Just shape <- lookupTypeName "Shape"; Just circle <- lookupValueName "Circle"; qualified <- lookupValueName "Exts.toList"; missing <- lookupValueName "noSuchName"; litE (stringL (show (shape == ''Shape, circle == 'Circle, qualified /= Nothing, missing))))
+  -- A splice lifts constructors of base types. The names of the
+  -- constructors are the names in these libraries.
+  print ($(lift (Nothing :: Maybe Int, Just 'j', Left 3 :: Either Int Bool)) :: (Maybe Int, Maybe Char, Either Int Bool))
   mapM_ putStrLn quasiLines
+  -- Typed splices of typed quotes.
+  print ($$(typedSteps 3) 5, $$(typedOffset 41))
+  putStrLn (describe Red)
+  print quotedNumber
+  -- A quote with a do expression, a let statement, and a let expression.
+  $( [|
+       do
+         number <- pure (2 :: Int)
+         let twice = number * 2
+         print (let more = 1 in twice + more)
+       |]
+   )
+  -- A pattern quote. The variable of the pattern binds the variable of a
+  -- different quote.
+  putStrLn ($(lamE [[p|(Just letter, _)|]] [|[letter]|]) (Just 'p', True))
+  putStrLn $pathVariable

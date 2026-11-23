@@ -11,9 +11,9 @@ module Test.Tc.Properties
   )
 where
 
-import Aihc.Parser.Syntax (Type (TStar))
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (PackageId (PackageId))
+import Aihc.Resolve.Syntax (Type (TStar))
 import Aihc.Tc
   ( ClassInfo (..),
     DataFamilyInstanceInfo (..),

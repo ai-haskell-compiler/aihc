@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 544 250" role="img" aria-label="A terminal. The command aihc build compiles the hello-world example in 0.2 seconds. The program prints Hello, world!">
+  <defs>
+    <clipPath id="t1"><rect class="type ty1" x="38" y="42" width="351" height="24"/></clipPath>
+    <clipPath id="t2"><rect class="type ty2" x="38" y="186" width="243" height="24"/></clipPath>
+  </defs>
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 15px; fill: #e8e4f2; }
+    .dim { fill: #9b93b8; } .ok { fill: #8fd6a4; } .acc { fill: #b9a9ec; } .out { fill: #f2b8c6; font-weight: 700; }
+    .all { animation: all 14s linear infinite; }
+    .type { transform-box: fill-box; transform-origin: left; }
+    .ty1 { animation: ty1 14s linear infinite; }
+    .ty2 { animation: ty2 14s linear infinite; }
+    .l1 { animation: l1 14s linear infinite; } .l2 { animation: l2 14s linear infinite; }
+    .l3 { animation: l3 14s linear infinite; } .l4 { animation: l4 14s linear infinite; }
+    .l5 { animation: l5 14s linear infinite; } .l6 { animation: l6 14s linear infinite; }
+    .l7 { animation: l7 14s linear infinite; }
+    .cur { animation: blink 1s steps(1) infinite; }
+    @keyframes all { 0%, 95% { opacity: 1; } 99%, 100% { opacity: 0; } }
+    @keyframes ty1 { 0%, 4% { transform: scaleX(0); animation-timing-function: steps(39, end); } 20%, 100% { transform: scaleX(1); } }
+    @keyframes ty2 { 0%, 46% { transform: scaleX(0); animation-timing-function: steps(27, end); } 57%, 100% { transform: scaleX(1); } }
+    @keyframes l1 { 0%, 24% { opacity: 0; } 24.1%, 100% { opacity: 1; } }
+    @keyframes l2 { 0%, 26% { opacity: 0; } 26.1%, 100% { opacity: 1; } }
+    @keyframes l3 { 0%, 35% { opacity: 0; } 35.1%, 100% { opacity: 1; } }
+    @keyframes l4 { 0%, 37% { opacity: 0; } 37.1%, 100% { opacity: 1; } }
+    @keyframes l5 { 0%, 42% { opacity: 0; } 42.1%, 100% { opacity: 1; } }
+    @keyframes l6 { 0%, 61% { opacity: 0; } 61.1%, 100% { opacity: 1; } }
+    @keyframes l7 { 0%, 64% { opacity: 0; } 64.1%, 100% { opacity: 1; } }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <rect width="544" height="250" rx="12" fill="#1b1530"/>
+  <path d="M0 12 A12 12 0 0 1 12 0 H532 A12 12 0 0 1 544 12 V28 H0 Z" fill="#2b2240"/>
+  <circle cx="18" cy="14" r="5" fill="#f2b8c6"/>
+  <circle cx="34" cy="14" r="5" fill="#e8d28f"/>
+  <circle cx="50" cy="14" r="5" fill="#8fd6a4"/>
+  <g class="all">
+    <text class="acc" x="20" y="60">$</text>
+    <text x="38" y="60" textLength="351" clip-path="url(#t1)">aihc build examples/hello-world/Main.hs</text>
+    <text class="l1 dim" x="20" y="84" textLength="270">Plan: 3 packages, 1 executable</text>
+    <g class="l2">
+      <text class="dim" x="38" y="108" textLength="468" xml:space="preserve">aihc-rts-1.0.2  aihc-prim-0.13.0  aihc-base-4.21.2.0</text>
+      <text class="dim" x="20" y="132" textLength="153">Main (executable)</text>
+    </g>
+    <text class="l3" x="20" y="156" xml:space="preserve"><tspan class="ok">✔</tspan> Main (executable)  2 modules  <tspan class="ok">0.2 s</tspan></text>
+    <text class="l4 dim" x="20" y="180" textLength="333">executable: examples/hello-world/Main</text>
+    <text class="l5 acc" x="20" y="204">$</text>
+    <text x="38" y="204" textLength="243" clip-path="url(#t2)">./examples/hello-world/Main</text>
+    <text class="l6 out" x="20" y="228">Hello, world!</text>
+  </g>
+</svg>

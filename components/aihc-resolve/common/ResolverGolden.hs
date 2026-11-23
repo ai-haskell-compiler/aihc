@@ -37,10 +37,10 @@ import Aihc.Resolve
     ModuleUnit (..),
     Package (..),
     PackageId (..),
-    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveError (..),
     ResolveFailure (..),
+    Resolved (..),
     ResolvedModule (..),
     ResolvedUnit (..),
     builtins,
@@ -225,7 +225,7 @@ fixtureLanguageEdition :: LanguageEdition
 fixtureLanguageEdition = Haskell2010Edition
 
 builtinModuleNames :: [Text]
-builtinModuleNames = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
+builtinModuleNames = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Records", "GHC.Types"]
 
 listSupportModule :: Text
 listSupportModule =
@@ -269,7 +269,7 @@ errorLabel resolveError =
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
 
-annotationLabel :: ResolutionAnnotation -> Text
+annotationLabel :: Resolved -> Text
 annotationLabel ann =
   renderConciseNamespace (resolutionNamespace ann)
     <> " "

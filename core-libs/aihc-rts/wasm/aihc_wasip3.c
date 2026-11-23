@@ -169,6 +169,54 @@ static void aihc_wasi_initialize_arguments(void) {
   aihc_wasi_roots = NULL;
 }
 
+/* The environment of the program comes from wasi:cli/environment. Each
+   variable is NAME=VALUE with a zero byte at the end, as the POSIX host
+   gives environ to the parser. The WASI P3 entry calls this function before
+   the program starts. */
+void aihc_program_environment_initialize(void) {
+  AihcRootFrame frame;
+  aihc_roots_enter(aihc_machine_initialize(), &frame, 0, NULL);
+  aihc_wasi_roots = &frame;
+  command_list_tuple2_string_string_t variables = {0};
+  wasi_cli_environment_get_environment(&variables);
+  size_t length = 0;
+  for (size_t index = 0; index < variables.len; ++index) {
+    uint64_t size = (uint64_t)variables.ptr[index].f0.len +
+                    (uint64_t)variables.ptr[index].f1.len + 2;
+    if (size >= (uint64_t)INT64_MAX - (uint64_t)length) {
+      command_list_tuple2_string_string_free(&variables);
+      abort();
+    }
+    length += (size_t)size;
+  }
+  uint8_t *buffer = NULL;
+  if (length != 0) {
+    buffer = aihc_wasi_allocate(length);
+    size_t offset = 0;
+    for (size_t index = 0; index < variables.len; ++index) {
+      command_string_t name = variables.ptr[index].f0;
+      command_string_t value = variables.ptr[index].f1;
+      if (name.len != 0) {
+        memcpy(buffer + offset, name.ptr, name.len);
+      }
+      offset += name.len;
+      buffer[offset++] = '=';
+      if (value.len != 0) {
+        memcpy(buffer + offset, value.ptr, value.len);
+      }
+      offset += value.len;
+      buffer[offset++] = 0;
+    }
+  }
+  if (aihc_runtime_environment_initialize(buffer, (int64_t)length) != 0) {
+    command_list_tuple2_string_string_free(&variables);
+    abort();
+  }
+  command_list_tuple2_string_string_free(&variables);
+  aihc_roots_leave(aihc_machine_initialize(), &frame);
+  aihc_wasi_roots = NULL;
+}
+
 static int64_t aihc_wasi_error(int32_t error) { return -((int64_t)error) - 1; }
 
 static int32_t aihc_cli_error(wasi_cli_types_error_code_t error) {

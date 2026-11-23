@@ -795,7 +795,7 @@ int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
    process environment and flattens it like argv; the parser in
    aihc_runtime_options.lir keeps the AIHC_RTS_STATS value, and keeps the
    flattened buffer itself for lookupEnv and getEnvironment. The WASI P3 host
-   reads no environment: see aihc_host_wasip3.c. */
+   reads the environment of wasi:cli/environment: see aihc_wasip3.c. */
 void aihc_program_environment_initialize(void);
 int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
 /* Write the runtime statistics to the AIHC_RTS_STATS file, once, when the
@@ -989,6 +989,13 @@ int64_t aihc_io_handle_size(void *handle);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
+/* Free a stable pointer from C, as GHC's HsFFI.h declares it. The stable
+   pointer table is a Haskell value, so this only records the pointer. The
+   next GHC.Stable.newStablePtr frees each recorded pointer. */
+void hs_free_stable_ptr(void *stable_ptr);
+/* Give one stable pointer that hs_free_stable_ptr recorded and remove it
+   from the record. This gives 0 when the record is empty. */
+uintptr_t aihc_take_freed_stable_ptr(void);
 /* Keep the value of each CAF that a later evaluation updates. An engine
    guest calls it, because the engine loads code that can refer to an old
    CAF. */

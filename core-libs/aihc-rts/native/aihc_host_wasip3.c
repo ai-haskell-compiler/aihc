@@ -33,12 +33,11 @@ _Noreturn void aihc_host_fail(const char *message) {
   __builtin_trap();
 }
 
-/* The statistics hook is not implemented on this host. The P3 driver
-   reads no environment, so AIHC_RTS_STATS is never seen, and every file
+/* The exit path of this host does not call the statistics hook: every file
    write on this host is one asynchronous stream that the driver pumps,
-   which the exit path cannot wait for. The statistics hook stays documented in
-   docs/native-runtime-objects.md. */
-void aihc_program_environment_initialize(void) {}
+   which the exit path cannot wait for. The statistics hook stays documented
+   in docs/native-runtime-objects.md. aihc_wasip3.c reads the environment
+   for aihc_program_environment_initialize. */
 
 uint64_t aihc_host_monotonic_ns(void) { return aihc_wasip3_monotonic_ns(); }
 

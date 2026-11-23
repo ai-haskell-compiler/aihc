@@ -23,26 +23,22 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax
-  ( Decl (..),
-    Extension (ImplicitPrelude),
+  ( Extension (ImplicitPrelude),
     LanguageEdition (Haskell2010Edition, Haskell98Edition),
     Module,
-    ValueDecl (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
     importDeclModule,
-    moduleDecls,
     moduleImports,
     moduleName,
     parseExtensionName,
     parseLanguageEdition,
-    peelDeclAnn,
-    unqualifiedNameText,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
+import Aihc.Resolve.Syntax qualified as R
 import Aihc.Tc
   ( MergeCheck (..),
     TcConfig,
@@ -264,8 +260,8 @@ evaluateTcAnnotatedCasePure tc =
 
 renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
 renderTcAnnotatedCase tc = do
-  checked <- checkTcAnnotatedCase tc
-  mapM_ (checkDependencies checked) (caseDependencies tc)
+  (resolved, checked) <- resolveAndCheckTcAnnotatedCase tc
+  mapM_ (checkDependencies (map resolvedModuleSyntax resolved)) (caseDependencies tc)
   case caseAnnotated tc of
     Just _ -> pure (renderAnnotatedTcResults (caseModules tc) checked)
     Nothing
@@ -277,7 +273,9 @@ renderTcAnnotatedCase tc = do
             )
 
 -- | Check declaration dependencies from source fixtures.
-checkDependencies :: [Module] -> Map Text [Text] -> Either String ()
+-- | Check the dependencies that the type checker finds in the resolved
+-- modules.
+checkDependencies :: [R.Module] -> Map Text [Text] -> Either String ()
 checkDependencies modules expected = do
   entries <- case runTcM (emptyTcEnv testTcConfig) initTcState (concat <$> mapM moduleDependencies modules) of
     Left abort -> Left (tcAbortMessage abort)
@@ -288,21 +286,26 @@ checkDependencies modules expected = do
     then Right ()
     else Left ("dependency mismatch: expected " <> show expected <> ", got " <> show actual)
   where
-    moduleDependencies modu = concat <$> mapM (declarationDependencies (fromMaybe "" (moduleName modu))) (moduleDecls modu)
+    moduleDependencies modu = concat <$> mapM (declarationDependencies (fromMaybe "" (R.moduleName modu))) (R.moduleDecls modu)
     declarationDependencies owner decl = do
       references <- freeVarsDecl decl
-      let binders = case peelDeclAnn decl of
-            DeclValue (FunctionBind name _) -> [name]
-            DeclValue (PatternBind _ pat _) -> patternBinderNames pat
+      let binders = case R.peelDeclAnn decl of
+            R.DeclValue (R.FunctionBind name _) -> [name]
+            R.DeclValue (R.PatternBind _ pat _) -> patternBinderNames pat
             _ -> []
-      pure [(owner <> "." <> unqualifiedNameText name, map renderKey (Set.toList references)) | name <- binders]
+      pure [(owner <> "." <> R.unqualifiedNameText name, map renderKey (Set.toList references)) | name <- binders]
     renderKey key = case key of
       GlobalTerm _ owner name -> owner <> "." <> name
       _ -> T.pack (show key)
 
 -- | Parse, resolve, and type-check the modules of one case.
 checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]
-checkTcAnnotatedCase tc =
+checkTcAnnotatedCase tc = snd <$> resolveAndCheckTcAnnotatedCase tc
+
+-- | The resolved modules of a case, and the modules that the type checker
+-- gives for them.
+resolveAndCheckTcAnnotatedCase :: TcAnnotatedCase -> Either String ([ResolvedModule], [Module])
+resolveAndCheckTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
@@ -317,7 +320,7 @@ checkTcAnnotatedCase tc =
                   <> supportScopes support
            in case resolveUnit (fixtureBuiltinScope visibleExports) visibleExports (fixtureUnits modules) of
                 Right ResolvedUnit {resolvedModules} ->
-                  typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface support) resolvedModules
+                  (,) resolvedModules <$> typecheckModuleGraph (fixtureTcConfig tc) (supportTcInterface support) resolvedModules
                 Left failure ->
                   Left ("resolve error: " <> show (failureErrors failure))
   where
@@ -435,7 +438,7 @@ fixtureBuiltinScope :: ModuleExports -> Builtins
 fixtureBuiltinScope visibleExports =
   builtins fixturePackage visibleExports builtinFunctionModules
   where
-    builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Types"]
+    builtinFunctionModules = ["GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.String", "GHC.Real", "GHC.Records", "GHC.Types"]
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

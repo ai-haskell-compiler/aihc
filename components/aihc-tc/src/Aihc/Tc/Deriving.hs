@@ -12,7 +12,7 @@ module Aihc.Tc.Deriving
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve.Syntax
   ( Annotation,
     BinderHead,
     Decl (..),
@@ -26,6 +26,7 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     binderHeadName,
     binderHeadParams,
+    binderResolved,
     fromAnnotation,
     instanceHeadName,
     mkAnnotation,
@@ -33,7 +34,6 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (binderResolution)
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -46,6 +46,7 @@ import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy, defaultStockFallback, i
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
@@ -76,7 +77,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   let targetName = unqualifiedNameText (binderHeadName targetHead)
   targetInfo <-
-    case binderResolution (binderHeadName targetHead) of
+    case binderResolved (binderHeadName targetHead) of
       Just resolution -> lookupResolvedTypeSyntax resolution
       Nothing -> lookupTyCon targetName
   case targetInfo of
@@ -402,7 +403,10 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               checkedHead <- zipWithM (checkSurfaceType tvEnv) headArguments classParamKinds
               checkedContext <- surfaceContextToPreds tvEnv (standaloneDerivingContext derivingDecl)
               targetKind <- zonkKind (maybe (typeKind kinds) snd (unsnoc classParamKinds))
-              targetFlavor <- standaloneTargetFlavor checkedHead
+              familyInstance <- standaloneFamilyInstance checkedHead
+              targetFlavor <- case familyInstance of
+                Just info -> pure (if dfiiIsNewtype info then NewtypeTyCon else DataTyCon)
+                Nothing -> standaloneTargetFlavor checkedHead
               checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params
               headTypes <- mapM defaultTypeKinds checkedHead
@@ -410,7 +414,9 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               fallback <- defaultStockFallback className (ciOrigin classInfo) (standaloneDerivingStrategy derivingDecl) checkedStrategy
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
-              dataType <- standaloneTargetDataType headTypes
+              dataType <- case familyInstance of
+                Just info -> Just <$> familyInstanceDataType info
+                Nothing -> standaloneTargetDataType headTypes
               pure (Just ((mkDerivingPlan kinds classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods) {tcDerivingStockFallback = fallback, tcDerivingStandalone = True}))
   where
     implicitParam name = do
@@ -479,6 +485,27 @@ standaloneTargetFlavor headTypes =
           maybeInfo <- lookupTyConByIdentity targetTyCon
           pure (maybe DataTyCon tciFlavor maybeInfo)
     _ -> pure DataTyCon
+
+-- | The data family instance that a standalone deriving declaration
+-- targets, as @deriving instance Eq e => Eq (Color LCH e)@. The target is
+-- the family applied to arguments that match the arguments of exactly one
+-- instance. A class of a higher kind takes the family without its last
+-- arguments. Thus only the arguments that the target gives must match.
+standaloneFamilyInstance :: [TcType] -> TcM (Maybe DataFamilyInstanceInfo)
+standaloneFamilyInstance headTypes =
+  case reverse headTypes of
+    TcTyCon targetTyCon targetArguments : _ -> do
+      instances <- getDataFamilyInstances
+      pure $ case [ info
+                  | info <- instances,
+                    TcTyCon family instanceArguments <- [dfiiFamilyType info],
+                    family == targetTyCon,
+                    length targetArguments <= length instanceArguments,
+                    Just _ <- [matchTypes (take (length targetArguments) instanceArguments) targetArguments]
+                  ] of
+        [info] -> Just info
+        _ -> Nothing
+    _ -> pure Nothing
 
 standaloneTargetDataType :: [TcType] -> TcM (Maybe DataTypeInfo)
 standaloneTargetDataType headTypes =
@@ -617,6 +644,7 @@ typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
     TAnn annotation inner -> fromAnnotation @SourceSpan annotation <|> typeSpan inner
+    TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner

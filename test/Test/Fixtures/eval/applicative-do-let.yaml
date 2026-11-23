@@ -1,0 +1,36 @@
+extensions:
+  - ApplicativeDo
+modules:
+  - |
+    {-# LANGUAGE ApplicativeDo #-}
+    module Test where
+
+    import Prelude
+
+    data V a = V a
+
+    instance Functor V where
+      fmap f (V x) = V (f x)
+
+    instance Applicative V where
+      pure = V
+      V f <*> V x = V (f x)
+
+    block :: V Bool
+    block = do
+      let k = True
+      x <- V k
+      let j = not k
+      y <- V k
+      pure (x && y && not j)
+
+    result :: Bool
+    result = case block of
+      V value -> value
+output: |
+  True
+expression: |
+  result
+status: pass
+reason: ApplicativeDo moves a let statement that uses no variable of an earlier
+  bind to the start of the block, so the block needs no Monad instance.

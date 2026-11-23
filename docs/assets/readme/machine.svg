@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" role="img" aria-label="A robot operates a machine. A conveyor belt moves Haskell source files into the machine. The robot rolls along the machine and moves a lever to select one of three backends: native code, LLVM IR, or WebAssembly.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1530"/>
+      <stop offset="1" stop-color="#3a2f5c"/>
+    </linearGradient>
+    <clipPath id="card"><rect width="720" height="360" rx="18"/></clipPath>
+    <clipPath id="entry"><rect x="-100" y="240" width="364" height="50"/></clipPath>
+    <clipPath id="c"><polygon points="18,18 62,18 40,88"/></clipPath>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #fff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    .sub { fill: #c9c1e0; font-size: 13px; }
+    .spin { transform-box: fill-box; transform-origin: center; animation: spin 4s linear infinite; }
+    .g1 { transform-origin: 286px 172px; }
+    .g2 { transform-origin: 268.0px 203.2px; }
+    .turn.g1 { animation: turn 6s linear infinite; }
+    .turn.g2 { animation: turn 4s linear infinite reverse; }
+    .size.g1 { animation: size1 2.5s ease-in-out infinite alternate; }
+    .size.g2 { animation: size2 2.5s ease-in-out infinite alternate; }
+    .roll { animation-duration: 1.5s; }
+    .boxes { animation: belt 3s linear infinite; }
+    .tread { stroke-dasharray: 6 9; animation: tread 0.5s linear infinite; }
+    .flow { fill: none; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 2 10; animation: flow 0.6s linear infinite; }
+    .out { animation: 9s linear infinite; }
+    .o1 { animation-name: on1; } .o2 { animation-name: on2; } .o3 { animation-name: on3; }
+    .eye { transform-box: fill-box; transform-origin: center; animation: blink 4s infinite; }
+    .bulb { animation: bulb 1.2s ease-in-out infinite; }
+    .shake { animation: shake 0.3s linear infinite; }
+    @keyframes turn { to { transform: rotate(360deg); } }
+    @keyframes size1 { from { transform: scale(0.9); } to { transform: scale(1.1); } }
+    @keyframes size2 { from { transform: scale(1.148); } to { transform: scale(0.852); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes belt { to { transform: translateX(90px); } }
+    @keyframes tread { to { stroke-dashoffset: -15; } }
+    @keyframes flow { to { stroke-dashoffset: -12; } }
+    @keyframes on1 { 0% { opacity: 0.35; } 2%, 29% { opacity: 1; } 31%, 100% { opacity: 0.35; } }
+    @keyframes on2 { 0%, 33.3% { opacity: 0.35; } 35.3%, 62% { opacity: 1; } 64%, 100% { opacity: 0.35; } }
+    @keyframes on3 { 0%, 66.7% { opacity: 0.35; } 68.7%, 95.5% { opacity: 1; } 97.5%, 100% { opacity: 0.35; } }
+    @keyframes blink { 0%, 46%, 50%, 100% { transform: scaleY(1); } 48% { transform: scaleY(0.1); } }
+    @keyframes bulb { 50% { opacity: 0.3; } }
+    @keyframes shake { 50% { transform: translateY(1px); } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <g clip-path="url(#card)">
+  <rect width="720" height="360" fill="url(#bg)"/>
+  <rect x="0" y="340" width="720" height="20" fill="#1b1530" opacity="0.6"/>
+  <text font-size="26" font-weight="800"><tspan x="28" y="58">One compiler.</tspan><tspan x="28" y="90" style="fill:#f2b8c6">Three backends.</tspan></text>
+  <!-- The conveyor belt -->
+  <path d="M50 306 V340 M190 306 V340" stroke="#5e5086" stroke-width="8"/>
+  <rect x="-20" y="286" width="290" height="22" rx="11" fill="#2b2240" stroke="#8e82b5" stroke-width="2"/>
+  <path class="tread" d="M-20 286 H270" stroke="#c9c1e0" stroke-width="2"/>
+  <g class="spin roll"><circle cx="30" cy="297" r="7" fill="#7d6fa6"/><path d="M23 297 H37 M30 290 V304" stroke="#2b2240" stroke-width="2"/></g>
+  <g class="spin roll"><circle cx="90" cy="297" r="7" fill="#7d6fa6"/><path d="M83 297 H97 M90 290 V304" stroke="#2b2240" stroke-width="2"/></g>
+  <g class="spin roll"><circle cx="150" cy="297" r="7" fill="#7d6fa6"/><path d="M143 297 H157 M150 290 V304" stroke="#2b2240" stroke-width="2"/></g>
+  <g class="spin roll"><circle cx="210" cy="297" r="7" fill="#7d6fa6"/><path d="M203 297 H217 M210 290 V304" stroke="#2b2240" stroke-width="2"/></g>
+  <!-- The outputs -->
+  <g class="out o1">
+    <rect x="480" y="163" width="52" height="14" fill="#46396b"/>
+    <path class="flow" d="M484 170 H528" stroke="#b9a9ec"/>
+    <rect x="530" y="145" width="172" height="50" rx="12" fill="#2b2240" stroke="#b9a9ec" stroke-width="2"/>
+    <circle class="lamp" cx="550" cy="170" r="6" fill="#b9a9ec"/>
+    <text x="566" y="168" font-size="18" font-weight="700">Native code</text>
+    <text class="sub" x="566" y="185">AMD64 and ARM64</text>
+  </g>
+  <g class="out o2">
+    <rect x="480" y="228" width="52" height="14" fill="#46396b"/>
+    <path class="flow" d="M484 235 H528" stroke="#e8d28f"/>
+    <rect x="530" y="210" width="172" height="50" rx="12" fill="#2b2240" stroke="#e8d28f" stroke-width="2"/>
+    <circle class="lamp" cx="550" cy="235" r="6" fill="#e8d28f"/>
+    <text x="566" y="233" font-size="18" font-weight="700">LLVM IR</text>
+    <text class="sub" x="566" y="250">Compiled with Clang</text>
+  </g>
+  <g class="out o3">
+    <rect x="480" y="293" width="52" height="14" fill="#46396b"/>
+    <path class="flow" d="M484 300 H528" stroke="#f2b8c6"/>
+    <rect x="530" y="275" width="172" height="50" rx="12" fill="#2b2240" stroke="#f2b8c6" stroke-width="2"/>
+    <circle class="lamp" cx="550" cy="300" r="6" fill="#f2b8c6"/>
+    <text x="566" y="298" font-size="18" font-weight="700">WebAssembly</text>
+    <text class="sub" x="566" y="315">wasm32</text>
+  </g>
+  <!-- The machine -->
+  <g class="shake">
+    <rect x="240" y="130" width="240" height="210" rx="14" fill="#5e5086"/>
+    <path d="M240 244 H258 A6 6 0 0 1 264 250 V282 A6 6 0 0 1 258 288 H240 Z" fill="#1b1530"/>
+    <rect x="315" y="196" width="100" height="100" rx="22" fill="#46396b"/>
+    <g transform="translate(326 207) scale(0.78)" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M24 54 Q40 36 56 54" clip-path="url(#c)" stroke-linecap="butt"/>
+      <path d="M18 18 L40 88 L62 18"/>
+      <path d="M64 88 L79.1 40"/>
+      <circle cx="86" cy="18" r="6" fill="#fff" stroke="none"/>
+    </g>
+    <circle class="out o1" cx="436" cy="162" r="6" fill="#b9a9ec"/>
+    <circle class="out o2" cx="436" cy="182" r="6" fill="#e8d28f"/>
+    <circle class="out o3" cx="436" cy="202" r="6" fill="#f2b8c6"/>
+    <path d="M428 222 H458 M428 232 H458 M428 242 H458" stroke="#46396b" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <!-- The boxes go into the entry hole. The clip hides each box at the back of the hole. -->
+  <g clip-path="url(#entry)">
+  <g class="boxes"><g transform="translate(-70 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(20 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(110 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(200 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g></g>
+  </g>
+  <!-- The gears. Each gear changes size opposite to the other, thus the teeth stay in mesh. -->
+  <g class="size g1"><g class="turn g1">
+    <path d="M281.1 190.4 L275.9 193.8 L272.2 191.7 L272.6 185.4 L270.4 182.9 L264.3 182.1 L262.8 178.2 L267.1 173.7 L267.1 170.4 L262.8 165.8 L264.2 161.9 L270.4 161.1 L272.6 158.6 L272.2 152.3 L275.9 150.3 L281.1 153.6 L284.3 153.1 L288.1 148.1 L292.2 148.8 L294.0 154.8 L296.9 156.4 L303.0 155.0 L305.7 158.2 L303.2 164.0 L304.4 167.1 L309.9 169.9 L309.9 174.1 L304.4 176.9 L303.2 180.0 L305.7 185.8 L303.0 189.0 L296.9 187.6 L294.0 189.2 L292.2 195.2 L288.1 195.9 L284.4 190.9 Z" fill="#c9c1e0"/>
+    <circle cx="286" cy="172" r="7" fill="#5e5086"/>
+  </g></g>
+  <g class="size g2"><g class="turn g2">
+    <path d="M263.4 192.1 L265.8 186.3 L270.2 186.3 L272.6 192.1 L275.3 193.7 L281.5 192.8 L283.7 196.7 L279.9 201.6 L279.9 204.7 L283.7 209.7 L281.5 213.5 L275.3 212.7 L272.6 214.3 L270.2 220.0 L265.8 220.0 L263.4 214.3 L260.7 212.7 L254.5 213.5 L252.3 209.7 L256.1 204.8 L256.1 201.6 L252.3 196.7 L254.5 192.8 L260.7 193.7 Z" fill="#8e82b5"/>
+    <circle cx="268.0" cy="203.2" r="5" fill="#5e5086"/>
+  </g></g>
+  <rect x="232" y="122" width="256" height="16" rx="6" fill="#7d6fa6"/>
+  <!-- The lever -->
+  <path d="M410 122 A20 20 0 0 1 450 122 Z" fill="#46396b"/>
+  <line x1="430" y1="118" x2="402.0" y2="73.5" stroke="#faf8f3" stroke-width="6" stroke-linecap="round"><animate attributeName="x2" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="402.0;402.0;430.0;430.0;458.0;458.0;402.0"/><animate attributeName="y2" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="73.5;73.5;66.0;66.0;73.5;73.5;73.5"/></line>
+  <!-- The robot. It rolls along the machine and keeps a straight arm on the lever. -->
+  <g><animateTransform attributeName="transform" type="translate" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="0 0;0 0;28 0;28 0;56 0;56 0;0 0"/>
+    <rect x="322" y="108" width="36" height="8" rx="4" fill="#c9c1e0"/>
+    <circle cx="329" cy="117" r="5" fill="#faf8f3"/>
+    <circle cx="351" cy="117" r="5" fill="#faf8f3"/>
+    <path d="M320 78 L308 98" stroke="#c9c1e0" stroke-width="7" stroke-linecap="round"/>
+    <line x1="362" y1="76" x2="402" y2="73.5" stroke="#c9c1e0" stroke-width="7" stroke-linecap="round"><animate attributeName="y2" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="73.5;73.5;66.0;66.0;73.5;73.5;73.5"/></line>
+    <rect x="318" y="62" width="44" height="46" rx="9" fill="#faf8f3"/>
+    <rect x="328" y="76" width="24" height="16" rx="4" fill="#8e82b5"/>
+    <circle class="bulb" cx="334" cy="84" r="3" fill="#f2b8c6"/>
+    <circle cx="345" cy="84" r="3" fill="#8fd6a4"/>
+    <rect x="336" y="56" width="8" height="8" fill="#c9c1e0"/>
+    <path d="M340 28 V16" stroke="#c9c1e0" stroke-width="3"/>
+    <circle class="bulb" cx="340" cy="13" r="5" fill="#f2b8c6"/>
+    <rect x="320" y="26" width="42" height="32" rx="10" fill="#faf8f3"/>
+    <rect x="326" y="33" width="33" height="18" rx="8" fill="#2b2240"/>
+    <circle class="eye" cx="337" cy="42" r="4" fill="#8fd6a4"/>
+    <circle class="eye" cx="351" cy="42" r="4" fill="#8fd6a4"/>
+    <circle cx="362" cy="76" r="6" fill="#8e82b5"/>
+  </g>
+  <circle cx="402.0" cy="73.5" r="9" fill="#f2b8c6" stroke="#faf8f3" stroke-width="3"><animate attributeName="cx" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="402.0;402.0;430.0;430.0;458.0;458.0;402.0"/><animate attributeName="cy" dur="9s" repeatCount="indefinite" calcMode="spline" keySplines="0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1;0 0 1 1;.4 0 .2 1" keyTimes="0;0.29;0.333;0.62;0.667;0.955;1" values="73.5;73.5;66.0;66.0;73.5;73.5;73.5"/></circle>
+  </g>
+</svg>

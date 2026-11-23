@@ -2,12 +2,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, plusHelper, twiceHelper, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
+import Language.Haskell.TH.Syntax (lift)
+import System.Environment (lookupEnv)
 import Lower (Mode, lowerValue)
 import Tone (Label (..), Tone (..))
 
@@ -46,6 +48,40 @@ deriveDescribe name = do
         (AppT (ConT ''Describe) (ConT name))
         [FunD 'describe [Clause [WildP] (NormalB (LitE (StringL names))) []]]
     ]
+
+-- | A typed quote with sections, a variable of the function, and a typed
+-- splice of a different typed quote.
+typedSteps :: Int -> Code Q (Int -> Int)
+typedSteps 0 = [||id||]
+typedSteps k = [||(`subtract` k) . (* 2) . $$(typedSteps (k - 1))||]
+
+-- | A typed quote with a typed splice of a value that has no signature.
+-- Only the type of the quote fixes the monad of that value.
+typedOffset :: Int -> Code Q Int
+typedOffset k = [||(1 +) $$(unsafeCodeCoerce offset)||]
+  where
+    offset = litE (integerL (fromIntegral k))
+
+-- | An instance of 'Describe' from a declaration quote. The instance head
+-- has a splice, and the method has guards and local values.
+quoteDescribe :: Name -> Q [Dec]
+quoteDescribe name =
+  [d|
+    instance Describe $(conT name) where
+      describe _
+        | null text = "none"
+        | otherwise = text ++ suffix
+        where
+          suffix = "!"
+          text = $(stringE (nameBase name))
+    |]
+
+-- | The value of the environment variable PATH in a splice. A library
+-- can look for a program in PATH, and the variable is always in the
+-- environment of a process. The splice cannot start a program, thus the
+-- value is empty.
+pathVariable :: Q Exp
+pathVariable = runIO (maybe "no PATH" show <$> lookupEnv "PATH") >>= lift
 
 -- | Whether a name is the name of 'Mode'. The name quote of this module
 -- and the name quote of the caller must give the same name.

@@ -18,6 +18,7 @@ library
   exposed-modules:
     Aihc.Tc
     Aihc.Tc.Annotations
+    Aihc.Tc.Bindings
     Aihc.Tc.Constraint
     Aihc.Tc.Deriving.References
     Aihc.Tc.Deriving.StockClass

@@ -42,6 +42,13 @@ module Aihc.TH.Splice
     -- that applies a field of @q@ to the text. The splice module refers to
     -- the fields through this module.
     QuasiQuoter (..),
+
+    -- * Typed splices
+
+    -- | The compiler changes the typed splice @$$e@ into a splice of
+    -- @unTypeCode e@. The splice module refers to the function through
+    -- this module.
+    unTypeCode,
   )
 where
 
@@ -63,7 +70,7 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, mkName, runQ, unTypeCode)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -143,6 +150,11 @@ data Request
   | -- | Give the source location of the splice. The reply is a 'Loc'
     -- value.
     Location
+  | -- | Find a name in the scope of the splice: a type constructor or a
+    -- class ('True'), or a value ('False'). The name can have a module
+    -- qualifier, as from @mkName@. The reply is a @Maybe Name@ value. A
+    -- name that is not in scope gives 'Nothing'.
+    LookupName Bool Name
   deriving (Data)
 
 -- | Send a request and give the bytes of the reply.
@@ -215,7 +227,14 @@ instance Quasi Splice where
     Splice (modifyIORef' userState (\values -> (key, toDyn value) : filter ((/= key) . fst) values))
     where
       key = typeRep (Just value)
-  qLookupName _ _ = unsupported "lookupName"
+  qLookupName isType name =
+    Splice $ do
+      reply <- sendRequest (LookupName isType (mkName name))
+      case decodeValue reply of
+        Just found -> pure (found :: Maybe Name)
+        Nothing -> do
+          report (Report True "The reply of the compiler to `lookupName' is not valid.")
+          fail "Template Haskell failure"
   qReify name = Splice (askFacts "reify" (Reify name) :: IO Info)
   qReifyFixity name = Splice (askFacts "reifyFixity" (ReifyFixity name) :: IO (Maybe Fixity))
   qReifyType _ = unsupported "reifyType"

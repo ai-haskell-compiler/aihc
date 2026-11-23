@@ -7,8 +7,8 @@ name: Self-Compile Performance
 # -O2 stage 1 compiles the -O2 stage 2. Stage 0 also compiles stage 1 at -O1,
 # and the -O2 stage 1 also compiles stage 2 at -O1. Thus, the two stage 2
 # builds use the same compiler, and only the level is different.
-# Each stage uses the default flags of aihc. The workflow opens a PR that puts
-# the times in the README.
+# Each stage uses the default flags of aihc. The workflow puts the times in the
+# job summary.
 #
 # Each stage installs the dependencies of aihc before the time starts. Thus,
 # each time is for the local packages and the aihc executable only.
@@ -23,8 +23,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: self-compile-perf
@@ -122,7 +121,7 @@ jobs:
 
       # The step also writes the table to the log, which a reader can see
       # without a GitHub sign-in.
-      - name: Update the README
+      - name: Put the times in the job summary
         run: |
           set -euo pipefail
           stages="$RUNNER_TEMP/stages"
@@ -139,33 +138,12 @@ jobs:
             row stage1 "aihc stage0" -O1 stage1-O1
             row stage2 "aihc stage1" -O1 stage2-O1
           } >"$results"
-          COMMIT="$GITHUB_SHA" RUNNER="$ImageOS ($(nproc) cores)" \
-            scripts/update-readme-self-compile-perf.sh "$results" README.md
           {
             echo "### Self-compile performance"
             echo
-            sed -n '/START self-compile-perf/,/END self-compile-perf/p' README.md |
-              sed '1d;$d'
+            COMMIT="$GITHUB_SHA" RUNNER="$ImageOS ($(nproc) cores)" \
+              scripts/self-compile-perf-table.sh "$results"
           } | tee -a "$GITHUB_STEP_SUMMARY"
-
-      # The action updates the open PR on the same branch. It does not open a second PR.
-      - name: Open pull request for the README
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
-          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
-          commit-message: "docs(readme): update the self-compile performance results"
-          add-paths: |
-            README.md
-          branch: "automation/readme-self-compile-perf"
-          title: "docs(readme): update the self-compile performance results"
-          body: |
-            The weekly Self-Compile Performance workflow made this PR automatically.
-
-            GHC compiles stage 0 of aihc. Stage 0 compiles stage 1, and stage 1 compiles stage 2.
-            The aihc stages compile at -O2 and at -O1.
-            Each build starts with an empty package store.
-            The README table gives the build time of each stage, relative to the GHC build time.
 
       - name: Upload the logs
         if: failure()

@@ -85,7 +85,7 @@ tests = do
           testCase "a position-independent module reads a symbol address from the Global Offset Table" positionIndependentTest,
           testCase "an engine loads shared modules into a live image" (sharedModuleTest tools),
           testCase "an image links an object that uses a thread function of the libc" (imageThreadTest tools),
-          testCase "an image that reads the environment gets an empty environment" (imageEnvironmentTest tools),
+          testCase "an image that reads the environment gets only an empty PATH" (imageEnvironmentTest tools),
           testGroup
             "programs through Lir"
             [ testCase "runs fork# and yield# with FIFO scheduling" (programTest tools "PCAB" schedulerProgram),
@@ -259,8 +259,8 @@ imageThreadTest tools = do
     _ -> pure ()
 
 -- | The libc of an image asks the host for the environment when code
--- reads it. The engine gives an empty environment, and not the environment
--- of the build machine.
+-- reads it. The engine gives only the variable PATH with an empty value,
+-- and not the environment of the build machine.
 imageEnvironmentTest :: Maybe WasmTools -> IO ()
 imageEnvironmentTest tools = do
   node <- engineNodeCommand >>= findExecutable
@@ -273,7 +273,7 @@ imageEnvironmentTest tools = do
             source = directory </> "environment.c"
             object = directory </> "environment.o"
             shimObject = directory </> "libc-shims.o"
-        writeFile source "#include <stdlib.h>\nextern char **environ;\nint image_environment(void) { return getenv(\"HOME\") == 0 && environ != 0 && environ[0] == 0; }\n"
+        writeFile source "#include <stdlib.h>\n#include <string.h>\nextern char **environ;\nint image_environment(void) { return getenv(\"HOME\") == 0 && environ != 0 && environ[0] != 0 && strcmp(environ[0], \"PATH=\") == 0 && environ[1] == 0; }\n"
         (_, backendArguments) <- backendCompiler Wasm32Wasip3
         runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-isystem", wasmSysrootInclude sysroot, "-c", source, "-o", object])
         runTool (toolsClang available) (backendArguments <> ["-O1", "-std=c11", "-c", runtimeRoot </> "wasm" </> "aihc_wasip3_libc.c", "-o", shimObject])
@@ -283,7 +283,7 @@ imageEnvironmentTest tools = do
         result <- withEngine Nothing image $ \engine -> do
           _ <- callFunction engine "__wasm_call_ctors" []
           callFunction engine "image_environment" []
-        assertEqual "an empty environment" (Just 1) result
+        assertEqual "an environment with only an empty PATH" (Just 1) result
     _ -> pure ()
 
 wordScaledModule :: Address -> Alignment -> Module
