@@ -21,11 +21,11 @@ class FromResolved a where
 
 instance (FromResolved a) => FromResolved [a] where
   type ToPending [a] = [ToPending a]
-  fromResolved = fmap (fromResolved )
+  fromResolved = fmap fromResolved
 
 instance (FromResolved a) => FromResolved (Maybe a) where
   type ToPending (Maybe a) = Maybe (ToPending a)
-  fromResolved = fmap (fromResolved )
+  fromResolved = fmap fromResolved
 
 instance (FromResolved a, FromResolved b) => FromResolved (a, b) where
   type ToPending (a, b) = (ToPending a, ToPending b)
@@ -33,7 +33,7 @@ instance (FromResolved a, FromResolved b) => FromResolved (a, b) where
 
 instance (FromResolved a, FromResolved b) => FromResolved (Either a b) where
   type ToPending (Either a b) = Either (ToPending a) (ToPending b)
-  fromResolved value = either (Left . fromResolved) (Right . fromResolved) value
+  fromResolved = either (Left . fromResolved) (Right . fromResolved)
 
 instance FromResolved Annotation where
   type ToPending Annotation = Annotation

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Infer the contexts of the deriving plans of a module batch.
 --
@@ -34,13 +33,6 @@ module Aihc.Tc.Deriving.Context
 where
 
 import Aihc.Resolve (PackageId)
-import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    Decl (..),
-    Module (..),
-    annotationSpan,
-    mkSpanAnnotation,
-  )
 import Aihc.Tc.Annotations
   ( TcDerivingAnnotation (..),
     TcDerivingContext (..),
@@ -61,6 +53,11 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.Syntax.Pending
+  ( Decl (..),
+    Module (..),
+    TcInfo (..),
+  )
 import Aihc.Tc.Types
 import Control.Monad (foldM, unless)
 import Control.Monad.Trans.Class (lift)

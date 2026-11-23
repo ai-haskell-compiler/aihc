@@ -168,13 +168,13 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), Resolved (..), displayIdentifier, globalTerm)
-import Aihc.Tc.Syntax.Pending (Annotation, Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), binderResolved, nameText, resolvedNameOrigin, termResolved, typeResolved, unqualifiedNameText)
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcForeignImportInfo)
 import Aihc.Tc.Deriving.References (DerivingReferences)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceEnv, InstanceInfo (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), addInstanceEnv, classInfoKey, dataFamilyAxiomKey, dataTypeKey, emptyInstanceEnv, instanceEnvForClass, instanceEnvForClassArguments, instanceEnvList, instanceInfoKey, patSynKey, patSynRecordHead, typeFamilyAxiomKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Interface (FactEnv, ModuleOrigin, emptyFactEnv, factEnvClass, factEnvClasses, factEnvDataType, factEnvDataTypes, factEnvModuleDataTypes, factEnvPatSyn, factEnvPatSyns, factEnvTerm, factEnvTyCon, factEnvTyCons)
+import Aihc.Tc.Syntax.Pending (Name (..), SourceSpan, TupleFlavor (..), UnqualifiedName (..), binderResolved, nameText, resolvedNameOrigin, termResolved, typeResolved, unqualifiedNameText)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes)
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon, TcWiring (..), builtinDataCon, mkTcKinds, tupleDataCon, tupleTyCon)

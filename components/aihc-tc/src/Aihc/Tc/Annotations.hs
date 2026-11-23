@@ -60,9 +60,9 @@ module Aihc.Tc.Annotations
   )
 where
 
+import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
-import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)

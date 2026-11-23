@@ -52,9 +52,9 @@ import Aihc.Tc
   )
 import Aihc.Tc.Generate.Bind (freeVarsDecl)
 import Aihc.Tc.Generate.Pattern (patternBinderNames)
+import Aihc.Tc.Monad (TcConfig (tcConfigWiring), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
 import Aihc.Tc.Syntax.Pending qualified as Pending
-import Aihc.Tc.Monad (TcConfig (tcConfigWiring), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
 import Aihc.Tc.Types (Entity (..))
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (ErrorCall, displayException, evaluate, try)

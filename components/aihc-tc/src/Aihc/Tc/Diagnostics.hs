@@ -10,6 +10,7 @@ module Aihc.Tc.Diagnostics
   )
 where
 
+import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -33,13 +34,12 @@ import Aihc.Resolve.Syntax
     mkAnnotation,
     sourceSpanSourceName,
   )
-import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax.ToParser (toParserModule)
 import Aihc.Resolve.Syntax.Traverse (Walk (..), idWalk, walk)
+import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Syntax qualified as Final
 import Aihc.Tc.Syntax.ToResolved (ToResolved (..))
 import Aihc.Tc.Syntax.Traverse (collectAnnotations)
-import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.List qualified as List

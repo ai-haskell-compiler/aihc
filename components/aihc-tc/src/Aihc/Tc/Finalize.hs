@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Finalize the type checker information after constraint solving.
 module Aihc.Tc.Finalize
@@ -28,7 +27,6 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcMatchArityCast (..),
-    TcPatSynAnnotation (..),
     renderTcType,
   )
 import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
@@ -36,6 +34,9 @@ import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
   ( GlobalName,
@@ -59,9 +60,6 @@ import Aihc.Tc.Types
     typeMentionsTyVar,
     pattern KFun,
   )
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..))
-import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
 import Control.DeepSeq (rnf)
@@ -187,7 +185,6 @@ finalizeInstanceAnnotation annotation = do
             tcClassMethodTyVars = variables,
             tcClassMethodDictType = dictionaryType
           }
-
 
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do

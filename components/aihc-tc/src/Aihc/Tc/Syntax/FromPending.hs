@@ -35,11 +35,11 @@ class FromPending a where
 
 instance (FromPending a) => FromPending [a] where
   type Final [a] = [Final a]
-  fromPending info = traverse (fromPending info )
+  fromPending info = traverse (fromPending info)
 
 instance (FromPending a) => FromPending (Maybe a) where
   type Final (Maybe a) = Maybe (Final a)
-  fromPending info = traverse (fromPending info )
+  fromPending info = traverse (fromPending info)
 
 instance (FromPending a, FromPending b) => FromPending (a, b) where
   type Final (a, b) = (Final a, Final b)
@@ -47,7 +47,7 @@ instance (FromPending a, FromPending b) => FromPending (a, b) where
 
 instance (FromPending a, FromPending b) => FromPending (Either a b) where
   type Final (Either a b) = Either (Final a) (Final b)
-  fromPending info value = either (fmap Left . fromPending info) (fmap Right . fromPending info) value
+  fromPending info = either (fmap Left . fromPending info) (fmap Right . fromPending info)
 
 instance FromPending Annotation where
   type Final Annotation = Annotation

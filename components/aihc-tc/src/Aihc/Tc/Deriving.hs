@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Normalize deriving syntax into typed plans for later strategy-specific
 -- checking and System FC lowering. This module checks the shared structure;
@@ -12,29 +11,6 @@ module Aihc.Tc.Deriving
   )
 where
 
-import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    Annotation,
-    BinderHead,
-    Decl (..),
-    DerivingClause (..),
-    DerivingStrategy (..),
-    Extension,
-    Name (..),
-    SourceSpan,
-    StandaloneDerivingDecl (..),
-    Type (..),
-    UnqualifiedName,
-    binderHeadName,
-    binderHeadParams,
-    binderResolved,
-    annotationSpan,
-    instanceHeadName,
-    mkSpanAnnotation,
-    nameText,
-    tyVarBinderName,
-    unqualifiedNameText,
-  )
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -49,6 +25,28 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
+import Aihc.Tc.Syntax.Pending
+  ( Annotation,
+    BinderHead,
+    Decl (..),
+    DerivingClause (..),
+    DerivingStrategy (..),
+    Extension,
+    Name (..),
+    SourceSpan,
+    StandaloneDerivingDecl (..),
+    TcInfo (..),
+    Type (..),
+    UnqualifiedName,
+    annotationSpan,
+    binderHeadName,
+    binderHeadParams,
+    binderResolved,
+    instanceHeadName,
+    nameText,
+    tyVarBinderName,
+    unqualifiedNameText,
+  )
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)

@@ -24,11 +24,20 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), resolvedOf)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), pendingAnnotation)
+import Aihc.Tc.Constraint
+import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvTerm (..))
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
+import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, unboxedSumType)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Syntax.Pending
-  ( infoHasType,
-    infoIsPending,
-    TcInfo (..),
-    Annotation,
+  ( Annotation,
     BuiltinCon (..),
     CompStmt (..),
     Decl (..),
@@ -43,11 +52,14 @@ import Aihc.Tc.Syntax.Pending
     RecordField (..),
     ResolutionResult (..),
     SourceSpan,
+    TcInfo (..),
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
     annotationSpan,
+    infoHasType,
+    infoIsPending,
     mkSpanAnnotation,
     nameText,
     peelDeclAnn,
@@ -55,18 +67,6 @@ import Aihc.Tc.Syntax.Pending
     peelPatternAnn,
     resolvedBinderEntity,
   )
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), TcAnnotation, TcPatternInstantiation (..), pendingAnnotation)
-import Aihc.Tc.Constraint
-import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
-import {-# SOURCE #-} Aihc.Tc.Generate.Expr (inferExprAt)
-import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, unboxedSumType)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
@@ -397,7 +397,7 @@ literalHasPendingType literal =
     _ -> False
 
 sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
-sourceSpanFromAnnotations = listToMaybe . mapMaybe (annotationSpan)
+sourceSpanFromAnnotations = listToMaybe . mapMaybe annotationSpan
 
 patternOwnSpan :: Pattern -> Maybe SourceSpan
 patternOwnSpan pat =
@@ -1448,7 +1448,7 @@ splitMatchType ty matches =
           result <- freshMetaTv
           evidence <- freshEvVar
           let arrow = foldr TcFunTy result hidden
-              location = listToMaybe (mapMaybe (annotationSpan) (matchAnns first))
+              location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
               item = InfoMatchArityCast (PendingTcMatchArityCast arrow evidence)
           pure (shown <> hidden, result, first {matchTc = item : matchTc first} : rest, [wanted])

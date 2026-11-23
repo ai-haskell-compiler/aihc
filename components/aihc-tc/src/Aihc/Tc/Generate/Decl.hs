@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for declarations.
 --
@@ -17,13 +16,58 @@ module Aihc.Tc.Generate.Decl
 where
 
 import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), resolvedOf)
+import Aihc.Tc.Annotations
+  ( PendingTcAnnotation (..),
+    TcAnnotation (..),
+    TcClassAnnotation (..),
+    TcClassMethodAnnotation (..),
+    TcDerivingPlan (..),
+    TcDictBinderAnnotation (..),
+    TcForeignAbiType (..),
+    TcForeignCApi (..),
+    TcForeignCApiKind (..),
+    TcForeignEffect (..),
+    TcForeignImportAnnotation (..),
+    TcForeignImportInfo (..),
+    TcForeignMarshal (..),
+    TcForeignSafety (..),
+    TcForeignTarget (..),
+    TcInstanceAnnotation (..),
+    TcInstanceMethodAnnotation (..),
+    TcModuleIdentity (..),
+    renderTcType,
+  )
+import Aihc.Tc.Constraint
+import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
+import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
+import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
+import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
+import Aihc.Tc.FunDep (checkInstanceFunDeps)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
+import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
+import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, prenexKindForalls, quantifiableKind, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
+import Aihc.Tc.Match (matchTypes)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
+import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
+import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reclassifyIrreduciblePred)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
+import Aihc.Tc.Solve.Injective (improveInjectivity)
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.FromResolved (fromResolved)
 import Aihc.Tc.Syntax.Pending
-  ( infoPending,
-    TcInfo (..),
-    PatSynEquations (..),
-    annotateDecl,
-    annotateRhsCast,
-    Annotation,
+  ( Annotation,
     BangType (..),
     BinderHead (..),
     BuiltinCon (..),
@@ -62,6 +106,7 @@ import Aihc.Tc.Syntax.Pending
     PatSynArgs (..),
     PatSynDecl (..),
     PatSynDir (..),
+    PatSynEquations (..),
     Pattern (..),
     Pragma (..),
     PragmaType (..),
@@ -74,6 +119,7 @@ import Aihc.Tc.Syntax.Pending
     RuleBinder (..),
     RuleDecl (..),
     SourceSpan,
+    TcInfo (..),
     TupleFlavor (..),
     TyVarBVisibility (..),
     TyVarBinder (..),
@@ -87,11 +133,14 @@ import Aihc.Tc.Syntax.Pending
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    annotateDecl,
+    annotateRhsCast,
+    annotationSpan,
     binderHeadName,
     binderHeadParams,
     binderResolved,
-    annotationSpan,
     gadtBodyResultType,
+    infoPending,
     instanceHeadName,
     mkSpanAnnotation,
     moduleExports,
@@ -108,62 +157,7 @@ import Aihc.Tc.Syntax.Pending
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromResolved (fromResolved)
-import Aihc.Tc.Syntax.Pending.Traverse (collectAnnotations, collectResolutions, collectTcInfos)
-import Aihc.Tc.Annotations
-  ( PendingTcAnnotation (..),
-    TcAnnotation (..),
-    TcClassAnnotation (..),
-    TcClassMethodAnnotation (..),
-    TcCoercedDeriving (..),
-    TcDerivedInstance (..),
-    TcDerivingClauseInstance (..),
-    TcDerivingPlan (..),
-    TcDictBinderAnnotation (..),
-    TcForeignAbiType (..),
-    TcForeignCApi (..),
-    TcForeignCApiKind (..),
-    TcForeignEffect (..),
-    TcForeignImportAnnotation (..),
-    TcForeignImportInfo (..),
-    TcForeignMarshal (..),
-    TcForeignSafety (..),
-    TcForeignTarget (..),
-    TcInstanceAnnotation (..),
-    TcInstanceMethodAnnotation (..),
-    TcModuleIdentity (..),
-    TcPatSynAnnotation (..),
-    TcSelectorType (..),
-    renderTcType,
-  )
-import Aihc.Tc.Constraint
-import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
-import Aihc.Tc.Deriving.Cast (checkCoercedInstance)
-import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isContextFreeStockPlan, settleContextFreePlans, typeTyVars)
-import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
-import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
-import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
-import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
-import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, explicitForallNames, flattenSurfaceContext, floatResultQuantifiers, freeTypeVars, freshKindMeta, hasWildcardType, instanceHeadArguments, makeParamEnv, makeParamEnvWith, patSynSigToScheme, prenexKindForalls, quantifiableKind, scopedSigTyVars, sigToScheme, splitSigma, standaloneKindSigToScheme, substituteAvoidingCapture, substitutePredAvoidingCapture, surfaceContextToPreds, surfaceTypeSpan, takeVisibleArgumentKinds, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds, unifyKindsAt, zonkKind)
-import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
-import Aihc.Tc.Solve.Defaulting (defaultAmbiguousMetas)
-import Aihc.Tc.Solve.Dict (DictResult (..), isDefaultedImplicitParam, reportUnsolvedDict, solveDict, solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality, solveGivenEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reclassifyIrreduciblePred)
-import Aihc.Tc.Solve.FunDep (improveFunDeps)
-import Aihc.Tc.Solve.InertSet (InertSet (..))
-import Aihc.Tc.Solve.Injective (improveInjectivity)
+import Aihc.Tc.Syntax.Pending.Traverse (collectResolutions, collectTcInfos)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -188,7 +182,7 @@ import Data.Text qualified as T
 
 -- | Merge concrete source spans embedded in a list of annotations.
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
-sourceSpanFromAnns = listToMaybe . mapMaybe (annotationSpan)
+sourceSpanFromAnns = listToMaybe . mapMaybe annotationSpan
 
 -- | The innermost source span a declaration's annotations carry, or
 -- 'Nothing' for a declaration the compiler synthesized.
@@ -5209,7 +5203,8 @@ unqualifiedFromResolvedName name =
     { unqualifiedNameType = nameType name,
       unqualifiedNameText = nameText name,
       unqualifiedNameAnns = nameAnns name,
-      unqualifiedNameResolution = nameResolution name
+      unqualifiedNameResolution = nameResolution name,
+      unqualifiedNameTc = nameTc name
     }
 
 -- | The axiom name of one type family instance, within the module that holds

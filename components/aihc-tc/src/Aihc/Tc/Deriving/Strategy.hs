@@ -12,12 +12,6 @@ module Aihc.Tc.Deriving.Strategy
   )
 where
 
-import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    DerivingStrategy (..),
-    Extension (..),
-    SourceSpan,
-  )
 import Aihc.Tc.Annotations (TcDerivingStrategy (..))
 import Aihc.Tc.Deriving.References (DerivingReferences (..), stockClassLocationMatches)
 import Aihc.Tc.Deriving.StockClass (NewtypeDefaulting (..), newtypeDefaultingOf, stockClassRequirement)
@@ -25,6 +19,11 @@ import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
 import Aihc.Tc.Monad (TcM, emitError, emitWarning, getDerivingReferences)
+import Aihc.Tc.Syntax.Pending
+  ( DerivingStrategy (..),
+    Extension (..),
+    SourceSpan,
+  )
 import Aihc.Tc.Types (TcType)
 import Control.Monad (unless, when)
 import Data.Maybe (isNothing)

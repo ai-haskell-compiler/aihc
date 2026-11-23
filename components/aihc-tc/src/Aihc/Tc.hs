@@ -139,11 +139,6 @@ where
 import Aihc.Parser.Syntax (Extension (..), Module)
 import Aihc.Resolve (ResolvedModule (..))
 import Aihc.Resolve.Syntax qualified as R
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..))
-import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
-import Aihc.Tc.Syntax.Pending qualified as Pending
-import Data.Functor.Identity (Identity (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Bindings (moduleBindings, moduleDiagnostics)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
@@ -153,10 +148,15 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
+import Aihc.Tc.Syntax qualified as Final
+import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
+import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
+import Data.Functor.Identity (Identity (..))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Write derived instances as surface instance declarations.
 --
@@ -19,9 +18,23 @@ module Aihc.Tc.Deriving.Generate
 where
 
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
+import Aihc.Tc.Annotations
+  ( TcDerivingAnnotation (..),
+    TcDerivingContext (..),
+    TcDerivingPlan (..),
+    TcDerivingStrategy (..),
+  )
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Functorial (FieldUse (..))
+import Aihc.Tc.Deriving.References
+import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
+import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..), repHasUnpack)
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Kind (zonkKind)
+import Aihc.Tc.Monad
 import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    Annotation,
+  ( Annotation,
     ArrowKind (..),
     BuiltinCon (..),
     CaseAlt (..),
@@ -41,6 +54,7 @@ import Aihc.Tc.Syntax.Pending
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
+    TcInfo (..),
     TupleFlavor (..),
     TyVarBSpecificity (..),
     TyVarBVisibility (..),
@@ -52,30 +66,11 @@ import Aihc.Tc.Syntax.Pending
     TypePromotion (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    annotationSpan,
     mkSpanAnnotation,
     mkUnqualifiedName,
     peelDeclAnn,
     qualifyName,
   )
-import Aihc.Tc.Annotations
-  ( TcCoercedDeriving (..),
-    TcDerivedInstance (..),
-    TcDerivingAnnotation (..),
-    TcDerivingClauseInstance (..),
-    TcDerivingContext (..),
-    TcDerivingPlan (..),
-    TcDerivingStrategy (..),
-  )
-import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
-import Aihc.Tc.Deriving.Functorial (FieldUse (..))
-import Aihc.Tc.Deriving.References
-import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
-import Aihc.Tc.Deriving.Strategy (isGeneratedStockClass)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataTypeInfo (..), TyConFlavor (..), repHasUnpack)
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (zonkKind)
-import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (forM, guard, zipWithM)
 import Data.Foldable (find, foldrM)

@@ -252,8 +252,8 @@ import Aihc.Tc.Annotations
     TcMatchArityCast,
     TcModuleIdentity,
   )
-import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
+import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Types (TcType)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)

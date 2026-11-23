@@ -19,9 +19,10 @@ module Aihc.Tc.Generate.Record
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), globalTerm)
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), RecordHead (..), TyConFlavor (..), dataConRecordHead, patSynRecordHead)
+import Aihc.Tc.Monad
 import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    Name (..),
+  ( Name (..),
     NameType (..),
     RecordField (..),
     ResolutionResult (..),
@@ -29,8 +30,6 @@ import Aihc.Tc.Syntax.Pending
     UnqualifiedName (..),
     nameText,
   )
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), RecordHead (..), TyConFlavor (..), dataConRecordHead, patSynRecordHead)
-import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.List (nub)

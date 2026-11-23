@@ -29,13 +29,13 @@ import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.ToParser (toParserMatch)
 import Aihc.Tc.Annotations
-  ( TcDerivedInstance (..),
+  ( TcCoercedDeriving (..),
+    TcDerivedInstance (..),
     TcDerivingClauseInstance (..),
     TcPatSynAnnotation (..),
     TcPatternInstantiation (..),
     TcRecKnotOccurrence (..),
     TcSelectorType (..),
-    TcCoercedDeriving (..),
   )
 import Aihc.Tc.Syntax
 import Data.Text (Text)
@@ -77,11 +77,11 @@ class ToResolved a where
 
 instance (ToResolved a) => ToResolved [a] where
   type ResolvedTree [a] = [ResolvedTree a]
-  toResolved = fmap (toResolved )
+  toResolved = fmap toResolved
 
 instance (ToResolved a) => ToResolved (Maybe a) where
   type ResolvedTree (Maybe a) = Maybe (ResolvedTree a)
-  toResolved = fmap (toResolved )
+  toResolved = fmap toResolved
 
 instance (ToResolved a, ToResolved b) => ToResolved (a, b) where
   type ResolvedTree (a, b) = (ResolvedTree a, ResolvedTree b)
@@ -89,7 +89,7 @@ instance (ToResolved a, ToResolved b) => ToResolved (a, b) where
 
 instance (ToResolved a, ToResolved b) => ToResolved (Either a b) where
   type ResolvedTree (Either a b) = Either (ResolvedTree a) (ResolvedTree b)
-  toResolved value = either (Left . toResolved) (Right . toResolved) value
+  toResolved = either (Left . toResolved) (Right . toResolved)
 
 instance ToResolved Annotation where
   type ResolvedTree Annotation = Annotation
@@ -280,7 +280,7 @@ instance ToResolved Module where
   type ResolvedTree Module = R.Module
   toResolved node =
     case node of
-      Module x1 x2 x3 x4 x5 x6 x7 -> R.Module (map infoAnnotation x2 <> x1) (toResolved x3) (toResolved x4) (toResolved x5) (toResolved x6)
+      Module x1 x2 x3 x4 x5 x6 _ -> R.Module (map infoAnnotation x2 <> x1) (toResolved x3) (toResolved x4) (toResolved x5) (toResolved x6)
 
 instance ToResolved ModuleHead where
   type ResolvedTree ModuleHead = R.ModuleHead

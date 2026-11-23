@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Constraint generation for expressions.
 --
@@ -16,17 +15,25 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Constraint
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
+import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType, explicitForallNames, scopedSigTyVars, sigToScheme, tcTypeKind, unboxedSumType)
+import Aihc.Tc.Monad
+import Aihc.Tc.QuickLook (quickLookUnify)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
+import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Syntax.Pending
-  ( infoIsPending,
-    infoPending,
-    TcInfo (..),
-    annotateBranchCast,
-    annotateDoStmtCast,
-    annotateExprCast,
-    annotateFunCast,
-    annotateRhsCast,
-    annotateSigCast,
-    Annotation,
+  ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
@@ -45,32 +52,24 @@ import Aihc.Tc.Syntax.Pending
     ResolutionResult (..),
     Rhs (..),
     SourceSpan,
+    TcInfo (..),
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
+    annotateBranchCast,
+    annotateDoStmtCast,
+    annotateExprCast,
+    annotateFunCast,
+    annotateRhsCast,
+    annotateSigCast,
     annotationSpan,
+    infoIsPending,
+    infoPending,
     mkSpanAnnotation,
     peelExprAnn,
     qualifyName,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), pendingAnnotation, pendingTypeLambdaAnnotation)
-import Aihc.Tc.Constraint
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
-import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType, explicitForallNames, scopedSigTyVars, sigToScheme, tcTypeKind, unboxedSumType)
-import Aihc.Tc.Monad
-import Aihc.Tc.QuickLook (quickLookUnify)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
-import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
@@ -954,7 +953,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
 
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns anns =
-  listToMaybe (mapMaybe (annotationSpan) anns)
+  listToMaybe (mapMaybe annotationSpan anns)
 
 -- | An application spine is a head and the frames applied to it, from the
 -- head outwards. A source span, a parenthesis, or a pragma between the

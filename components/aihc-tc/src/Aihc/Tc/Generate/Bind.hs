@@ -16,11 +16,23 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Constraint
+import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
+import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme, zonkKind)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
+import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
+import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    annotateFunCast,
-    annotateRhsCast,
-    Annotation,
+  ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
@@ -40,9 +52,12 @@ import Aihc.Tc.Syntax.Pending
     ResolutionResult (..),
     Rhs (..),
     SourceSpan,
+    TcInfo (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    annotateFunCast,
+    annotateRhsCast,
     annotationSpan,
     mkSpanAnnotation,
     nameResolved,
@@ -50,21 +65,6 @@ import Aihc.Tc.Syntax.Pending
     unqualifiedNameText,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcPatternInstantiation (..), pendingAnnotation)
-import Aihc.Tc.Constraint
-import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
-import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
-import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
-import Aihc.Tc.Kind (deferKindMetas, explicitForallNames, hasWildcardType, scopedSigTyVars, sigToScheme, zonkKind)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
-import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
-import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
@@ -484,7 +484,7 @@ annotateLocalBindingDecl :: Set.Set Entity -> Map Entity TcBinder -> Decl -> TcM
 annotateLocalBindingDecl generalized binders decl =
   case decl of
     DeclTc (InfoType pending) (DeclValue (PatternBind mult pat rhs))
-      |         Nothing <- patternBinderName pat -> do
+      | Nothing <- patternBinderName pat -> do
           keys <- patternBinderKeyList pat
           let schemes = [(name, scheme) | (name, key) <- zip (patternBinderNames pat) keys, Set.member key generalized, Just (TcIdBinder scheme _) <- [Map.lookup key binders]]
               rhsTyVars = List.nub (concat [tyVars | (_, ForAll tyVars _ _) <- schemes])
@@ -1138,7 +1138,7 @@ tcMatchEquation argTys resTy match = do
   pure (match {matchPats = pats', matchRhs = annotateRhsCast resTy ev rhs'}, remainingCts)
 
 sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
-sourceSpanFromAnnotations = listToMaybe . mapMaybe (annotationSpan)
+sourceSpanFromAnnotations = listToMaybe . mapMaybe annotationSpan
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do
@@ -1151,8 +1151,8 @@ unifyMatchRhs inferExpr expectedTy match = do
 rhsSourceSpan :: Rhs body -> Maybe SourceSpan
 rhsSourceSpan rhs =
   case rhs of
-    UnguardedRhs annotations rhsInfos _ _ -> sourceSpanFromAnnotations annotations
-    GuardedRhss annotations rhsInfos _ _ -> sourceSpanFromAnnotations annotations
+    UnguardedRhs annotations _ _ _ -> sourceSpanFromAnnotations annotations
+    GuardedRhss annotations _ _ _ -> sourceSpanFromAnnotations annotations
 
 shouldGeneralizeLocal :: Set.Set Entity -> [Decl] -> TcM Bool
 shouldGeneralizeLocal binderSet decls = do

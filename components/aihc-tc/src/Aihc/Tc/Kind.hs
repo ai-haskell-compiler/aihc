@@ -52,9 +52,13 @@ module Aihc.Tc.Kind
 where
 
 import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
+import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
+import Aihc.Tc.Monad
+import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
 import Aihc.Tc.Syntax.Pending
-  ( TcInfo (..),
-    BuiltinCon (..),
+  ( BuiltinCon (..),
     ForallTelescope (..),
     ForallVis (..),
     Name (..),
@@ -68,8 +72,8 @@ import Aihc.Tc.Syntax.Pending
     TypeLiteral (..),
     TypePromotion (..),
     UnqualifiedName (..),
-    forallTelescopeBinders,
     annotationSpan,
+    forallTelescopeBinders,
     instanceHeadName,
     nameText,
     peelTypeHead,
@@ -77,11 +81,6 @@ import Aihc.Tc.Syntax.Pending
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
-import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
-import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
