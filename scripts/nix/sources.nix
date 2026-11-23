@@ -135,7 +135,7 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         prefixes = ["tooling/aihc-testing/"];
         inTesting = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal"] path;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".hs-boot" ".cabal" ".c"] path;
       in
         if type == "directory"
         then keepsDirectory pkgs prefixes relPath

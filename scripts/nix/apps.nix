@@ -24,7 +24,7 @@
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   unicode = import ./unicode.nix {inherit pkgs;};
   # The C libraries that packages of docs/self-hosting-packages.md bind to:
-  # libffi for libffi, ncurses for terminfo, and zlib for zlib. Clang reads
+  # libffi for aihc-testing, ncurses for terminfo, and zlib for zlib. Clang reads
   # CPATH for headers and LIBRARY_PATH for libraries. aihc runs pkg-config
   # for pkgconfig-depends, and pkg-config reads PKG_CONFIG_PATH.
   selfHostingCLibraries = [pkgs.libffi pkgs.ncurses pkgs.zlib];
