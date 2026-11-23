@@ -1,0 +1,40 @@
+extensions:
+  - DuplicateRecordFields
+modules:
+  - |
+    {-# LANGUAGE DuplicateRecordFields #-}
+    module A where
+    data B = B
+    data C = C
+    newtype S = S { get :: B }
+    newtype T = T { get :: C }
+  - |
+    module Main where
+    import A (B (..), S (..))
+    use :: S -> B
+    use s = get s
+annotated:
+- |-
+  {-# LANGUAGE DuplicateRecordFields #-}
+  module A where
+  data B = B
+       │   └─ type: B
+       └─ type: Type
+  data C = C
+       │   └─ type: C
+       └─ type: Type
+  newtype S = S { get :: B }
+          │   └─ type: B → S
+          └─ type: Type
+  newtype T = T { get :: C }
+          │   └─ type: C → T
+          └─ type: Type
+- |-
+  module Main where
+  import A (B (..), S (..))
+  use :: S -> B
+  use s = get s
+  │   └─ type: A.S
+  └─ type: A.S → A.B
+status: pass
+reason: An import item S(..) of a module without an export list gives the selector of S for a duplicate field label, not the selector of another type; reduced from secp256k1-haskell
