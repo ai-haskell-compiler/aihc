@@ -42,6 +42,13 @@ module Aihc.TH.Splice
     -- that applies a field of @q@ to the text. The splice module refers to
     -- the fields through this module.
     QuasiQuoter (..),
+
+    -- * Typed splices
+
+    -- | The compiler changes the typed splice @$$e@ into a splice of
+    -- @unTypeCode e@. The splice module refers to the function through
+    -- this module.
+    unTypeCode,
   )
 where
 
@@ -63,7 +70,7 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, runQ)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, runQ, unTypeCode)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
