@@ -9,7 +9,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, pathVariable, isMode, labelText, plusHelper, twiceHelper, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..), lowerFile)
 import Quasi (quasiLines)
@@ -370,4 +370,6 @@ main = do
   -- constructors are the names in these libraries.
   print ($(lift (Nothing :: Maybe Int, Just 'j', Left 3 :: Either Int Bool)) :: (Maybe Int, Maybe Char, Either Int Bool))
   mapM_ putStrLn quasiLines
+  -- Typed splices of typed quotes.
+  print ($$(typedSteps 3) 5, $$(typedOffset 41))
   putStrLn $pathVariable
