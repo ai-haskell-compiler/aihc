@@ -1,0 +1,47 @@
+program: |
+  primitive +# :: IntRep/2
+  primitive *# :: IntRep/2
+
+  constructor Unit []
+
+  $fail (exception :: BoxedRep Lifted) -> IntRep =
+    throw (exception :: BoxedRep Lifted)
+
+  $check (index :: IntRep) (exception :: BoxedRep Lifted) -> IntRep =
+    case (index :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        call @IntRep $fail (exception :: BoxedRep Lifted)
+      _ ->
+        primitive-call @IntRep +# (index :: IntRep) (1 :: IntRep)
+
+  $entry (index :: IntRep) (problem :: BoxedRep Lifted) -> IntRep =
+    next :: IntRep <-
+      call @IntRep $check (index :: IntRep) (problem :: BoxedRep Lifted)
+    primitive-call @IntRep *# (next :: IntRep) (2 :: IntRep)
+expected: |-
+  constructor Unit []
+
+  primitive +# :: IntRep/2
+
+  primitive *# :: IntRep/2
+
+  $fail (exception :: BoxedRep Lifted) -> IntRep =
+    throw (exception :: BoxedRep Lifted)
+
+  $check (index :: IntRep) (exception :: BoxedRep Lifted) -> IntRep =
+    case (index :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        call @IntRep $fail (exception :: BoxedRep Lifted)
+      _ ->
+        primitive-call @IntRep +# (index :: IntRep) (1 :: IntRep)
+
+  $entry (index :: IntRep) (problem :: BoxedRep Lifted) -> IntRep =
+    next :: IntRep <-
+      case (index :: IntRep) as checked%1 :: IntRep of
+        (0 :: IntRep) ->
+          call @IntRep $fail (problem :: BoxedRep Lifted)
+        _ ->
+          primitive-call @IntRep +# (index :: IntRep) (1 :: IntRep)
+    primitive-call @IntRep *# (next :: IntRep) (2 :: IntRep)
+status: pass
+reason: a leaf function that calls only a diverging function is copied into a call that is not a tail call, and the copy gives the call of the diverging function the argument of the call
