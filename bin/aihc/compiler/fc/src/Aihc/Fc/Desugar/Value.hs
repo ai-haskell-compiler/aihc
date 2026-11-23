@@ -16,7 +16,6 @@ import Aihc.Fc.Convert
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf qualified as TypeOf
-import Aihc.Parser.Syntax qualified as P
 import Aihc.Prim.Wiring (unboxedSumDataConName)
 import Aihc.Resolve
   ( Entity (..),
@@ -5635,10 +5634,10 @@ renderSourceSpan :: Syn.SourceSpan -> Text
 renderSourceSpan span' =
   Syn.sourceSpanSourceName span' <> ":" <> position
   where
-    startLine = P.sourceSpanStartLine span'
-    startCol = P.sourceSpanStartCol span'
-    endLine = P.sourceSpanEndLine span'
-    endCol = P.sourceSpanEndCol span'
+    startLine = Syn.sourceSpanStartLine span'
+    startCol = Syn.sourceSpanStartCol span'
+    endLine = Syn.sourceSpanEndLine span'
+    endCol = Syn.sourceSpanEndCol span'
     showText :: Int -> Text
     showText = T.pack . show
     position

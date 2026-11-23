@@ -144,7 +144,11 @@ module Aihc.Tc.Syntax
     -- * Annotations of the parser tree
     mkSpanAnnotation,
     annotationSpan,
+    sourceSpanEndCol,
+    sourceSpanEndLine,
     sourceSpanSourceName,
+    sourceSpanStartCol,
+    sourceSpanStartLine,
     pattern SourceSpan,
 
     -- * Types of the parser tree
@@ -226,7 +230,11 @@ import Aihc.Parser.Syntax
     TypeSyntaxForm (..),
     fromAnnotation,
     mkSpanAnnotation,
+    sourceSpanEndCol,
+    sourceSpanEndLine,
     sourceSpanSourceName,
+    sourceSpanStartCol,
+    sourceSpanStartLine,
     pattern SourceSpan,
   )
 import Aihc.Resolve
