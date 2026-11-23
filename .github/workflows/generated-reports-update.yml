@@ -67,19 +67,7 @@ jobs:
             generated-reports-aihc-downloads-${{ runner.os }}-
 
       - name: Update generated reports
-        env:
-          # Keep the install log of each self-hosting package for the upload below.
-          SELF_HOSTING_PROGRESS_CMD: nix run .#self-hosting-progress -- --log-dir ${{ github.workspace }}/self-hosting-logs --report
         run: nix run .#generate-reports
-
-      - name: Upload the self-hosting install logs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: self-hosting-logs
-          path: ${{ github.workspace }}/self-hosting-logs
-          retention-days: 14
-          if-no-files-found: ignore
 
       - name: Open pull request for generated updates
         uses: peter-evans/create-pull-request@v8
@@ -88,7 +76,6 @@ jobs:
           branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
           commit-message: "chore(reports): update generated reports"
           add-paths: |
-            README.md
             docs/*-supported-extensions.md
             docs/self-hosting-packages.md
           branch: "automation/generated-reports-update"
@@ -96,4 +83,4 @@ jobs:
           body: |
             This PR was created automatically by the weekly generated reports workflow.
 
-            It updates generated README sections and report artifacts when they drift.
+            It updates the generated report files when they drift.

@@ -9,9 +9,7 @@ A package comes after all of its dependencies.
 The plan uses the default flags of aihc and the flags of `cabal.project`.
 The weekly
 [Generated Reports](../.github/workflows/generated-reports-update.yml)
-workflow runs the script, then compiles each package with
-`scripts/self-hosting-progress.sh`. The workflow writes the result to the
-"Self-compile" row of the README.
+workflow runs the script.
 
 The table does not include the aihc core libraries, because they come with
 aihc. The "Source" column is `hackage:REVISION` for a Hackage release at a
