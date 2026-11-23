@@ -8,7 +8,11 @@ if [[ "${1:-}" == "--file" ]]; then
   if [[ "$file" == *core-libs/aihc-rts/wasm/*.c || "$file" == *aihc_host_wasip3.c ]]; then
     exec clang-tidy-unwrapped --quiet "$file" -- --target=wasm32-wasip3 --sysroot="$AIHC_WASM_SYSROOT" -std=c11 -Wall -Wextra -Wpedantic -Icore-libs/aihc-rts/wasm -Icore-libs/aihc-rts/native -isystem core-libs/aihc-rts/wasm/generated
   fi
-  exec clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic -Icore-libs/aihc-rts/native
+  # tooling/aihc-testing/cbits/foreign_call.c includes ffi.h. A system
+  # include directory keeps the checks off the libffi header.
+  read -r -a ffi_flags < <(pkg-config --cflags-only-I libffi)
+  ffi_flags=("${ffi_flags[@]/#-I/-isystem}")
+  exec clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic -Icore-libs/aihc-rts/native "${ffi_flags[@]}"
 fi
 
 jobs=$(getconf _NPROCESSORS_ONLN)

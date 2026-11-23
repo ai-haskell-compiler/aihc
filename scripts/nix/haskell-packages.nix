@@ -71,6 +71,9 @@
         extraCabal2nixOptions = "--subpath tooling/aihc-testing";
         srcModifier = src: src;
       };
+      # The package has "extra-libraries: ffi". cabal2nix makes an argument
+      # with this name.
+      systemLibraries = pkgs: {ffi = pkgs.libffi;};
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
@@ -221,7 +224,7 @@ in rec {
         name
         (spec.src pkgs)
         (spec.cabal2nixOptions or "")
-        {};
+        ((spec.systemLibraries or (_: {})) pkgs);
       profilingAdjusted =
         if spec.disableProfiling
         then hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling baseDrv)

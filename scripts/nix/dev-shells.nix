@@ -28,6 +28,8 @@ in {
       pkgs.haskellPackages.alex
       pkgs.haskellPackages.c2hs
       pkgs.wit-bindgen
+      # tooling/aihc-testing binds to libffi.
+      pkgs.libffi
       pkgs.zlib
       pkgs.lz4
       pkgs.python3Packages.mkdocs-material
