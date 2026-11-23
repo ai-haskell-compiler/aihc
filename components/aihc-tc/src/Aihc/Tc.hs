@@ -5,7 +5,11 @@
 -- annotated with typing information. It does not transform the tree
 -- structure, and it does not read the module's language pragmas: whoever
 -- read the source folded the language edition, the package's default
--- extensions and the pragmas into the extension set of each 'ModuleUnit'.
+-- extensions and the pragmas into the extension set of each module.
+--
+-- The type checker reads the resolved syntax tree of "Aihc.Resolve.Syntax".
+-- It gives the annotated modules as parser syntax trees, because the phases
+-- after it read that tree. "Aihc.Resolve.Syntax.ToParser" makes them.
 --
 -- The implementation follows the OutsideIn(X) algorithm:
 --
@@ -132,14 +136,17 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Extension (..), Module (moduleDecls))
-import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
+import Aihc.Parser.Syntax (Extension (..), Module)
+import Aihc.Resolve (ResolvedModule (..))
+import Aihc.Resolve.Syntax qualified as R
+import Aihc.Resolve.Syntax.ToParser (toParserModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
+import Aihc.Tc.Bindings (moduleBindings, moduleDiagnostics)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
-import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, collectTcDiagnostics, internalAbortDiagnostic)
+import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, internalAbortDiagnostic)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), applySubstRep, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceEnvFromList, instanceEnvSince, instanceInfoKey, patSynKey, repHasUnpack, repLeaves, typeFamilyAxiomIndex, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, moduleBindings, tcModule, tcModuleScc, withModuleIdentity)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -157,7 +164,7 @@ tcModuleBindings =
 -- | Diagnostics recovered from type-checker annotations in a module.
 tcModuleDiagnostics :: Module -> [TcDiagnostic]
 tcModuleDiagnostics =
-  collectTcDiagnostics
+  moduleDiagnostics
 
 -- | Whether an annotated module contains no type-checker errors.
 tcModuleSuccess :: Module -> Bool
@@ -189,18 +196,20 @@ typecheckModuleSccWithFacts :: TcConfig -> FactEnv -> [ResolvedModule] -> ([Modu
 typecheckModuleSccWithFacts config = typecheckWithFacts (typecheckModuleSccWithState config)
 
 -- | Use the same module identity and interface rules for both check orders.
-typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
+--
+-- The check gives resolved syntax trees. This function changes them into
+-- parser syntax trees for the phases after the type checker.
+typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([R.Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
 typecheckWithFacts check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the modules add no types, evidence, or diagnostics.
-  | all (null . moduleDecls . moduleUnitAst) units = (map annotateIdentity units, emptyTcInterface)
+  | all (null . R.moduleDecls . resolvedModuleSyntax) resolved = (map (toParserModule . annotateIdentity) resolved, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (checkedModules, finalState) = check initialState resolved
-       in (checkedModules, tcInterfaceDifference initialState finalState)
+       in (map toParserModule checkedModules, tcInterfaceDifference initialState finalState)
   where
-    units = map resolvedModuleUnit resolved
-    annotateIdentity unit = withModuleIdentity unit (moduleUnitAst unit)
+    annotateIdentity unit = withModuleIdentity (resolvedModulePackage unit) (resolvedModuleSyntax unit)
 
 -- | The state before the check of a module group. The tables of terms,
 -- type constructors, data types, classes, pattern synonyms, and foreign
@@ -252,11 +261,11 @@ exportedGlobalTerms = Map.mapMaybe binderScheme
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Module], TcState)
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([R.Module], TcState)
 typecheckModuleSccWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( case map moduleUnitAst units of
+      ( case map resolvedModuleSyntax resolved of
           [] -> []
           first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
         st
@@ -273,21 +282,21 @@ typecheckModuleSccWithState config st resolved =
               }
        in (results, nextState)
   where
-    units = map resolvedModuleUnit resolved
+    extensions = map resolvedModuleExtensions resolved
     tcEnv =
       (emptyTcEnv config)
-        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleUnitExtensions) units,
-          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleUnitExtensions) units,
-          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables . moduleUnitExtensions) units,
-          tcEnvUndecidableInstances = any (elem UndecidableInstances . moduleUnitExtensions) units,
-          tcEnvPostfixOperators = any (elem PostfixOperators . moduleUnitExtensions) units
+        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds) extensions,
+          tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction) extensions,
+          tcEnvScopedTypeVariables = any (elem ScopedTypeVariables) extensions,
+          tcEnvUndecidableInstances = any (elem UndecidableInstances) extensions,
+          tcEnvPostfixOperators = any (elem PostfixOperators) extensions
         }
 
-typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Module, TcState)
+typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (R.Module, TcState)
 typecheckModuleWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (moduleUnitAst unit),
+      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (resolvedModuleSyntax resolved),
         st
       )
     Right (annotatedModule, st') ->
@@ -310,5 +319,4 @@ typecheckModuleWithState config st resolved =
           tcEnvUndecidableInstances = UndecidableInstances `elem` enabledExtensions,
           tcEnvPostfixOperators = PostfixOperators `elem` enabledExtensions
         }
-    unit = resolvedModuleUnit resolved
-    enabledExtensions = moduleUnitExtensions unit
+    enabledExtensions = resolvedModuleExtensions resolved

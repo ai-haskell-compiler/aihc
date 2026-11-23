@@ -2,7 +2,7 @@
 
 -- | Every name occurrence of a module with what it stands for.
 --
--- Name resolution attaches a 'ResolutionAnnotation' to each name. This
+-- Name resolution attaches a 'Resolved' to each name. This
 -- module collects them with their spans, so a page can give each entity
 -- one color and paint every occurrence of it.
 module Aihc.Play.Names
@@ -21,9 +21,9 @@ import Aihc.Resolve
     GlobalName (..),
     LocalId (..),
     PackageId (..),
-    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveError (..),
+    Resolved (..),
     binderResolution,
     nameResolution,
   )
@@ -83,7 +83,7 @@ fromBinder name =
     Just resolution -> resolved (unqualifiedNameAnns name) (unqualifiedNameText name) True resolution
     Nothing -> unresolved (unqualifiedNameAnns name) (unqualifiedNameText name) True
 
-resolved :: [Annotation] -> Text -> Bool -> ResolutionAnnotation -> Maybe Occurrence
+resolved :: [Annotation] -> Text -> Bool -> Resolved -> Maybe Occurrence
 resolved anns text binder resolution = do
   span' <- case resolutionSpan resolution of
     Just span' -> Just span'

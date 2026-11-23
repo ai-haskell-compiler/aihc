@@ -9,7 +9,7 @@ where
 
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition), fromAnnotation, pattern SourceSpan)
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolutionAnnotation (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, resolveUnit, unnamedPackage)
+import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolveFailure (..), Resolved (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, resolveUnit, unnamedPackage)
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)

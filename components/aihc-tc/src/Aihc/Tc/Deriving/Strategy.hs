@@ -12,7 +12,7 @@ module Aihc.Tc.Deriving.Strategy
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve.Syntax
   ( DerivingStrategy (..),
     Extension (..),
     SourceSpan,
