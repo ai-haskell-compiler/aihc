@@ -263,6 +263,7 @@ runPackage config jobs headerDirectory dependencies root = do
             planOrigin = PlanLocal,
             planRevision = Nothing,
             planFlags = mkFlagAssignment [],
+            planSubLibraries = Set.empty,
             planDependencyPlans = []
           }
   inputs <- readPackageInputs config plan
