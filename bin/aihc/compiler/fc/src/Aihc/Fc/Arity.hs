@@ -531,9 +531,11 @@ data Position = Tail !OneShotKey | Applied | Inner
 -- of the parameter.
 --
 -- The right-hand side of a let whose binder each path of the body applies
--- at most once is in such a tail too, and so is the scrutinee of a case
--- of one default alternative whose binder the alternative applies at most
--- once: the strict let of a closure.
+-- at most once is in such a tail too. A path that returns the binder in
+-- the tail of a value of the set applies it, because the caller applies
+-- that result at most once. The scrutinee of a case of one default
+-- alternative whose binder the alternative applies at most once is in
+-- such a tail too: the strict let of a closure.
 --
 -- A use under a lambda counts as many uses, unless the lambda is a result
 -- lambda of a value of the set, or the body of a join point: a lambda in a
@@ -922,7 +924,10 @@ occurrenceViolations env arities candidates rejected self parameter body =
         (ExVar name, arguments)
           | name == binder ->
               let Occ count applied asked = occurrencesAll needed binder (rights arguments) acc
-               in Occ (addCount One count) (applied && valueCount arguments >= needed) asked
+                  -- A use in a result tail gives the binder to a caller
+                  -- that applies the result at most once.
+                  used = valueCount arguments >= needed || isResultTail position
+               in Occ (addCount One count) (applied && used) asked
         (ExVar name, arguments) -> List.foldl' (\current (index, argument) -> given name (valueCount arguments) index argument current) acc (zip [0 ..] (rights arguments))
         (function, arguments@(_ : _)) -> occurrencesAll needed binder (rights arguments) (occurrences needed Inner binder function acc)
         _ -> case expr of

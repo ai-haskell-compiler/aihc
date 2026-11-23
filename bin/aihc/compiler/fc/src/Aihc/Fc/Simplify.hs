@@ -147,6 +147,7 @@ simplifyProgram primPackage phase siteLimit program =
             spInline = Map.empty,
             spLocals = Map.empty,
             spLocalArities = Map.empty,
+            spLocalPartials = Map.empty,
             spLocalDictionaries = Map.empty,
             spExcluded = MonoidMap.empty,
             spCse = Map.empty,
@@ -452,6 +453,11 @@ data Simpl = Simpl
     -- lambda. A partial application of such a function does no work, as
     -- one of a top-level function does not. See 'valueArity'.
     spLocalArities :: !(Map Name Int),
+    -- | Local bindings whose right-hand side is a partial application of
+    -- a known function to variables and literals. A call of such a binder
+    -- is a call of the function with the arguments of both. See
+    -- 'withLocalPartial'.
+    spLocalPartials :: !(Map Name Expr),
     -- | Local dictionary bindings whose right-hand side is a call of a
     -- known top-level value, such as an instance function applied to
     -- dictionaries. A case on such a binder selects a field as a case on
@@ -2409,7 +2415,31 @@ inlineCandidate env name candidate args = do
 -- application is recorded for the case of a known constructor, and a
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
-bindingEnv env0 binder rhs = withLocalArities [Bind binder rhs] (bindingEnvOf env0 binder rhs)
+bindingEnv env0 binder rhs = withLocalPartial binder rhs (withLocalArities [Bind binder rhs] (bindingEnvOf env0 binder rhs))
+
+-- | Record a lifted binding of a partial application of a known function
+-- to variables and literals:
+--
+-- > let c = foldlStrictFB k in ... c x rest accumulator ...
+--
+-- The binding does no work, and a copy of it at a call does none. Thus a
+-- call of the binder becomes a call of the function, which the inliner
+-- can copy, at each call and not only at one use. The binding stays for
+-- the uses that are not calls.
+withLocalPartial :: Binder -> Expr -> Simpl -> Simpl
+withLocalPartial binder rhs env
+  | isLiftedBinder (spEnv env) binder,
+    (ExVar _, arguments) <- collectSpine rhs,
+    any isRight arguments,
+    all (either (const True) plain) arguments,
+    valueArity (spLocalArities env `Map.union` spArity (spFixed env)) rhs > 0 =
+      env {spLocalPartials = Map.insert (binderName binder) rhs (spLocalPartials env)}
+  | otherwise = env
+  where
+    plain argument = case argument of
+      ExVar {} -> True
+      ExLit {} -> True
+      _ -> False
 
 -- | Record the arity of each binding of a lifted lambda as a local
 -- function. See 'spLocalArities'.
@@ -2609,6 +2639,7 @@ shadowNames names env
   | sameObject evaluated (spEvaluated env)
       && sameObject locals (spLocals env)
       && sameObject localArities (spLocalArities env)
+      && Map.size partials == Map.size (spLocalPartials env)
       && sameObject dictionaries (spLocalDictionaries env)
       && sameObject done (spDone env)
       && sameObject cse (spCse env)
@@ -2621,6 +2652,7 @@ shadowNames names env
         { spEvaluated = evaluated,
           spLocals = locals,
           spLocalArities = localArities,
+          spLocalPartials = partials,
           spLocalDictionaries = dictionaries,
           spDone = done,
           spCse = cse,
@@ -2633,6 +2665,12 @@ shadowNames names env
     !evaluated = List.foldl' (flip Set.delete) (spEvaluated env) names
     !locals = List.foldl' (flip Map.delete) (spLocals env) names
     !localArities = List.foldl' (flip Map.delete) (spLocalArities env) names
+    -- A partial application that one of the names binds again, or that
+    -- mentions one of them, is not the one in scope.
+    !partials =
+      if Map.null (spLocalPartials env)
+        then spLocalPartials env
+        else Map.filterWithKey (\name rhs -> Set.notMember name shadowed && Set.disjoint (exprValueNames rhs) shadowed) (spLocalPartials env)
     !dictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names
     !done = List.foldl' (flip Map.delete) (spDone env) names
     !cse = if Map.null (spCse env) then spCse env else Map.filter (`Set.notMember` shadowed) (spCse env)
@@ -2850,6 +2888,12 @@ simplifyApp env headExpr args =
               args' <- simplifyArgs (noOneShot env) args
               let (doneHead, doneArgs) = collectSpine copy
               rebuildApp env doneHead (doneArgs ++ args')
+      -- A call of a local partial application is a call of its function.
+      | any isRight args,
+        Just partial <- Map.lookup name (spLocalPartials env) -> do
+          args' <- simplifyArgs (noOneShot env) args
+          let (partialHead, partialArgs) = collectSpine partial
+          rebuildApp env partialHead (partialArgs ++ args')
     _ -> do
       headExpr' <- case headExpr of
         ExVar {} -> pure headExpr
@@ -3623,6 +3667,7 @@ constantCallPattern env headExpr' args' =
               { spInline = Map.empty,
                 spLocals = Map.empty,
                 spLocalArities = Map.empty,
+                spLocalPartials = Map.empty,
                 spLocalDictionaries = Map.empty,
                 spExcluded = MonoidMap.empty,
                 spCse = Map.empty,

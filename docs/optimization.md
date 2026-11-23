@@ -1101,6 +1101,24 @@ Two things differ from GHC:
   and is copied at its calls. The arity pass reads arity from the body, and
   GHC's `foldr k z = go` gives it arity 2.
 
+`foldl'` on a list is a consumer too. In phase 2 the rule `"listFoldl'"`
+makes it a `foldr` whose result is a function of the accumulator, with the
+step `foldlStrictFB`, as GHC's `foldl'` is. A producer then gives each
+element to the step, and no list exists. From phase 1 the rule
+`"listFoldl'/list"` turns a fold that did not fuse back into the loop
+`listFoldlEvaluated`, which is `INLINE` with a local loop, so each call has a
+loop with its own step function. Two parts of the optimizer make the fused
+form a loop of two arguments:
+
+- The result of the fused loop is a function that each caller applies one
+  time. The one-shot analysis of the arity pass accepts a local function
+  that a path applies or returns as the result (`Aihc.Fc.Arity`), so the
+  loop takes the accumulator also after work that is not cheap.
+- A step can reach a loop as a local partial application,
+  `let c = foldlStrictFB k`. The simplifier makes each call of such a
+  binder a call of its function (`spLocalPartials`), which the inliner
+  copies.
+
 An alias, such as the instance method `enumFromTo = enumIntFromTo`, must
 stay an alias for the rules of the name it stands for to fire at its uses.
 Thus the arity pass does not eta expand a trivial body, as in GHC's Note
