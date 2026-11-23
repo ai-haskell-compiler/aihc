@@ -156,8 +156,12 @@ safeIndex bounds' size index' =
 lessSafeIndex :: (Ix i) => (i, i) -> Int -> i -> Int
 lessSafeIndex bounds' _ = index bounds'
 
+-- | Report an offset outside the array, with the message of GHC. Only an
+-- 'Ix' instance whose 'index' gives such an offset gets here.
 badSafeIndex :: Int -> Int -> Int
-badSafeIndex _ _ = badSafeIndex 0 0
+badSafeIndex offset size =
+  errorWithoutStackTrace
+    ("Error in array index; " ++ show offset ++ " not in range [0.." ++ show size ++ ")")
 
 unsafeAt :: Array i e -> Int -> e
 unsafeAt (Array _ _ _ immutable#) (I# index#) = case indexArray# immutable# index# of (# element #) -> element

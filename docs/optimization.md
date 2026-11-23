@@ -1403,6 +1403,10 @@ The pass runs on merged System FC after the first small inliner.
 It runs before demand analysis and worker/wrapper.
 A small inliner follows the pass to remove dictionary projections and direct lambda applications.
 The existing local dictionary pass also runs after it.
+The pass runs a second time after the first growing inliner and before the top-level specialization.
+The growing inliner copies wrappers, such as `differenceWith f` of `containers`.
+Such a wrapper gives a new anonymous function to a worker, such as `differenceWithKey`.
+The first run cannot see these calls.
 After late dictionary cleanup, the plan repeats demand analysis and simplification.
 This step evaluates strict arguments that late cleanup exposes.
 Common-subexpression elimination, full laziness, and constant lifting then restore sharing.
