@@ -5,7 +5,7 @@ modules:
     module Test where
 
     import GHC.Exts (int2Word#)
-    import GHC.Float (isDoubleFinite, isFloatFinite)
+    import GHC.Float (expt, isDoubleFinite, isFloatFinite)
     import GHC.Num (integerFromWord#, naturalFromWord)
     import GHC.Stack (ccsToStrings, getCurrentCCS)
     import System.IO.Unsafe (unsafePerformIO)
@@ -14,11 +14,13 @@ modules:
     fromWord :: Bool
     fromWord = integerFromWord# (int2Word# 42#) == 42 && toInteger (naturalFromWord 7) == 7
 
-    -- fp-ieee gets isDoubleFinite from GHC.Float. The result is 1 or 0.
+    -- fp-ieee gets isDoubleFinite and expt from GHC.Float.
+    -- The isDoubleFinite result is 1 or 0.
     finite :: Bool
     finite =
       [isDoubleFinite 1.5, isDoubleFinite (1 / 0), isDoubleFinite (0 / 0), isFloatFinite 2.5]
         == [1, 0, 0, 1]
+        && expt 2 10 == 1024
 
     -- reflex gets the cost-centre API from GHC.Stack. Without profiling, the
     -- current stack is empty.

@@ -13,6 +13,7 @@ module GHC.Float
     double2Float,
     double2Int,
     float2Double,
+    expt,
     float2Int,
     int2Double,
     int2Float,
@@ -737,6 +738,7 @@ generateDigits base acc r s mUp mDown =
             (True, True) -> if remainder * 2 < s then digit : acc else digit + 1 : acc
             (False, False) -> generateDigits base (digit : acc) remainder s mUp' mDown'
 
+-- | @expt base power@ is @base ^ power@.
 expt :: Integer -> Int -> Integer
 expt base power = base ^ power
 
