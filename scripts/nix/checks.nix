@@ -43,7 +43,16 @@
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
   cTidyCompilerFlags =
-    ["-std=c11" "-Wall" "-Wextra" "-Wpedantic" "-Icore-libs/aihc-rts/native"]
+    [
+      "-std=c11"
+      "-Wall"
+      "-Wextra"
+      "-Wpedantic"
+      "-Icore-libs/aihc-rts/native"
+      # tooling/aihc-testing/cbits/foreign_call.c includes ffi.h.
+      "-isystem"
+      "${pkgs.libffi.dev}/include"
+    ]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       "-isysroot"
       "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"

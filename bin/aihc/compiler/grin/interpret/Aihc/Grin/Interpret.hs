@@ -13,6 +13,7 @@ where
 
 import Aihc.Fc.Fold (depositBits, extractBits, reverseBits)
 import Aihc.Grin.Syntax
+import Aihc.Testing.ForeignCall (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
 import Control.Concurrent qualified as Host
 import Control.Exception (SomeException, bracket, displayException, mask_, onException, try)
 import Control.Monad (foldM, unless, void, when, zipWithM, zipWithM_)
@@ -39,7 +40,6 @@ import Data.Text.Encoding qualified as TE
 import Data.Typeable (cast)
 import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.C.Error (Errno (..), getErrno, resetErrno)
-import Foreign.LibFFI (Arg, RetType, argCDouble, argCFloat, argInt16, argInt32, argInt64, argInt8, argPtr, argWord16, argWord32, argWord64, argWord8, callFFI, retCDouble, retCFloat, retInt16, retInt32, retInt64, retInt8, retPtr, retVoid, retWord16, retWord32, retWord64, retWord8)
 import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
@@ -2981,7 +2981,7 @@ callForeign foreignCall arguments
           (: []) . RuntimeLit . GrinLitInt DoubleRep . toInteger . castDoubleToWord64 . realToFrac
             <$> liftEvalIO (callFFI functionPointer retCDouble marshalledArguments)
         GrinForeignAddr ->
-          (: []) . RuntimeAddress <$> liftEvalIO (callFFI functionPointer (retPtr retVoid) marshalledArguments)
+          (: []) . RuntimeAddress <$> liftEvalIO (callFFI functionPointer retPtr marshalledArguments)
         GrinForeignClosure -> throwInterpret InterpretForeignCallbackUnsupported
         GrinForeignVoid -> do
           liftEvalIO (callFFI functionPointer retVoid marshalledArguments)

@@ -17,7 +17,11 @@ library
     Aihc.Testing.AnnotatedModule
     Aihc.Testing.Extensions
     Aihc.Testing.FixtureIndex
+    Aihc.Testing.ForeignCall
 
+  -- The system libffi makes the calls of Aihc.Testing.ForeignCall.
+  c-sources: cbits/foreign_call.c
+  extra-libraries: ffi
   build-depends:
     aeson,
     aihc-parser,

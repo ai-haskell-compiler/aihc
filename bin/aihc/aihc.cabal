@@ -546,7 +546,6 @@ test-suite spec
     directory,
     filepath,
     hedgehog,
-    libffi >=0.2 && <0.3,
     prettyprinter,
     process,
     tasty,
