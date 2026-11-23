@@ -68,8 +68,9 @@ where
 
 import Data.Bool (Bool (..), not)
 import Data.Maybe (Maybe (..))
+import Data.Typeable.Internal (Typeable, cast)
 import GHC.Exception.Type (SomeException)
-import GHC.IO (IO, throwIO)
+import GHC.IO (FilePath, IO, catchException, throwIO)
 import GHC.IO.Buffer (Buffer (..), BufferState (..), isEmptyBuffer, newCharBuffer)
 import GHC.IO.Encoding.Types (TextEncoding)
 import GHC.IO.Handle.Internals
@@ -81,9 +82,9 @@ import GHC.Int (Int)
 import GHC.Integer (Integer)
 import GHC.Internal.Base (Monad (..), String, ($), (++), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Internal.IO.Types (IODevice (..), IOErrorType (..), IOException (..), SeekMode (..), ioException)
+import GHC.Internal.IO.Types (BufferedIO, IODevice (..), IOErrorType (..), IOException (..), RawIO, SeekMode (..), ioException)
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer)
-import GHC.MVar (MVar)
+import GHC.MVar (MVar, putMVar, takeMVar)
 import GHC.Num (Num (..))
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..), showString, shows)
@@ -253,19 +254,97 @@ hFlushAll handle = withHandle_ "hFlushAll" handle flushBuffer
 -- ---------------------------------------------------------------------
 -- Duplication and locks
 
+-- | Give a new handle for the open file of the handle. The new handle has
+-- its own buffer and its own descriptor. The two handles share the file
+-- position. Close the two handles independently.
 hDuplicate :: Handle -> IO Handle
-hDuplicate handle =
-  withHandle_ "hDuplicate" handle $ \Handle__ {haType} ->
-    case haType of
-      ClosedHandle -> ioe_closedHandle
-      _ -> ioException (IOError (Just handle) UnsupportedOperation "hDuplicate" "handles cannot be duplicated" Nothing Nothing)
+hDuplicate handle@(FileHandle path state) =
+  withHandle_' "hDuplicate" handle state $ \handle_ ->
+    dupHandle path Nothing handle_
+hDuplicate handle@(DuplexHandle path readState writeState) = do
+  writeVar <- withHandle_' "hDuplicate" handle writeState $ \handle_ -> do
+    duplicate <- dupHandle path Nothing handle_
+    return (handleState duplicate)
+  readVar <- withHandle_' "hDuplicate" handle readState $ \handle_ -> do
+    duplicate <- dupHandle path (Just writeVar) handle_
+    return (handleState duplicate)
+  return (DuplexHandle path readVar writeVar)
 
+-- | The state of a handle with one side, or the read side of a duplex handle.
+handleState :: Handle -> MVar Handle__
+handleState (FileHandle _ state) = state
+handleState (DuplexHandle _ state _) = state
+
+-- | Flush the handle and make a new handle for a duplicate of its device.
+-- The read side of a duplex handle uses the new device of the write side.
+dupHandle :: FilePath -> Maybe (MVar Handle__) -> Handle__ -> IO Handle
+dupHandle path otherSide handle_@Handle__ {haDevice, haType} =
+  case haType of
+    ClosedHandle -> ioe_closedHandle
+    _ -> do
+      flushBuffer handle_
+      case otherSide of
+        Nothing -> do
+          device <- dup haDevice
+          dupHandle_ device path otherSide handle_
+        Just writeVar -> do
+          writeSide <- takeMVar writeVar
+          putMVar writeVar writeSide
+          case writeSide of
+            Handle__ {haDevice = device} -> dupHandle_ device path otherSide handle_
+
+-- | Make a handle for the device with the type, the encoding, and the
+-- newline mode of an existing handle.
+dupHandle_ ::
+  (RawIO dev, IODevice dev, BufferedIO dev, Typeable dev) =>
+  dev ->
+  FilePath ->
+  Maybe (MVar Handle__) ->
+  Handle__ ->
+  IO Handle
+dupHandle_ device path otherSide Handle__ {haType, haCodec, haInputNL, haOutputNL} =
+  mkHandle device path haType True haCodec NewlineMode {inputNL = haInputNL, outputNL = haOutputNL} (Just handleFinalizer) otherSide
+
+-- | Make the second handle refer to the open file of the first handle. The
+-- second handle is flushed first, and the system closes its file.
 hDuplicateTo :: Handle -> Handle -> IO ()
-hDuplicateTo source target =
-  withHandle_ "hDuplicateTo" target $ \Handle__ {haType} ->
-    case haType of
-      ClosedHandle -> ioe_closedHandle
-      _ -> ioException (IOError (Just source) UnsupportedOperation "hDuplicateTo" "handles cannot be duplicated" Nothing Nothing)
+hDuplicateTo source@(FileHandle path sourceState) target@(FileHandle _ targetState) =
+  withHandle__' "hDuplicateTo" target targetState $ \target_ -> do
+    catchException (flushWriteBuffer target_) ignoreException
+    withHandle_' "hDuplicateTo" source sourceState $ \source_ ->
+      dupHandleTo path source Nothing target_ source_
+hDuplicateTo source@(DuplexHandle path sourceRead sourceWrite) target@(DuplexHandle _ targetRead targetWrite) = do
+  withHandle__' "hDuplicateTo" target targetWrite $ \target_ -> do
+    catchException (flushWriteBuffer target_) ignoreException
+    withHandle_' "hDuplicateTo" source sourceWrite $ \source_ ->
+      dupHandleTo path source Nothing target_ source_
+  withHandle__' "hDuplicateTo" target targetRead $ \target_ ->
+    withHandle_' "hDuplicateTo" source sourceRead $ \source_ ->
+      dupHandleTo path source (Just targetWrite) target_ source_
+hDuplicateTo source _ = ioe_dupHandlesNotCompatible source
+
+-- | A flush error of the target does not stop the duplication.
+ignoreException :: SomeException -> IO ()
+ignoreException _ = return ()
+
+ioe_dupHandlesNotCompatible :: Handle -> IO a
+ioe_dupHandlesNotCompatible handle =
+  ioException (IOError (Just handle) IllegalOperation "hDuplicateTo" "handles are incompatible" Nothing Nothing)
+
+-- | Give the new state of the target handle. The device of the target gets
+-- the open file of the source device.
+dupHandleTo :: FilePath -> Handle -> Maybe (MVar Handle__) -> Handle__ -> Handle__ -> IO Handle__
+dupHandleTo path source otherSide Handle__ {haDevice = targetDevice} source_@Handle__ {haDevice = sourceDevice, haType} =
+  case haType of
+    ClosedHandle -> ioe_closedHandle
+    _ -> do
+      flushBuffer source_
+      case cast targetDevice of
+        Nothing -> ioe_dupHandlesNotCompatible source
+        Just compatible -> do
+          device <- dup2 sourceDevice compatible
+          duplicate <- dupHandle_ device path otherSide source_
+          takeMVar (handleState duplicate)
 
 data LockMode = SharedLock | ExclusiveLock
 
