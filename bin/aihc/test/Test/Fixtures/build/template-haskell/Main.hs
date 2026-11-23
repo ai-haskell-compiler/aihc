@@ -9,7 +9,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, twiceHelper, typedOffset, typedSteps, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..), lowerFile)
 import Quasi (quasiLines)
@@ -237,6 +237,17 @@ $(deriveDescribe ''Mode)
 -- this module does not import.
 $(deriveLabel ''Shape)
 
+data Colour = Red
+
+$(quoteDescribe ''Colour)
+
+-- A declaration quote in a splice body, with a signature and a value.
+$( [d|
+     quotedNumber :: Int
+     quotedNumber = 6 * 7
+     |]
+ )
+
 $( do
      signature <- [t|Int -> (Int, String)|]
      pure
@@ -376,4 +387,17 @@ main = do
   mapM_ putStrLn quasiLines
   -- Typed splices of typed quotes.
   print ($$(typedSteps 3) 5, $$(typedOffset 41))
+  putStrLn (describe Red)
+  print quotedNumber
+  -- A quote with a do expression, a let statement, and a let expression.
+  $( [|
+       do
+         number <- pure (2 :: Int)
+         let twice = number * 2
+         print (let more = 1 in twice + more)
+       |]
+   )
+  -- A pattern quote. The variable of the pattern binds the variable of a
+  -- different quote.
+  putStrLn ($(lamE [[p|(Just letter, _)|]] [|[letter]|]) (Just 'p', True))
   putStrLn $pathVariable

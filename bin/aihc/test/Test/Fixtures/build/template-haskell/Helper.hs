@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, twiceHelper, typedOffset, typedSteps, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
@@ -61,6 +61,20 @@ typedOffset :: Int -> Code Q Int
 typedOffset k = [||(1 +) $$(unsafeCodeCoerce offset)||]
   where
     offset = litE (integerL (fromIntegral k))
+
+-- | An instance of 'Describe' from a declaration quote. The instance head
+-- has a splice, and the method has guards and local values.
+quoteDescribe :: Name -> Q [Dec]
+quoteDescribe name =
+  [d|
+    instance Describe $(conT name) where
+      describe _
+        | null text = "none"
+        | otherwise = text ++ suffix
+        where
+          suffix = "!"
+          text = $(stringE (nameBase name))
+    |]
 
 -- | The value of the environment variable PATH in a splice. A library
 -- can look for a program in PATH, and the variable is always in the
