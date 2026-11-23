@@ -92,6 +92,10 @@ data Quote
     TypeNameQuote Type
   | -- | @[t| t |]@, with its body.
     TypeQuote Type
+  | -- | @[d| ds |]@, with its body.
+    DeclarationQuote [Decl]
+  | -- | @[p| p |]@, with its body.
+    PatternQuote Pattern
   | -- | @[|| e ||]@, with its body.
     TypedQuote Expr
 
@@ -233,6 +237,9 @@ desugarQuotes dynamic outerBinders parsed resolved
           (_, TypeNameQuote ty) -> quotedTypeName ty
           (TypeQuote parsedBody, TypeQuote resolvedBody) ->
             evalStateT (quotedType dynamic outerBinders resolvedBody) (quoteSplices parsedBody)
+          (_, PatternQuote resolvedBody) -> quotedPattern resolvedBody
+          (DeclarationQuote parsedBody, DeclarationQuote resolvedBody) ->
+            evalStateT (quotedDeclarations dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           -- GHC gives @[|| e ||]@ the type @Code m t@, with @t@ the type of
           -- @e@. The compiler does not check the body against @t@: a
           -- splice of the result checks the syntax tree at the splice.
@@ -327,9 +334,9 @@ traverseQuotes onQuote = go
         ETHNameQuote name -> onQuote expr (NameQuote name)
         ETHTypeNameQuote name -> onQuote expr (TypeNameQuote name)
         ETHTypeQuote body -> onQuote expr (TypeQuote body)
+        ETHDeclQuote body -> onQuote expr (DeclarationQuote body)
+        ETHPatQuote body -> onQuote expr (PatternQuote body)
         ETHTypedQuote body -> onQuote expr (TypedQuote body)
-        ETHDeclQuote {} -> pure expr
-        ETHPatQuote {} -> pure expr
         _ -> gmapM go expr
 
 -- | The Template Haskell name of the term of a name quote. A top-level
@@ -550,9 +557,26 @@ quoted dynamic binders = go
           right' <- go right
           pure (call "sectionR" [operator', right'])
         ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
+        ELetDecls decls body -> do
+          decls' <- quotedDeclarationList dynamic binders decls
+          body' <- go body
+          pure (call "letE" [EList decls', body'])
+        EDo statements DoPlain -> (\statements' -> call "doE" [EList statements']) <$> mapM statement statements
         -- The body of @$$e@ has the type @Code m t@. The syntax tree of
         -- the splice is the syntax tree of that code.
         ETHTypedSplice resolvedBody -> (\body -> call "unTypeCode" [body]) <$> spliced dynamic binders resolvedBody
+        _ -> lift Nothing
+    -- A statement of a do expression. A rec statement is outside the
+    -- subset.
+    statement stmt =
+      case stmt of
+        DoAnn _ inner -> statement inner
+        DoBind pattern' body -> do
+          pattern'' <- lift (quotedPattern pattern')
+          body' <- go body
+          pure (call "bindS" [pattern'', body'])
+        DoLetDecls decls -> (\decls' -> call "letS" [EList decls']) <$> quotedDeclarationList dynamic binders decls
+        DoExpr body -> (\body' -> call "noBindS" [body']) <$> go body
         _ -> lift Nothing
     recordField fieldName field = do
       name <- lift (fieldName (recordFieldName field))
@@ -587,19 +611,106 @@ quoted dynamic binders = go
           | isNothing (nameQualifier name) ->
               Just (call "unboundVarE" [dynamicName (nameText name)])
         _ -> Nothing
-    quotedPattern pattern' =
-      case pattern' of
-        PAnn _ inner -> quotedPattern inner
-        PParen inner -> quotedPattern inner
-        PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
-        PWildcard -> Just (library "wildP")
-        PLit literal' -> patternLiteral literal'
-        PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
-        -- A constructor pattern with no type arguments.
-        PCon name [] arguments
-          | Just (EntityGlobal global) <- nameEntity name ->
-              (\arguments' -> call "conP" [globalName name global, EList arguments']) <$> mapM quotedPattern arguments
-        _ -> Nothing
+
+-- | The expression that builds the syntax tree of a resolved pattern in a
+-- quote. A variable of the pattern becomes a name with no module.
+quotedPattern :: Pattern -> Maybe Expr
+quotedPattern pattern' =
+  case pattern' of
+    PAnn _ inner -> quotedPattern inner
+    PParen inner -> quotedPattern inner
+    PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
+    PWildcard -> Just (library "wildP")
+    PLit literal' -> patternLiteral literal'
+    PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
+    -- A constructor pattern with no type arguments.
+    PCon name [] arguments
+      | Just (EntityGlobal global) <- nameEntity name ->
+          (\arguments' -> call "conP" [globalName name global, EList arguments']) <$> mapM quotedPattern arguments
+    _ -> Nothing
+
+-- | The expression that builds the syntax trees of a resolved declaration
+-- quote body. The subset has value bindings, type signatures, and
+-- instances with no pragmas. A binder of a declaration, also of a method
+-- of an instance, becomes a name with no module. Thus, the declarations
+-- of the result bind the names as they are written in the quote.
+--
+-- The sets and the state are the same as for 'quoted'.
+quotedDeclarations :: Set Text -> Set Entity -> [Decl] -> StateT [Expr] Maybe Expr
+quotedDeclarations dynamic binders decls = (\decls' -> call "sequenceQ" [EList decls']) <$> quotedDeclarationList dynamic binders decls
+
+-- | The expressions that build the syntax tree of each declaration, as
+-- 'quotedDeclarations' does.
+quotedDeclarationList :: Set Text -> Set Entity -> [Decl] -> StateT [Expr] Maybe [Expr]
+quotedDeclarationList dynamic binders = fmap concat . mapM declaration
+  where
+    declaration decl =
+      case decl of
+        DeclAnn _ inner -> declaration inner
+        DeclValue valueDecl -> pure <$> valueDeclaration valueDecl
+        DeclTypeSig names ty -> signatures names ty
+        DeclInstance instanceDecl
+          | null (instanceDeclPragmas instanceDecl),
+            isNothing (instanceDeclWarning instanceDecl),
+            null (instanceDeclForall instanceDecl) -> do
+              context <- mapM (quotedType dynamic binders) (instanceDeclContext instanceDecl)
+              instanceHead <- quotedType dynamic binders (instanceDeclHead instanceDecl)
+              items <- concat <$> mapM instanceItem (instanceDeclItems instanceDecl)
+              pure [call "instanceD" [call "cxt" [EList context], instanceHead, EList items]]
+        _ -> lift Nothing
+    instanceItem item =
+      case item of
+        InstanceItemAnn _ inner -> instanceItem inner
+        InstanceItemBind valueDecl -> pure <$> valueDeclaration valueDecl
+        InstanceItemTypeSig names ty -> signatures names ty
+        _ -> lift Nothing
+    -- One signature for each name, with the same type.
+    signatures names ty = do
+      ty' <- quotedType dynamic binders ty
+      pure [call "sigD" [binderName name, ty'] | name <- names]
+    valueDeclaration valueDecl =
+      case valueDecl of
+        -- A binding with no arguments is a value, as in GHC.
+        FunctionBind name [Match _ _ [] rhs] -> do
+          (body, locals) <- rightSide rhs
+          pure (call "valD" [call "varP" [binderName name], body, EList locals])
+        FunctionBind name matches -> do
+          clauses <- mapM clause matches
+          pure (call "funD" [binderName name, EList clauses])
+        PatternBind NoMultiplicityTag pattern' rhs -> do
+          pattern'' <- lift (quotedPattern pattern')
+          (body, locals) <- rightSide rhs
+          pure (call "valD" [pattern'', body, EList locals])
+        _ -> lift Nothing
+    clause (Match _ _ patterns rhs) = do
+      patterns' <- lift (mapM quotedPattern patterns)
+      (body, locals) <- rightSide rhs
+      pure (call "clause" [EList patterns', body, EList locals])
+    -- A guard is a Boolean expression. A pattern guard and a let guard are
+    -- outside the subset.
+    rightSide rhs =
+      case rhs of
+        UnguardedRhs _ body locals -> do
+          body' <- quoted dynamic binders body
+          locals' <- whereDeclarations locals
+          pure (call "normalB" [body'], locals')
+        GuardedRhss _ alternatives locals -> do
+          alternatives' <- mapM guarded alternatives
+          locals' <- whereDeclarations locals
+          pure (call "guardedB" [EList alternatives'], locals')
+    guarded (GuardedRhs _ guards body) =
+      case map withoutGuardAnnotations guards of
+        [GuardExpr condition] -> do
+          condition' <- quoted dynamic binders condition
+          body' <- quoted dynamic binders body
+          pure (call "normalGE" [condition', body'])
+        _ -> lift Nothing
+    whereDeclarations = maybe (pure []) (quotedDeclarationList dynamic binders)
+    binderName name = dynamicName (unqualifiedNameText name)
+    withoutGuardAnnotations guard =
+      case guard of
+        GuardAnn _ inner -> withoutGuardAnnotations inner
+        _ -> guard
 
 -- | The syntax tree of a literal pattern. A literal with an unboxed type
 -- or a fractional literal is outside the subset.
