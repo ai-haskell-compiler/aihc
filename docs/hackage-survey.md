@@ -14,16 +14,16 @@ a package again, remove its row.
 
 ## Summary
 
-- Packages that compile with GHC: 537
-- Packages that compile with aihc: 431
-- Packages that do not compile with GHC: 396
+- Packages that compile with GHC: 535
+- Packages that compile with aihc: 449
+- Packages that do not compile with GHC: 398
 
 ## Packages that compile with GHC
 
 | Package | Version | AIHC | Error |
 | ------- | ------- | ---- | ----- |
 | BNFC | 2.9.6.3 | pass |  |
-| Cabal | 3.18.2.0 | fail | Cabal-3.18.2.0/src/Distribution/Simple/SetupHooks/Rule.hs:1038:1: error: kind mismatch: expected Type, got k1 |
+| Cabal | 3.18.2.0 | pass |  |
 | Cabal-syntax | 3.18.2.0 | pass |  |
 | Chart-diagrams | 1.9.5.1 | fail | timed out after 900 seconds |
 | ChasingBottoms | 1.3.1.17 | pass |  |
@@ -65,9 +65,9 @@ a package again, remove its row.
 | ansi-terminal | 1.1.5 | pass |  |
 | ansi-terminal-game | 1.9.4.0 | pass |  |
 | ansi-wl-pprint | 1.1.1 | pass |  |
-| apecs | 0.10.1 | fail | In apecs-0.10.1: FC lint failed: |
+| apecs | 0.10.1 | fail | apecs-0.10.1/src/Apecs/Experimental/Reactive.hs:77:26: error: unsolved constraint Has w m (Elem s) |
 | arbtt | 0.12.0.3 | pass |  |
-| arch-hs | 0.16.2 | fail | In polysemy-1.9.2.0: FC lint failed: |
+| arch-hs | 0.16.2 | fail | arch-hs-0.16.2/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strategy |
 | arithmoi | 0.13.4.0 | pass |  |
 | async | 2.2.6 | pass |  |
 | atomic-primops | 0.8.8 | pass |  |
@@ -84,7 +84,7 @@ a package again, remove its row.
 | base64 | 2.1 | pass |  |
 | base64-bytestring | 1.2.1.0 | pass |  |
 | basement | 0.0.16 | pass |  |
-| beam-postgres | 0.6.4.0 | fail | timed out after 900 seconds |
+| beam-postgres | 0.6.4.0 | fail | pqueue-1.7.0.0/src/Data/PQueue/Min.hs:32:3: error: pattern synonym Empty has the scrutinee type Seq and cannot be bundled with MinQueue |
 | bearriver | 0.15.1 | fail | dunai-0.14.2/src/Data/MonadicStreamFunction/Util.hs:41:17: error: unhandled syntax: term name ‘EProc’ |
 | bifunctors | 5.6.3 | pass |  |
 | binary | 0.8.9.3 | pass |  |
@@ -97,17 +97,17 @@ a package again, remove its row.
 | bound | 2.0.7 | pass |  |
 | brick | 3.0 | fail | brick-3.0/.aihc-target/llvm/splices/brick/Brick.Widgets.List/package/src/Brick/Main.hs:81:8: error: module ‘Graphics.Vty.CrossPlatform’ not found |
 | bson | 0.4.0.1 | pass |  |
-| bv-sized | 1.0.8 | fail | In bv-sized-1.0.8: Template Haskell failed in module Data.BitVector.Sized.Panic: splice 0: the engine failed: env var "PATH" not found: does not exist) |
+| bv-sized | 1.0.8 | fail | parameterized-utils-2.3.1.0/src/Data/Parameterized/NatRepr/Internal.hs:71:25: error: unsolved constraint 0 ~ + t0 1 |
 | bytes | 0.17.5 | pass |  |
 | byteslice | 0.2.15.0 | pass |  |
 | bytestring | 0.12.2.0 | pass |  |
 | c2hs | 0.28.8 | pass |  |
-| cabal-debian | 5.5.1 | fail | Cabal-3.16.1.0/src/Distribution/Simple/SetupHooks/Rule.hs:1014:1: error: kind mismatch: expected Type, got k1 |
-| cabal-doctest | 1.0.13 | fail | Cabal-3.18.2.0/src/Distribution/Simple/SetupHooks/Rule.hs:1038:1: error: kind mismatch: expected Type, got k1 |
+| cabal-debian | 5.5.1 | fail | timed out after 900 seconds |
+| cabal-doctest | 1.0.13 | pass |  |
 | cabal-gild | 1.8.4.2 | pass |  |
-| cabal-rpm | 2.3.2 | fail | Cabal-3.16.1.0/src/Distribution/Simple/SetupHooks/Rule.hs:1014:1: error: kind mismatch: expected Type, got k1 |
-| cabal2nix | 2.21.3 | fail | hopenssl-2.2.5/src/OpenSSL/EVP/Digest/Context.hs:21: Error: missing include: openssl/opensslv.h |
-| cachix-api | 1.14.0 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
+| cabal-rpm | 2.3.2 | pass |  |
+| cabal2nix | 2.21.3 | fail | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
+| cachix-api | 1.14.0 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
 | call-alloy | 0.6.0.3 | pass |  |
 | call-stack | 0.4.0 | pass |  |
 | case-insensitive | 1.2.2.0 | pass |  |
@@ -116,7 +116,7 @@ a package again, remove its row.
 | cgi | 3001.5.2.0 | pass |  |
 | cgrep | 9.2.3 | pass |  |
 | charset | 0.3.12 | pass |  |
-| chart-svg | 0.8.3.3 | fail | Color-0.4.1/src/Graphics/Color/Model/LCH.hs:52:27: error: stock Eq deriving requires checked datatype metadata |
+| chart-svg | 0.8.3.3 | fail | In Color-0.4.1: FC lint failed: |
 | chronos | 1.1.7.0 | pass |  |
 | citeproc | 0.14.2 | pass |  |
 | classy-prelude | 1.5.0.3 | pass |  |
@@ -126,7 +126,7 @@ a package again, remove its row.
 | cmark | 0.6.1 | pass |  |
 | cmdargs | 0.10.22 | pass |  |
 | cndict | 0.10.0 | pass |  |
-| cobot-io | 0.1.5.8 | fail | In cobot-0.1.1.8: Template Haskell failed in module Bio.Chain.Alignment.Scoring: splice 0: the engine failed: unreachable) |
+| cobot-io | 0.1.5.8 | fail | timed out after 900 seconds |
 | colour | 2.3.7 | pass |  |
 | commonmark | 0.3.2 | pass |  |
 | commonmark-extensions | 0.2.8 | pass |  |
@@ -142,13 +142,13 @@ a package again, remove its row.
 | containers | 0.8.1 | pass |  |
 | contravariant | 1.5.6 | pass |  |
 | cookie | 0.5.1 | pass |  |
-| copilot | 4.8.2 | fail | In bv-sized-1.0.8: Template Haskell failed in module Data.BitVector.Sized.Panic: splice 0: the engine failed: env var "PATH" not found: does not exist) |
+| copilot | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
 | copilot-c99 | 4.8.2 | pass |  |
 | copilot-core | 4.8.2 | pass |  |
-| copilot-language | 4.8.2 | fail | In bv-sized-1.0.8: Template Haskell failed in module Data.BitVector.Sized.Panic: splice 0: the engine failed: env var "PATH" not found: does not exist) |
-| copilot-libraries | 4.8.2 | fail | In bv-sized-1.0.8: Template Haskell failed in module Data.BitVector.Sized.Panic: splice 0: the engine failed: env var "PATH" not found: does not exist) |
-| copilot-theorem | 4.8.2 | fail | In bv-sized-1.0.8: Template Haskell failed in module Data.BitVector.Sized.Panic: splice 0: the engine failed: env var "PATH" not found: does not exist) |
-| core-program | 0.7.0.0 | fail | fsnotify-0.4.4.0/src/System/FSNotify.hs:172:36: error: unbound type name ‘NativeManager’ |
+| copilot-language | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot-libraries | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot-theorem | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| core-program | 0.7.0.0 | fail | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
 | cpphs | 1.20.10 | pass |  |
 | cql-io | 2.0.0 | fail | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
 | criterion | 1.6.5.0 | pass |  |
@@ -158,15 +158,15 @@ a package again, remove its row.
 | crypton-x509 | 1.10.1 | pass |  |
 | crypton-x509-validation | 1.10.1 | pass |  |
 | cryptonite | 0.30 | pass |  |
-| csound-expression | 5.4.4.1 | fail | csound-expression-dynamic-0.4.0.0/src/Csound/Dynamic/Render/Instr.hs:31:1: error: unsupported expression form in TC MVP: EGetField (EAnn (SourceSpanAnnotation S |
-| csound-expression-typed | 0.2.9.0 | fail | csound-expression-dynamic-0.4.0.0/src/Csound/Dynamic/Render/Instr.hs:31:1: error: unsupported expression form in TC MVP: EGetField (EAnn (SourceSpanAnnotation S |
+| csound-expression | 5.4.4.1 | fail | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
+| csound-expression-typed | 0.2.9.0 | fail | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
 | data-accessor | 0.2.3.1 | pass |  |
 | data-default | 0.8.0.2 | pass |  |
 | data-default-class | 0.2.0.0 | pass |  |
 | data-fix | 0.3.4 | pass |  |
 | dataframe | 3.8.0.0 | fail | The plan needs build tools this compiler cannot run: |
 | dbus | 1.4.3 | fail | timed out after 900 seconds |
-| debian | 4.1.2 | fail | Cabal-3.18.2.0/src/Distribution/Simple/SetupHooks/Rule.hs:1038:1: error: kind mismatch: expected Type, got k1 |
+| debian | 4.1.2 | fail | timed out after 900 seconds |
 | deepseq | 1.5.2.0 | pass |  |
 | deferred-folds | 0.9.18.10 | pass |  |
 | dejafu | 2.4.0.8 | pass |  |
@@ -215,12 +215,11 @@ a package again, remove its row.
 | foundation | 0.0.30 | pass |  |
 | free | 5.2 | pass |  |
 | fused-effects | 1.1.2.7 | pass |  |
-| futhark | 0.29.1 | fail | Could not resolve dependencies: |
 | generic-deriving | 1.14.7 | pass |  |
-| generics-sop | 0.5.1.4 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
+| generics-sop | 0.5.1.4 | pass |  |
 | genvalidity | 1.1.1.0 | pass |  |
 | ghc-events | 0.21.0.0 | pass |  |
-| ghcid | 1.0.0 | fail | fsnotify-0.4.4.0/src/System/FSNotify.hs:172:36: error: unbound type name ‘NativeManager’ |
+| ghcid | 1.0.0 | pass |  |
 | ghcjs-dom | 0.10.0.0 | pass |  |
 | ginger | 0.10.6.0 | pass |  |
 | github | 0.30.0.2 | pass |  |
@@ -229,10 +228,10 @@ a package again, remove its row.
 | gnuplot | 0.5.7 | pass |  |
 | graphql | 1.5.0.3 | pass |  |
 | graphviz | 2999.20.2.1 | pass |  |
-| h-raylib | 6.1.0.0 | fail | In h-raylib-6.1.0.0: Template Haskell failed in module Raylib.Util.GUI.Styles: The compiler does not support the declaration ForeignD in a splice result.) |
+| h-raylib | 6.1.0.0 | fail | timed out after 900 seconds |
 | hackage-security | 0.6.4.0 | fail | hackage-security-0.6.4.0/src/Hackage/Security/Trusted.hs:40:31: error: unbound term name ‘static’ |
 | haddock-library | 1.11.0 | pass |  |
-| hakyll | 4.17.0.0 | fail | text-builder-linear-0.1.4/src/Data/Text/Builder/Linear/Dec/Bounded.hs:146:14: error: unsupported expression form in TC MVP: ETHTypedSplice (EAnn (SourceSpanAnno |
+| hakyll | 4.17.0.0 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | half | 0.3.3 | pass |  |
 | hamlet | 1.2.0 | pass |  |
 | happstack-server | 7.9.5 | pass |  |
@@ -244,29 +243,29 @@ a package again, remove its row.
 | haskeline | 0.8.5.0 | pass |  |
 | haskell-src-exts | 1.24.0 | pass |  |
 | haskell-src-meta | 0.8.16 | pass |  |
-| haskoin-core | 2.0.0 | fail | secp256k1-haskell-3.0.0/src/Crypto/Secp256k1/Internal/Base.hs:200:28: error: unsupported expression form in TC MVP: EGetFieldProjection [Name {nameQualifier = N |
-| haskoin-store-data | 3.0.0 | fail | secp256k1-haskell-3.0.0/src/Crypto/Secp256k1/Internal/Base.hs:200:28: error: unsupported expression form in TC MVP: EGetFieldProjection [Name {nameQualifier = N |
+| haskoin-core | 2.0.0 | fail | haskoin-core-2.0.0/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
+| haskoin-store-data | 3.0.0 | fail | haskoin-core-2.0.1/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
 | hasql | 2.0.1.0 | pass |  |
 | hasql-optparse-applicative | 0.9.1.1 | pass |  |
 | hasql-pool | 1.5.1.1 | pass |  |
 | hasql-transaction | 1.2.3.1 | pass |  |
-| haxr | 3000.11.6.1 | fail | http-streams-0.8.9.9/lib/Network/Http/Inconvenience.hs:276:15: error: unbound term name ‘doesDirectoryExist’ |
+| haxr | 3000.11.6.1 | pass |  |
 | hedgehog | 1.7 | pass |  |
 | hedis | 0.16.4 | pass |  |
 | heist | 1.1.1.2 | pass |  |
 | hexpat | 0.20.13 | pass |  |
 | histogram-fill | 0.9.1.0 | pass |  |
 | hjsmin | 0.2.1 | pass |  |
-| hledger | 1.52.4 | fail | encoding-0.10.3/Data/Encoding.hs:104:1: error: could not match Seq Char with ViewL t0 |
-| hledger-ui | 1.52.4 | fail | encoding-0.10.3/Data/Encoding.hs:104:1: error: could not match Seq Char with ViewL t0 |
-| hledger-web | 1.52.4 | fail | encoding-0.10.3/Data/Encoding.hs:104:1: error: could not match Seq Char with ViewL t0 |
-| hmatrix | 0.20.2 | fail | ./scripts/hackage-survey.sh: line 218: 76658 Killed: 9                  timeout "$compile_timeout" "$@" |
-| hmatrix-gsl-stats | 0.4.1.8 | fail | ./scripts/hackage-survey.sh: line 218: 78666 Killed: 9                  timeout "$compile_timeout" "$@" |
+| hledger | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hledger-ui | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hledger-web | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hmatrix | 0.20.2 | fail | built  semigroups-0.20.1 in 0.4 s |
+| hmatrix-gsl-stats | 0.4.1.8 | fail | built  semigroups-0.20.1 in 0.5 s |
 | hoauth2 | 2.15.2 | pass |  |
-| hpack | 0.39.6 | fail | Cabal-3.16.1.0/src/Distribution/Simple/SetupHooks/Rule.hs:1014:1: error: kind mismatch: expected Type, got k1 |
+| hpack | 0.39.6 | fail | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
 | hsc2hs | 0.68.10 | pass |  |
 | hslogger | 1.3.2.0 | pass |  |
-| hslua | 2.5.0 | fail | lua-2.3.4/cbits/hslua/hsludata.c:19:5: error: call to undeclared function 'hs_free_stable_ptr'; ISO C99 and later do not support implicit function declarations |
+| hslua | 2.5.0 | pass |  |
 | hspec | 2.11.18 | pass |  |
 | hspec-core | 2.11.18 | pass |  |
 | hspec-discover | 2.11.18 | pass |  |
@@ -280,7 +279,7 @@ a package again, remove its row.
 | http-date | 0.0.13 | pass |  |
 | http-media | 0.8.1.1 | pass |  |
 | http-reverse-proxy | 0.6.2.0 | pass |  |
-| http-streams | 0.8.9.9 | fail | http-streams-0.8.9.9/lib/Network/Http/Inconvenience.hs:276:15: error: unbound term name ‘doesDirectoryExist’ |
+| http-streams | 0.8.9.9 | pass |  |
 | http-types | 0.12.6 | pass |  |
 | http2 | 5.4.13 | pass |  |
 | http2-tls | 0.5.9 | pass |  |
@@ -292,7 +291,7 @@ a package again, remove its row.
 | hyphenation | 0.8.3 | pass |  |
 | indexed-traversable | 0.1.5 | pass |  |
 | indexed-traversable-instances | 0.1.2.1 | pass |  |
-| inline-c | 0.9.1.10 | fail | inline-c-0.9.1.10/src/Language/C/Inline/Internal.hs:840:7: error: unbound term name ‘Loc’ |
+| inline-c | 0.9.1.10 | pass |  |
 | insert-ordered-containers | 0.3.0.1 | pass |  |
 | integer-logarithms | 1.0.5 | pass |  |
 | invariant | 0.6.5 | pass |  |
@@ -308,12 +307,12 @@ a package again, remove its row.
 | keiro-core | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
 | keiro-dsl | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
 | keiro-pgmq | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| keter | 2.3.6 | fail | In keter-2.3.6: Template Haskell failed in module Keter.Conduit.Process.Unix: splice 0: the engine failed: unreachable) |
+| keter | 2.3.6 | fail | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
 | keys | 3.12.5 | pass |  |
 | kiroku-otel | 0.3.0.1 | fail | In streamly-core-0.3.3: FC lint failed: |
 | kiroku-store | 0.13.0.2 | fail | In streamly-core-0.3.3: FC lint failed: |
 | language-c | 0.10.2 | pass |  |
-| language-c-quote | 0.13.0.2 | fail | language-c-quote-0.13.0.2/Language/C/Smart.hs:25:14: error: unhandled syntax: term name ‘PQuasiQuote’ |
+| language-c-quote | 0.13.0.2 | pass |  |
 | language-docker | 16.0.0 | pass |  |
 | language-javascript | 0.7.1.0 | pass |  |
 | lens | 5.3.6 | pass |  |
@@ -324,10 +323,10 @@ a package again, remove its row.
 | lifted-async | 0.11.0 | pass |  |
 | lifted-base | 0.2.3.12 | pass |  |
 | linear | 1.23.3 | pass |  |
-| liquid-fixpoint | 0.9.6.3.7 | fail | liquid-fixpoint-0.9.6.3.7/.aihc-target/llvm/splices/liquid-fixpoint/Language.Fixpoint.Types.Config/package/src/Language/Fixpoint/Misc.hs:89:1: error: unhandled |
+| liquid-fixpoint | 0.9.6.3.7 | fail | liquid-fixpoint-0.9.6.3.7/.aihc-target/llvm/splices/liquid-fixpoint/Language.Fixpoint.Types.Config/package/src/AihcSplice.hs:7:18: error: module ‘Data.Store’ no |
 | list-t | 1.0.5.7 | pass |  |
 | logict | 0.8.2.0 | pass |  |
-| lsp-test | 0.18.0.0 | fail | In lsp-types-2.4.0.0: Template Haskell failed in module Language.LSP.MetaModel: the engine failed: the shared module refers to the unknown symbol aihc_f_aeson__ |
+| lsp-test | 0.18.0.0 | fail | row-types-1.0.1.2/src/Data/Row/Dictionaries.hs:106:1: error: kind mismatch: expected Row k0, got k0 |
 | lucid | 2.11.20260427 | pass |  |
 | massiv | 1.0.5.0 | pass |  |
 | math-functions | 0.3.4.4 | pass |  |
@@ -362,33 +361,33 @@ a package again, remove its row.
 | ngx-export-tools | 1.2.6.3 | pass |  |
 | numhask | 0.13.3.0 | pass |  |
 | old-time | 1.1.1.0 | pass |  |
-| opaleye | 0.10.8.0 | fail | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 420665 for K with arguments [TcT |
+| opaleye | 0.10.8.0 | fail | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 419699 for K with arguments [TcT |
 | optparse-applicative | 0.19.0.0 | pass |  |
 | optparse-generic | 1.5.3 | pass |  |
 | os-string | 2.0.11 | pass |  |
-| pandoc | 3.14 | fail | text-builder-linear-0.1.4/src/Data/Text/Builder/Linear/Dec/Bounded.hs:146:14: error: unsupported expression form in TC MVP: ETHTypedSplice (EAnn (SourceSpanAnno |
-| pandoc-crossref | 0.3.26 | fail | aihc: user error (In pandoc-crossref-0.3.26: Template Haskell failed in module Text.Pandoc.CrossRef.References.Types: wasm-ld failed (ExitFailure 1): wasm-ld: e |
+| pandoc | 3.14 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| pandoc-crossref | 0.3.26 | fail | timed out after 900 seconds |
 | pandoc-types | 1.23.1.2 | pass |  |
 | parallel | 3.3.0.0 | pass |  |
 | parsec | 3.1.18.0 | pass |  |
 | parser-combinators | 1.3.1 | pass |  |
 | parsers | 0.12.12 | pass |  |
-| patat | 0.15.2.0 | fail | typst-0.8.0.2/src/Typst/Methods.hs:510:22: error: could not match Vector Integer with [Integer] |
-| path | 0.9.6 | fail | In path-0.9.6: Template Haskell failed in module OsPath.Internal.Windows: splice 0: the engine failed: unreachable) |
-| path-io | 1.8.2 | fail | In path-0.9.6: Template Haskell failed in module OsPath.Internal.Posix: splice 0: the engine failed: unreachable) |
+| patat | 0.15.2.0 | fail | /private/tmp/claude-501/-Users-lemmih-coding-ai-haskell-compiler-aihc--claude-worktrees-cool-cartwright-9e650f/ccd7b847-4a56-4111-8600-07df72506c9d/scratchpad/s |
+| path | 0.9.6 | fail | path-0.9.6/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
+| path-io | 1.8.2 | fail | path-io-1.8.2/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
 | persistent | 2.18.1.0 | pass |  |
 | persistent-mongoDB | 2.13.1.0 | pass |  |
 | persistent-postgresql | 2.14.3.0 | fail | configure: error: Library requirements (PostgreSQL) not met. |
 | persistent-sqlite | 2.13.3.1 | fail | In persistent-sqlite-2.13.3.1: Template Haskell failed in module Database.Persist.Sqlite: the engine failed: the shared module refers to the unknown symbol sqli |
 | persistent-template | 2.12.0.0 | pass |  |
-| phino | 0.0.165 | fail | phino-0.0.165/.aihc-target/llvm/splices/phino/XMIR/package/src/Yaml.hs:529:30: error: unbound term name ‘decodeEither'’ |
+| phino | 0.0.165 | fail | In phino-0.0.165: GRIN generation failed: value Name {nameText = "$fEqGLOBAL$c==", nameSort = SortValue, nameOrigin = OriginTop (PackageId {packageIdText = "phi |
 | pipes | 4.3.16 | pass |  |
 | pointed | 5.0.5 | pass |  |
-| polysemy | 1.9.2.0 | fail | In polysemy-1.9.2.0: FC lint failed: |
+| polysemy | 1.9.2.0 | fail | polysemy-1.9.2.0/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strate |
 | pontarius-xmpp | 0.5.7.2 | fail | pontarius-xmpp-0.5.7.2/source/Network/Xmpp/Tls.hs:125:1: error: could not match CertificateStore with CertificateStore |
 | postgresql-binary | 0.15.0.1 | pass |  |
 | postgresql-libpq | 0.11.0.0 | pass |  |
-| postgresql-query | 3.10.0 | fail | hset-2.2.0/src/Data/HSet/Union.hs:51:57: error: unsolved constraint HUnion elems t0 elsr (MayFstIndexSnd elems t0) (MayFstIndexSnd t0 elems) |
+| postgresql-query | 3.10.0 | fail | configure: error: Library requirements (PostgreSQL) not met. |
 | postgresql-simple | 0.7.0.1 | pass |  |
 | pqi-conformance | 1.0.18.0 | pass |  |
 | pretty-show | 1.10 | pass |  |
@@ -399,7 +398,7 @@ a package again, remove its row.
 | primitive-extras | 0.10.2.2 | pass |  |
 | process | 1.6.30.0 | pass |  |
 | profunctors | 5.6.3 | pass |  |
-| propellor | 5.18 | fail | timed out after 900 seconds |
+| propellor | 5.18 | fail | In propellor-5.18: FC lint failed: |
 | proto-lens | 0.7.1.7 | pass |  |
 | protolude | 0.3.5 | pass |  |
 | psqueues | 0.2.8.3 | pass |  |
@@ -415,33 +414,33 @@ a package again, remove its row.
 | recursion-schemes | 5.2.3 | pass |  |
 | reducers | 3.12.5 | pass |  |
 | reflection | 2.1.9 | pass |  |
-| reflex | 0.9.4.1 | fail | timed out after 900 seconds |
+| reflex | 0.9.4.1 | fail | reflex-0.9.4.1/src/Reflex/Profiled.hs:71:34: error: unbound type name ‘CostCentreStack’ |
 | regex-base | 0.94.0.3 | pass |  |
 | regex-posix | 0.96.0.2 | pass |  |
 | regex-tdfa | 1.3.2.7 | pass |  |
 | registry | 0.6.3.3 | pass |  |
-| relational-query | 0.12.3.1 | fail | In product-isomorphic-0.0.3.4: Template Haskell failed in module Data.Functor.ProductIsomorphic.TupleInstances: The splice cannot use the package ghc-prim of Tu |
+| relational-query | 0.12.3.1 | pass |  |
 | resource-pool | 0.5.1.0 | pass |  |
 | resourcet | 1.3.0 | pass |  |
 | retry | 0.9.3.1 | pass |  |
 | rio | 0.1.25.0 | pass |  |
 | safe | 0.3.21 | pass |  |
 | safe-exceptions | 0.1.7.4 | pass |  |
-| sbp | 6.5.2 | fail | In sbp-6.5.2: Template Haskell failed in module SwiftNav.SBP.FileIo: splice 0: the engine failed: unreachable) |
-| sbv | 14.9 | fail | In sbv-14.9: Template Haskell failed in module Data.SBV.Either: splice 0 (after reify of Either, Either, Either): the engine failed: memory access out of bounds |
+| sbp | 6.5.2 | pass |  |
+| sbv | 14.9 | fail | sbv-14.9/.aihc-target/llvm/splices/sbv/Data.SBV.Maybe/package/src/Data/SBV/List.hs:564:1: error: could not match SBV [a] with [SBV a] |
 | scientific | 0.3.10.0 | pass |  |
 | scotty | 0.30 | pass |  |
-| secp256k1-haskell | 3.0.0 | fail | secp256k1-haskell-3.0.0/src/Crypto/Secp256k1/Internal/Base.hs:200:28: error: unsupported expression form in TC MVP: EGetFieldProjection [Name {nameQualifier = N |
+| secp256k1-haskell | 3.0.0 | pass |  |
 | semialign | 1.4 | pass |  |
 | semigroupoids | 6.0.2 | pass |  |
 | semigroups | 0.20.1 | pass |  |
-| servant | 0.20.3.0 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-client | 0.20.3.0 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-docs | 0.13.1 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-lucid | 0.9.0.6 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-server | 0.20.3.0 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-swagger | 1.2.3 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
-| servant-swagger-ui | 0.3.5.5.0.1 | fail | file-embed-lzma-0.1/src/FileEmbedLzma.hs:94:9: error: unsolved constraint Quote t0 |
+| servant | 0.20.3.0 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-client | 0.20.3.0 | fail | In servant-client-core-0.20.3.0: FC lint failed: |
+| servant-docs | 0.13.1 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-lucid | 0.9.0.6 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-server | 0.20.3.0 | fail | In servant-server-0.20.3.0: FC lint failed: |
+| servant-swagger | 1.2.3 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-swagger-ui | 0.3.5.5.0.1 | fail | In servant-server-0.20.3.0: FC lint failed: |
 | shake | 0.19.9 | pass |  |
 | shakespeare | 2.2.0 | pass |  |
 | shakespeare-css | 1.1.0 | pass |  |
@@ -449,7 +448,7 @@ a package again, remove its row.
 | shelly | 1.12.1.1 | pass |  |
 | shibuya-kiroku-adapter | 0.8.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
 | simple-sendfile | 0.2.33 | pass |  |
-| singletons | 3.0.4 | fail | <unknown location in Data.Singletons>: error: kind mismatch: expected k, got k |
+| singletons | 3.0.4 | fail | singletons-3.0.4/src/Data/Singletons.hs:806:1: error: could not match SLambda with SWrappedSing |
 | skylighting | 0.15.0.1 | pass |  |
 | skylighting-core | 0.15.0.1 | pass |  |
 | snap | 1.1.3.3 | pass |  |
@@ -462,16 +461,15 @@ a package again, remove its row.
 | statistics | 0.16.5.0 | pass |  |
 | stm | 2.5.3.1 | pass |  |
 | stm-containers | 1.2.2 | pass |  |
-| store | 0.7.22 | fail | In store-0.7.22: Template Haskell failed in module Data.Store.Internal: In aihc-splice-store-data-store-internal-0: Template Haskell failed in module AihcSplice |
-| stratosphere | 1.0.1 | fail | stratosphere-1.0.1/src/Stratosphere/Output.hs:108:14: error: unsupported expression form in TC MVP: EGetFieldProjection [Name {nameQualifier = Nothing |
+| store | 0.7.22 | fail | <unknown location in Data.Store.Internal>: error: kind mismatch: expected 'BoxedRep 'Lifted, got 'WordRep |
+| stratosphere | 1.0.1 | pass |  |
 | streaming | 0.2.4.0 | pass |  |
 | streaming-commons | 0.2.3.1 | pass |  |
 | streamly | 0.11.1 | fail | In streamly-core-0.3.3: FC lint failed: |
 | strict | 0.5.1 | pass |  |
-| strive | 6.1.0.5 | fail | In strive-6.1.0.5: Template Haskell failed in module Strive.Types.Segments: the engine failed: the shared module refers to the unknown symbol aihc_f_aeson__m2__ |
-| swagger2 | 2.9.1 | fail | In generics-sop-0.5.1.4: Template Haskell failed in module Generics.SOP.Instances: splice 0 (after reify of I): the engine failed: unreachable) |
+| strive | 6.1.0.5 | pass |  |
+| swagger2 | 2.9.1 | fail | timed out after 900 seconds |
 | syb | 0.7.4 | pass |  |
-| sydtest | 0.33.4.0 | fail | In path-0.9.6: Template Haskell failed in module OsPath.Internal.Posix: splice 0: the engine failed: Template Haskell ByteArray lifting is not available) |
 | system-fileio | 0.3.16.7 | pass |  |
 | system-filepath | 0.4.14.1 | pass |  |
 | tagged | 0.9 | pass |  |
@@ -488,7 +486,7 @@ a package again, remove its row.
 | text-icu | 0.8.0.5 | pass |  |
 | text-iso8601 | 0.2.0.0 | pass |  |
 | text-short | 0.1.6.1 | pass |  |
-| text-show | 3.11.4 | fail | In text-show-3.11.4: Template Haskell failed in module TextShow.Data.Tuple: splice 0: the engine failed: unreachable) |
+| text-show | 3.11.4 | fail | src/TextShow/Foreign/Ptr.hs:49:7: error: unbound term name ‘integerFromWord#’ |
 | th-abstraction | 0.7.2.0 | pass |  |
 | th-compat | 0.1.7 | pass |  |
 | th-desugar | 1.19 | fail | th-desugar-1.19/Language/Haskell/TH/Desugar/Util.hs:60:22: error: not exported: type name ‘IP’ |
@@ -502,7 +500,7 @@ a package again, remove its row.
 | time-compat | 1.9.9 | pass |  |
 | time-manager | 0.5.2 | pass |  |
 | tls | 2.5.1 | pass |  |
-| tmp-postgres | 1.34.1.0 | fail | tmp-postgres-1.34.1.0/src/Database/Postgres/Temp/Internal/Config.hs:293:3: error: unsolved constraint Monad (Lift (Constant [[Char]])) |
+| tmp-postgres | 1.34.1.0 | pass |  |
 | transformers | 0.6.3.0 | pass |  |
 | transformers-base | 0.4.6.1 | pass |  |
 | transformers-compat | 0.8 | pass |  |
@@ -510,7 +508,7 @@ a package again, remove its row.
 | trifecta | 2.1.4 | pass |  |
 | turtle | 1.6.2 | pass |  |
 | typed-process | 0.2.13.0 | pass |  |
-| typst | 0.12.1 | fail | text-builder-linear-0.1.4/src/Data/Text/Builder/Linear/Dec/Bounded.hs:146:14: error: unsupported expression form in TC MVP: ETHTypedSplice (EAnn (SourceSpanAnno |
+| typst | 0.12.1 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | tzdata | 0.2.20260911.0 | pass |  |
 | uniplate | 1.6.13 | pass |  |
 | unix | 2.8.8.0 | pass |  |
@@ -518,10 +516,10 @@ a package again, remove its row.
 | unix-time | 0.6.0 | pass |  |
 | unliftio | 0.2.25.1 | pass |  |
 | unordered-containers | 0.2.21 | pass |  |
-| usb | 1.3.0.6 | fail | error: Synchronous.hsc:4:10: fatal error: 'libusb.h' file not found |
+| usb | 1.3.0.6 | pass |  |
 | utf8-string | 1.0.2 | pass |  |
 | uu-parsinglib | 2.9.2 | pass |  |
-| uuagc | 0.9.57 | fail | Cabal-3.14.2.0/src/Distribution/Simple/SetupHooks/Rule.hs:1016:1: error: kind mismatch: expected Type, got k1 |
+| uuagc | 0.9.57 | fail | src-ag/Order.ag:20:8: error: module ‘SequentialComputation’ not found |
 | uuid | 1.3.16.1 | pass |  |
 | uuid-types | 1.0.6.1 | pass |  |
 | validity | 0.12.1.0 | pass |  |
@@ -531,7 +529,7 @@ a package again, remove its row.
 | vector-sized | 1.6.1 | pass |  |
 | vector-space | 0.19 | pass |  |
 | versions | 6.0.9 | pass |  |
-| vinyl | 0.14.3 | fail | In vinyl-0.14.3: FC generation failed: Data.Vinyl.FromTuple: cannot infer the invisible kind argument Unique 37940 for [] with arguments [] while converting TcT |
+| vinyl | 0.14.3 | pass |  |
 | void | 0.7.4 | pass |  |
 | vty | 6.7 | pass |  |
 | wai | 3.2.5 | pass |  |
@@ -555,8 +553,8 @@ a package again, remove its row.
 | xmlhtml | 0.2.5.4 | pass |  |
 | yaml | 0.11.11.2 | pass |  |
 | yesod-test | 1.7.0.3 | fail | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
-| yi | 0.19.3 | fail | dynamic-state-0.3.2/src/Data/ConcreteTypeRep.hs:116:15: error: unsolved constraint Binary (([Char], [Char], [Char], Int, KindRep), [SerialRep]) |
-| yst | 0.7.2 | fail | text-builder-linear-0.1.4/src/Data/Text/Builder/Linear/Dec/Bounded.hs:146:14: error: unsupported expression form in TC MVP: ETHTypedSplice (EAnn (SourceSpanAnno |
+| yi | 0.19.3 | fail | src/Yi/Lexer/common.hsinc:24:34: error: could not match Int with [(Point, Char)] → () → (a, b) |
+| yst | 0.7.2 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | zip-archive | 0.5 | pass |  |
 | zlib | 0.7.1.1 | pass |  |
 
@@ -739,6 +737,7 @@ a package again, remove its row.
 | fltkhs | 0.8.0.3 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: fltkhs => fltkhs:setup.base>=4.5 && <4.14) |
 | freckle-app | 1.27.0.3 | Error: [Cabal-7107] Could not resolve dependencies: |
 | free-game | 1.2 | Codec/Picture/RGBA8.hs:80:86: error: [GHC-88464] Variable not in scope: wordToInteger :: Word# -> a0 |
+| futhark | 0.29.1 | timed out after 900 seconds |
 | gf | 3.12 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: gf => ghc-prim>=0.5.0 && <=0.10.0, base => ghc-prim==0.13.0/installed-b8c9) |
 | ghc-exactprint | 1.14.3.0 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: ghc-exactprint => base>=4.22 && <4.23) |
 | ghc-lib | 9.14.1.20251220 | compiler/GHC/ThToHs.hs:66:1: error: [GHC-45102] Ambiguous module name ‘GHC.Boot.TH.Syntax’. |
@@ -874,7 +873,7 @@ a package again, remove its row.
 | pandoc-citeproc | 0.17.0.2 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: pandoc-citeproc => pandoc-types>=1.20 && <1.22) |
 | pandora | 0.5.6 | Pandora/Pattern/Operation/Sum.hs:7:1: error: [GHC-87110] Could not find module ‘Pandora.Pattern.Operation.Unit’. |
 | pango | 0.13.12.0 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: pkg-config package pango>=0 && <1.26.0 \|\| >1.26.2, not found in the pkg-config database) |
-| persistent-mysql | 2.13.1.6 | Error: [Cabal-7125] Failed to build mysql-0.2.1 (which is required by persistent-mysql-2.13.1.6). The failure occurred during the configure step. The exception  |
+| persistent-mysql | 2.13.1.6 | Error: [Cabal-7125] Failed to build mysql-0.2.1 (which is required by persistent-mysql-2.13.1.6). The failure occurred during the configure step. The exception |
 | peyotls | 0.1.6.10 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: peyotls => x509-validation>=1.5 && <1.6) |
 | phonetic-languages-simplified-examples-array | 0.21.0.0 | Phonetic/Languages/Simplified/DataG/Base.hs:107:30: error: [GHC-39999] • Could not deduce ‘Eq b’ |
 | phonetic-languages-simplified-generalized-examples-array | 0.19.0.1 | Phonetic/Languages/Simplified/DataG/Base.hs:107:30: error: [GHC-39999] • Could not deduce ‘Eq b’ |
@@ -915,6 +914,7 @@ a package again, remove its row.
 | stripe-haskell | 2.6.2 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: stripe-core => text>=1.0 && <1.3) |
 | stylish-haskell | 0.15.1.0 | compiler/GHC/Tc/Errors/Ppr.hs:44:1: error: [GHC-61948] Could not find module ‘GHC.Internal.TH.Ppr’. |
 | syb-with-class | 0.6.1.14 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: syb-with-class => template-haskell>=2.4 && <2.19) |
+| sydtest | 0.33.4.0 | src/Test/Syd/OptParse.hs:785:44: error: [GHC-83865] • Couldn't match type ‘Maybe Threads’ with ‘Threads’ |
 | taffybar | 7.4.4 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: pkg-config package gtk+-3.0-any, not found in the pkg-config database) |
 | telegram-api | 0.7.2.0 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: telegram-api => servant-client-core>=0.12 && <0.13) |
 | text-format | 0.3.2.1 | Error: [Cabal-7107] Could not resolve dependencies: (conflict: text-format => base>=4.3 && <4.19) |
