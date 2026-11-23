@@ -283,11 +283,18 @@ data TcInfo
   | InfoDeriving !TcDerivingAnnotation
   | -- | An instance that @deriving@ generated rather than the source.
     InfoDerivedInstance
-  | -- | An instance that a @deriving@ clause generated.
+  | -- | An instance that a @deriving@ clause of a data declaration
+    -- generated. A standalone @deriving instance@ does not have it. GHC
+    -- checks the functional dependencies of such an instance with the
+    -- liberal coverage condition, also without UndecidableInstances,
+    -- because the user did not write its context.
     InfoDerivingClauseInstance
   | -- | A generated instance that reuses another instance.
     InfoCoercedDeriving !TcDerivingPlan
-  | -- | The checked type of a record field selector.
+  | -- | The checked type of the selector of a record field, on the field
+    -- name of the constructor declaration. The System FC desugarer gives
+    -- the desugared selector this type, so that the selector has the type
+    -- that each use of the selector instantiates.
     InfoSelectorType !TcType
   | -- | The next item of the statement is the occurrence type of this
     -- group variable at the knot of a @rec@ group.
@@ -649,8 +656,7 @@ data Module = Module
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl],
     -- | The diagnostics of the module. Each list is one group of
-    -- diagnostics that the type checker gave at one time, in order. The
-    -- bridge to the parser tree attaches each group in one walk.
+    -- diagnostics that the type checker gave at one time, in order.
     moduleTcDiagnostics :: [[TcDiagnostic]]
   }
   deriving (Show)

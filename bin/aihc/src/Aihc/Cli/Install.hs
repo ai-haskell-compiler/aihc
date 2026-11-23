@@ -241,7 +241,6 @@ import Aihc.Tc
     TcSeverity (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
-    checkedParserModule,
     derivingReferenceList,
     emptyTcInterface,
     factEnvFromModules,
@@ -3606,7 +3605,7 @@ runTypeUnit context runtimes runtime = do
                 quotedNames =
                   Map.fromListWith
                     Set.union
-                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home (checkedParserModule checked))
+                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home checked)
                     | checked <- checkedModules,
                       let home = fromMaybe "Main" (TcSyntax.moduleName checked)
                     ]

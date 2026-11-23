@@ -6,6 +6,7 @@ module Aihc.Testing.AnnotatedModule
   ( renderAnnotatedModule,
     renderAnnotatedModuleSource,
     renderAnnotatedModuleSources,
+    renderLabeledSource,
   )
 where
 
@@ -77,6 +78,14 @@ renderAnnotatedModuleSources renderAnnotation sources modules =
     LT -> error "renderAnnotatedModuleSources: fewer source texts than modules"
     GT -> error "renderAnnotatedModuleSources: more source texts than modules"
     EQ -> zipWith (renderAnnotatedModuleSource renderAnnotation) sources modules
+
+-- | Render a source text with labels that the caller placed. Each label
+-- goes below the start of its span.
+renderLabeledSource :: T.Text -> [(SourceSpan, Doc ann)] -> String
+renderLabeledSource source placed =
+  length labels `seq` renderAnnotatedSource (T.unpack source) labels
+  where
+    labels = [PlacedLabel span' (renderLabelDoc doc) | (span', doc) <- placed]
 
 data PlacedLabel = PlacedLabel
   { placedSpan :: !SourceSpan,

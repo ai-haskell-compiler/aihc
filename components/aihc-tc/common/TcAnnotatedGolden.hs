@@ -44,7 +44,6 @@ import Aihc.Tc
     TcConfig,
     TcInterface,
     TcWiring (..),
-    checkedParserModule,
     emptyTcInterface,
     mergeTcInterfaces,
     tcModuleDiagnostics,
@@ -267,7 +266,7 @@ renderTcAnnotatedCase tc = do
   (resolved, checked) <- resolveAndCheckTcAnnotatedCase tc
   mapM_ (checkDependencies (map resolvedModuleSyntax resolved)) (caseDependencies tc)
   case caseAnnotated tc of
-    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) (map checkedParserModule checked))
+    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) checked)
     Nothing
       | all tcModuleSuccess checked -> pure []
       | otherwise ->

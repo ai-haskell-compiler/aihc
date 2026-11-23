@@ -45,6 +45,8 @@ where
 import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), ResolutionNamespace (..), binderEntity, nameEntity)
+import Aihc.Tc.Syntax qualified as Tc
+import Aihc.Tc.Syntax.Traverse qualified as TcWalk
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT (..), evalState, evalStateT, execState, modify', state)
 import Data.Data (Data, gmapM, gmapQ)
@@ -176,15 +178,18 @@ renameQuotedPackage from to = runIdentity . go
 --
 -- Only a module with the imports of 'quoteImports' can have a changed
 -- quote. The function does not examine the other modules.
-quotedModuleNames :: Text -> Text -> Module -> Set (ResolutionNamespace, Text)
+quotedModuleNames :: Text -> Text -> Tc.Module -> Set (ResolutionNamespace, Text)
 quotedModuleNames package home modu
-  | any ((== Just quoteAlias) . importDeclAs) (moduleImports modu) = Set.fromList (collect select modu)
+  | any ((== Just quoteAlias) . Tc.importDeclAs) (Tc.moduleImports modu) =
+      Set.fromList (TcWalk.runCollect (TcWalk.walk TcWalk.idWalk {TcWalk.walkExpr = visit}) modu)
   | otherwise = Set.empty
   where
-    select :: Expr -> Maybe (ResolutionNamespace, Text)
+    visit children expr =
+      TcWalk.collected (maybe [] pure (select expr)) *> children expr
+    select :: Tc.Expr -> Maybe (ResolutionNamespace, Text)
     select expr =
       case expr of
-        EApp (EApp (EApp function packageText) homeText) nameText
+        Tc.EApp (Tc.EApp (Tc.EApp function packageText) homeText) nameText
           | Just namespace <- boundNameNamespace (bare function),
             Just package' <- stringValue packageText,
             Just home' <- stringValue homeText,
@@ -193,26 +198,28 @@ quotedModuleNames package home modu
             home' == home ->
               Just (namespace, name)
         _ -> Nothing
-    -- The resolver can add annotations to the name. Thus, compare only the
-    -- qualifier and the text of the name.
+    -- The resolver and the type checker can add information to the name.
+    -- Thus, compare only the qualifier and the text of the name.
     boundNameNamespace function =
       case function of
-        EVar name
-          | nameQualifier name == Just quoteAlias,
-            nameText name `elem` ["mkNameG_v", "mkNameG_d"] ->
+        Tc.EVar name
+          | Tc.nameQualifier name == Just quoteAlias,
+            Tc.nameText name `elem` ["mkNameG_v", "mkNameG_d"] ->
               Just ResolutionNamespaceTerm
-          | nameQualifier name == Just quoteAlias,
-            nameText name == "mkNameG_tc" ->
+          | Tc.nameQualifier name == Just quoteAlias,
+            Tc.nameText name == "mkNameG_tc" ->
               Just ResolutionNamespaceType
         _ -> Nothing
     stringValue expr =
       case bare expr of
-        EString value _ -> Just value
+        Tc.EString value _ -> Just value
         _ -> Nothing
     bare expr =
       case expr of
-        EAnn _ inner -> bare inner
-        EParen inner -> bare inner
+        Tc.EAnn _ inner -> bare inner
+        Tc.ETc _ inner -> bare inner
+        Tc.EResolved _ inner -> bare inner
+        Tc.EParen inner -> bare inner
         _ -> expr
 
 -- | Change each quote of a syntax tree that is in the subset, as

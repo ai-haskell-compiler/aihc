@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | Human-readable inline rendering for type-checker annotations.
 module TcAnnotatedRender
@@ -7,12 +7,6 @@ module TcAnnotatedRender
   )
 where
 
-import Aihc.Parser.Syntax
-  ( Annotation,
-    Module,
-    fromAnnotation,
-    moduleName,
-  )
 import Aihc.Tc (FunDep (..), TypeFamilyInstanceInfo (..), renderFunDepNames, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
@@ -28,9 +22,34 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), EvVar (..))
+import Aihc.Tc.Syntax
+  ( Annotation,
+    ArithSeq (..),
+    ClassDeclItem (..),
+    Cmd (..),
+    CompStmt (..),
+    DataConDecl (..),
+    Decl (..),
+    DoStmt (..),
+    ExportSpec (..),
+    Expr (..),
+    GuardQualifier (..),
+    ImportItem (..),
+    InstanceDeclItem (..),
+    Literal (..),
+    Module (..),
+    Pattern (..),
+    SourceSpan,
+    TcInfo (..),
+    Type (..),
+    annotationSpan,
+    moduleName,
+  )
+import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Types
-import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
+import Aihc.Testing.AnnotatedModule (renderLabeledSource)
 import Control.Applicative ((<|>))
+import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -47,21 +66,205 @@ renderAnnotatedTcResults sources results =
        in concatMap renderModule moduleSources
   where
     renderModule (source, modu) =
-      renderAnnotatedModuleSources (renderTcAnnotation (moduleName modu)) [source] [modu]
+      [renderLabeledSource source (moduleLabels modu)]
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe "<unnamed>" (moduleName modu)
 
-renderTcAnnotation :: Maybe Text -> Annotation -> Maybe (Doc ann)
-renderTcAnnotation currentModule annotation =
-  pretty
-    <$> ( renderTypeAnnotation currentModule <$> fromAnnotation @TcAnnotation annotation
-            <|> renderClassAnnotation <$> fromAnnotation @TcClassAnnotation annotation
-            <|> renderDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation annotation
-            <|> renderInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation annotation
-            <|> renderInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation annotation
-            <|> renderDiagnostic <$> fromAnnotation @TcDiagnostic annotation
-        )
+-- | The labels of a module, each at the span of its node.
+--
+-- The labels of type checker information go to the span of the node that
+-- holds the information. A node that has leading wrappers gets the first
+-- span of its wrappers. A node that holds its information in a list, such
+-- as a name, gets the first span of its annotation list. A located
+-- diagnostic goes to its span, and an unlocated diagnostic goes to the
+-- span of the module.
+moduleLabels :: Module -> [(SourceSpan, Doc ann)]
+moduleLabels modu =
+  reverse (labelsDone (execState (walk labelWalk modu) (Labels [] Nothing currentModule)))
+    <> concatMap diagnosticLabel (concat (moduleTcDiagnostics modu))
+  where
+    currentModule = moduleName modu
+    diagnosticLabel diagnostic =
+      [ (placedAt "diagnostic" (diagLoc diagnostic <|> spanFromAnnotations (moduleAnns modu)), pretty (renderDiagnostic diagnostic))
+      ]
+
+data Labels ann = Labels
+  { labelsDone :: [(SourceSpan, Doc ann)],
+    -- | The span of the annotation list that the walk visited last. The
+    -- walk visits the information list of a node right after its
+    -- annotation list.
+    labelsListSpan :: Maybe SourceSpan,
+    labelsModule :: Maybe Text
+  }
+
+labelWalk :: Walk (State (Labels ann))
+labelWalk =
+  idWalk
+    { walkAnnotationList = \children anns -> do
+        modify' (\labels -> labels {labelsListSpan = spanFromAnnotations anns})
+        children anns,
+      walkTcInfo = \info -> do
+        span' <- gets labelsListSpan
+        addInfoLabels span' [info]
+        pure info,
+      walkExpr = wrapped peelExpr,
+      walkPattern = patternLabels,
+      walkType = wrapped peelType,
+      walkDecl = wrapped peelDecl,
+      walkDataConDecl = wrapped peelDataCon,
+      walkLiteral = wrapped peelLiteral,
+      walkGuardQualifier = wrapped peelGuard,
+      walkDoStmt = wrapped peelDo,
+      walkCompStmt = wrapped peelComp,
+      walkArithSeq = wrapped peelArithSeq,
+      walkClassDeclItem = wrapped peelClassItem,
+      walkInstanceDeclItem = wrapped peelInstanceItem,
+      walkCmd = wrapped peelCmd,
+      walkExportSpec = wrapped peelExport,
+      walkImportItem = wrapped peelImport
+    }
+  where
+    -- Label the information of the leading wrappers at their first span.
+    -- Then walk the children of the node below the wrappers.
+    wrapped :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrapped peel children node = do
+      let (anns, infos, base) = peelLeading peel node
+      addInfoLabels (spanFromAnnotations anns) infos
+      _ <- children base
+      pure node
+
+    -- The parser gives no span to a literal in a nested pattern. The
+    -- literal has the same source extent as its pattern, so it gets the
+    -- pattern span.
+    patternLabels children node = do
+      let (anns, infos, base) = peelLeading peelPattern node
+          patternSpan = spanFromAnnotations anns
+      addInfoLabels patternSpan infos
+      case base of
+        PLit literal -> do
+          let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
+          addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
+        _ -> () <$ children base
+      pure node
+
+addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
+addInfoLabels span' infos = do
+  currentModule <- gets labelsModule
+  case [label | info <- infos, Just label <- [renderTcInfo currentModule info]] of
+    [] -> pure ()
+    rendered ->
+      modify' (\labels -> labels {labelsDone = reverse [(placedAt label span', pretty label) | label <- rendered] <> labelsDone labels})
+
+placedAt :: String -> Maybe SourceSpan -> SourceSpan
+placedAt label =
+  fromMaybe (error ("renderAnnotatedModule: renderable annotation has no source span: " <> show label))
+
+peelLeading :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> node -> ([Annotation], [TcInfo], node)
+peelLeading peel =
+  go [] []
+  where
+    go anns infos node =
+      case peel node of
+        Just (ann, info, inner) -> go (maybe anns (: anns) ann) (maybe infos (: infos) info) inner
+        Nothing -> (reverse anns, reverse infos, node)
+
+peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
+peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
+peelExpr (ETc info inner) = Just (Nothing, Just info, inner)
+peelExpr (EResolved _ inner) = Just (Nothing, Nothing, inner)
+peelExpr _ = Nothing
+
+peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
+peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
+peelPattern (PTc info inner) = Just (Nothing, Just info, inner)
+peelPattern (PResolved _ inner) = Just (Nothing, Nothing, inner)
+peelPattern _ = Nothing
+
+peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)
+peelType (TAnn ann inner) = Just (Just ann, Nothing, inner)
+peelType (TResolved _ inner) = Just (Nothing, Nothing, inner)
+peelType _ = Nothing
+
+peelDecl :: Decl -> Maybe (Maybe Annotation, Maybe TcInfo, Decl)
+peelDecl (DeclAnn ann inner) = Just (Just ann, Nothing, inner)
+peelDecl (DeclTc info inner) = Just (Nothing, Just info, inner)
+peelDecl (DeclError _ inner) = Just (Nothing, Nothing, inner)
+peelDecl _ = Nothing
+
+peelDataCon :: DataConDecl -> Maybe (Maybe Annotation, Maybe TcInfo, DataConDecl)
+peelDataCon (DataConAnn ann inner) = Just (Just ann, Nothing, inner)
+peelDataCon (DataConTc info inner) = Just (Nothing, Just info, inner)
+peelDataCon (DataConResolved _ inner) = Just (Nothing, Nothing, inner)
+peelDataCon _ = Nothing
+
+peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcInfo, Literal)
+peelLiteral (LitAnn ann inner) = Just (Just ann, Nothing, inner)
+peelLiteral (LitTc info inner) = Just (Nothing, Just info, inner)
+peelLiteral _ = Nothing
+
+peelGuard :: GuardQualifier -> Maybe (Maybe Annotation, Maybe TcInfo, GuardQualifier)
+peelGuard (GuardAnn ann inner) = Just (Just ann, Nothing, inner)
+peelGuard _ = Nothing
+
+peelDo :: DoStmt body -> Maybe (Maybe Annotation, Maybe TcInfo, DoStmt body)
+peelDo (DoAnn ann inner) = Just (Just ann, Nothing, inner)
+peelDo (DoTc info inner) = Just (Nothing, Just info, inner)
+peelDo (DoResolved _ inner) = Just (Nothing, Nothing, inner)
+peelDo (DoRecKnot _ inner) = Just (Nothing, Nothing, inner)
+peelDo _ = Nothing
+
+peelComp :: CompStmt -> Maybe (Maybe Annotation, Maybe TcInfo, CompStmt)
+peelComp (CompAnn ann inner) = Just (Just ann, Nothing, inner)
+peelComp (CompTc info inner) = Just (Nothing, Just info, inner)
+peelComp _ = Nothing
+
+peelArithSeq :: ArithSeq -> Maybe (Maybe Annotation, Maybe TcInfo, ArithSeq)
+peelArithSeq (ArithSeqAnn ann inner) = Just (Just ann, Nothing, inner)
+peelArithSeq (ArithSeqTc info inner) = Just (Nothing, Just info, inner)
+peelArithSeq (ArithSeqResolved _ inner) = Just (Nothing, Nothing, inner)
+peelArithSeq _ = Nothing
+
+peelClassItem :: ClassDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, ClassDeclItem)
+peelClassItem (ClassItemAnn ann inner) = Just (Just ann, Nothing, inner)
+peelClassItem (ClassItemTc info inner) = Just (Nothing, Just info, inner)
+peelClassItem (ClassItemError _ inner) = Just (Nothing, Nothing, inner)
+peelClassItem _ = Nothing
+
+peelInstanceItem :: InstanceDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, InstanceDeclItem)
+peelInstanceItem (InstanceItemAnn ann inner) = Just (Just ann, Nothing, inner)
+peelInstanceItem (InstanceItemTc info inner) = Just (Nothing, Just info, inner)
+peelInstanceItem (InstanceItemError _ inner) = Just (Nothing, Nothing, inner)
+peelInstanceItem _ = Nothing
+
+peelCmd :: Cmd -> Maybe (Maybe Annotation, Maybe TcInfo, Cmd)
+peelCmd (CmdAnn ann inner) = Just (Just ann, Nothing, inner)
+peelCmd _ = Nothing
+
+peelExport :: ExportSpec -> Maybe (Maybe Annotation, Maybe TcInfo, ExportSpec)
+peelExport (ExportAnn ann inner) = Just (Just ann, Nothing, inner)
+peelExport _ = Nothing
+
+peelImport :: ImportItem -> Maybe (Maybe Annotation, Maybe TcInfo, ImportItem)
+peelImport (ImportAnn ann inner) = Just (Just ann, Nothing, inner)
+peelImport (ImportItemError _ inner) = Just (Nothing, Nothing, inner)
+peelImport _ = Nothing
+
+spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
+spanFromAnnotations =
+  foldr ((<|>) . annotationSpan) Nothing
+
+-- | The label of one item of type checker information, if the golden
+-- output shows that item.
+renderTcInfo :: Maybe Text -> TcInfo -> Maybe String
+renderTcInfo currentModule info =
+  case info of
+    InfoType annotation -> Just (renderTypeAnnotation currentModule annotation)
+    InfoClass annotation -> Just (renderClassAnnotation annotation)
+    InfoDeriving annotation -> Just (renderDerivingAnnotation annotation)
+    InfoInstance annotation -> Just (renderInstanceAnnotation annotation)
+    InfoInstanceMethod annotation -> Just (renderInstanceMethodAnnotation annotation)
+    _ -> Nothing
 
 renderTypeAnnotation :: Maybe Text -> TcAnnotation -> String
 renderTypeAnnotation currentModule ann =
