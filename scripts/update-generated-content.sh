@@ -5,8 +5,8 @@ usage() {
 	cat <<'USAGE'
 Usage: scripts/update-generated-content.sh [--update|--check]
 
-  --update  Rewrite generated files/sections in place
-  --check   Exit non-zero if generated files/sections are out of date
+  --update  Rewrite generated files in place
+  --check   Exit non-zero if generated files are out of date
 USAGE
 }
 
@@ -37,16 +37,10 @@ run_cmd() {
 	bash -c "$cmd"
 }
 
-resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 fixture_extension_markdown_cmd="${FIXTURE_EXTENSION_PROGRESS_CMD:-nix run .#fixture-extension-progress}"
-tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
-desugar_cmd="${DESUGAR_PROGRESS_CMD:-nix run .#fixture-progress -- desugar}"
-codegen_cmd="${CODEGEN_PROGRESS_CMD:-nix run .#fixture-progress -- codegen}"
-core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
-# The two self-hosting commands get their output file as the last argument.
+# The self-hosting command gets its output file as the last argument.
 self_hosting_packages_cmd="${SELF_HOSTING_PACKAGES_CMD:-nix run .#self-hosting-packages -- --output}"
-self_hosting_progress_cmd="${SELF_HOSTING_PROGRESS_CMD:-nix run .#self-hosting-progress -- --report}"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -54,333 +48,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 fixture_extension_out="$tmpdir/fixture-extension-progress.md"
-tc_out="$tmpdir/tc-progress.txt"
-desugar_out="$tmpdir/desugar-progress.txt"
-codegen_out="$tmpdir/codegen-progress.txt"
-core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 self_hosting_packages_out="$tmpdir/self-hosting-packages.md"
-self_hosting_report="$tmpdir/self-hosting-report.tsv"
 
-run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$fixture_extension_markdown_cmd" | sed -n '/^# Test Fixture Extension Support Status/,$p' >"$fixture_extension_out"
-run_cmd "$tc_cmd" >"$tc_out"
-run_cmd "$desugar_cmd" >"$desugar_out"
-run_cmd "$codegen_cmd" >"$codegen_out"
-run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
 run_cmd "$self_hosting_packages_cmd $(printf '%q' "$self_hosting_packages_out")"
-# The progress is of the new package list, also in --check mode.
-run_cmd "$self_hosting_progress_cmd $(printf '%q' "$self_hosting_report") --list $(printf '%q' "$self_hosting_packages_out")"
-
-parse_progress() {
-	local infile="$1"
-	awk '
-    /^PASS[[:space:]]+/ { pass=$2 }
-    /^XFAIL[[:space:]]+/ { xfail=$2 }
-    /^XPASS[[:space:]]+/ { xpass=$2 }
-    /^FAIL[[:space:]]+/ { fail=$2 }
-    /^TOTAL[[:space:]]+/ { total=$2 }
-    /^COMPLETE[[:space:]]+/ {
-      gsub(/%/, "", $2)
-      complete=$2
-    }
-    END {
-      if (total == "" || pass == "" || xfail == "" || xpass == "" || fail == "" || complete == "") {
-        exit 2
-      }
-      implemented = pass + xpass
-      printf "%d\n%d\n%d\n%d\n%d\n%d\n%.2f\n", pass, xfail, xpass, fail, total, implemented, complete
-    }
-  ' "$infile"
-}
-
-parse_core_libs_progress() {
-	local infile="$1"
-	local key="$2"
-	awk -v key="$key" '
-    $1 == key {
-      implemented = $2 + 0
-      total = $3 + 0
-      complete = $4 + 0
-    }
-    END {
-      if (total == "" || total <= 0) {
-        exit 2
-      }
-      printf "%d\n%d\n%.2f\n", implemented, total, complete
-    }
-  ' "$infile"
-}
-
-progress_circles() {
-	local complete="$1"
-	awk -v complete="$complete" '
-    BEGIN {
-      filled = int(complete / 20)
-      if (filled < 0) {
-        filled = 0
-      } else if (filled > 5) {
-        filled = 5
-      }
-
-      for (i = 1; i <= filled; i++) {
-        printf "●"
-      }
-      for (i = filled + 1; i <= 5; i++) {
-        printf "○"
-      }
-    }
-  '
-}
-
-resolve_vals=($(parse_progress "$resolve_out")) || {
-	echo "update-generated-content.sh: could not parse resolve-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-resolve_pass="${resolve_vals[0]}"
-resolve_xfail="${resolve_vals[1]}"
-resolve_xpass="${resolve_vals[2]}"
-resolve_fail="${resolve_vals[3]}"
-resolve_total="${resolve_vals[4]}"
-resolve_implemented="${resolve_vals[5]}"
-resolve_complete="${resolve_vals[6]}"
-
-tc_vals=($(parse_progress "$tc_out")) || {
-	echo "update-generated-content.sh: could not parse tc-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-tc_total="${tc_vals[4]}"
-tc_implemented="${tc_vals[5]}"
-tc_complete="${tc_vals[6]}"
-
-desugar_vals=($(parse_progress "$desugar_out")) || {
-	echo "update-generated-content.sh: could not parse desugar fixture-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-desugar_total="${desugar_vals[4]}"
-desugar_implemented="${desugar_vals[5]}"
-desugar_complete="${desugar_vals[6]}"
-
-codegen_vals=($(parse_progress "$codegen_out")) || {
-	echo "update-generated-content.sh: could not parse codegen fixture-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-codegen_total="${codegen_vals[4]}"
-codegen_implemented="${codegen_vals[5]}"
-codegen_complete="${codegen_vals[6]}"
-
-ghc_prim_vals=($(parse_core_libs_progress "$core_libs_progress_out" "GHC_PRIM")) || {
-	echo "update-generated-content.sh: could not parse core-libs-progress output for GHC_PRIM (expected 'GHC_PRIM N M PCT' line on stdout)." >&2
-	exit 2
-}
-ghc_prim_implemented="${ghc_prim_vals[0]}"
-ghc_prim_total="${ghc_prim_vals[1]}"
-ghc_prim_complete="${ghc_prim_vals[2]}"
-
-base_vals=($(parse_core_libs_progress "$core_libs_progress_out" "BASE")) || {
-	echo "update-generated-content.sh: could not parse core-libs-progress output for BASE (expected 'BASE N M PCT' line on stdout)." >&2
-	exit 2
-}
-base_implemented="${base_vals[0]}"
-base_total="${base_vals[1]}"
-base_complete="${base_vals[2]}"
-
-resolve_circles="$(progress_circles "$resolve_complete")"
-tc_circles="$(progress_circles "$tc_complete")"
-desugar_circles="$(progress_circles "$desugar_complete")"
-codegen_circles="$(progress_circles "$codegen_complete")"
-ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
-base_circles="$(progress_circles "$base_complete")"
-
-self_hosting_vals=($(awk -F'\t' '
-  NF >= 3 {
-    total++
-    if ($3 == "pass") { pass++ } else if ($3 == "fail") { fail++ } else if ($3 == "blocked") { blocked++ }
-  }
-  END {
-    if (total == 0) {
-      exit 2
-    }
-    printf "%d\n%d\n%d\n%d\n%.2f\n", pass, fail, blocked, total, 100 * pass / total
-  }
-' "$self_hosting_report")) || {
-	echo "update-generated-content.sh: could not parse the self-hosting report (expected 'name<TAB>version<TAB>status<TAB>detail' lines)." >&2
-	exit 2
-}
-self_hosting_pass="${self_hosting_vals[0]}"
-self_hosting_fail="${self_hosting_vals[1]}"
-self_hosting_blocked="${self_hosting_vals[2]}"
-self_hosting_total="${self_hosting_vals[3]}"
-self_hosting_complete="${self_hosting_vals[4]}"
-self_hosting_circles="$(progress_circles "$self_hosting_complete")"
-
-cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
-${resolve_circles} \`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-tc.txt" <<EOF2
-${tc_circles} \`${tc_implemented}/${tc_total}\` (\`${tc_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-desugar.txt" <<EOF2
-${desugar_circles} \`${desugar_implemented}/${desugar_total}\` (\`${desugar_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-codegen.txt" <<EOF2
-${codegen_circles} \`${codegen_implemented}/${codegen_total}\` (\`${codegen_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-ghc-prim.txt" <<EOF2
-${ghc_prim_circles} \`${ghc_prim_implemented}/${ghc_prim_total}\` (\`${ghc_prim_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-base.txt" <<EOF2
-${base_circles} \`${base_implemented}/${base_total}\` (\`${base_complete}%\`)
-EOF2
-
-cat >"$tmpdir/readme-root-self-hosting.txt" <<EOF2
-${self_hosting_circles} \`${self_hosting_pass}/${self_hosting_total}\` (\`${self_hosting_complete}%\`)
-EOF2
-
-{
-	echo "<details>"
-	echo "<summary>Self-compile packages: ${self_hosting_pass} install, ${self_hosting_fail} fail, ${self_hosting_blocked} wait for a dependency</summary>"
-	echo
-	echo "Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order."
-	echo
-	echo "| Package | Version | Status |"
-	echo "| ------- | ------- | ------ |"
-	awk -F'\t' '
-    NF >= 3 {
-      if ($3 == "pass") {
-        status = "✅ installs"
-      } else if ($3 == "fail") {
-        status = "❌ fails"
-        if ($4 != "" && $4 != "-") {
-          status = status " (" $4 ")"
-        }
-      } else {
-        n = split($4, needs, ",")
-        status = "⏸️ needs "
-        for (i = 1; i <= n; i++) {
-          status = status (i > 1 ? ", " : "") "`" needs[i] "`"
-        }
-      }
-      print "| " $1 " | " $2 " | " status " |"
-    }
-  ' "$self_hosting_report"
-	echo
-	echo "</details>"
-} >"$tmpdir/readme-root-self-hosting-details.txt"
-
-replace_marker_inline() {
-	local file="$1"
-	local marker="$2"
-	local content_file="$3"
-	local start="<!-- AUTO-GENERATED: START ${marker} -->"
-	local end="<!-- AUTO-GENERATED: END ${marker} -->"
-	local tmp_out="$tmpdir/$(basename "$file").${marker}.inline.out"
-
-	local start_count
-	local end_count
-	start_count="$(grep -Foc "$start" "$file" || true)"
-	end_count="$(grep -Foc "$end" "$file" || true)"
-	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
-		echo "Expected exactly one inline marker pair for '${marker}' in ${file}" >&2
-		exit 1
-	fi
-
-	local content
-	content="$(tr -d '\n' <"$content_file")"
-
-	awk -v start="$start" -v end="$end" -v content="$content" '
-    {
-      s = index($0, start)
-      e = index($0, end)
-      if (s > 0 && e > s) {
-        prefix = substr($0, 1, s + length(start) - 1)
-        suffix = substr($0, e)
-        print prefix " " content " " suffix
-      } else {
-        print
-      }
-    }
-  ' "$file" >"$tmp_out"
-
-	if [ "$mode" = "--update" ]; then
-		if ! cmp -s "$file" "$tmp_out"; then
-			cat "$tmp_out" >"$file"
-		fi
-	else
-		if ! cmp -s "$file" "$tmp_out"; then
-			echo "Generated inline block out of date: ${file} (${marker})" >&2
-			stale=1
-		fi
-	fi
-}
-
-# Replace the lines between a START marker line and an END marker line.
-replace_marker_block() {
-	local file="$1"
-	local marker="$2"
-	local content_file="$3"
-	local start="<!-- AUTO-GENERATED: START ${marker} -->"
-	local end="<!-- AUTO-GENERATED: END ${marker} -->"
-	local tmp_out="$tmpdir/$(basename "$file").${marker}.block.out"
-
-	local start_count
-	local end_count
-	start_count="$(grep -Fxc "$start" "$file" || true)"
-	end_count="$(grep -Fxc "$end" "$file" || true)"
-	if [ "$start_count" -ne 1 ] || [ "$end_count" -ne 1 ]; then
-		echo "Expected exactly one block marker pair for '${marker}' in ${file}" >&2
-		exit 1
-	fi
-
-	awk -v start="$start" -v end="$end" -v content_file="$content_file" '
-    $0 == start {
-      print
-      while ((getline line < content_file) > 0) {
-        print line
-      }
-      skipping = 1
-      next
-    }
-    $0 == end {
-      skipping = 0
-    }
-    !skipping {
-      print
-    }
-  ' "$file" >"$tmp_out"
-
-	if [ "$mode" = "--update" ]; then
-		if ! cmp -s "$file" "$tmp_out"; then
-			cat "$tmp_out" >"$file"
-		fi
-	else
-		if ! cmp -s "$file" "$tmp_out"; then
-			echo "Generated block out of date: ${file} (${marker})" >&2
-			stale=1
-		fi
-	fi
-}
-
-remove_obsolete_marker_line() {
-	local file="$1"
-	local marker="$2"
-
-	if [ "$mode" = "--update" ]; then
-		local tmp_out="$tmpdir/$(basename "$file").${marker}.remove.out"
-		grep -Fv "<!-- AUTO-GENERATED: START ${marker} -->" "$file" >"$tmp_out"
-		if ! cmp -s "$file" "$tmp_out"; then
-			cp "$tmp_out" "$file"
-		fi
-	fi
-}
 
 stale=0
 
@@ -410,16 +84,6 @@ else
 		stale=1
 	fi
 fi
-
-replace_marker_inline README.md "tc-progress" "$tmpdir/readme-root-tc.txt"
-replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
-replace_marker_inline README.md "desugar-progress" "$tmpdir/readme-root-desugar.txt"
-replace_marker_inline README.md "codegen-progress" "$tmpdir/readme-root-codegen.txt"
-replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
-replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
-replace_marker_inline README.md "self-hosting-progress" "$tmpdir/readme-root-self-hosting.txt"
-replace_marker_block README.md "self-hosting-details" "$tmpdir/readme-root-self-hosting-details.txt"
-remove_obsolete_marker_line README.md "tc-stackage-progress"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
 	exit 1
