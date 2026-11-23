@@ -825,7 +825,7 @@ distributeKnownCases program =
             all (`Set.member` nullary) tails,
             sum (map (caseSize . grinAltRhs) alternatives) <= knownCaseSize,
             length tails * sum (map (caseSize . grinAltRhs) alternatives) <= knownCaseCopies,
-            all (\name -> any (const True) (selected name alternatives)) tails -> do
+            all (\name -> not (null (selected name alternatives))) tails -> do
               alternatives' <- traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> distribute (grinAltRhs alternative)) alternatives
               mapTails (copyAlternative binder alternatives') value
         GrinBind vars value body -> GrinBind vars <$> distribute value <*> distribute body
