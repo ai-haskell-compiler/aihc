@@ -268,6 +268,8 @@ data Arm64Instruction
   | -- | A binary float operation @op dd, dn, dm@. Unary operations ignore
     -- the last register.
     ArmFloat !Arm64FloatOp !Bool !Int !Int !Int
+  | -- | @fmadd dd, dn, dm, da@: @dn * dm + da@ with one rounding.
+    ArmFmadd !Bool !Int !Int !Int !Int
   | ArmFcmp !Bool !Int !Int
   | -- | @fcvt dd, sn@ when the flag is set, otherwise @fcvt sd, dn@.
     ArmFcvt !Bool !Int !Int
@@ -525,6 +527,8 @@ encodeInstruction instruction =
     ArmFmovFromFloat double general float ->
       words32 [(if double then 0x9e660000 else 0x1e260000) .|. fromIntegral float `shiftL` 5 .|. registerNumber (registerInfo general)]
     ArmFloat op double destination left right -> encodeFloatOp op double destination left right
+    ArmFmadd double destination left right addend ->
+      words32 [floatType double 0x1f000000 .|. fromIntegral right `shiftL` 16 .|. fromIntegral addend `shiftL` 10 .|. fromIntegral left `shiftL` 5 .|. fromIntegral destination]
     ArmFcmp double left right ->
       words32 [floatType double 0x1e202000 .|. fromIntegral right `shiftL` 16 .|. fromIntegral left `shiftL` 5]
     ArmFcvt toDouble destination source ->

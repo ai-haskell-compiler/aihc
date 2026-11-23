@@ -117,7 +117,7 @@ compileLirModuleFor model lirModule =
       let traps = Map.toAscList (moduleTraps final)
       pure
         ( T.unlines
-            ( header ctx items (moduleUsesStack final)
+            ( header ctx items (moduleUsesStack final) (any usesFloatMulAdd [function | ItemFunction function <- items])
                 <> concat functions
                 <> concatMap (renderData ctx) [dataItem | ItemData dataItem <- items]
                 <> concatMap (renderGlobal ctx) [global | ItemGlobal global <- items]
@@ -167,11 +167,13 @@ writeLirParts model lint produce dumpPath path functionsPath dataPath = do
   when lint (checkLint duplicateErrors)
   references <- newIORef Set.empty
   progress <- newIORef (initialModuleState model, False, False)
+  mulAdd <- newIORef False
   let writeFunction functions function = do
         (state, wide, scatter) <- readIORef progress
         (lines', next) <- either failed pure (runStateT (compileFunction ctx function) state)
         mapM_ (TIO.hPutStrLn functions) lines'
         writeIORef progress (next, wide || usesWideMultiply function, scatter || usesBitScatter function)
+        when (usesFloatMulAdd function) (writeIORef mulAdd True)
   withFile functionsPath WriteMode $ \functions ->
     withFile dataPath WriteMode $ \dataHandle ->
       withDump $ \dump -> do
@@ -192,7 +194,8 @@ writeLirParts model lint produce dumpPath path functionsPath dataPath = do
   let headerItems = declarations <> [ItemFunction helper | wide, helper <- wideHelpers] <> [ItemFunction helper | scatter, helper <- bitScatterHelpers]
       traps = Map.toAscList (moduleTraps final)
   withFile path WriteMode $ \output -> do
-    TIO.hPutStr output (T.unlines (header ctx headerItems (moduleUsesStack final)))
+    usesMulAdd <- readIORef mulAdd
+    TIO.hPutStr output (T.unlines (header ctx headerItems (moduleUsesStack final) usesMulAdd))
     copyInto output functionsPath
     copyInto output dataPath
     TIO.hPutStr
@@ -244,6 +247,19 @@ usesWideMultiply function =
       Instruction _ (Wide op I64 _ _) <- blockInstructions block,
       op `elem` [MulWideU, MulWideS]
     ]
+
+-- | Whether a function uses a fused multiply-add, which calls the C library.
+usesFloatMulAdd :: Function -> Bool
+usesFloatMulAdd function =
+  or
+    [ True
+    | block <- functionBlocks function,
+      Instruction _ FloatMulAdd {} <- blockInstructions block
+    ]
+
+-- | The C library function of a fused multiply-add.
+floatMulAddSymbol :: Type -> Text
+floatMulAddSymbol ty = if ty == F32 then "fmaf" else "fma"
 
 -- | Whether a function uses the bit deposit or extract helpers.
 usesBitScatter :: Function -> Bool
@@ -355,12 +371,13 @@ renderSignature signature =
 
 -- Module header
 
-header :: Ctx -> [Item] -> Bool -> [Text]
-header ctx items usesStack =
+header :: Ctx -> [Item] -> Bool -> Bool -> [Text]
+header ctx items usesStack mulAdd =
   [ "# Lir module compiled by Aihc.Wasm.Lir.",
     "\t.text",
     "\t.functype\t" <> trapSymbol <> " (i32, i64) -> ()"
   ]
+    <> concat [["\t.functype\t" <> floatMulAddSymbol F32 <> " (f32, f32, f32) -> (f32)", "\t.functype\t" <> floatMulAddSymbol F64 <> " (f64, f64, f64) -> (f64)"] | mulAdd]
     <> ["\t.functype\t" <> symbolText ctx (externFunctionName external) <> " " <> renderSignature (externFunctionSignature external) | ItemExternFunction external <- items]
     <> ["\t.functype\t" <> symbolText ctx (functionName function) <> " " <> renderSignature (functionSignature function) | ItemFunction function <- items]
     <> ["\t.globaltype\t" <> stackPointer <> ", i32" | usesStack]
@@ -703,6 +720,7 @@ deferredInstructions uses candidates = Map.unions . map blockDeferred
         Compare {} -> True
         FloatBinary {} -> True
         FloatUnary {} -> True
+        FloatMulAdd {} -> True
         Convert op _ _ _ -> op `notElem` [FToIS, FToIU]
         PtrToInt _ -> True
         PtrFromInt _ -> True
@@ -1031,6 +1049,7 @@ resultTypes ctx (Instruction results operation) =
     Compare {} -> [I1]
     FloatBinary _ ty _ _ -> [ty]
     FloatUnary _ ty _ -> [ty]
+    FloatMulAdd ty _ _ _ -> [ty]
     Convert _ _ _ to -> [to]
     PtrToInt _ -> [I64]
     PtrFromInt _ -> [Ptr]
@@ -1223,6 +1242,7 @@ leadingOperands operation =
       | otherwise -> [left, right]
     FloatBinary _ _ left right -> [left, right]
     FloatUnary _ _ value -> [value]
+    FloatMulAdd _ left right addend -> [left, right, addend]
     Convert op _ value _
       | op `elem` [FToIS, FToIU] -> [value, value]
       | otherwise -> [value]
@@ -1659,6 +1679,12 @@ compileInstruction fn (Instruction results operation) =
     FloatUnary op ty value -> do
       push fn ty value
       emit (wasmType ty <> "." <> floatUnary op)
+      single
+    -- WebAssembly has no fused multiply-add, thus the C library does it.
+    FloatMulAdd ty left right addend -> do
+      operands ty left right
+      push fn ty addend
+      emit ("call\t" <> floatMulAddSymbol ty)
       single
     Convert op from value to ->
       case op of

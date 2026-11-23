@@ -400,6 +400,7 @@ operationResultTypes symbols operation =
     Compare {} -> Just [I1]
     FloatBinary _ ty _ _ -> Just [ty]
     FloatUnary _ ty _ -> Just [ty]
+    FloatMulAdd ty _ _ _ -> Just [ty]
     Convert _ _ _ to -> Just [to]
     PtrToInt _ -> Just [I64]
     PtrFromInt _ -> Just [Ptr]
@@ -507,6 +508,8 @@ lintInstruction env blockIndex position instruction =
           (if isFloatType ty then [] else rejects ty) <> check ty left <> check ty right
         FloatUnary _ ty value ->
           (if isFloatType ty then [] else rejects ty) <> check ty value
+        FloatMulAdd ty left right addend ->
+          (if isFloatType ty then [] else rejects ty) <> check ty left <> check ty right <> check ty addend
         Convert op from value to -> convertErrors op from to <> check from value
         PtrToInt value -> check Ptr value
         PtrFromInt value -> check I64 value
@@ -735,6 +738,7 @@ operationKeyword operation =
     Compare op _ _ _ -> compareOpName op
     FloatBinary op _ _ _ -> floatBinaryOpName op
     FloatUnary op _ _ -> floatUnaryOpName op
+    FloatMulAdd {} -> "fma"
     Convert op _ _ _ -> convertOpName op
     PtrToInt _ -> "ptr.to_int"
     PtrFromInt _ -> "ptr.from_int"

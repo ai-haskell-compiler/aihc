@@ -94,5 +94,7 @@
   {"line":92,"text":"seq_cst","scope":"keyword.control.lir"},
   {"line":93,"text":"load.invariant","scope":"keyword.operator.instruction.lir"},
   {"line":94,"text":"region","scope":"keyword.control.lir"},
-  {"line":94,"text":"stack","scope":"keyword.control.lir"}
+  {"line":94,"text":"stack","scope":"keyword.control.lir"},
+  {"line":95,"text":"fma","scope":"keyword.operator.instruction.lir"},
+  {"line":95,"text":"f64","scope":"storage.type.lir"}
 ]

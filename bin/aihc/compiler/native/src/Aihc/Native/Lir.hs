@@ -232,6 +232,9 @@ data NativeBackend statement register error = NativeBackend
     nbCompare :: Ctx register -> CompareOp -> Type -> register -> Operand -> Operand -> [statement],
     nbFloatBinary :: FloatBinaryOp -> Type -> register -> register -> register -> [statement],
     nbFloatUnary :: FloatUnaryOp -> Type -> register -> register -> [statement],
+    -- | A fused multiply-add: the type, the destination, and the three
+    -- operands of @a * b + c@.
+    nbFloatMulAdd :: Ctx register -> Type -> register -> Operand -> Operand -> Operand -> [statement],
     nbConvert :: Ctx register -> ConvertOp -> Type -> Type -> register -> register -> NativeM error [statement],
     nbSelect :: Ctx register -> Type -> register -> Operand -> Operand -> Operand -> [statement],
     nbLoad :: Ctx register -> Type -> Operand -> Integer -> register -> [statement],
@@ -1530,6 +1533,8 @@ compileInstruction backend ctx (Instruction results operation) =
     FloatUnary op ty value -> do
       let (loads, a) = operandIn backend ctx 0 ty (nbScratchLeft backend) value
       single $ \dst -> pure (loads <> nbFloatUnary backend op ty dst a)
+    FloatMulAdd ty left right addend ->
+      single $ \dst -> pure (nbFloatMulAdd backend ctx ty dst left right addend)
     Convert op from value to -> do
       let (loads, a) = operandIn backend ctx 0 from (nbScratchLeft backend) value
       single $ \dst -> do

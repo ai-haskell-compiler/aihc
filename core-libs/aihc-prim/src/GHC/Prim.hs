@@ -264,6 +264,7 @@ module GHC.Prim
     quotRemWord2#,
     quotWord#,
     quotInt#,
+    quotRemInt#,
     remInt#,
     negateInt#,
     raise#,
@@ -555,6 +556,10 @@ module GHC.Prim
     minusFloat#,
     timesFloat#,
     sqrtFloat#,
+    fmaddFloat#,
+    fmsubFloat#,
+    fnmaddFloat#,
+    fnmsubFloat#,
     expFloat#,
     logFloat#,
     sinFloat#,
@@ -585,6 +590,10 @@ module GHC.Prim
     (-##),
     (*##),
     sqrtDouble#,
+    fmaddDouble#,
+    fmsubDouble#,
+    fnmaddDouble#,
+    fnmsubDouble#,
     expDouble#,
     logDouble#,
     sinDouble#,
@@ -813,6 +822,10 @@ foreign import prim divInt# :: Int# -> Int# -> Int#
 foreign import prim quotInt# :: Int# -> Int# -> Int#
 
 foreign import prim remInt# :: Int# -> Int# -> Int#
+
+-- | The quotient and the remainder of a division that rounds toward zero.
+quotRemInt# :: Int# -> Int# -> (# Int#, Int# #)
+quotRemInt# left right = (# quotInt# left right, remInt# left right #)
 
 foreign import prim negateInt# :: Int# -> Int#
 
@@ -1086,6 +1099,18 @@ foreign import prim timesFloat# :: Float# -> Float# -> Float#
 
 foreign import prim sqrtFloat# :: Float# -> Float#
 
+-- | @fmaddFloat# x y z@ is @x * y + z@ with one rounding.
+foreign import prim fmaddFloat# :: Float# -> Float# -> Float# -> Float#
+
+-- | @fmsubFloat# x y z@ is @x * y - z@ with one rounding.
+foreign import prim fmsubFloat# :: Float# -> Float# -> Float# -> Float#
+
+-- | @fnmaddFloat# x y z@ is @- x * y + z@ with one rounding.
+foreign import prim fnmaddFloat# :: Float# -> Float# -> Float# -> Float#
+
+-- | @fnmsubFloat# x y z@ is @- x * y - z@ with one rounding.
+foreign import prim fnmsubFloat# :: Float# -> Float# -> Float# -> Float#
+
 foreign import prim expFloat# :: Float# -> Float#
 
 foreign import prim logFloat# :: Float# -> Float#
@@ -1165,6 +1190,18 @@ foreign import prim (==##) :: Double# -> Double# -> Int#
 foreign import prim (/=##) :: Double# -> Double# -> Int#
 
 foreign import prim sqrtDouble# :: Double# -> Double#
+
+-- | @fmaddDouble# x y z@ is @x * y + z@ with one rounding.
+foreign import prim fmaddDouble# :: Double# -> Double# -> Double# -> Double#
+
+-- | @fmsubDouble# x y z@ is @x * y - z@ with one rounding.
+foreign import prim fmsubDouble# :: Double# -> Double# -> Double# -> Double#
+
+-- | @fnmaddDouble# x y z@ is @- x * y + z@ with one rounding.
+foreign import prim fnmaddDouble# :: Double# -> Double# -> Double# -> Double#
+
+-- | @fnmsubDouble# x y z@ is @- x * y - z@ with one rounding.
+foreign import prim fnmsubDouble# :: Double# -> Double# -> Double# -> Double#
 
 foreign import prim expDouble# :: Double# -> Double#
 

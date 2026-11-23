@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Reference interpreter for Lir. It implements the semantics in
@@ -29,6 +30,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word64, Word8)
+import GHC.Exts (Double (D#), Float (F#), fmaddDouble#, fmaddFloat#)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import Numeric (showHex)
 
@@ -433,6 +435,11 @@ execOperation program locals operation =
       b <- operand ty right
       pure [floatBinary op a b]
     FloatUnary op ty value -> (: []) . floatUnary op <$> operand ty value
+    FloatMulAdd ty left right addend -> do
+      a <- operand ty left
+      b <- operand ty right
+      c <- operand ty addend
+      pure [floatMulAdd a b c]
     Convert op from value to -> (: []) <$> (operand from value >>= convert op from to)
     PtrToInt value -> do
       address <- ptrOperand value
@@ -707,6 +714,14 @@ floatUnary op value =
         FNeg -> negate x
         FAbs -> abs x
         FSqrt -> sqrt x
+
+-- | @a * b + c@ with one rounding, as the hardware instruction gives it.
+floatMulAdd :: Value -> Value -> Value -> Value
+floatMulAdd a b c =
+  case (a, b, c) of
+    (VF32 (F# x), VF32 (F# y), VF32 (F# z)) -> VF32 (F# (fmaddFloat# x y z))
+    (VF64 (D# x), VF64 (D# y), VF64 (D# z)) -> VF64 (D# (fmaddDouble# x y z))
+    _ -> a
 
 convert :: ConvertOp -> Type -> Type -> Value -> M Value
 convert op from to value =

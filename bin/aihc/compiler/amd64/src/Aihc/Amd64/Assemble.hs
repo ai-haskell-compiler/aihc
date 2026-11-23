@@ -283,6 +283,10 @@ data Amd64Instruction
     AmdMovdFromXmm !Amd64Register !Int
   | -- | @op xmm, xmm@ with the double flag, the destination, and the source.
     AmdSse !Amd64SseOp !Bool !Int !Int
+  | -- | @vfmadd213sd@ or @vfmadd213ss@ with the double flag and the three
+    -- registers: @xmm1 = xmm2 * xmm1 + xmm3@ with one rounding. It needs
+    -- FMA3, which the hardware this backend targets has.
+    AmdFma !Bool !Int !Int !Int
   | -- | @ucomisd@ or @ucomiss@.
     AmdUcomis !Bool !Int !Int
   | -- | @cvtsi2sd xmm, r64@ or @cvtsi2ss xmm, r64@.
@@ -528,6 +532,7 @@ encodeInstruction instruction =
     AmdMovqFromXmm destination xmm -> bytes [0x66] <> encodeRm True [0x0f, 0x7e] (fromIntegral xmm) (RegisterOperand (registerInfo destination)) False []
     AmdMovdToXmm xmm source -> bytes [0x66] <> encodeRm False [0x0f, 0x6e] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
     AmdMovdFromXmm destination xmm -> bytes [0x66] <> encodeRm False [0x0f, 0x7e] (fromIntegral xmm) (RegisterOperand (registerInfo destination)) False []
+    AmdFma double destination source addend -> encodeFma double destination source addend
     AmdSse op double destination source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm False [0x0f, sseOpcode op] (fromIntegral destination) (RegisterOperand (xmmRegister source)) False []
     AmdUcomis double left right -> bytes [0x66 | double] <> encodeRm False [0x0f, 0x2e] (fromIntegral left) (RegisterOperand (xmmRegister right)) False []
     AmdCvtsi2s double xmm source -> bytes [if double then 0xf2 else 0xf3] <> encodeRm True [0x0f, 0x2a] (fromIntegral xmm) (RegisterOperand (registerInfo source)) False []
@@ -549,6 +554,16 @@ encodeInstruction instruction =
 -- the two-byte escape @C4@, the inverted @R@, @X@, and @B@ bits with the
 -- @0F38@ map, the width bit with the inverted second source and the prefix
 -- code, the opcode, and a register-direct ModRM.
+-- | The @VEX.LIG.66.0F38.W 0xA9@ encoding of @vfmadd213sd@ (@W1@) or
+-- @vfmadd213ss@ (@W0@).
+encodeFma :: Bool -> Int -> Int -> Int -> [Item]
+encodeFma double destination source addend =
+  let inverted flag = if flag then 0 else 1
+      byte1 = inverted (destination >= 8) `shiftL` 7 .|. 1 `shiftL` 6 .|. inverted (addend >= 8) `shiftL` 5 .|. 0x02
+      byte2 = (if double then 0x80 else 0) .|. (complement source .&. 0xf) `shiftL` 3 .|. 0x01
+      modrm = 0xc0 .|. (destination .&. 7) `shiftL` 3 .|. addend .&. 7
+   in bytes (map fromIntegral [0xc4, byte1, byte2, 0xa9, modrm])
+
 encodeVex3 :: Word8 -> Word8 -> Amd64Register -> Amd64Register -> Amd64Register -> [Item]
 encodeVex3 prefixCode opcode destination source mask =
   let width64 = registerWidth (registerInfo destination) == 64

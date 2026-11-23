@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Reference interpreter for strict GRIN programs.
@@ -46,6 +47,7 @@ import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, alignPtr, castFunPtrToPtr, castPtr, intPtrToPtr, minusPtr, nullPtr, plusPtr, ptrToIntPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import GHC.Clock qualified as Host
+import GHC.Exts (Double (D#), Float (F#), fmaddDouble#, fmaddFloat#)
 import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, castWord64ToDouble, double2Float, float2Double)
 import GHC.IO.FD qualified as HostFD
 import GHC.IO.Handle.FD qualified as HandleFD
@@ -1391,6 +1393,14 @@ evalPrimitive "acoshDouble#" [value] = evalDoubleUnary "acoshDouble#" acosh valu
 evalPrimitive "atanhDouble#" [value] = evalDoubleUnary "atanhDouble#" atanh value
 evalPrimitive "/##" [left, right] = evalDoubleBinary "/##" (/) left right
 evalPrimitive "**##" [left, right] = evalDoubleBinary "**##" (**) left right
+evalPrimitive "fmaddFloat#" [left, right, addend] = evalFloatMulAdd "fmaddFloat#" False False left right addend
+evalPrimitive "fmsubFloat#" [left, right, addend] = evalFloatMulAdd "fmsubFloat#" False True left right addend
+evalPrimitive "fnmaddFloat#" [left, right, addend] = evalFloatMulAdd "fnmaddFloat#" True False left right addend
+evalPrimitive "fnmsubFloat#" [left, right, addend] = evalFloatMulAdd "fnmsubFloat#" True True left right addend
+evalPrimitive "fmaddDouble#" [left, right, addend] = evalDoubleMulAdd "fmaddDouble#" False False left right addend
+evalPrimitive "fmsubDouble#" [left, right, addend] = evalDoubleMulAdd "fmsubDouble#" False True left right addend
+evalPrimitive "fnmaddDouble#" [left, right, addend] = evalDoubleMulAdd "fnmaddDouble#" True False left right addend
+evalPrimitive "fnmsubDouble#" [left, right, addend] = evalDoubleMulAdd "fnmsubDouble#" True True left right addend
 evalPrimitive "sqrtFloat#" [value] = evalFloatUnary "sqrtFloat#" sqrt value
 evalPrimitive "expFloat#" [value] = evalFloatUnary "expFloat#" exp value
 evalPrimitive "logFloat#" [value] = evalFloatUnary "logFloat#" log value
@@ -2554,6 +2564,28 @@ evalFloatBinary name operation left right = do
   leftFloat <- expectFloatPrimitiveArgument name left
   rightFloat <- expectFloatPrimitiveArgument name right
   pure [floatRuntimeValue (operation leftFloat rightFloat)]
+
+-- | A fused multiply-add: @a * b + c@ with one rounding. The two flags
+-- negate the product and the addend.
+evalFloatMulAdd :: Text -> Bool -> Bool -> RuntimeValue -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalFloatMulAdd name negateProduct negateAddend left right addend = do
+  F# a <- signed negateProduct <$> expectFloatPrimitiveArgument name left
+  F# b <- expectFloatPrimitiveArgument name right
+  F# c <- signed negateAddend <$> expectFloatPrimitiveArgument name addend
+  pure [floatRuntimeValue (F# (fmaddFloat# a b c))]
+  where
+    signed negated value = if negated then negate value else value
+
+-- | A fused multiply-add: @a * b + c@ with one rounding. The two flags
+-- negate the product and the addend.
+evalDoubleMulAdd :: Text -> Bool -> Bool -> RuntimeValue -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalDoubleMulAdd name negateProduct negateAddend left right addend = do
+  D# a <- signed negateProduct <$> expectDoublePrimitiveArgument name left
+  D# b <- expectDoublePrimitiveArgument name right
+  D# c <- signed negateAddend <$> expectDoublePrimitiveArgument name addend
+  pure [doubleRuntimeValue (D# (fmaddDouble# a b c))]
+  where
+    signed negated value = if negated then negate value else value
 
 evalFloatUnary :: Text -> (Float -> Float) -> RuntimeValue -> EvalM [RuntimeValue]
 evalFloatUnary name operation value = do

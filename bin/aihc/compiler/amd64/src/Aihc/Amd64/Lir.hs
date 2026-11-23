@@ -227,6 +227,7 @@ amd64Backend =
       nbFloatBinary = \op ty dst a b -> [toFloat ty 0 a, toFloat ty 1 b, amd64Instruction (AmdSse (floatOp op) (ty == F64) 0 1), fromFloat ty dst 0],
       nbFloatUnary = floatUnary,
       nbConvert = convert,
+      nbFloatMulAdd = floatMulAdd,
       nbSelect = select,
       nbLoad = amd64Load,
       nbStore = amd64Store,
@@ -435,6 +436,7 @@ instructionEffect instruction =
     AmdMovqToXmm _ _ -> Writes []
     AmdMovdToXmm _ _ -> Writes []
     AmdSse {} -> Writes []
+    AmdFma {} -> Writes []
     AmdUcomis {} -> Writes []
     AmdCvtsi2s {} -> Writes []
     AmdMovqFromXmm destination _ -> writes [destination]
@@ -1086,6 +1088,14 @@ floatUnary op ty dst a =
     FNeg -> [immediate scratchRight (signBit ty)] <> move dst a <> [amd64Instruction (AmdXor (Amd64RmRegister dst) (Amd64BinaryRegister scratchRight))]
     FAbs -> [immediate scratchRight (signBit ty - 1)] <> move dst a <> [amd64Instruction (AmdAnd (Amd64RmRegister dst) (Amd64BinaryRegister scratchRight))]
     FSqrt -> [toFloat ty 0 a, amd64Instruction (AmdSse SseSqrt (ty == F64) 0 0), fromFloat ty dst 0]
+
+-- | A fused multiply-add. Each operand goes to its float register before
+-- the next one uses the scratch register, and the destination is written
+-- last, thus it can be the same register as an operand.
+floatMulAdd :: Ctx Amd64Register -> Type -> Amd64Register -> Operand -> Operand -> Operand -> [Amd64Statement]
+floatMulAdd ctx ty dst left right addend =
+  concat [loads <> [toFloat ty xmm' a] | (xmm', operand) <- [(0, left), (1, right), (2, addend)], let (loads, a) = operandIn' ctx 0 ty scratchLeft operand]
+    <> [amd64Instruction (AmdFma (ty == F64) 0 1 2), fromFloat ty dst 0]
 
 select :: Ctx Amd64Register -> Type -> Amd64Register -> Operand -> Operand -> Operand -> [Amd64Statement]
 select ctx ty dst condition left right =

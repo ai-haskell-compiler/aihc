@@ -148,6 +148,8 @@ instruction code =
         ArmFSub -> binaryFloat "fsub" wide destination left right
         ArmFMul -> binaryFloat "fmul" wide destination left right
         ArmFDiv -> binaryFloat "fdiv" wide destination left right
+    ArmFmadd wide destination left right addend ->
+      "fmadd " <> float' wide destination <> ", " <> float' wide left <> ", " <> float' wide right <> ", " <> float' wide addend
     ArmFcmp wide left right -> "fcmp " <> float' wide left <> ", " <> float' wide right
     ArmFcvt wide destination source ->
       "fcvt " <> float' wide destination <> ", " <> float' (not wide) source

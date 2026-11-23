@@ -370,6 +370,7 @@ operations =
         <> [(atomicOpName op, AtomicRmw op <$> memoryOrder <*> typeParser <*> operand <* token "," <*> regionAddress) | op <- [minBound .. maxBound]]
         <> [(convertOpName op, Convert op <$> typeParser <*> operand <* keyword "to" <*> typeParser) | op <- [minBound .. maxBound]]
         <> [ ("quotrem.wide.u", QuotRemWide <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
+             ("fma", FloatMulAdd <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
              ("ptr.to_int", PtrToInt <$> operand),
              ("ptr.from_int", PtrFromInt <$> operand),
              ("select", Select <$> typeParser <*> operand <* token "," <*> operand <* token "," <*> operand),
