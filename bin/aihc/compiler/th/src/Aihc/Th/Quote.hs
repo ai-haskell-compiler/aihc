@@ -580,11 +580,11 @@ quoted dynamic binders = go
         Just entity@(EntityLocal _)
           | entity `Set.member` binders -> Just (call "varE" [dynamicName (nameText name)])
           | otherwise -> Just (call "lift" [EVar (mkName (nameQualifier name) (nameType name) (nameText name))])
-        -- The resolver accepts a variable that is not in scope in a quote.
-        -- The variable becomes an unbound variable of the syntax tree.
+        -- The resolver accepts a variable or a constructor that is not in
+        -- scope in a quote. As in GHC, the name becomes an unbound variable
+        -- of the syntax tree.
         Nothing
-          | isNothing (nameQualifier name),
-            nameType name == NameVarId ->
+          | isNothing (nameQualifier name) ->
               Just (call "unboundVarE" [dynamicName (nameText name)])
         _ -> Nothing
     quotedPattern pattern' =
