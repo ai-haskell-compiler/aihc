@@ -43,6 +43,7 @@ import Aihc.Parser.Syntax
     FunctionalDependency (..),
     GadtBody (..),
     IEBundledMember (..),
+    ImportDecl (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     InstanceOverlapPragma (..),
@@ -166,10 +167,10 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
 import Data.Either (partitionEithers)
-import Data.Graph (SCC (..), stronglyConnComp)
+import Data.Graph (SCC (..), flattenSCC, stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, zipWith4, (\\))
+import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, sortOn, zip4, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -551,7 +552,15 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- sequence (zipWith4 tcModuleBody moduleExtensions (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
+  -- A module of an import cycle can use a pattern synonym of another
+  -- member, and a pattern synonym is known only after the check of its
+  -- declaration. Thus, check the bodies in the order of the imports
+  -- without the SOURCE imports, as GHC does. The result keeps the order
+  -- of the modules.
+  let bodyOrder = sourceFreeImportOrder modules
+      bodyInputs = zip4 moduleExtensions (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized
+  orderedPending <- mapM (\index -> let (extensions, visible, moduleSchemes, modu) = bodyInputs !! index in tcModuleBody extensions visible moduleSchemes modu) bodyOrder
+  let pending = map snd (sortOn fst (zip bodyOrder orderedPending))
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
@@ -568,6 +577,22 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
         [declaration | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules', declaration <- moduleDecls (moduleUnitAst unit)]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
+
+-- | The indices of the modules of an import cycle, with each module after
+-- the modules that it imports without a SOURCE pragma. A cycle without a
+-- SOURCE import keeps the order of the input.
+sourceFreeImportOrder :: [Module] -> [Int]
+sourceFreeImportOrder modules =
+  concatMap flattenSCC (stronglyConnComp [(index, index, importedIndices modu) | (index, modu) <- indexed])
+  where
+    indexed = zip [0 ..] modules
+    indices = Map.fromList [(name, index) | (index, modu) <- indexed, Just name <- [moduleName modu]]
+    importedIndices modu =
+      [ index
+      | importDecl <- moduleImports modu,
+        isNothing (importDeclSourcePragma importDecl),
+        Just index <- [Map.lookup (importDeclModule importDecl) indices]
+      ]
 
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
