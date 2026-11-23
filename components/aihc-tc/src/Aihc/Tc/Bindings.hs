@@ -27,7 +27,7 @@ import Aihc.Tc.Wiring (BuiltinDataCon (..), TcWiring, builtinDataCon, mkTcKinds)
 import Control.Applicative ((<|>))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 
 -- | The diagnostics of a module, in the order of the nodes that they are

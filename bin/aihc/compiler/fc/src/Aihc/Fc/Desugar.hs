@@ -98,7 +98,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
