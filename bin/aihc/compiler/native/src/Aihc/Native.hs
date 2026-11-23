@@ -15,6 +15,7 @@ module Aihc.Native
     PositionIndependence (..),
     nativeTargetHasFrameworks,
     handwrittenCArguments,
+    filePrefixMapArguments,
     handwrittenCOverrideArguments,
     buildAddrLiteralPool,
     defaultOptimizationLevel,
@@ -64,7 +65,7 @@ import Data.Word (Word8)
 import System.Directory (doesDirectoryExist, doesFileExist, findExecutable, listDirectory)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (addTrailingPathSeparator, (</>))
 import System.IO.Error (tryIOError)
 import System.Info qualified as System
 import System.Process (readProcessWithExitCode)
@@ -384,6 +385,15 @@ llvmX86CodeGenerationOptions = ["-enable-shrink-wrap=false" | System.arch == "x8
 -- can still override this by passing one later on the command line.
 handwrittenCArguments :: OptimizationLevel -> [String]
 handwrittenCArguments level = [optimizationArgument level]
+
+-- | Arguments that remove the given directories from each path that Clang
+-- puts into an object: in @__FILE__@, in @assert@ messages, and in debug
+-- information. A file in one of the directories is then named by its path
+-- relative to that directory, as GHC under Cabal names a C source of a
+-- package. Thus the object does not change when the directories move.
+filePrefixMapArguments :: [FilePath] -> [String]
+filePrefixMapArguments directories =
+  ["-ffile-prefix-map=" <> addTrailingPathSeparator directory <> "=" | directory <- directories]
 
 -- | Arguments that follow the options of a package, so that they take
 -- precedence over them. A package can set its own level in @cc-options@,

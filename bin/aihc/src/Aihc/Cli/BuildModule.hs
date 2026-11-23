@@ -42,7 +42,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
+import System.FilePath (dropExtension, isRelative, takeDirectory, takeFileName, (</>))
 
 data PackageConstraint = PackageConstraint
   { constraintName :: !Text,
@@ -97,7 +97,8 @@ mainModuleExecutable options sourceRoot outputRoot request = do
           let moduleIndex = buildInstalledModuleIndex packages
           sources <- discoverSources sourceDirectories moduleIndex (buildInput options)
           validateInstalledDependencies moduleIndex sources
-          files <- sourceFiles outputRoot (map (packageManifestName . installedManifest) packages) sources
+          let names = sourceName sourceRoot (takeDirectory (buildInput options)) sourceDirectories
+          files <- sourceFiles outputRoot names (map (packageManifestName . installedManifest) packages) sources
           pure (files, noCCompileInfo)
       }
 
@@ -222,17 +223,31 @@ validateInstalledDependencies moduleIndex sources = mapM_ validateDependency ext
 
 -- | The source files of the executable: the modules the main module
 -- reaches, and the generated entry module.
-sourceFiles :: FilePath -> [Text] -> [SourceModule] -> IO [HackageCabal.FileInfo]
-sourceFiles outputRoot dependencyNames sources = do
+sourceFiles :: FilePath -> (FilePath -> FilePath) -> [Text] -> [SourceModule] -> IO [HackageCabal.FileInfo]
+sourceFiles outputRoot names dependencyNames sources = do
   entry <- writeEntryModule outputRoot "Main" dependencyNames
-  pure ([sourceFileInfo dependencyNames (sourcePath source) | source <- sources, sourcePath source /= entrySourceName] <> [entry])
+  pure ([sourceFileInfo dependencyNames (sourcePath source) (names (sourcePath source)) | source <- sources, sourcePath source /= entrySourceName] <> [entry])
+
+-- | The name of a source file of a main module in the compiler output. The
+-- name must not depend on the directory of the build, so it is never a
+-- full path. A relative path stays as the command line gives it. A full
+-- path is made relative to the working directory, to the directory of the
+-- main module, or to the source directory that has the file, in that order.
+sourceName :: FilePath -> FilePath -> [FilePath] -> FilePath -> FilePath
+sourceName currentDirectory mainDirectory sourceDirectories path =
+  case [relative | root <- roots, let relative = HackageCabal.packageRelativeName root path, isRelative relative] of
+    relative : _ -> relative
+    [] -> takeFileName path
+  where
+    roots = [currentDirectory, currentDirectory </> mainDirectory] <> map (currentDirectory </>) sourceDirectories
 
 -- | Describe a source file the way the Cabal file of a package describes
 -- the sources of an executable.
-sourceFileInfo :: [Text] -> FilePath -> HackageCabal.FileInfo
-sourceFileInfo dependencyNames path =
+sourceFileInfo :: [Text] -> FilePath -> FilePath -> HackageCabal.FileInfo
+sourceFileInfo dependencyNames path name =
   HackageCabal.FileInfo
     { HackageCabal.fileInfoPath = path,
+      HackageCabal.fileInfoName = name,
       HackageCabal.fileInfoExtensions = [],
       HackageCabal.fileInfoCppOptions = [],
       HackageCabal.fileInfoIncludeDirs = [],
@@ -249,7 +264,9 @@ writeEntryModule outputRoot mainModule dependencyNames = do
   let path = outputRoot </> "generated" </> "Aihc" </> "Entry.hs"
   createDirectoryIfMissing True (takeDirectory path)
   TIO.writeFile path (entryModuleText mainModule)
-  pure (sourceFileInfo dependencyNames path)
+  -- The entry module is named without the output directory, which can be
+  -- anywhere.
+  pure (sourceFileInfo dependencyNames path ("Aihc" </> "Entry.hs"))
 
 findSourceFile :: [FilePath] -> Text -> IO FilePath
 findSourceFile directories name = do

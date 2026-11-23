@@ -15,8 +15,10 @@ name: Release
 # https://assets.aihc.app/play/releases/<version>/, where it never changes.
 # A manual run only builds the archives and keeps them as workflow artifacts.
 #
-# The paths of the work directory get into the executable. Thus, both stages
-# use the same WORK_DIR, and each target uses the same path.
+# The executable must not depend on the paths of the build. Thus stage 2
+# builds in a different checkout path, work directory, and cache directory
+# than stage 1, and the comparison still requires identical bytes. The
+# executables must also not contain these paths.
 #
 # The release executables must run without Nix. The Linux executable is a
 # static musl executable. The macOS executable loads only libraries of macOS.
@@ -38,6 +40,11 @@ concurrency:
 env:
   OPTIMIZATION: "2"
   WORK_DIR: /tmp/aihc-release
+  # Stage 2 builds in these directories, which have different paths than
+  # the checkout, WORK_DIR, and the cache directory of stage 1.
+  STAGE2_WORK_DIR: /tmp/aihc-release-second-stage
+  STAGE2_CHECKOUT_NAME: aihc-second-stage-checkout
+  STAGE2_CACHE_NAME: aihc-second-stage-cache
 
 jobs:
   version:
@@ -109,11 +116,16 @@ jobs:
       - name: Remove the stage 1 work directory
         run: rm -rf "$WORK_DIR"
 
+      - name: Copy the checkout for stage 2
+        run: cp -R "$GITHUB_WORKSPACE" "$RUNNER_TEMP/$STAGE2_CHECKOUT_NAME"
+
       - name: Compile stage 2
+        working-directory: ${{ runner.temp }}/${{ env.STAGE2_CHECKOUT_NAME }}
         run: |
           chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
           AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#release-compile-stage -- \
-            --work-dir "$WORK_DIR" \
+            --work-dir "$STAGE2_WORK_DIR" \
+            --cache-dir "$RUNNER_TEMP/$STAGE2_CACHE_NAME" \
             --output "$RUNNER_TEMP/stages/aihc-stage2" \
             --target "$TARGET" \
             -O "$OPTIMIZATION" \
@@ -146,6 +158,18 @@ jobs:
             echo "::error::Stage 1 and stage 2 of aihc for $TARGET are not byte-for-byte identical."
             exit 1
           fi
+
+      - name: Check the executables for build paths
+        run: |
+          set -euo pipefail
+          for stage in 1 2; do
+            scripts/check-build-paths.sh "$RUNNER_TEMP/stages/aihc-stage$stage" \
+              "$GITHUB_WORKSPACE" \
+              "$RUNNER_TEMP" \
+              "$HOME" \
+              "$WORK_DIR" \
+              "$STAGE2_WORK_DIR"
+          done
 
       # The executable must run on Linux without Nix. Thus it must have no
       # program interpreter and no shared library. The runner has no Nix
@@ -238,7 +262,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: release-logs-${{ env.TARGET }}
-          path: /tmp/aihc-release/logs
+          path: |
+            ${{ env.WORK_DIR }}/logs
+            ${{ env.STAGE2_WORK_DIR }}/logs
           retention-days: 14
           if-no-files-found: ignore
 

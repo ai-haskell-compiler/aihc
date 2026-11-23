@@ -378,7 +378,7 @@ test_configureBuildInfo = do
   hooked <- case parseValue (parseHookedBuildInfo (BSC.pack "cc-options: -DHOOKED\ncpp-options: -DHOOKED_HS\ninclude-dirs: generated\n")) of
     Right parsed -> pure parsed
     Left errs -> assertFailure ("failed to parse test buildinfo: " <> show errs)
-  let file = HC.FileInfo "/pkg/src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"] Nothing
+  let file = HC.FileInfo "/pkg/src/Demo.hs" "src/Demo.hs" [] ["-DFROM_CABAL"] ["/pkg/include"] Nothing [T.pack "base"] Nothing
   cInfo <- expectRight (HC.collectLibraryCCompileInfo gpd "/pkg")
   (files, cInfo') <- expectRight (HC.applyHookedBuildInfo (cabalVersion gpd) "/build" hooked [HC.prependIncludeDirs ["/build/include"] file] cInfo)
   assertEqual "cpp options" [["-DFROM_CABAL", "-DHOOKED_HS"]] (map HC.fileInfoCppOptions files)
@@ -397,7 +397,7 @@ test_pkgconfigDepends = do
   gpd <- parseTestCabal pkgconfigDependsCabal
   cInfo <- expectRight (HC.collectLibraryCCompileInfo gpd "/pkg")
   assertEqual "pkg-config packages" ["libusb-1.0", "zlib"] (HC.cCompilePkgconfigDepends cInfo)
-  let file = HC.FileInfo "/pkg/src/Demo.hs" [] [] ["/pkg/include"] Nothing [T.pack "base"] Nothing
+  let file = HC.FileInfo "/pkg/src/Demo.hs" "src/Demo.hs" [] [] ["/pkg/include"] Nothing [T.pack "base"] Nothing
       (files, cInfo') =
         HC.applyPkgConfigFlags
           ["-I/usr/include/libusb-1.0", "-DUSB"]

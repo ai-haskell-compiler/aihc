@@ -2,17 +2,19 @@
 # Build one stage of the aihc self-compile: compile the `aihc` executable of
 # this repository with a given aihc compiler, with `aihc build exe:aihc`.
 #
-# The paths of the work directory get into the executable. Thus, to compare
-# two stages byte for byte, build each stage in the same work directory path.
+# The executable does not depend on the path of the checkout, of the work
+# directory, or of the cache directory. Thus two stages can build in
+# different directories and still be byte-for-byte identical.
 set -euo pipefail
 
 usage() {
 	cat <<'USAGE'
 Usage: scripts/self-compile-stage.sh --work-dir DIR --output FILE [OPTION]...
 
-  --work-dir DIR  Build in DIR. DIR must not exist or must be empty. Use the
-                  same DIR for each stage of a comparison.
+  --work-dir DIR  Build in DIR. DIR must not exist or must be empty.
   --output FILE   Copy the compiled aihc executable to FILE
+  --cache-dir DIR Use DIR as the cache directory of aihc, in place of
+                  $XDG_CACHE_HOME. aihc keeps the Hackage packages there.
   --target TARGET Compile for TARGET (default: linux-amd64)
   -O LEVEL        Compile at optimization level LEVEL: 0, 1, 2 or s
                   (default: 2)
@@ -41,6 +43,7 @@ target="linux-amd64"
 level="2"
 build_timeout="18000"
 time_file=""
+cache_directory=""
 embed_core_libs=0
 
 while [ "$#" -gt 0 ]; do
@@ -67,6 +70,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--timeout)
 		build_timeout="${2:?--timeout needs a number of seconds}"
+		shift 2
+		;;
+	--cache-dir)
+		cache_directory="${2:?--cache-dir needs a directory}"
 		shift 2
 		;;
 	--time-file)
@@ -117,13 +124,18 @@ case "$time_file" in
 "" | /*) ;;
 *) time_file="$repo_root/$time_file" ;;
 esac
+if [ -n "$cache_directory" ]; then
+	mkdir -p "$cache_directory"
+	XDG_CACHE_HOME="$(cd "$cache_directory" && pwd)"
+	export XDG_CACHE_HOME
+fi
 
 log_dir="$work_directory/logs"
 mkdir -p "$log_dir"
 
 # A compiler that aihc compiled does not know the repository. It reads the
 # runtime headers from aihc_datadir and the core libraries from
-# AIHC_CORE_LIBS_ROOT. Each stage gets the same values.
+# AIHC_CORE_LIBS_ROOT.
 export aihc_datadir="$repo_root/bin/aihc"
 export AIHC_CORE_LIBS_ROOT="$repo_root"
 

@@ -557,6 +557,7 @@ test_aliasesImportPackages = do
       fileInfo =
         FileInfo
           { fileInfoPath = "M.hs",
+            fileInfoName = "M.hs",
             fileInfoExtensions = [],
             fileInfoCppOptions = [],
             fileInfoIncludeDirs = [],
@@ -590,6 +591,7 @@ test_literateSourceKeepsCppLines = do
       fileInfo =
         FileInfo
           { fileInfoPath = "M.lhs",
+            fileInfoName = "M.lhs",
             fileInfoExtensions = [],
             fileInfoCppOptions = [],
             fileInfoIncludeDirs = [],

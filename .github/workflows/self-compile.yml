@@ -5,9 +5,11 @@ name: Self-Compile
 # stage 0 uses the native backend at -O2, and the default flags of aihc. The
 # workflow fails when stage 1 and stage 2 are not byte-for-byte identical.
 #
-# The paths of the work directory get into the executable. Thus, both stages
-# use the same WORK_DIR. Each stage is a separate job, so each stage gets the
-# full time limit of a job.
+# The executable must not depend on the paths of the build. Thus stage 2
+# builds in a different checkout path, work directory, and cache directory
+# than stage 1, and the comparison still requires identical bytes. The
+# executables must also not contain these paths. Each stage is a separate
+# job, so each stage gets the full time limit of a job.
 
 on:
   schedule:
@@ -25,6 +27,11 @@ env:
   TARGET: linux-amd64
   OPTIMIZATION: "2"
   WORK_DIR: /tmp/aihc-self-compile
+  # Stage 2 builds in these directories, which have different paths than
+  # the checkout, WORK_DIR, and the cache directory of stage 1.
+  STAGE2_WORK_DIR: /tmp/aihc-self-compile-second-stage
+  STAGE2_CHECKOUT_NAME: aihc-second-stage-checkout
+  STAGE2_CACHE_NAME: aihc-second-stage-cache
 
 jobs:
   stage1:
@@ -52,6 +59,14 @@ jobs:
             --target "$TARGET" \
             -O "$OPTIMIZATION"
 
+      - name: Check stage 1 for build paths
+        run: |
+          scripts/check-build-paths.sh "$RUNNER_TEMP/stages/aihc-stage1" \
+            "$GITHUB_WORKSPACE" \
+            "$RUNNER_TEMP" \
+            "$HOME" \
+            "$WORK_DIR"
+
       - name: Upload stage 1
         uses: actions/upload-artifact@v7
         with:
@@ -65,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: self-compile-stage1-logs
-          path: /tmp/aihc-self-compile/logs
+          path: ${{ env.WORK_DIR }}/logs
           retention-days: 14
           if-no-files-found: ignore
 
@@ -92,14 +107,28 @@ jobs:
           name: aihc-stage1
           path: ${{ runner.temp }}/stages
 
+      - name: Copy the checkout for stage 2
+        run: cp -R "$GITHUB_WORKSPACE" "$RUNNER_TEMP/$STAGE2_CHECKOUT_NAME"
+
       - name: Compile stage 2
+        working-directory: ${{ runner.temp }}/${{ env.STAGE2_CHECKOUT_NAME }}
         run: |
           chmod +x "$RUNNER_TEMP/stages/aihc-stage1"
           AIHC="$RUNNER_TEMP/stages/aihc-stage1" nix run .#self-compile-stage -- \
-            --work-dir "$WORK_DIR" \
+            --work-dir "$STAGE2_WORK_DIR" \
+            --cache-dir "$RUNNER_TEMP/$STAGE2_CACHE_NAME" \
             --output "$RUNNER_TEMP/stages/aihc-stage2" \
             --target "$TARGET" \
             -O "$OPTIMIZATION"
+
+      - name: Check stage 2 for build paths
+        run: |
+          scripts/check-build-paths.sh "$RUNNER_TEMP/stages/aihc-stage2" \
+            "$GITHUB_WORKSPACE" \
+            "$RUNNER_TEMP" \
+            "$HOME" \
+            "$WORK_DIR" \
+            "$STAGE2_WORK_DIR"
 
       - name: Compare stage 1 and stage 2
         run: |
@@ -143,6 +172,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: self-compile-stage2-logs
-          path: /tmp/aihc-self-compile/logs
+          path: ${{ env.STAGE2_WORK_DIR }}/logs
           retention-days: 14
           if-no-files-found: ignore
