@@ -9,7 +9,6 @@
 module Aihc.Tc.Generate.Decl
   ( tcModule,
     tcModuleScc,
-    moduleBindings,
     withModuleIdentity,
     defaultMethodName,
     TcBindingResult (..),
@@ -17,7 +16,8 @@ module Aihc.Tc.Generate.Decl
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), resolvedOf)
+import Aihc.Resolve.Syntax
   ( Annotation,
     BangType (..),
     BinderHead (..),
@@ -62,6 +62,7 @@ import Aihc.Parser.Syntax
     PragmaType (..),
     PragmaUnpackKind (..),
     RecordField (..),
+    ResolutionResult (..),
     Rhs (..),
     Role (..),
     RoleAnnotation (..),
@@ -83,24 +84,27 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     binderHeadParams,
+    binderResolved,
     fromAnnotation,
     gadtBodyResultType,
     instanceHeadName,
     mkAnnotation,
     moduleExports,
     moduleName,
+    nameResolved,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelInstanceDeclItemAnn,
     peelTypeHead,
     qualifyName,
+    recordSelectorNames,
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (Identifier (..), ModuleUnit (..), Package (..), PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedModule (..), binderResolution, recordSelectorNames)
-import Aihc.Resolve.Traverse (annotationList, collectAnnotations)
+import Aihc.Resolve.Syntax.ToParser (toParserMatch)
+import Aihc.Resolve.Syntax.Traverse (collectAnnotations, collectResolutions)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
     TcAnnotation (..),
@@ -159,7 +163,7 @@ import Aihc.Tc.Solve.Injective (improveInjectivity)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
-import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon, mkTcKinds)
+import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon)
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyConKindScheme, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (filterM, foldM, foldM_, forM, forM_, replicateM, unless, void, when, zipWithM, zipWithM_, (<=<), (>=>))
@@ -188,6 +192,7 @@ peelDeclSpan :: Decl -> Maybe SourceSpan
 peelDeclSpan = go Nothing
   where
     go ambient (DeclAnn ann inner) = go (fromAnnotation @SourceSpan ann <|> ambient) inner
+    go ambient (DeclError _ inner) = go ambient inner
     go ambient _ = ambient
 
 -- | Result of type-checking a single binding.
@@ -228,19 +233,13 @@ data CheckedSig = CheckedSig
   }
   deriving (Show)
 
--- | The wiring names the constructors that built-in syntax declares, such
--- as @(,)@ or @[]@; the kind vocabulary follows from it.
-moduleBindings :: TcWiring -> Module -> [TcBindingResult]
-moduleBindings wiring modu =
-  concatMap (declBindings wiring (mkTcKinds wiring) (resolvedModuleOrigin modu)) (moduleDecls modu)
-
 -- | Give a module the identity of its package and name, which the checked
 -- module keeps for the phases after the type checker. A module whose
 -- declarations are all instances names no top-level entity of its own, so
 -- the identity cannot come from a resolution.
-withModuleIdentity :: ModuleUnit -> Module -> Module
-withModuleIdentity unit modu =
-  modu {moduleAnns = mkAnnotation (TcModuleIdentity (packageId (moduleUnitPackage unit)) (fromMaybe "Main" (moduleName modu))) : moduleAnns modu}
+withModuleIdentity :: Package -> Module -> Module
+withModuleIdentity package modu =
+  modu {moduleAnns = mkAnnotation (TcModuleIdentity (packageId package) (fromMaybe "Main" (moduleName modu))) : moduleAnns modu}
 
 -- | The package and the name of a checked module.
 resolvedModuleOrigin :: Module -> (Text, Text)
@@ -250,9 +249,6 @@ resolvedModuleOrigin resolvedModule =
       [ (packageIdText packageId, moduleName')
       | TcModuleIdentity packageId moduleName' <- mapMaybe fromAnnotation (moduleAnns resolvedModule)
       ]
-
-nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = binderResolution
 
 typeToScheme :: TcType -> TypeScheme
 typeToScheme ty =
@@ -267,165 +263,6 @@ typeToScheme ty =
 originTermKey :: (Text, Text) -> Text -> Entity
 originTermKey (package, moduleName') = GlobalTerm (PackageId package) moduleName'
 
-declBindings :: TcWiring -> TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
-declBindings wiring kinds origin decl =
-  case decl of
-    DeclAnn ann inner ->
-      annotationBindings kinds origin ann inner <> declBindings wiring kinds origin inner
-    DeclData dataDecl ->
-      concatMap (dataConBindings wiring origin) (dataDeclConstructors dataDecl)
-        <> concatMap (recordSelectorBindings origin) (dataDeclConstructors dataDecl)
-    DeclNewtype newtypeDecl ->
-      maybe [] (\constructor -> dataConBindings wiring origin constructor <> recordSelectorBindings origin constructor) (newtypeDeclConstructor newtypeDecl)
-    DeclDataFamilyInst familyInst ->
-      concatMap (dataConBindings wiring origin) (dataFamilyInstConstructors familyInst)
-        <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
-    _ -> []
-
-annotationBindings :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-annotationBindings kinds origin ann decl =
-  tcAnnotationBindings origin ann decl
-    <> classAnnotationBindings kinds origin ann decl
-    <> instanceAnnotationBindings origin ann
-
-tcAnnotationBindings :: (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-tcAnnotationBindings origin ann decl =
-  case fromAnnotation ann of
-    Nothing -> []
-    Just tcAnn ->
-      case decl of
-        DeclValue (FunctionBind binder _) ->
-          let (name, displayName) = binderBindingName binder
-           in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
-        -- The declaration type of a pattern binding is the type of the
-        -- whole pattern, thus each binder must give its own type. The
-        -- binders of @(a, b) = ...@ do not have the type of the pair.
-        DeclValue (PatternBind _ pat _) ->
-          [ TcBindingResult (originTermKey origin name) displayName (fromMaybe (tcAnnType tcAnn) (binderCheckedType binder))
-          | binder <- patternBinderNames pat,
-            let (name, displayName) = binderBindingName binder
-          ]
-        DeclData dataDecl ->
-          let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclNewtype newtypeDecl ->
-          let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclDataFamilyDecl familyDecl ->
-          let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclForeign foreignDecl ->
-          let name = unqualifiedNameText (foreignName foreignDecl)
-              displayName = renderBinderName (foreignName foreignDecl)
-           in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
-        _ -> []
-
-classAnnotationBindings :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-classAnnotationBindings kinds origin ann decl =
-  case (fromAnnotation ann, decl) of
-    (Just classAnn, DeclClass {}) ->
-      [ TcBindingResult (originTermKey origin (tcClassMethodName method)) (tcClassMethodName method) (tcClassMethodType method)
-      | method <- tcClassMethods classAnn
-      ]
-        <> [ TcBindingResult (originTermKey origin (defaultMethodName (tcClassMethodName method))) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType kinds classAnn method)
-           | method <- tcClassMethods classAnn,
-             tcClassMethodName method `elem` tcClassDefaultMethods classAnn
-           ]
-    _ -> []
-
-classDefaultWorkerType :: TcKinds -> TcClassAnnotation -> TcClassMethodAnnotation -> TcType
-classDefaultWorkerType kinds classAnnotation method =
-  case lookup (tcClassMethodName method) (tcClassDefaultSignatures classAnnotation) of
-    Just signature
-      | Just classPredicate <- constraintTypeToPred kinds (tcClassMethodDictType method) ->
-          let (tyVars, body) = peelForAlls signature
-              qualifiedBody =
-                case body of
-                  TcQualTy predicates result -> TcQualTy (classPredicate : predicates) result
-                  result -> TcQualTy [classPredicate] result
-           in foldr TcForAllTy qualifiedBody tyVars
-    _ -> tcClassMethodType method
-
-instanceAnnotationBindings :: (Text, Text) -> Annotation -> [TcBindingResult]
-instanceAnnotationBindings origin ann =
-  case fromAnnotation ann of
-    Just instAnn ->
-      [TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
-    Nothing -> []
-
-dataConBindings :: TcWiring -> (Text, Text) -> DataConDecl -> [TcBindingResult]
-dataConBindings wiring origin dataConDecl =
-  case dataConDecl of
-    DataConAnn ann inner ->
-      case fromAnnotation ann of
-        Just tcAnn ->
-          [ TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)
-          | name <- map (dataConIdentityName wiring) (dataConIdentities inner)
-          ]
-        Nothing -> dataConBindings wiring origin inner
-    _ -> []
-
-recordSelectorBindings :: (Text, Text) -> DataConDecl -> [TcBindingResult]
-recordSelectorBindings origin declaration =
-  case declaration of
-    DataConAnn ann inner ->
-      case fromAnnotation ann of
-        Just tcAnn -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
-        Nothing -> recordSelectorBindings origin inner
-    _ -> []
-  where
-    selectorBindingsFromConstructorType constructorType inner =
-      let (typeVariables, qualifiedConstructor) = peelForAlls constructorType
-          body =
-            case qualifiedConstructor of
-              TcQualTy _ result -> result
-              result -> result
-          (fieldTypes, resultType) = splitFunctionType body
-          (_, sourceFields, _) = dataConSourceLayout inner
-          -- The constructor context and the existential variables do not
-          -- reach the selector type. A field whose type mentions an
-          -- existential variable has no selector. A kind variable of a
-          -- universal variable, such as the runtime representation in
-          -- @TExp (a :: TYPE r)@, is universal as well.
-          universals = filter (`elem` closeOverKinds (typeTyVars resultType)) typeVariables
-          closeOverKinds variables =
-            let kindVariables = [variable | variable <- typeVariables, variable `notElem` variables, any (\universal -> variable `elem` typeTyVars (tvKind universal)) variables]
-             in if null kindVariables then variables else closeOverKinds (variables <> kindVariables)
-          selectorNames = recordSelectorNames [inner]
-          -- 'registerRecordSelectors' put the checked selector type on the
-          -- field name. It also covers a field whose existential variable
-          -- an equality of the context fixes, and it is the type that the
-          -- uses of the selector instantiate.
-          checkedTypes =
-            Map.fromList
-              [ (unqualifiedNameText name, ty)
-              | name <- recordFieldNamesOf inner,
-                TcSelectorType ty <- take 1 (mapMaybe fromAnnotation (unqualifiedNameAnns name))
-              ]
-          computedType fieldType
-            | all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType) = Just (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
-            | otherwise = Nothing
-       in [ TcBindingResult (originTermKey origin selector) selector selectorType
-          | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
-            Just label <- [maybeLabel],
-            let selector = Map.findWithDefault label label selectorNames,
-            Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType]
-          ]
-
--- | The field names of a record constructor declaration.
-recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
-recordFieldNamesOf declaration =
-  case declaration of
-    DataConAnn _ inner -> recordFieldNamesOf inner
-    RecordCon _ _ _ fields -> concatMap fieldNames fields
-    GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
-    _ -> []
-
--- | The type that the type checker put on a binder, when it has one.
-binderCheckedType :: UnqualifiedName -> Maybe TcType
-binderCheckedType name =
-  tcAnnType <$> listToMaybe (mapMaybe fromAnnotation (unqualifiedNameAnns name))
-
 -- | One data constructor that a declaration binds: a constructor the
 -- source names, or a built-in form such as @(,)@, @(# | _ #)@ or @[]@,
 -- which names nothing and whose identity the wiring supplies.
@@ -437,6 +274,7 @@ dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
+    DataConResolved _ inner -> dataConIdentities inner
     PrefixCon _ _ name _ -> [DeclaredDataCon name]
     InfixCon _ _ _ name _ -> [DeclaredDataCon name]
     RecordCon _ _ name _ -> [DeclaredDataCon name]
@@ -488,7 +326,7 @@ tcModule resolved = do
   modules <- tcModuleScc [resolved]
   case modules of
     [result] -> pure result
-    _ -> pure (moduleUnitAst (resolvedModuleUnit resolved))
+    _ -> pure (resolvedModuleSyntax resolved)
 
 -- | Type-check one strongly connected module component. Data declarations and
 -- explicit signatures are registered for the whole component before any
@@ -501,8 +339,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   -- bodies, then register value-level declarations against those expanded
   -- types. This permits forward references from synonyms to data types while
   -- making aliases available in constructor fields and class methods.
-  let modules = map moduleUnitAst units
-      moduleExtensions = map moduleUnitExtensions units
+  let moduleExtensions = map resolvedModuleExtensions resolvedModules'
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
   mapM_ (atDecl (predeclareTypeConstructor Nothing)) declarations
@@ -570,11 +407,11 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   recordGlobalTermKindArguments initialKeys
   pure finalized
   where
-    units = [unit {moduleUnitAst = withModuleIdentity unit (hoistAssociatedDataFamilies (moduleUnitAst unit))} | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules']
-    polyKindOrigins = [resolvedModuleOrigin (moduleUnitAst unit) | unit <- units, PolyKinds `elem` moduleUnitExtensions unit]
+    modules = [withModuleIdentity (resolvedModulePackage resolved) (hoistAssociatedDataFamilies (resolvedModuleSyntax resolved)) | resolved <- resolvedModules']
+    polyKindOrigins = [resolvedModuleOrigin modu | (modu, resolved) <- zip modules resolvedModules', PolyKinds `elem` resolvedModuleExtensions resolved]
     associatedFamilyClasses =
       associatedDataFamilyClasses
-        [declaration | ResolvedModule {resolvedModuleUnit = unit} <- resolvedModules', declaration <- moduleDecls (moduleUnitAst unit)]
+        [declaration | resolved <- resolvedModules', declaration <- moduleDecls (resolvedModuleSyntax resolved)]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
 
@@ -614,6 +451,10 @@ hoistAssociatedDataFamilies modu = modu {moduleDecls = concatMap hoistDecl (modu
           case hoistDecl inner of
             inner' : hoisted -> DeclAnn ann inner' : hoisted
             [] -> [decl]
+        DeclError err inner ->
+          case hoistDecl inner of
+            inner' : hoisted -> DeclError err inner' : hoisted
+            [] -> [decl]
         DeclClass classDecl ->
           let (items, families) = partitionEithers (map classItem (classDeclItems classDecl))
            in DeclClass classDecl {classDeclItems = items} : families
@@ -624,11 +465,13 @@ hoistAssociatedDataFamilies modu = modu {moduleDecls = concatMap hoistDecl (modu
     classItem item =
       case item of
         ClassItemAnn ann inner -> either (Left . ClassItemAnn ann) (Right . DeclAnn ann) (classItem inner)
+        ClassItemError err inner -> either (Left . ClassItemError err) (Right . DeclError err) (classItem inner)
         ClassItemDataFamilyDecl familyDecl -> Right (DeclDataFamilyDecl familyDecl)
         _ -> Left item
     instanceItem item =
       case item of
         InstanceItemAnn ann inner -> either (Left . InstanceItemAnn ann) (Right . DeclAnn ann) (instanceItem inner)
+        InstanceItemError err inner -> either (Left . InstanceItemError err) (Right . DeclError err) (instanceItem inner)
         InstanceItemDataFamilyInst familyInst -> Right (DeclDataFamilyInst familyInst)
         _ -> Left item
 
@@ -847,6 +690,7 @@ tcRulesDecl :: Decl -> TcM Decl
 tcRulesDecl decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann <$> tcRulesDecl inner
+    DeclError ann inner -> DeclError ann <$> tcRulesDecl inner
     DeclRules rules -> DeclRules <$> mapM tcRuleDecl rules
     _ -> pure decl
 
@@ -1067,12 +911,11 @@ structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
     owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration <> declarationDataConKeys declaration]
     nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
     signatures = collectStandaloneKindSignatures (map snd declarations)
-    kindAnnotations declaration =
-      concat [annotationList kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
+    kindResolutions declaration =
+      concat [collectResolutions resolvedOf kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
     dependencies declaration =
       [ owner
-      | annotation <- annotationList declaration <> kindAnnotations declaration,
-        Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
+      | resolution <- collectResolutions resolvedOf declaration <> kindResolutions declaration,
         EntityGlobal global <- [resolutionTarget resolution],
         Just owner <- [Map.lookup global {globalNameNamespace = resolutionNamespace resolution} owners]
       ]
@@ -1503,6 +1346,7 @@ annotateDeclDerivingTc extensions origin = go Nothing
     go declSpan decl =
       case decl of
         DeclAnn annotation inner -> DeclAnn annotation <$> go (fromAnnotation annotation <|> declSpan) inner
+        DeclError err inner -> DeclError err <$> go declSpan inner
         DeclData dataDecl ->
           annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
         DeclNewtype newtypeDecl ->
@@ -1525,6 +1369,8 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
       | Just _ <- fromAnnotation @TcInstanceAnnotation ann -> pure decl
     DeclAnn ann inner ->
       DeclAnn ann <$> annotateDeclTc origin classMethods checkedValueTypes (derived || isDerivedInstanceAnn ann) inner
+    DeclError err inner ->
+      DeclError err <$> annotateDeclTc origin classMethods checkedValueTypes derived inner
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueTypes valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
@@ -1555,6 +1401,7 @@ annotateInstanceHeaderTc origin derived decl =
         DeclInstance instanceDecl <- peelDeclAnn inner ->
           maybe id (DeclAnn . mkAnnotation) (tcDerivingSourceSpan plan) <$> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
     DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin (derived || isDerivedInstanceAnn ann) inner
+    DeclError err inner -> DeclError err <$> annotateInstanceHeaderTc origin derived inner
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
     _ -> pure decl
 
@@ -1605,6 +1452,7 @@ annotateClassDefaultItem :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
 annotateClassDefaultItem classTyCon item =
   case item of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem classTyCon inner
+    ClassItemError ann inner -> ClassItemError ann <$> annotateClassDefaultItem classTyCon inner
     ClassItemDefault valueDecl ->
       case valueDeclBinderName valueDecl of
         Just (methodName, _) -> do
@@ -1765,6 +1613,7 @@ recordSelectorTypes :: TyCon -> DataConDecl -> TcM DataConDecl
 recordSelectorTypes parent declaration =
   case declaration of
     DataConAnn ann inner -> DataConAnn ann <$> recordSelectorTypes parent inner
+    DataConResolved ann inner -> DataConResolved ann <$> recordSelectorTypes parent inner
     RecordCon forallVars context constructor fields ->
       RecordCon forallVars context constructor <$> mapM annotateField fields
     GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
@@ -2427,6 +2276,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
           annotateItem item =
             case item of
               InstanceItemAnn ann inner -> InstanceItemAnn ann (annotateItem inner)
+              InstanceItemError ann inner -> InstanceItemError ann (annotateItem inner)
               InstanceItemTypeFamilyInst familyInst
                 | Just equation <- explicitEquation familyInst -> InstanceItemAnn (mkAnnotation equation) item
               _ -> item
@@ -2570,6 +2420,8 @@ attemptInstanceConstraint className givens predicate = do
 tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =
   DeclAnn ann <$> tcClassDeclBodies inner
+tcClassDeclBodies (DeclError err inner) =
+  DeclError err <$> tcClassDeclBodies inner
 tcClassDeclBodies (DeclClass classDecl) = do
   let classBinder = binderHeadName (classDeclHead classDecl)
   classInfo <- lookupDeclaredClass classBinder
@@ -2584,6 +2436,7 @@ tcClassDefaultBody :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
 tcClassDefaultBody classTyCon item =
   case item of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody classTyCon inner
+    ClassItemError ann inner -> ClassItemError ann <$> tcClassDefaultBody classTyCon inner
     ClassItemDefault valueDecl -> do
       checked <- tcClassDefaultValue classTyCon valueDecl
       pure (ClassItemDefault checked)
@@ -2666,6 +2519,7 @@ instanceMethodSignatures :: [InstanceDeclItem] -> Map Text Type
 instanceMethodSignatures = Map.fromList . concatMap collect
   where
     collect (InstanceItemAnn _ inner) = collect inner
+    collect (InstanceItemError _ inner) = collect inner
     collect (InstanceItemTypeSig names ty) = [(unqualifiedNameText name, ty) | name <- names]
     collect _ = []
 
@@ -2717,6 +2571,8 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
   case item of
     InstanceItemAnn ann inner ->
       InstanceItemAnn ann <$> tcInstanceItemBody instanceScope schemes givens signatures inner
+    InstanceItemError err inner ->
+      InstanceItemError err <$> tcInstanceItemBody instanceScope schemes givens signatures inner
     InstanceItemBind (FunctionBind name matches) -> do
       scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
@@ -3042,6 +2898,7 @@ collectUserSigs decls = do
             pure [(key, UserSig name (foreignType foreignDecl) sigSp False)]
     extractSig ambient (DeclAnn ann inner) =
       extractSig (fromAnnotation @SourceSpan ann <|> ambient) inner
+    extractSig ambient (DeclError _ inner) = extractSig ambient inner
     extractSig ambient (DeclPatSynSig names ty) = typeSigs True ambient names ty
     extractSig _ _ = pure []
     typeSigs isPatSyn ambient names ty =
@@ -3270,6 +3127,7 @@ replaceDeclFunctionMatches :: [Match] -> Decl -> Decl
 replaceDeclFunctionMatches matches decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replaceDeclFunctionMatches matches inner)
+    DeclError ann inner -> DeclError ann (replaceDeclFunctionMatches matches inner)
     DeclValue (FunctionBind name _) -> DeclValue (FunctionBind name matches)
     _ -> decl
 
@@ -3277,6 +3135,7 @@ replacePatternBindRhs :: Rhs Expr -> Decl -> Decl
 replacePatternBindRhs rhs decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replacePatternBindRhs rhs inner)
+    DeclError ann inner -> DeclError ann (replacePatternBindRhs rhs inner)
     DeclValue (PatternBind mult pat _) -> DeclValue (PatternBind mult pat rhs)
     _ -> decl
 
@@ -3284,6 +3143,7 @@ replaceInstancePatternBindRhs :: Rhs Expr -> InstanceDeclItem -> InstanceDeclIte
 replaceInstancePatternBindRhs rhs item =
   case item of
     InstanceItemAnn ann inner -> InstanceItemAnn ann (replaceInstancePatternBindRhs rhs inner)
+    InstanceItemError ann inner -> InstanceItemError ann (replaceInstancePatternBindRhs rhs inner)
     InstanceItemBind (PatternBind mult pat _) -> InstanceItemBind (PatternBind mult pat rhs)
     _ -> item
 
@@ -3505,6 +3365,7 @@ replacePatternBind :: Pattern -> Rhs Expr -> Decl -> Decl
 replacePatternBind pat rhs decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replacePatternBind pat rhs inner)
+    DeclError ann inner -> DeclError ann (replacePatternBind pat rhs inner)
     DeclValue (PatternBind mult _ _) -> DeclValue (PatternBind mult pat rhs)
     _ -> decl
 
@@ -3631,7 +3492,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                               Nothing -> checkedPat
                               Just patSpan -> PAnn (mkAnnotation patSpan) checkedPat
                           patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir'}
-                          annotation = TcPatSynAnnotation matcherMatch' maybeBuilderMatches selectorMatches
+                          annotation = TcPatSynAnnotation (toParserMatch matcherMatch') (map toParserMatch <$> maybeBuilderMatches) (map (fmap toParserMatch) selectorMatches)
                           decl' = DeclAnn (mkAnnotation annotation) (replacePatSynDecl patSyn' decl)
                           results = TcBindingResult key displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
@@ -3938,7 +3799,7 @@ patSynUse key name argBinders =
     nameType'
       | ":" `T.isPrefixOf` name = NameConSym
       | otherwise = NameConId
-    synonym = Name Nothing nameType' name [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)]
+    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key)))
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
@@ -3968,9 +3829,7 @@ patSynArgNames args =
 patSynBinderSpan :: UnqualifiedName -> Maybe SourceSpan
 patSynBinderSpan binder =
   unqualifiedNameSpan binder
-    <|> case [resolutionSpan resolution | Just resolution <- map fromAnnotation (unqualifiedNameAnns binder)] of
-      sp : _ -> sp
-      [] -> Nothing
+    <|> (resolutionSpan =<< binderResolved binder)
 
 -- | The binder in a pattern that has the given name.
 patternVarBinder :: Text -> Pattern -> Maybe UnqualifiedName
@@ -3985,6 +3844,7 @@ patternVarBinder target = go
           | unqualifiedNameText name == target -> Just name
           | otherwise -> go inner
         PAnn _ inner -> go inner
+        PResolved _ inner -> go inner
         PParen inner -> go inner
         PStrict inner -> go inner
         PIrrefutable inner -> go inner
@@ -4007,7 +3867,8 @@ synthesizedLocal unique text =
   UnqualifiedName
     NameVarId
     text
-    [mkAnnotation (ResolutionAnnotation Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))]
+    []
+    (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -4050,6 +3911,7 @@ matcherPattern match =
     go expr =
       case expr of
         EAnn _ inner -> go inner
+        EResolved _ inner -> go inner
         EParen inner -> go inner
         EPragma _ inner -> go inner
         ECase _ (alt : _) -> Just (caseAltPattern alt)
@@ -4063,9 +3925,10 @@ patternToExpr pat
   | Just expr <- negatedLiteralPatternToExpr pat = Just expr
 patternToExpr pat =
   case pat of
-    PAnn ann inner
-      | isMatchOnlyAnnotation ann -> patternToExpr inner
-      | otherwise -> EAnn ann <$> patternToExpr inner
+    PAnn ann inner -> EAnn ann <$> patternToExpr inner
+    PResolved result inner
+      | isMatchOnlyResolution result -> patternToExpr inner
+      | otherwise -> EResolved result <$> patternToExpr inner
     PVar name -> Just (localVar name)
     PLit literal -> Just (literalToExpr literal)
     PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
@@ -4096,17 +3959,20 @@ patternToExpr pat =
 -- the type and the conversion wrapped directly around a bare literal, so
 -- rebuild that stack rather than translating the annotations one by one:
 -- the @==@ goes, and the annotations of the literal move outside.
+--
+-- The list of wrappers has the innermost wrapper first.
 literalPatternToExpr :: Pattern -> Maybe Expr
 literalPatternToExpr = go []
   where
-    go anns pattern' =
+    go wrappers pattern' =
       case pattern' of
-        PAnn ann inner
-          | isMatchOnlyAnnotation ann -> go anns inner
-          | otherwise -> go (ann : anns) inner
+        PAnn ann inner -> go (EAnn ann : wrappers) inner
+        PResolved result inner
+          | isMatchOnlyResolution result -> go wrappers inner
+          | otherwise -> go (EResolved result : wrappers) inner
         PLit literal ->
           let (literalAnns, bare) = peelLiteralAnns literal
-           in Just (foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns))
+           in Just (wrapAll (wrappers <> map EAnn literalAnns) (literalToExpr bare))
         _ -> Nothing
 
 -- | An annotated negated literal pattern as an expression.
@@ -4119,38 +3985,43 @@ literalPatternToExpr = go []
 negatedLiteralPatternToExpr :: Pattern -> Maybe Expr
 negatedLiteralPatternToExpr = go [] Nothing
   where
-    go anns negation pattern' =
+    go wrappers negation pattern' =
       case pattern' of
-        PAnn ann inner
-          | isMatchOnlyAnnotation ann -> go anns negation inner
-          | isNegateAnnotation ann -> go anns (Just ann) inner
-          | otherwise -> go (ann : anns) negation inner
+        PAnn ann inner -> go (EAnn ann : wrappers) negation inner
+        PResolved result inner
+          | isMatchOnlyResolution result -> go wrappers negation inner
+          | isNegateResolution result -> go wrappers (Just result) inner
+          | otherwise -> go (EResolved result : wrappers) negation inner
         PNegLit literal ->
           let (literalAnns, bare) = peelLiteralAnns literal
-              converted = foldl (flip EAnn) (literalToExpr bare) (anns <> literalAnns)
-           in Just (maybe id EAnn negation (ENegate converted))
+              converted = wrapAll (wrappers <> map EAnn literalAnns) (literalToExpr bare)
+           in Just (maybe id EResolved negation (ENegate converted))
         _ -> Nothing
 
--- | Whether a resolver annotation names the @negate@ of a negated literal.
-isNegateAnnotation :: Annotation -> Bool
-isNegateAnnotation ann =
-  case fromAnnotation @ResolutionAnnotation ann of
-    Just resolution ->
+-- | Apply wrappers to an expression, the first wrapper innermost.
+wrapAll :: [Expr -> Expr] -> Expr -> Expr
+wrapAll wrappers expr = foldl (\inner wrap -> wrap inner) expr wrappers
+
+-- | Whether a resolution names the @negate@ of a negated literal.
+isNegateResolution :: ResolutionResult -> Bool
+isNegateResolution result =
+  case result of
+    ResolutionOk resolution ->
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && resolutionIdentifier resolution == IdentifierNamed "negate"
-    Nothing -> False
+    ResolutionError _ -> False
 
--- | Whether a resolver annotation serves matching alone. A literal
+-- | Whether a resolution serves matching alone. A literal
 -- pattern carries the @==@ that compares it to the scrutinee, and an
 -- overloaded list pattern carries the @toList@ that converts the
 -- scrutinee. A builder rebuilds the value instead of matching it.
-isMatchOnlyAnnotation :: Annotation -> Bool
-isMatchOnlyAnnotation ann =
-  case fromAnnotation @ResolutionAnnotation ann of
-    Just resolution ->
+isMatchOnlyResolution :: ResolutionResult -> Bool
+isMatchOnlyResolution result =
+  case result of
+    ResolutionOk resolution ->
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && resolutionIdentifier resolution `elem` [IdentifierNamed "==", IdentifierNamed "toList"]
-    Nothing -> False
+    ResolutionError _ -> False
 
 -- | The annotations of a literal, outermost last, and the literal itself.
 peelLiteralAnns :: Literal -> ([Annotation], Literal)
@@ -4174,6 +4045,7 @@ replacePatSynDecl :: PatSynDecl -> Decl -> Decl
 replacePatSynDecl patSyn decl =
   case decl of
     DeclAnn ann inner -> DeclAnn ann (replacePatSynDecl patSyn inner)
+    DeclError ann inner -> DeclError ann (replacePatSynDecl patSyn inner)
     DeclPatSyn {} -> DeclPatSyn patSyn
     _ -> decl
 
@@ -4378,12 +4250,13 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
     collect declaration =
       case declaration of
         DeclAnn _ inner -> collect inner
+        DeclError _ inner -> collect inner
         DeclStandaloneKindSig name kind -> (,kind) <$> resolvedTypeKey name
         _ -> Nothing
 
 resolvedTypeKey :: UnqualifiedName -> Maybe GlobalName
 resolvedTypeKey name = do
-  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} <- nameResolution name
+  Resolved {resolutionNamespace = namespace, resolutionTarget = EntityGlobal global} <- binderResolved name
   pure global {globalNameNamespace = namespace}
 
 -- | Register the head of a type-level declaration. A type constructor is
@@ -4438,6 +4311,7 @@ registerTypeDeclHeader _ kindSchemes (DeclClass classDecl) = do
     )
     (classDeclTypeFamilies classDecl)
 registerTypeDeclHeader associatedClasses kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader associatedClasses kindSchemes inner
+registerTypeDeclHeader associatedClasses kindSchemes (DeclError _ inner) = registerTypeDeclHeader associatedClasses kindSchemes inner
 registerTypeDeclHeader _ _ _ = pure ()
 
 -- | The kind of each class parameter, by its name, from the predeclared
@@ -4467,8 +4341,7 @@ convertStandaloneKindSignatures declarations signatures = foldM convert Map.empt
     flattenSignatures (CyclicSCC keys) = keys
     references kind =
       [ target
-      | annotation <- annotationList kind,
-        Just resolution <- [fromAnnotation @ResolutionAnnotation annotation],
+      | resolution <- collectResolutions resolvedOf kind,
         EntityGlobal global <- [resolutionTarget resolution],
         let target = global {globalNameNamespace = resolutionNamespace resolution},
         Map.member target signatures
@@ -4488,6 +4361,7 @@ predeclareTypeConstructor :: Maybe (GlobalName, TypeScheme) -> Decl -> TcM ()
 predeclareTypeConstructor knownScheme declaration =
   case declaration of
     DeclAnn _ inner -> predeclareTypeConstructor knownScheme inner
+    DeclError _ inner -> predeclareTypeConstructor knownScheme inner
     DeclData dataDeclaration ->
       let binder = binderHeadName (dataDeclHead dataDeclaration)
           name = unqualifiedNameText binder
@@ -4570,10 +4444,12 @@ registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl
 registerStructuralDecl origin (DeclAnn ann inner)
   | isJust (fromAnnotation @TcDerivingClauseInstance ann) = withUndecidableInstances (registerStructuralDecl origin inner)
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
+registerStructuralDecl origin (DeclError _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
 isInstanceDecl :: Decl -> Bool
 isInstanceDecl (DeclAnn _ inner) = isInstanceDecl inner
+isInstanceDecl (DeclError _ inner) = isInstanceDecl inner
 isInstanceDecl DeclInstance {} = True
 isInstanceDecl _ = False
 
@@ -4581,6 +4457,7 @@ predeclareTypeLevelDataConstructors :: Decl -> TcM ()
 predeclareTypeLevelDataConstructors declaration =
   case declaration of
     DeclAnn _ inner -> predeclareTypeLevelDataConstructors inner
+    DeclError _ inner -> predeclareTypeLevelDataConstructors inner
     DeclData dataDeclaration -> do
       let parentBinder = binderHeadName (dataDeclHead dataDeclaration)
           parentName = unqualifiedNameText parentBinder
@@ -4757,6 +4634,7 @@ instanceDeclTypeFamilyInsts instanceDecl = mapMaybe familyItem (instanceDeclItem
     familyItem item =
       case item of
         InstanceItemAnn _ inner -> familyItem inner
+        InstanceItemError _ inner -> familyItem inner
         InstanceItemTypeFamilyInst familyInst -> Just familyInst
         _ -> Nothing
 
@@ -5245,6 +5123,7 @@ dataFamilyInstanceParams familyInst = do
         TTypeApp function argument -> typeLevelVars function <> typeLevelVars argument
         TParen inner -> typeLevelVars inner
         TAnn _ inner -> typeLevelVars inner
+        TResolved _ inner -> typeLevelVars inner
         -- The other forms do not occur in an instance head, or they cannot
         -- have a kind annotation. All of their variables are type parameters.
         _ -> freeTypeVars ty
@@ -5272,7 +5151,8 @@ unqualifiedFromResolvedName name =
   UnqualifiedName
     { unqualifiedNameType = nameType name,
       unqualifiedNameText = nameText name,
-      unqualifiedNameAnns = nameAnns name
+      unqualifiedNameAnns = nameAnns name,
+      unqualifiedNameResolution = nameResolution name
     }
 
 -- | The axiom name of one type family instance, within the module that holds
@@ -5294,6 +5174,7 @@ sourceTypeKey home ty =
   case ty of
     TParen inner -> sourceTypeKey home inner
     TAnn _ inner -> sourceTypeKey home inner
+    TResolved _ inner -> sourceTypeKey home inner
     TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
@@ -5336,8 +5217,8 @@ sourceTypeKey home ty =
 -- instances on one axiom key.
 typeConKey :: (Text, Text) -> Name -> Text
 typeConKey home name =
-  case nameResolution (unqualifiedFromResolvedName name) of
-    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global}
+  case binderResolved (unqualifiedFromResolvedName name) of
+    Just Resolved {resolutionTarget = EntityGlobal global}
       | (packageIdText (globalNamePackage global), globalNameModule global) /= home ->
           packageIdText (globalNamePackage global) <> ":" <> globalNameModule global <> "." <> globalNameText global
     _ -> nameText name
@@ -5861,6 +5742,7 @@ resultKindArity = maybe 0 go
         TForall _ inner -> go inner
         TParen inner -> go inner
         TAnn _ inner -> go inner
+        TResolved _ inner -> go inner
         _ -> 0
 
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM ()
@@ -6096,6 +5978,7 @@ newtypeConstructorSpan :: NewtypeDecl -> Maybe SourceSpan
 newtypeConstructorSpan = dataConSpan <=< newtypeDeclConstructor
   where
     dataConSpan (DataConAnn annotation inner) = fromAnnotation @SourceSpan annotation <|> dataConSpan inner
+    dataConSpan (DataConResolved _ inner) = dataConSpan inner
     dataConSpan _ = Nothing
 
 -- | The C type a @CTYPE@ pragma names.
@@ -6259,6 +6142,7 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
 
 registerTypeSynonymBody :: Decl -> TcM ()
 registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
+registerTypeSynonymBody (DeclError _ inner) = registerTypeSynonymBody inner
 registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
   let tyBinder = binderHeadName (typeSynHead typeSynDecl)
       tyName = unqualifiedNameText tyBinder
@@ -6305,6 +6189,7 @@ invisibleHeadBinders (Scheme _ specified _ _) binders =
 
 checkTypeSynonymBody :: Decl -> TcM ()
 checkTypeSynonymBody (DeclAnn _ inner) = checkTypeSynonymBody inner
+checkTypeSynonymBody (DeclError _ inner) = checkTypeSynonymBody inner
 checkTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
   let tyBinder = binderHeadName (typeSynHead typeSynDecl)
       tyName = unqualifiedNameText tyBinder
@@ -6339,8 +6224,8 @@ typeResultKind _ kind = kind
 -- 'wiredDeclarationIdentity'.
 mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
 mkDeclaredTyCon binder name arity =
-  case nameResolution binder of
-    Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} ->
+  case binderResolved binder of
+    Just Resolved {resolutionTarget = EntityGlobal global} ->
       wiredDeclarationIdentity (mkTyConWithOrigin (globalNamePackage global) (globalNameModule global) name arity)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
@@ -6355,6 +6240,7 @@ registerDataCon tc kindParams paramInfos =
 registerDataConWithResult :: [Text] -> [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
 registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
   DataConAnn _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
+  DataConResolved _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
   PrefixCon forallVars context conName args ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType args)
   InfixCon forallVars context lhs conName rhs ->
@@ -6456,7 +6342,7 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
     -- The module that declares the constructor decides on PolyKinds.
     constructorPolyKinds names = case names of
       name : _
-        | Just ResolutionAnnotation {resolutionTarget = EntityGlobal global} <- nameResolution name ->
+        | Just Resolved {resolutionTarget = EntityGlobal global} <- binderResolved name ->
             isPolyKindOrigin (packageIdText (globalNamePackage global), globalNameModule global)
       _ -> pure False
     -- A built-in form declares the constructor the wiring already names,
@@ -6730,6 +6616,7 @@ dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType
 dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
+    DataConResolved _ inner -> dataConSourceLayout inner
     PrefixCon _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
     InfixCon _ _ left _ right ->
@@ -6759,6 +6646,7 @@ recordSourceFields = concatMap $ \field ->
 tcDecl :: Decl -> TcM [TcBindingResult]
 tcDecl (DeclValue vd) = tcValueDecl vd
 tcDecl (DeclAnn _ inner) = tcDecl inner
+tcDecl (DeclError _ inner) = tcDecl inner
 tcDecl _ = pure []
 
 -- | Type-check a value declaration.
@@ -6793,6 +6681,7 @@ patternBinderSyntaxName :: Pattern -> Maybe UnqualifiedName
 patternBinderSyntaxName (PVar n) = Just n
 patternBinderSyntaxName (PParen inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName (PAnn _ inner) = patternBinderSyntaxName inner
+patternBinderSyntaxName (PResolved _ inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName _ = Nothing
 
 patternBinderName :: Pattern -> Maybe (Text, Text)
@@ -6815,6 +6704,7 @@ patternSpan :: Pattern -> Maybe SourceSpan
 patternSpan pat =
   case pat of
     PAnn ann inner -> fromAnnotation @SourceSpan ann <|> patternSpan inner
+    PResolved _ inner -> patternSpan inner
     PVar name -> sourceSpanFromAnns (unqualifiedNameAnns name)
     PParen inner -> patternSpan inner
     PAs name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)
@@ -6827,15 +6717,14 @@ patternSpan pat =
     -- The resolver gives a constructor occurrence its span.
     nameSpan name =
       sourceSpanFromAnns (nameAnns name)
-        <|> case [resolutionSpan resolution | Just resolution <- map fromAnnotation (nameAnns name)] of
-          sp : _ -> sp
-          [] -> Nothing
+        <|> (resolutionSpan =<< nameResolved name)
 
 typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
     TAnn ann inner ->
       fromAnnotation @SourceSpan ann <|> typeSpan inner
+    TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner
@@ -6853,6 +6742,7 @@ exprSpan expr =
   case expr of
     EAnn ann inner ->
       fromAnnotation @SourceSpan ann <|> exprSpan inner
+    EResolved _ inner -> exprSpan inner
     EParen inner -> exprSpan inner
     EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner

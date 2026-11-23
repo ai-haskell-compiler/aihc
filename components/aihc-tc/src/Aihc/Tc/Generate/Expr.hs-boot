@@ -1,6 +1,6 @@
 module Aihc.Tc.Generate.Expr (checkRhs, inferExprAt) where
 
-import Aihc.Parser.Syntax (Expr, Rhs, SourceSpan)
+import Aihc.Resolve.Syntax (Expr, Rhs, SourceSpan)
 import Aihc.Tc.Constraint (Ct)
 import Aihc.Tc.Monad (TcM)
 import Aihc.Tc.Types (TcType)

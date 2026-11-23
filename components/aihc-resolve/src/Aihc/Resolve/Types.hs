@@ -1,13 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Aihc.Resolve.Types
-  ( pattern DeclResolution,
-    pattern EResolution,
-    pattern PResolution,
-    pattern TResolution,
-    ResolutionNamespace (..),
+  ( ResolutionNamespace (..),
     Identifier (..),
     displayIdentifier,
     PackageId (..),
@@ -24,15 +19,13 @@ module Aihc.Resolve.Types
     Entity (.., GlobalTerm),
     globalTerm,
     Resolution (..),
-    ResolutionAnnotation (..),
+    Resolved (..),
     RecKnotVariables (..),
     ResolutionResult (..),
-    resolutionResultAnnotation,
-    annotationResolution,
+    resolvedOf,
     resolutionOf,
     nameResolution,
     termResolution,
-    typeResolution,
     binderResolution,
     binderEntity,
     nameEntity,
@@ -44,20 +37,15 @@ where
 
 import Aihc.Parser.Syntax
   ( Annotation,
-    Decl (..),
-    Expr (..),
     Extension,
     Module (..),
     Name (..),
-    Pattern (..),
     SourceSpan,
     TupleFlavor (..),
-    Type (..),
     UnqualifiedName (..),
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
-import Data.Data (Data)
 import Data.List (find)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -68,7 +56,7 @@ import GHC.Generics (Generic)
 
 -- | An opaque identity for one installed package instance.
 newtype PackageId = PackageId {packageIdText :: Text}
-  deriving (Data, Eq, Ord, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 instance IsString PackageId where
   fromString = PackageId . T.pack
@@ -116,7 +104,7 @@ data GlobalName = GlobalName
     globalNameModule :: !Text,
     globalNameNamespace :: !ResolutionNamespace
   }
-  deriving (Data, Eq, Ord, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 -- | A mark on a name occurrence that gives its top-level term. The resolver
 -- gives the occurrence that term and does not look in the scope. The
@@ -140,7 +128,7 @@ exactType name = listToMaybe [global | Just (ExactType global) <- map fromAnnota
 
 -- | The identity of one local binder, unique within a compilation unit.
 newtype LocalId = LocalId {localIdUnique :: Int}
-  deriving (Data, Eq, Ord, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 -- | What a name stands for once it is resolved.
 data Entity
@@ -151,7 +139,7 @@ data Entity
   | -- | Built-in syntax with no declaration, such as a tuple constructor.
     -- The identifier of the annotation says which syntax.
     EntitySyntax
-  deriving (Data, Eq, Ord, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 -- | A top-level term, by package, module, and name.
 pattern GlobalTerm :: PackageId -> Text -> Text -> Entity
@@ -162,11 +150,11 @@ globalTerm :: PackageId -> Text -> Text -> Entity
 globalTerm = GlobalTerm
 
 -- | The outcome of one lookup inside the resolver: the entity, or the
--- reason there is none. Only 'Resolved' leaves the resolver as a
--- 'ResolutionAnnotation'. 'Unresolved' leaves it as a 'ResolveError'.
+-- reason there is none. Only 'Found' leaves the resolver as a
+-- 'Resolved'. 'NotFound' leaves it as a 'ResolveError'.
 data Resolution
-  = Resolved !Entity
-  | Unresolved String
+  = Found !Entity
+  | NotFound String
   deriving (Eq, Show)
 
 -- | The source identifier that caused one resolution request.
@@ -174,7 +162,7 @@ data Identifier
   = IdentifierTuple !TupleFlavor !Int
   | IdentifierList
   | IdentifierNamed !Text
-  deriving (Data, Eq, Show, Generic)
+  deriving (Eq, Show, Generic)
 
 -- | Render an identifier for diagnostics and other user output.
 displayIdentifier :: Identifier -> Text
@@ -191,7 +179,7 @@ data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
   | ResolutionNamespaceModule
-  deriving (Data, Eq, Ord, Show, Read, Generic)
+  deriving (Eq, Ord, Show, Read, Generic)
 
 instance NFData PackageId
 
@@ -208,7 +196,7 @@ instance NFData Identifier
 instance NFData ResolutionNamespace
 
 -- | A resolution that succeeded, attached to the syntax it resolves.
-data ResolutionAnnotation = ResolutionAnnotation
+data Resolved = Resolved
   { -- | Where the identifier is in the source, or 'Nothing' for syntax the
     -- compiler synthesized.
     resolutionSpan :: !(Maybe SourceSpan),
@@ -216,18 +204,18 @@ data ResolutionAnnotation = ResolutionAnnotation
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !Entity
   }
-  deriving (Data, Eq, Show)
+  deriving (Eq, Show)
 
 -- | The outcome of one resolution in the syntax tree that the resolver
 -- gives: the resolution, or the error that the resolver found.
 data ResolutionResult
-  = ResolutionOk !ResolutionAnnotation
+  = ResolutionOk !Resolved
   | ResolutionError !ResolveError
-  deriving (Data, Eq, Show)
+  deriving (Eq, Show)
 
 -- | The successful resolution of a result, if it is one.
-resolutionResultAnnotation :: ResolutionResult -> Maybe ResolutionAnnotation
-resolutionResultAnnotation result =
+resolvedOf :: ResolutionResult -> Maybe Resolved
+resolvedOf result =
   case result of
     ResolutionOk annotation -> Just annotation
     ResolutionError _ -> Nothing
@@ -239,33 +227,23 @@ resolutionResultAnnotation result =
 -- of GHC. A @rec@ statement without this annotation carries all of its
 -- variables in the knot, as an explicit @rec@ statement does in GHC.
 newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
-  deriving (Data, Eq, Show)
-
--- | The resolution that one annotation carries, if it is one.
-annotationResolution :: Annotation -> Maybe ResolutionAnnotation
-annotationResolution = fromAnnotation
+  deriving (Eq, Show)
 
 -- | The first resolution of the given namespace among some annotations.
-resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe ResolutionAnnotation
-resolutionOf wanted = find (wanted . resolutionNamespace) . mapMaybe annotationResolution
+resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe Resolved
+resolutionOf wanted = find (wanted . resolutionNamespace) . mapMaybe fromAnnotation
 
 -- | The first resolution of a name occurrence, in any namespace.
-nameResolution :: Name -> Maybe ResolutionAnnotation
-nameResolution = listToMaybe . mapMaybe annotationResolution . nameAnns
+nameResolution :: Name -> Maybe Resolved
+nameResolution = listToMaybe . mapMaybe fromAnnotation . nameAnns
 
 -- | The term resolution of a name occurrence.
-termResolution :: Name -> Maybe ResolutionAnnotation
+termResolution :: Name -> Maybe Resolved
 termResolution = resolutionOf (== ResolutionNamespaceTerm) . nameAnns
 
--- | The type resolution of a name occurrence. A promoted data constructor
--- at the type level resolves in the term namespace, so this is any
--- resolution that is not of a module.
-typeResolution :: Name -> Maybe ResolutionAnnotation
-typeResolution = resolutionOf (/= ResolutionNamespaceModule) . nameAnns
-
 -- | The resolution of a binder, whatever namespace it binds in.
-binderResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-binderResolution = listToMaybe . mapMaybe annotationResolution . unqualifiedNameAnns
+binderResolution :: UnqualifiedName -> Maybe Resolved
+binderResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 -- | The entity that a binder defines.
 binderEntity :: UnqualifiedName -> Maybe Entity
@@ -285,14 +263,14 @@ nameOrigin name =
 
 -- | One failed resolution. The resolver records it in the unit's
 -- 'ResolveFailure' and attaches it to the syntax in place of a
--- 'ResolutionAnnotation'.
+-- 'Resolved'.
 data ResolveError = ResolveError
   { resolveErrorSpan :: !(Maybe SourceSpan),
     resolveErrorName :: !Text,
     resolveErrorNamespace :: !ResolutionNamespace,
     resolveErrorMessage :: !String
   }
-  deriving (Data, Eq, Show)
+  deriving (Eq, Show)
 
 -- | The error of one failed resolution.
 resolveErrorAt :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> String -> ResolveError
@@ -303,15 +281,3 @@ resolveErrorAt span' identifier namespace message =
       resolveErrorNamespace = namespace,
       resolveErrorMessage = message
     }
-
-pattern DeclResolution :: ResolutionAnnotation -> Decl
-pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
-
-pattern PResolution :: ResolutionAnnotation -> Pattern
-pattern PResolution resolution <- PAnn (fromAnnotation -> Just resolution) _
-
-pattern TResolution :: ResolutionAnnotation -> Type
-pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
-
-pattern EResolution :: ResolutionAnnotation -> Expr
-pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _

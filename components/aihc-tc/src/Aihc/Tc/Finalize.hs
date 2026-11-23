@@ -9,8 +9,9 @@ module Aihc.Tc.Finalize
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
-import Aihc.Resolve.Traverse (traverseAnnotations)
+import Aihc.Resolve.Syntax (Annotation, Module, fromAnnotation, mkAnnotation)
+import Aihc.Resolve.Syntax.Traverse (traverseAnnotations)
+import Aihc.Resolve.Traverse qualified as P
 import Aihc.Tc.Annotations
   ( CastDirection (..),
     PendingTcAnnotation (..),
@@ -181,9 +182,10 @@ finalizeOtherCheckedAnnotationTc ann =
     Just patSyn -> do
       -- The matcher, builder, and selector equations live inside the
       -- annotation. The walk does not enter an annotation payload.
-      matcher <- traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
-      builder <- traverse (traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
-      selectors <- traverse (traverse (traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
+      -- They are parser syntax, so the walk of the parser syntax visits them.
+      matcher <- P.traverseAnnotations finalizeAnnotationTc (tcPatSynMatcher patSyn)
+      builder <- traverse (P.traverseAnnotations finalizeAnnotationTc) (tcPatSynBuilder patSyn)
+      selectors <- traverse (traverse (P.traverseAnnotations finalizeAnnotationTc)) (tcPatSynSelectors patSyn)
       pure (mkAnnotation (TcPatSynAnnotation matcher builder selectors))
     Nothing -> do
       rejectMetaFinalAnnotation ann
