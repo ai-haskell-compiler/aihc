@@ -404,6 +404,10 @@ hsFfiHeader =
       "typedef void *HsPtr;",
       "typedef void (*HsFunPtr)(void);",
       "typedef void *HsStablePtr;",
+      "",
+      -- The runtime defines this function. C code calls it to free a
+      -- stable pointer that Haskell code gave it.
+      "extern void hs_free_stable_ptr(HsStablePtr sp);",
       ""
     ]
       <> limitMacros

@@ -1,0 +1,53 @@
+program: |
+  primitive +# :: IntRep/2
+  primitive *# :: IntRep/2
+
+  constructor Unit []
+
+  $inner (value :: IntRep) -> IntRep =
+    case (value :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        constant (1 :: IntRep)
+      _ ->
+        primitive-call @IntRep *# (value :: IntRep) (2 :: IntRep)
+
+  $outer (value :: IntRep) -> IntRep =
+    next :: IntRep <-
+      primitive-call @IntRep +# (value :: IntRep) (1 :: IntRep)
+    call @IntRep $inner (next :: IntRep)
+
+  $entry (value :: IntRep) -> IntRep =
+    result :: IntRep <-
+      call @IntRep $outer (value :: IntRep)
+    primitive-call @IntRep +# (result :: IntRep) (3 :: IntRep)
+expected: |-
+  constructor Unit []
+
+  primitive +# :: IntRep/2
+
+  primitive *# :: IntRep/2
+
+  $inner (value :: IntRep) -> IntRep =
+    case (value :: IntRep) as checked :: IntRep of
+      (0 :: IntRep) ->
+        constant (1 :: IntRep)
+      _ ->
+        primitive-call @IntRep *# (value :: IntRep) (2 :: IntRep)
+
+  $outer (value :: IntRep) -> IntRep =
+    next :: IntRep <-
+      primitive-call @IntRep +# (value :: IntRep) (1 :: IntRep)
+    call @IntRep $inner (next :: IntRep)
+
+  $entry (value :: IntRep) -> IntRep =
+    next%1 :: IntRep <-
+      primitive-call @IntRep +# (value :: IntRep) (1 :: IntRep)
+    result :: IntRep <-
+      case (next%1 :: IntRep) as checked%2 :: IntRep of
+        (0 :: IntRep) ->
+          constant (1 :: IntRep)
+        _ ->
+          primitive-call @IntRep *# (next%1 :: IntRep) (2 :: IntRep)
+    primitive-call @IntRep +# (result :: IntRep) (3 :: IntRep)
+status: pass
+reason: a leaf function that calls another leaf is a leaf too, and its copy into a call that is not a tail call holds a copy of the other leaf

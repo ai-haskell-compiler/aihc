@@ -1,3 +1,4 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -12,7 +13,8 @@
 -- GHC instead hands out an address into a table of the runtime, which
 -- @hs_deref_stable_ptr@ reads. This runtime has no such table, so foreign
 -- code can carry one of these pointers and give it back, but it cannot
--- dereference one itself.
+-- dereference one itself. C code can free one with @hs_free_stable_ptr@.
+-- The runtime records that pointer, and the next 'newStablePtr' frees it.
 module GHC.Stable
   ( StablePtr (..),
     newStablePtr,
@@ -79,7 +81,8 @@ newStablePtr :: a -> IO (StablePtr a)
 newStablePtr value =
   mask_
     ( do
-        table <- takeMVar stableTable
+        current <- takeMVar stableTable
+        table <- onException (freeForeignStablePtrs current) (putMVar stableTable current)
         grown <- onException (ensureFreeSlot table) (putMVar stableTable table)
         case grown of
           StableTable slots free capacity -> do
@@ -131,6 +134,32 @@ castStablePtrToPtr (StablePtr address) = Ptr (stablePtrAddress address)
 -- | The stable pointer that 'castStablePtrToPtr' gave the address of.
 castPtrToStablePtr :: Ptr () -> StablePtr a
 castPtrToStablePtr (Ptr address) = StablePtr (addressStablePtr address)
+
+-- | Free each stable pointer that C code gave to @hs_free_stable_ptr@.
+--
+-- The function ignores a pointer that does not name a slot in use. GHC
+-- calls a second free of a pointer undefined behaviour.
+freeForeignStablePtrs :: StableTable -> IO StableTable
+freeForeignStablePtrs table = do
+  address <- takeFreedStablePtr
+  case address == 0 of
+    True -> return table
+    False ->
+      case table of
+        StableTable slots free capacity -> do
+          let index = address - 1
+          case index < 0 || index >= capacity of
+            True -> freeForeignStablePtrs table
+            False -> do
+              entry <- readEntry slots index
+              case entry of
+                StableFree _ -> freeForeignStablePtrs table
+                StableUsed _ -> do
+                  writeEntry slots index (StableFree free)
+                  freeForeignStablePtrs (StableTable slots index capacity)
+
+foreign import ccall unsafe "aihc_take_freed_stable_ptr"
+  takeFreedStablePtr :: IO Int
 
 -- | A table with at least one free slot, growing the table when it has none.
 --

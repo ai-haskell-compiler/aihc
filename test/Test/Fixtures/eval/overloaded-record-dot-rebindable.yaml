@@ -21,5 +21,5 @@ output: |
   True
 expression: |
   result
-status: xfail
-reason: RebindableSyntax must use the local getField function for record dot syntax. The type checker rejects the field expression.
+status: pass
+reason: RebindableSyntax uses the local getField function for record dot syntax

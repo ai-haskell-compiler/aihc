@@ -115,6 +115,10 @@ inferExprAt ambient expr = case expr of
         inferOverloadedList (resolutionSpan resolution <|> ambient) ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromList" resolution ->
+        inferOverloadedSequence (resolutionSpan resolution <|> ambient) ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
@@ -126,6 +130,14 @@ inferExprAt ambient expr = case expr of
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       isSyntaxTermResolution "negate" resolution ->
         inferNegate (resolutionSpan resolution <|> ambient) ann resolution inner
+  EAnn ann (EGetField record field)
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "getField" resolution ->
+        inferGetField (resolutionSpan resolution <|> ambient) ann resolution record field
+  EAnn ann (EGetFieldProjection fields)
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "getField" resolution ->
+        inferGetFieldProjection (resolutionSpan resolution <|> ambient) ann resolution fields
   EVar name ->
     inferVar (exprSpan expr <|> ambient) name
   EImplicitParam name ->
@@ -723,7 +735,8 @@ checksExpectedResult :: Expr -> Bool
 checksExpectedResult expression = case expression of
   EAnn annotation _
     | Just resolution <- fromAnnotation @ResolutionAnnotation annotation,
-      isSyntaxTermResolution "fromListN" resolution ->
+      isSyntaxTermResolution "fromListN" resolution
+        || isSyntaxTermResolution "fromList" resolution ->
         False
   EAnn _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
@@ -1743,6 +1756,80 @@ inferNegate sp resolutionAnn resolution inner = do
       innerCts <> methodCts <> [methodEquality]
     )
 
+-- | Record dot syntax applies the getField syntax term at the label of the
+-- field, as GHC does. The expression @e.x@ is @getField \@"x" e@.
+inferGetField :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> Name -> TcM (Expr, TcType, [Ct])
+inferGetField sp resolutionAnn resolution record field = do
+  (record', recordTy, recordCts) <- inferExpr record
+  (field', resultTy, fieldCts) <- inferFieldSelection sp resolution recordTy field
+  let pending = pendingAnnotation resultTy [] [] []
+  pure
+    ( annotatePendingExprAt sp pending (EAnn resolutionAnn (EGetField record' field')),
+      resultTy,
+      recordCts <> fieldCts
+    )
+
+-- | A record dot projection such as @(.x.y)@ is a function. It applies
+-- getField at each label in turn, first @x@ and then @y@. The checked
+-- argument type of the annotation is the record type.
+inferGetFieldProjection :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> [Name] -> TcM (Expr, TcType, [Ct])
+inferGetFieldProjection sp resolutionAnn resolution fields = do
+  argumentTy <- freshMetaTv
+  (fields', resultTy, cts) <- selectFields argumentTy fields
+  let projectionTy = TcFunTy argumentTy resultTy
+      pending = pendingAnnotation projectionTy [] [] [argumentTy]
+  pure
+    ( annotatePendingExprAt sp pending (EAnn resolutionAnn (EGetFieldProjection fields')),
+      projectionTy,
+      cts
+    )
+  where
+    selectFields recordTy [] = pure ([], recordTy, [])
+    selectFields recordTy (field : rest) = do
+      (field', fieldTy, fieldCts) <- inferFieldSelection sp resolution recordTy field
+      (rest', resultTy, restCts) <- selectFields fieldTy rest
+      pure (field' : rest', resultTy, fieldCts <> restCts)
+
+-- | Apply getField at the label of one field to a value of the record type.
+--
+-- The first specified type argument of getField is the label, as in
+-- @getField \@"x"@. The label is a type-level symbol. The field name gets
+-- the occurrence annotation of getField, with its type arguments and its
+-- evidence. The result is the type of the field.
+inferFieldSelection :: Maybe SourceSpan -> ResolutionAnnotation -> TcType -> Name -> TcM (Name, TcType, [Ct])
+inferFieldSelection ambient resolution recordTy field = do
+  let sp = sourceSpanFromAnns (nameAnns field) <|> ambient
+      label = TcTyLit (TyLitSymbol (nameText field))
+  mBinder <- lookupResolvedTerm "getField" (resolutionTarget resolution)
+  (methodTy, typeArgs, specifiedArgs, predicates) <-
+    case mBinder of
+      Just (TcIdBinder scheme _) -> do
+        inst <- instantiateWithArgs scheme
+        pure (instType inst, instTypeArgs inst, instSpecifiedArgs inst, instPreds inst)
+      Just (TcMonoIdBinder ty) -> pure (ty, [], [], [])
+      Nothing -> abortTc ("resolved getField is missing from the type environment: " <> show (resolutionTarget resolution))
+  methodCts <- mapM (predToCt sp "getField") predicates
+  labelCts <-
+    case specifiedArgs of
+      labelArg : _ -> do
+        labelKind <- tcTypeKind labelArg
+        symbolKind <- tcTypeKind label
+        kindDeferred <- unifyDeferring sp (OccurrenceOf "getField") labelKind symbolKind
+        labelDeferred <- unifyDeferring sp (OccurrenceOf "getField") labelArg label
+        mapM (deferredEquality sp) (kindDeferred <> labelDeferred)
+      [] -> do
+        emitError sp (OtherError "getField has no type argument for the label of a record field")
+        pure []
+  resultTy <- freshMetaTv
+  evidence <- freshEvVar
+  let methodEquality = mkWantedCt (EqPred methodTy (TcFunTy recordTy resultTy)) evidence (OccurrenceOf "getField") sp
+      pending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+  pure (annotatePendingName pending field, resultTy, methodCts <> labelCts <> [methodEquality])
+  where
+    deferredEquality sp (left, right) = do
+      evidence <- freshEvVar
+      pure (mkWantedCt (EqPred left right) evidence (OccurrenceOf "getField") sp)
+
 inferTuple :: Maybe SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
 inferTuple sp flavor elems = do
   results <- mapM inferElem elems
@@ -1779,6 +1866,21 @@ inferOverloadedList sp resolutionAnn resolution inner = do
   equalityEvidence <- freshEvVar
   let expectedMethodTy = TcFunTy (TcTyCon intTyCon []) (TcFunTy listTy resultTy)
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')
+  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
+
+-- | An arithmetic sequence under OverloadedLists applies fromList to an
+-- ordinary list.
+inferOverloadedSequence :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedSequence sp resolutionAnn resolution inner = do
+  (list', listTy, listCts) <- inferExprAt sp inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromList" resolution
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy listTy resultTy
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromList") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
       annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')
