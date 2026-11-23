@@ -53,6 +53,7 @@ import GHC.Prim
     addWordC#,
     and#,
     clz#,
+    compareInt#,
     copyAddrToByteArray#,
     copyByteArray#,
     eqWord#,
@@ -102,17 +103,93 @@ integerAdd :: Integer -> Integer -> Integer
 integerAdd left@(IS leftInt) right@(IS rightInt) =
   case addIntC# leftInt rightInt of
     (# result, 0# #) -> IS result
-    _ -> addMagnitudesWithSigns left right
-integerAdd (IP left) (IP right) = IP (addByteArrays# left right)
-integerAdd (IN left) (IN right) = IN (addByteArrays# left right)
-integerAdd left right = addMagnitudesWithSigns left right
+    _ -> addLargeIntegers left right
+integerAdd left right = addLargeIntegers left right
 
 integerSub :: Integer -> Integer -> Integer
 integerSub left@(IS leftInt) right@(IS rightInt) =
   case subIntC# leftInt rightInt of
     (# result, 0# #) -> IS result
-    _ -> integerAdd left (integerNegate right)
-integerSub left right = integerAdd left (integerNegate right)
+    _ -> subtractLargeIntegers left right
+integerSub left right = subtractLargeIntegers left right
+
+-- | A sum with a large operand or a large result. Operands with
+-- magnitudes less than 2^126 add as signed 128-bit values without an
+-- array loop.
+addLargeIntegers :: Integer -> Integer -> Integer
+addLargeIntegers left right =
+  case signedLimbs# left of
+    (# 1#, leftHigh, leftLow #) ->
+      case signedLimbs# right of
+        (# 1#, rightHigh, rightLow #) ->
+          case addWordC# leftLow rightLow of
+            (# low, carry #) -> integerFromSignedLimbs# (plusWord# (plusWord# leftHigh rightHigh) (int2Word# carry)) low
+        _ -> addMagnitudeIntegers left right
+    _ -> addMagnitudeIntegers left right
+{-# NOINLINE addLargeIntegers #-}
+
+-- | A difference with a large operand or a large result. It uses the same
+-- signed 128-bit values as 'addLargeIntegers'.
+subtractLargeIntegers :: Integer -> Integer -> Integer
+subtractLargeIntegers left right =
+  case signedLimbs# left of
+    (# 1#, leftHigh, leftLow #) ->
+      case signedLimbs# right of
+        (# 1#, rightHigh, rightLow #) ->
+          case subWordC# leftLow rightLow of
+            (# low, borrow #) -> integerFromSignedLimbs# (minusWord# (minusWord# leftHigh rightHigh) (int2Word# borrow)) low
+        _ -> addMagnitudeIntegers left (integerNegate right)
+    _ -> addMagnitudeIntegers left (integerNegate right)
+{-# NOINLINE subtractLargeIntegers #-}
+
+addMagnitudeIntegers :: Integer -> Integer -> Integer
+addMagnitudeIntegers (IP left) (IP right) = IP (addByteArrays# left right)
+addMagnitudeIntegers (IN left) (IN right) = IN (addByteArrays# left right)
+addMagnitudeIntegers left right = addMagnitudesWithSigns left right
+
+-- | A value as a signed 128-bit number: a flag, the high limb, and the low
+-- limb. The flag is 1 if the magnitude is less than 2^126, and 0 if not.
+-- With the flag 1, the sum or the difference of two values does not
+-- overflow 128 bits.
+signedLimbs# :: Integer -> (# Int#, Word#, Word# #)
+signedLimbs# (IS value) = (# 1#, int2Word# (uncheckedIShiftRA# value 63#), int2Word# value #)
+signedLimbs# (IP magnitude) = magnitudeLimbs# magnitude
+signedLimbs# (IN magnitude) =
+  case magnitudeLimbs# magnitude of
+    (# fits, high, low #) ->
+      case eqWord# low (int2Word# 0#) of
+        1# -> (# fits, minusWord# (int2Word# 0#) high, low #)
+        _ -> (# fits, not# high, minusWord# (int2Word# 0#) low #)
+
+magnitudeLimbs# :: ByteArray# -> (# Int#, Word#, Word# #)
+magnitudeLimbs# magnitude =
+  case wordCount# magnitude of
+    1# -> (# 1#, int2Word# 0#, indexWordArray# magnitude 0# #)
+    2# ->
+      let high = indexWordArray# magnitude 1#
+       in (# ltWord# high (uncheckedShiftL# (int2Word# 1#) 62#), high, indexWordArray# magnitude 0# #)
+    _ -> (# 0#, int2Word# 0#, int2Word# 0# #)
+
+-- | The canonical 'Integer' of a signed 128-bit number.
+integerFromSignedLimbs# :: Word# -> Word# -> Integer
+integerFromSignedLimbs# high low =
+  case eqWord# high (int2Word# (uncheckedIShiftRA# (word2Int# low) 63#)) of
+    1# -> IS (word2Int# low)
+    _ ->
+      case word2Int# high <# 0# of
+        0# -> integerFromLimbPair# 1# high low
+        _ ->
+          case eqWord# low (int2Word# 0#) of
+            1# -> integerFromLimbPair# (0# -# 1#) (minusWord# (int2Word# 0#) high) low
+            _ -> integerFromLimbPair# (0# -# 1#) (not# high) (minusWord# (int2Word# 0#) low)
+
+-- | A large 'Integer' from a sign and a magnitude of one or two limbs. The
+-- caller makes sure that the value is not an 'IS' value.
+integerFromLimbPair# :: Int# -> Word# -> Word# -> Integer
+integerFromLimbPair# sign high low =
+  case eqWord# high (int2Word# 0#) of
+    1# -> allocateWordInteger# sign low
+    _ -> allocateTwoWordInteger# sign high low
 
 integerMul :: Integer -> Integer -> Integer
 integerMul (IS left) (IS right) = multiplySmall# left right
@@ -838,8 +915,14 @@ divideMagnitudeByWord# magnitude divisor mutable index remainder state =
           case writeWordArray# mutable index quotientWord state of
             state1 -> divideMagnitudeByWord# magnitude divisor mutable (index -# 1#) nextRemainder state1
 
+-- | The order of two values as -1, 0 or 1. Two 'IS' values are one
+-- comparison of their fields. The other values go to a call.
 compareInteger# :: Integer -> Integer -> Int#
-compareInteger# left right =
+compareInteger# (IS left) (IS right) = compareInt# left right
+compareInteger# left right = compareLargeInteger# left right
+
+compareLargeInteger# :: Integer -> Integer -> Int#
+compareLargeInteger# left right =
   let leftSign = signInteger# left
       rightSign = signInteger# right
    in case leftSign <# rightSign of
@@ -852,6 +935,8 @@ compareInteger# left right =
                 0# -> 0#
                 1# -> compareMagnitudes# left right
                 _ -> 0# -# compareMagnitudes# left right
+-- A call keeps each inlined comparison small.
+{-# NOINLINE compareLargeInteger# #-}
 
 -- | Equality without an ordering. The representation is canonical, thus
 -- values with different constructors are not equal. A test against a small

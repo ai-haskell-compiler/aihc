@@ -242,6 +242,7 @@ library
     Aihc.Grin.Heap
     Aihc.Grin.Lint
     Aihc.Grin.Lower
+    Aihc.Grin.Merge
     Aihc.Grin.Parser
     Aihc.Grin.PointsTo
     Aihc.Grin.Pretty

@@ -68,11 +68,8 @@ expected: |-
       go z
 
   pub val 1.vcount :: tNat → tNat
-    = λ(x : tNat).
-      let c : tNat → tNat → tNat =
-        λ(unused _pat : tNat) (r : tNat).
-          cS r;
-      c (cS x) (c x cZ)
+    = λ(unused x : tNat).
+      cS (cS cZ)
 
   rule "fold/build" Λ(a : sType). Λ(b : sType). λ(k : a → b → b). λ(z : b). λ(g : ∀(b{1} : sType). (a → b{1} → b{1}) → b{1} → b{1}).
     vfoldr @a @b k z (vbuild @a (Λ(b{1} : sType).

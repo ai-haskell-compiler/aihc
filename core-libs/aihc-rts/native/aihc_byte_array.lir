@@ -12,7 +12,7 @@ extern func @aihc_gc_allocate_pinned_aligned(ptr, i64, i64) -> ptr cc c
 extern func @aihc_byte_array_alignment(ptr) -> i64 cc c
 
 export data @aihc_byte_array_info align 8 = {
-  ptr null, ptr null, ptr null, code null, ptr null,
+  ptr null, ptr null, code null, ptr null,
   i16 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
   i8 @AIHC_NEEDS_EVAL_NONE,
   i16 0                   ; constructor_index
@@ -24,7 +24,7 @@ export data @aihc_byte_array_info align 8 = {
 ; It promotes a mutable byte array through a collection, so that no write
 ; reaches a stale original.
 export data @aihc_frozen_byte_array_info align 8 = {
-  ptr null, ptr null, ptr null, code null, ptr null,
+  ptr null, ptr null, code null, ptr null,
   i16 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
   i8 @AIHC_NEEDS_EVAL_NONE,
   i16 0                   ; constructor_index
@@ -34,7 +34,7 @@ export data @aihc_frozen_byte_array_info align 8 = {
 ; no frozen table. unsafeFreezeByteArray# and unsafeThawByteArray# keep this
 ; table.
 export data @aihc_pinned_byte_array_info align 8 = {
-  ptr null, ptr null, ptr null, code null, ptr null,
+  ptr null, ptr null, code null, ptr null,
   i16 0, i8 0, i8 @AIHC_FRAME_NONE, i8 @AIHC_OBJECT_BYTE_ARRAY,
   i8 @AIHC_NEEDS_EVAL_NONE,
   i16 0                   ; constructor_index

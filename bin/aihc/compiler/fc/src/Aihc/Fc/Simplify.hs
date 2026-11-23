@@ -146,6 +146,7 @@ simplifyProgram primPackage phase siteLimit program =
           { spEnv = env,
             spInline = Map.empty,
             spLocals = Map.empty,
+            spLocalArities = Map.empty,
             spLocalDictionaries = Map.empty,
             spExcluded = MonoidMap.empty,
             spCse = Map.empty,
@@ -447,6 +448,10 @@ data Simpl = Simpl
     -- | Local bindings whose right-hand side is a known constructor
     -- application.
     spLocals :: !(Map Name Expr),
+    -- | The arity of each local function in scope: a lifted binding of a
+    -- lambda. A partial application of such a function does no work, as
+    -- one of a top-level function does not. See 'valueArity'.
+    spLocalArities :: !(Map Name Int),
     -- | Local dictionary bindings whose right-hand side is a call of a
     -- known top-level value, such as an instance function applied to
     -- dictionaries. A case on such a binder selects a field as a case on
@@ -647,7 +652,7 @@ simplifyExpr env0 expr =
         unused name (bindRhs front) ->
           simplifyExpr env (ExLet front (ExRec [bind {bindRhs = rest}] (ExVar name)))
     ExRec binds body -> do
-      let inner = (shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)}
+      let inner = withLocalArities binds ((shadowNames (map (binderName . bindBinder) binds) env) {spEnv = List.foldl' extendBinder (spEnv env) (map bindBinder binds)})
       binds' <- mapM (simplifyRecursiveBinding inner) binds
       body' <- simplifyExpr inner body
       case binds' of
@@ -2404,7 +2409,18 @@ inlineCandidate env name candidate args = do
 -- application is recorded for the case of a known constructor, and a
 -- strict pure primitive call for the reuse of its binder.
 bindingEnv :: Simpl -> Binder -> Expr -> Simpl
-bindingEnv env0 binder rhs
+bindingEnv env0 binder rhs = withLocalArities [Bind binder rhs] (bindingEnvOf env0 binder rhs)
+
+-- | Record the arity of each binding of a lifted lambda as a local
+-- function. See 'spLocalArities'.
+withLocalArities :: [Bind] -> Simpl -> Simpl
+withLocalArities binds env =
+  case [(binderName (bindBinder bind), arity) | bind <- binds, arity <- [functionArity (bindRhs bind)], arity > 0, isLiftedBinder (spEnv env) (bindBinder bind)] of
+    [] -> env
+    arities -> env {spLocalArities = List.foldl' (\current (name, arity) -> Map.insert name arity current) (spLocalArities env) arities}
+
+bindingEnvOf :: Simpl -> Binder -> Expr -> Simpl
+bindingEnvOf env0 binder rhs
   | isKnownConstructor (spArity (spFixed env)) rhs = evaluatedEnv {spLocals = Map.insert (binderName binder) rhs (spLocals env)}
   | isDictionaryType (binderType binder),
     (ExVar function, _ : _) <- collectSpine rhs,
@@ -2436,16 +2452,25 @@ bindingEnv env0 binder rhs
 -- calls with all its arguments in tail position. Such a function shares
 -- a continuation, as the case of a case makes it, and a copy at each call
 -- would copy the continuation again. See 'caseOfCase'.
+--
+-- A local function whose body is not larger than 'tinyLocalSize' is a
+-- candidate at each site, also when no call reduces it. A copy of such a
+-- body is about as large as the call. A join point can become this small
+-- after it is made: the case of a case shares a large alternative, and a
+-- later worker/wrapper split leaves only a call of the worker in it. The
+-- lowering then compiles each call of the join point as a call of a
+-- separate function, and a loop that goes through the join point does two
+-- calls in each iteration.
 localCandidateEnv :: Simpl -> Binder -> Expr -> Expr -> Simpl
 localCandidateEnv env binder rhs body
   | isLiftedBinder (spEnv env) binder,
     not (isStrictBinder (spEnv env) binder),
     functionArity rhs > 0,
     Set.notMember name mentioned,
-    any (\parameter -> parameterScrutinised parameter || any (>= 1) (parameterCallArities parameter)) (guidanceParameters guidance),
+    reducing || tiny,
     not (largeJoinPoint env name rhs body) =
       env
-        { spInline = Map.insert name (Candidate rhs SitesReducing False guidance) (spInline env),
+        { spInline = Map.insert name (Candidate rhs (if reducing then SitesReducing else SitesUnconditional) False guidance) (spInline env),
           spLocalCandidates = Map.insert name mentioned (spLocalCandidates env)
         }
   | otherwise = env
@@ -2453,6 +2478,13 @@ localCandidateEnv env binder rhs body
     name = binderName binder
     mentioned = exprFreeNames rhs
     guidance = candidateGuidance (spEnv env) (spArity (spFixed env)) rhs
+    reducing = any (\parameter -> parameterScrutinised parameter || any (>= 1) (parameterCallArities parameter)) (guidanceParameters guidance)
+    tiny = exprSize (spEnv env) (underLambdas rhs) <= tinyLocalSize
+
+-- | The largest body of a local function that is a candidate at each site.
+-- See 'localCandidateEnv'.
+tinyLocalSize :: Int
+tinyLocalSize = 6
 
 -- | Whether a let binds a join point whose copies would be large: a
 -- function that the body calls more than once, always with all its
@@ -2576,6 +2608,7 @@ shadowNames names env
   -- environment then keeps its own.
   | sameObject evaluated (spEvaluated env)
       && sameObject locals (spLocals env)
+      && sameObject localArities (spLocalArities env)
       && sameObject dictionaries (spLocalDictionaries env)
       && sameObject done (spDone env)
       && sameObject cse (spCse env)
@@ -2587,6 +2620,7 @@ shadowNames names env
       env
         { spEvaluated = evaluated,
           spLocals = locals,
+          spLocalArities = localArities,
           spLocalDictionaries = dictionaries,
           spDone = done,
           spCse = cse,
@@ -2598,6 +2632,7 @@ shadowNames names env
   where
     !evaluated = List.foldl' (flip Set.delete) (spEvaluated env) names
     !locals = List.foldl' (flip Map.delete) (spLocals env) names
+    !localArities = List.foldl' (flip Map.delete) (spLocalArities env) names
     !dictionaries = List.foldl' (flip Map.delete) (spLocalDictionaries env) names
     !done = List.foldl' (flip Map.delete) (spDone env) names
     !cse = if Map.null (spCse env) then spCse env else Map.filter (`Set.notMember` shadowed) (spCse env)
@@ -2887,6 +2922,21 @@ rebuildCall env headExpr' args' = do
         all (either (const True) (\argument -> all (`unused` argument) bound)) args' -> do
           rhs <- simplifyApp (alternativeEnv env scrutinee binder [alternative] alternative) (altRhs alternative) args'
           pure (mkCase (spEnv env) scrutinee binder (alternative {altRhs = rhs} NE.:| []))
+    -- A case of several alternatives in the head takes a small effectful
+    -- argument into each alternative. The scrutinee still goes first, and
+    -- only one alternative runs, so the effect still runs once. The fused
+    -- loop of an @ST@ action has this form after its @>>@ is inlined:
+    -- @(case x ==# n of { 1# -> done; _ -> go (x +# 1#) }) (write s)@.
+    -- In each alternative the call of the loop then takes the state token
+    -- and needs no closure.
+    ExCase scrutinee binder alternatives
+      | any (effectfulArgument env) args',
+        all (either (const True) (\argument -> copiable env argument || smallEffect env argument)) args',
+        let bound = foldMap (pure . binderName) binder <> concatMap (map binderName . altBinders) (NE.toList alternatives),
+        all (either (const True) (\argument -> all (`unused` argument) bound)) args',
+        (length alternatives - 1) * sum [exprSize (spEnv env) argument | Right argument <- args'] <= effectCopyLimit -> do
+          alternatives' <- mapM (\alternative -> (\rhs -> alternative {altRhs = rhs}) <$> simplifyApp (alternativeEnv env scrutinee binder (NE.toList alternatives) alternative) (altRhs alternative) args') alternatives
+          pure (mkCase (spEnv env) scrutinee binder alternatives')
     ExLet {}
       | not (null args'),
         not (all (either (const True) (copiable env)) args') ->
@@ -2952,6 +3002,21 @@ rebuildCall env headExpr' args' = do
           pushed' <- pushed
           rebuildApp env pushed' args'
     _ -> rebuildOther env headExpr' args'
+
+-- | A primitive call with an effect whose arguments are all copiable,
+-- such as the write of a state token. A copy of it in each alternative of
+-- a case is a few nodes. See 'rebuildCall'.
+smallEffect :: Simpl -> Expr -> Bool
+smallEffect env argument =
+  case argument of
+    ExForeignCall call _ arguments -> foreignCallConvention call == Prim && all (copiable env) arguments
+    _ -> False
+
+-- | The most nodes that the copies of the arguments of an application may
+-- add when the application moves into the alternatives of a case. See
+-- 'rebuildCall'.
+effectCopyLimit :: Int
+effectCopyLimit = 32
 
 -- | An argument that is not trivial, has an unlifted type, and is not a
 -- primitive call without an effect, such as the state token that an
@@ -3557,6 +3622,7 @@ constantCallPattern env headExpr' args' =
             env
               { spInline = Map.empty,
                 spLocals = Map.empty,
+                spLocalArities = Map.empty,
                 spLocalDictionaries = Map.empty,
                 spExcluded = MonoidMap.empty,
                 spCse = Map.empty,
@@ -3943,7 +4009,7 @@ mkLet env bind body
   -- that the two casts cancel and the lambda lands on its arguments.
   | lifted,
     Occurrences 1 True <- uses,
-    (arity, cast) <- movableArity (spArity (spFixed env)) rhs,
+    (arity, cast) <- movableArity (spLocalArities env `Map.union` spArity (spFixed env)) rhs,
     arity > 0,
     saturatedCalls name 1 body == 1,
     maybe True (\coercion -> castedBackUses name coercion body == 1) cast = do

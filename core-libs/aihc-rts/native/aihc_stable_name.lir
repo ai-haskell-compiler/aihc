@@ -15,7 +15,6 @@ extern func @aihc_stable_name_escapes(ptr, ptr) -> i64 cc c
 data @aihc_stable_name_info align 8 = {
   ptr null,
   ptr null,
-  ptr null,
   code null,
   ptr null,
   i16 0,

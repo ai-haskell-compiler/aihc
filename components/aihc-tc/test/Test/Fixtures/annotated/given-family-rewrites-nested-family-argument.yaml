@@ -1,0 +1,52 @@
+extensions: [FlexibleContexts, TypeFamilies]
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  type family V a :: Type -> Type
+  type family N a :: Type
+  data P n = P
+  type instance N (P n) = n
+  class C a where
+    c :: a -> a
+  instance C (P n) where
+    c x = x
+  g :: (V t ~ P, N t ~ n) => t -> N (V t (N t)) -> n
+  g _ x = x
+  h :: (V t ~ P, N t ~ n) => t -> V t (N t) -> V t (N t)
+  h _ x = c x
+status: pass
+reason: The family V has arity one, thus V t (N t) is the application of V t to N t. The given V t ~ P rewrites it to P (N t), and the given N t ~ n rewrites it to P n. Then N (P n) reduces to n, and the class constraint C (P n) has an instance. Before the fix, a given rewrite did not find V t as a prefix of the application V t (N t), and the wanted equality and the wanted C (V t (N t)) stayed unsolved.
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  type family V a :: Type -> Type
+              └─ type: Type → Type → Type
+  type family N a :: Type
+              └─ type: Type → Type
+  data P n = P
+       │     └─ type: ∀ n. P n
+       └─ type: Type → Type
+  type instance N (P n) = n
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  instance C (P n) where
+  └─ $fCPn ∷ ∀ n. () ⇒ C (P n)
+    c x = x
+    │ └─ type: P n
+    └─ c ∷ P n → P n
+  g :: (V t ~ P, N t ~ n) => t -> N (V t (N t)) -> n
+  g _ x = x
+  │ │ └─ type: N (V t (N t))
+  │ └─ type: t
+  └─ type: ∀ t n. ((V t) ~ P, (N t) ~ n) ⇒ t → N (V t (N t)) → n
+  h :: (V t ~ P, N t ~ n) => t -> V t (N t) -> V t (N t)
+  h _ x = c x
+  │ │ │   └─ type: V t (N t) → V t (N t); type-args: V t (N t); evidence: cast($fCPn @n, sym (C app (given V t ~ P) (given N t ~ n)))
+  │ │ └─ type: V t (N t)
+  │ └─ type: t
+  └─ type: ∀ t n. ((V t) ~ P, (N t) ~ n) ⇒ t → V t (N t) → V t (N t)

@@ -20,6 +20,7 @@ module Aihc.Grin
     gcFunctionContinuations,
     gcGrinProgram,
     lowerGc,
+    mergeIdenticalFunctions,
     lowerProgram,
     finishGrinProgram,
     PointsTo,
@@ -61,6 +62,7 @@ import Aihc.Grin.Cps
 import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, lowerGc)
 import Aihc.Grin.Lint (GrinLintError (..), lintCpsProgram, lintGcProgram, lintNodeArities, lintProgram)
 import Aihc.Grin.Lower (finishGrinProgram, lowerProgram)
+import Aihc.Grin.Merge (mergeIdenticalFunctions)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
 import Aihc.Grin.PointsTo (PointsTo, PointsToRewrites (..), PointsToStats (..), analyzePointsTo, analyzePointsToWith, pointsToStats, rewriteWithPointsTo, totalPointsToRewrites, widenLimit)
 import Aihc.Grin.Pretty (prettyProgram, prettyProgramSections)

@@ -43,6 +43,7 @@ import Aihc.Resolve.Syntax
     FunctionalDependency (..),
     GadtBody (..),
     IEBundledMember (..),
+    ImportDecl (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     InstanceOverlapPragma (..),
@@ -170,10 +171,10 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Char (isAlpha, isAlphaNum, isSpace, ord)
 import Data.Either (partitionEithers)
-import Data.Graph (SCC (..), stronglyConnComp)
+import Data.Graph (SCC (..), flattenSCC, stronglyConnComp)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, zipWith4, (\\))
+import Data.List (elemIndex, find, mapAccumL, nub, nubBy, partition, sortOn, zip4, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -341,10 +342,10 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   let moduleExtensions = map resolvedModuleExtensions resolvedModules'
       declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
-  mapM_ (atDecl predeclareTypeConstructor) declarations
+  mapM_ (atDecl (predeclareTypeConstructor Nothing)) declarations
   mapM_ (atDecl predeclareTypeLevelDataConstructors) declarations
   mapM_ (atDecl registerDeclaredRecordPatSyn) declarations
-  standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
+  standaloneKindSchemes <- convertStandaloneKindSignatures declarations standaloneKindSignatures
   mapM_ (atDecl (registerTypeDeclHeader associatedFamilyClasses standaloneKindSchemes)) declarations
   let structuralDeclarations =
         [ (resolvedModuleOrigin modu, declaration)
@@ -388,7 +389,15 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- zipWithM checkModuleSignatures moduleExtensions rawSigs
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
-  pending <- sequence (zipWith4 tcModuleBody moduleExtensions (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized)
+  -- A module of an import cycle can use a pattern synonym of another
+  -- member, and a pattern synonym is known only after the check of its
+  -- declaration. Thus, check the bodies in the order of the imports
+  -- without the SOURCE imports, as GHC does. The result keeps the order
+  -- of the modules.
+  let bodyOrder = sourceFreeImportOrder modules
+      bodyInputs = zip4 moduleExtensions (map resolvedVisibleTerms resolvedModules') schemes derivingFinalized
+  orderedPending <- mapM (\index -> let (extensions, visible, moduleSchemes, modu) = bodyInputs !! index in tcModuleBody extensions visible moduleSchemes modu) bodyOrder
+  let pending = map snd (sortOn fst (zip bodyOrder orderedPending))
   mapM_ checkBundledPatSyns derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultDeferredKindMetas
@@ -405,6 +414,22 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
         [declaration | resolved <- resolvedModules', declaration <- moduleDecls (resolvedModuleSyntax resolved)]
 
     atDeclOf check (origin, declaration) = atDecl (check origin) declaration
+
+-- | The indices of the modules of an import cycle, with each module after
+-- the modules that it imports without a SOURCE pragma. A cycle without a
+-- SOURCE import keeps the order of the input.
+sourceFreeImportOrder :: [Module] -> [Int]
+sourceFreeImportOrder modules =
+  concatMap flattenSCC (stronglyConnComp [(index, index, importedIndices modu) | (index, modu) <- indexed])
+  where
+    indexed = zip [0 ..] modules
+    indices = Map.fromList [(name, index) | (index, modu) <- indexed, Just name <- [moduleName modu]]
+    importedIndices modu =
+      [ index
+      | importDecl <- moduleImports modu,
+        isNothing (importDeclSourcePragma importDecl),
+        Just index <- [Map.lookup (importDeclModule importDecl) indices]
+      ]
 
 -- | Check a declaration with its span as the ambient span, so a diagnostic
 -- the check emits without a span of its own reports at the declaration.
@@ -4300,11 +4325,43 @@ classParamKinds classHead = do
   let kinds = maybe [] (takeVisibleArgumentKinds (length classParamNames) . typeSchemeBody . tciKindScheme) predeclared
   pure (Map.fromList (zip classParamNames kinds))
 
-predeclareTypeConstructor :: Decl -> TcM ()
-predeclareTypeConstructor declaration =
+-- | Convert the standalone kind signatures of a declaration group. A
+-- signature can name another type constructor of the group, as
+-- @SWrappedSing :: forall k (a :: k). WrappedSing a -> Type@ names
+-- @WrappedSing :: k -> Type@. That constructor must have its signature
+-- kind, which each use instantiates afresh. A provisional kind meta would
+-- take the kind @k1 -> Type@ of the first use, and then disagree with the
+-- signature @k -> Type@. Thus, the signatures are converted in dependency
+-- order, and each scheme replaces the provisional kind of its constructor.
+convertStandaloneKindSignatures :: [Decl] -> Map GlobalName Type -> TcM (Map GlobalName TypeScheme)
+convertStandaloneKindSignatures declarations signatures = foldM convert Map.empty ordered
+  where
+    ordered = concatMap flattenSignatures (stronglyConnComp [(key, key, references kind) | (key, kind) <- Map.toList signatures])
+    flattenSignatures (AcyclicSCC key) = [key]
+    flattenSignatures (CyclicSCC keys) = keys
+    references kind =
+      [ target
+      | resolution <- collectResolutions resolvedOf kind,
+        EntityGlobal global <- [resolutionTarget resolution],
+        let target = global {globalNameNamespace = resolutionNamespace resolution},
+        Map.member target signatures
+      ]
+    owners = Map.fromListWith (\_ first -> first) [(key, declaration) | declaration <- declarations, key <- declarationTypeKeys declaration]
+    convert schemes key = do
+      scheme <- standaloneKindSigToScheme (signatures Map.! key)
+      forM_ (Map.lookup key owners) $
+        atDecl (predeclareTypeConstructor (Just (key, scheme)))
+      pure (Map.insert key scheme schemes)
+
+-- | Predeclare the type constructors of a declaration. Without a scheme,
+-- each constructor gets a provisional kind meta. With the key and the
+-- scheme of a standalone kind signature, only that constructor changes,
+-- and it gets the scheme.
+predeclareTypeConstructor :: Maybe (GlobalName, TypeScheme) -> Decl -> TcM ()
+predeclareTypeConstructor knownScheme declaration =
   case declaration of
-    DeclAnn _ inner -> predeclareTypeConstructor inner
-    DeclError _ inner -> predeclareTypeConstructor inner
+    DeclAnn _ inner -> predeclareTypeConstructor knownScheme inner
+    DeclError _ inner -> predeclareTypeConstructor knownScheme inner
     DeclData dataDeclaration ->
       let binder = binderHeadName (dataDeclHead dataDeclaration)
           name = unqualifiedNameText binder
@@ -4321,26 +4378,33 @@ predeclareTypeConstructor declaration =
     DeclClass classDeclaration -> do
       let binder = binderHeadName (classDeclHead classDeclaration)
       predeclare binder (unqualifiedNameText binder) (length (binderHeadParams (classDeclHead classDeclaration))) ClassTyCon
-      mapM_ (predeclareTypeConstructor . DeclTypeFamilyDecl) (classDeclTypeFamilies classDeclaration)
+      mapM_ (predeclareTypeConstructor knownScheme . DeclTypeFamilyDecl) (classDeclTypeFamilies classDeclaration)
     DeclTypeFamilyDecl familyDeclaration ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDeclaration) of
-        Just binder -> predeclare binder (unqualifiedNameText binder) (length (typeFamilyDeclParams familyDeclaration)) TypeFamilyTyCon
+        Just binder -> predeclare binder (unqualifiedNameText binder) (length (typeFamilyVisibleParams familyDeclaration)) TypeFamilyTyCon
         Nothing -> pure ()
     _ -> pure ()
   where
-    predeclare binder name arity flavor = do
-      kinds <- getKinds
-      provisionalKind <-
-        case flavor of
-          ClassTyCon -> foldr KFun (constraintKind kinds) <$> replicateM arity freshKindMeta
-          _ -> freshKindMeta
+    predeclare binder name arity flavor =
+      case knownScheme of
+        Just (key, scheme)
+          | resolvedTypeKey binder == Just key -> store binder name arity flavor scheme
+          | otherwise -> pure ()
+        Nothing -> do
+          kinds <- getKinds
+          provisionalKind <-
+            case flavor of
+              ClassTyCon -> foldr KFun (constraintKind kinds) <$> replicateM arity freshKindMeta
+              _ -> freshKindMeta
+          store binder name arity flavor (Scheme [] [] [] provisionalKind)
+    store binder name arity flavor scheme = do
       tyCon <- mkDeclaredTyCon binder name arity
       storeTyConInfo
         TyConInfo
           { tciName = name,
             tciArity = arity,
             tciTyCon = tyCon,
-            tciKindScheme = Scheme [] [] [] provisionalKind,
+            tciKindScheme = scheme,
             tciFlavor = flavor,
             tciTypeSynonym = Nothing,
             tciInjectivity = Nothing
@@ -4351,7 +4415,14 @@ storeTyConInfo info = do
   existing <- lookupTyConByIdentity (tciTyCon info)
   case existing of
     Just provisional -> do
-      unifyKinds (typeSchemeBody (tciKindScheme provisional)) (typeSchemeBody (tciKindScheme info))
+      -- A provisional kind with binders is the scheme of a standalone
+      -- kind signature (see 'convertStandaloneKindSignatures'). The
+      -- registration converts the same signature, but it can name the
+      -- binders with other variables. Only a provisional kind meta needs
+      -- the unification.
+      case tciKindScheme provisional of
+        ForAll [] _ provisionalKind -> unifyKinds provisionalKind (typeSchemeBody (tciKindScheme info))
+        _ -> pure ()
       replaceTyConEnvPermanent info
     Nothing -> extendTyConEnvPermanent info
 
@@ -4579,7 +4650,7 @@ registerAssociatedTypeFamily origin classParamNames defaults familyDecl =
     Nothing -> pure Nothing
     Just familyBinder -> do
       let familyName = unqualifiedNameText familyBinder
-          params = typeFamilyDeclParams familyDecl
+          params = typeFamilyVisibleParams familyDecl
           familyDefaults = [familyInst | familyInst <- defaults, typeFamilyInstName familyInst == Just familyName]
       familyTyCon <- mkDeclaredTyCon familyBinder familyName (length params)
       defaultEquation <-
@@ -5166,7 +5237,7 @@ registerTypeFamilyDeclHeaderWith sharedKinds maybeKindScheme familyDecl =
       emitError Nothing (OtherError "type family head does not name a type family")
     Just familyBinder -> do
       let familyName = unqualifiedNameText familyBinder
-          params = typeFamilyDeclParams familyDecl
+          params = typeFamilyVisibleParams familyDecl
           arity = length params
       -- An associated family shares its kind variables with the class, so
       -- only a top-level family quantifies the kind variables it mentions.
@@ -5232,7 +5303,7 @@ typeFamilyInjectivePositions familyDecl =
     Just (TypeFamilyInjectiveSig _ injectivity) ->
       Just
         [ position
-        | (position, param) <- zip [0 ..] (typeFamilyDeclParams familyDecl),
+        | (position, param) <- zip [0 ..] (typeFamilyVisibleParams familyDecl),
           tyVarBinderName param `elem` typeFamilyInjectivityDetermined injectivity
         ]
     _ -> Nothing
@@ -6101,6 +6172,12 @@ synonymBodyScope kindScheme binders params =
 -- @k@ in @type T \@k = ...@, is not a parameter. See 'invisibleHeadBinders'.
 visibleHeadParams :: [TyVarBinder] -> [TyVarBinder]
 visibleHeadParams = filter ((== TyVarBVisible) . tyVarBinderVisibility)
+
+-- | The parameters of a type family head. An invisible binder, as @k@
+-- in @type family Sing \@k :: k -> Type@, names a specified variable of
+-- the standalone kind signature and is not a parameter.
+typeFamilyVisibleParams :: TypeFamilyDecl -> [TyVarBinder]
+typeFamilyVisibleParams = visibleHeadParams . typeFamilyDeclParams
 
 -- | Each invisible binder of a declaration head names the next specified
 -- variable of the standalone kind signature, as in GHC. In @type TyCon1

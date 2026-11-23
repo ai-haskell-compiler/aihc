@@ -1,0 +1,68 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (classify) where
+
+  import GHC.Prim (Word8#, ltWord8#, word8ToWord#, word2Int#, wordToWord8#, (<#), (-#))
+  import GHC.Types (Int (..))
+
+  classify :: Word8# -> Int
+  classify v = case ltWord8# v (wordToWord8# 64##) of
+    1# ->
+      let i = word2Int# (word8ToWord# v)
+       in case i <# 0# of
+            1# -> I# 0#
+            _ -> case i <# 64# of
+              1# -> I# i
+              _ -> I# 1#
+    _ ->
+      let j = word2Int# (word8ToWord# v) -# 64#
+       in case j <# 0# of
+            1# -> I# 2#
+            _ -> I# j
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    ltWord8# = 2.vltWord8# :: FUN @cWord8Rep @sLiftedRep tWord8# (FUN @cWord8Rep @cIntRep tWord8# tInt#);
+    word2Int# = 2.vword2Int# :: FUN @cWordRep @cIntRep tWord# tInt#;
+    word8ToWord# = 2.vword8ToWord# :: FUN @cWord8Rep @cWordRep tWord8# tWord#
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    2.tWord# :: tTYPE cWordRep;
+    2.tWord8# :: tTYPE cWord8Rep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    3.cWord8Rep :: tRuntimeRep;
+    3.cWordRep :: tRuntimeRep
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vclassify :: FUN @cWord8Rep @sLiftedRep tWord8# tInt
+    = λ(x : tWord8#).
+      case prim ltWord8# x lit (64#cWord8Rep) :: tWord8# of {
+        1#cIntRep →
+          cI# (prim word2Int# (prim word8ToWord# x));
+        _ →
+          cI# (prim -# (prim word2Int# (prim word8ToWord# x)) lit (64#cIntRep) :: tInt#)
+      }
+status: pass
+reason: A conversion that keeps a value gives the range of its operand within the values of its source type, and a difference with a literal moves the range. Thus a comparison on the result of the conversion is decided.

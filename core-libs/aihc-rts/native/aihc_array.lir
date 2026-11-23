@@ -32,7 +32,6 @@ extern func @aihc_memory_move(ptr, ptr, i64) cc c
 data @aihc_array_info align 8 = {
   ptr null,   ; identity
   ptr null,   ; field_is_pointer
-  ptr null,   ; next
   code null,  ; backend_entry
   ptr null,   ; srt
   i16 1,      ; field_count

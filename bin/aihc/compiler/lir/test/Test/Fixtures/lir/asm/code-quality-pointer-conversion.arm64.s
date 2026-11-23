@@ -5,12 +5,11 @@ _enter:
 	add x23, x8, #1
 	ldr x8, [x0]
 	ldr x8, [x8, #24]
-	mov x14, x8
-	cbz x14, .Llir_trap_0_0
+	cbz x8, .Llir_trap_0_0
 	mov x22, x0
 	mov x2, x1
 	mov x1, xzr
-	br x14
+	br x8
 .Llir_trap_0_0:
 	b .Llir_trap_0
 	.text

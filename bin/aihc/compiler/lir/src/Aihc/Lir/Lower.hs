@@ -224,16 +224,16 @@ lowerModule :: LowerTarget -> ModuleSettings -> GcGrinProgram -> Either LowerErr
 lowerModule target settings =
   lowerProgramWith (libraryOptions target settings)
 
--- | Lower the fixed executable entry unit. With the flags, @main@ registers
--- the allocation counters and the time profile tables of the program with
--- the runtime. The list holds the default RTS options of the executable,
+-- | Lower the fixed executable entry unit. With the flag, @main@ registers
+-- the time profile tables of the program with the runtime. The entry has
+-- no allocation counters: each unit with counters registers its own table. The list holds the default RTS options of the executable,
 -- one option in each element. The @main@ of a POSIX host gives them to the
 -- runtime before the arguments. The WASI P3 entry does not use them: its
 -- driver gives the arguments to the runtime before the entry starts.
-lowerEntry :: LowerTarget -> Bool -> Bool -> [Text] -> Either LowerError Module
-lowerEntry target profileAllocations profileTime runtimeOptions = do
+lowerEntry :: LowerTarget -> Bool -> [Text] -> Either LowerError Module
+lowerEntry target profileTime runtimeOptions = do
   gcProgram <- either (Left . LowerCpsError . T.pack . show) Right entryGcProgram
-  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = profileAllocations, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
+  lowerProgramWithEntry LowerOptions {lowerUnitKind = ExecutableUnit, lowerExposeFunctions = False, lowerTarget = target, lowerCheckPrimBounds = False, lowerProfileAllocations = False, lowerProfileTime = profileTime, lowerCopyContinuations = False} runtimeOptions gcProgram
 
 lowerProgramWith :: LowerOptions -> GcGrinProgram -> Either LowerError Module
 lowerProgramWith options = lowerProgramWithEntry options []
@@ -663,11 +663,16 @@ lowerEnvironment options gcProgram =
             <> [(grinExternName extern, map repType (grinExternParameters extern)) | extern <- grinExternFunctions program]
         )
     staticReferences = programStaticReferences program
-    srtSymbols =
+    -- A function whose table was removed uses the symbol of the table
+    -- that replaces it. See 'staticReferenceShared'.
+    ownSrtSymbols =
       Map.fromList
         [ (name, Symbol ("aihc_lir_srt_" <> T.pack (show index)))
         | (index, name) <- zip [0 :: Int ..] (Map.keys (staticReferenceTables staticReferences))
         ]
+    srtSymbols =
+      ownSrtSymbols
+        <> Map.mapMaybe (`Map.lookup` ownSrtSymbols) (staticReferenceShared staticReferences)
     constructorLayouts =
       [ (grinConstructorName constructor, grinConstructorLayouts constructor)
       | constructor <- grinConstructors program
@@ -1109,6 +1114,13 @@ loadObjectHeader region object = loadSlot region "header_word" I64 object 0 >>= 
 -- the inline evaluation check needs.
 loadObjectHeaderDependent :: Region -> Operand -> LowerM (Typed, Typed)
 loadObjectHeaderDependent region object = loadSlotDependent region "header_word" I64 object 0 >>= headerTable
+
+-- | The info table of an evaluated constructor. Only a thunk header carries
+-- the two low bits, so the header of a constructor needs no mask.
+loadConstructorInfo :: Operand -> LowerM Typed
+loadConstructorInfo object = do
+  header <- loadSlot HeapRegion "header_word" I64 object 0
+  emitValue "header" Ptr (PtrFromInt (typedOperand header))
 
 headerTable :: Typed -> LowerM (Typed, Typed)
 headerTable header = do
@@ -1735,6 +1747,9 @@ lowerInfo info = do
     failWith (LowerUnsupportedValue ("a function with more than 255 arguments: " <> unSymbol (infoSymbol info)))
   when (infoConstructorIndex info > infoConstructorIndexLimit) $
     failWith (LowerUnsupportedValue ("a data type with more than 65536 constructors: " <> unSymbol (infoSymbol info)))
+  let hasNext = infoHasNext (infoObjectKind info) (infoRemainingArity info)
+  when (isJust (infoNext info) && not hasNext) $
+    failWith (LowerUnsupportedValue ("an info table with a next stage that its kind does not allow: " <> unSymbol (infoSymbol info)))
   bitmap <- internBitmap (infoBitmap info)
   entry <- traverse (enterFunction (infoSymbol info)) (infoEnter info)
   emitItem
@@ -1747,7 +1762,6 @@ lowerInfo info = do
             dataFields =
               [ infoIdentity info,
                 maybe DataNull (`DataSymbol` 0) bitmap,
-                maybe DataNull (`DataSymbol` 0) (infoNext info),
                 DataCode entry,
                 maybe DataNull (`DataSymbol` 0) (infoSrt info),
                 DataInt I16 (toInteger (length fields)),
@@ -1757,6 +1771,7 @@ lowerInfo info = do
                 DataInt I8 (objectKindNeedsEval (infoObjectKind info)),
                 DataInt I16 (toInteger (infoConstructorIndex info))
               ]
+                <> [maybe DataNull (`DataSymbol` 0) (infoNext info) | hasNext]
           }
     )
 
@@ -1929,7 +1944,6 @@ lowerStaticReferenceTables env = do
     forM_ (mfilter (`Set.member` named) (Map.lookup name (envSrtSymbols env))) $ \symbol -> do
       let objects = map globalSymbol (srtObjects table)
           children = [child | name' <- srtChildren table, Just child <- [Map.lookup name' (envSrtSymbols env)]]
-          word = wordField target
       mapM_ requireExternData objects
       emitItem
         ( ItemData
@@ -1938,7 +1952,9 @@ lowerStaticReferenceTables env = do
                 Internal
                 True
                 (toInteger (lowerWordSize target))
-                ( [word 0, word (toInteger (length objects)), word (toInteger (length children))]
+                -- The two counts are 32 bits wide, so they use one word on a
+                -- 64-bit target. See struct AihcSrt in the runtime.
+                ( [wordField target 0, DataInt I32 (toInteger (length objects)), DataInt I32 (toInteger (length children))]
                     <> [DataSymbol object 0 | object <- objects]
                     <> [DataSymbol child 0 | child <- children]
                 )
@@ -2076,7 +2092,8 @@ maximumRoots expression =
     GrinBind _ (GrinEnsureHeap _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinAllocate _ _ roots) body -> max (length roots) (maximumRoots body)
     GrinBind _ (GrinSafepoint _ roots) body -> max (length roots) (maximumRoots body)
-    GrinBind _ GrinForeignCallExpr {} body -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
+    GrinBind _ (GrinForeignCallExpr call _) body
+      | needsForeignFrame (grinForeignCallTarget call) -> max (Set.size (Set.filter (isPointerRuntimeRep . grinVarRuntimeRep) (freeExprVars expression))) (maximumRoots body)
     GrinBind _ value body -> max (maximumRoots value) (maximumRoots body)
     GrinStoreRec _ body -> maximumRoots body
     GrinStoreRecUnchecked _ body -> maximumRoots body
@@ -2100,6 +2117,7 @@ needsForeignFrame target = case target of
   GrinForeignAddress -> False
   GrinForeignFunctionAddress _ -> False
   GrinForeignWrapper _ -> False
+  GrinForeignUnsafeFunction -> False
   _ -> True
 
 hasForeignCall :: (GrinForeignTarget -> Bool) -> GrinExpr -> Bool
@@ -2669,7 +2687,6 @@ replayInfo shape = do
               dataFields =
                 [ DataCode (Just entry),
                   maybe DataNull (`DataSymbol` 0) bitmap,
-                  DataNull,
                   DataCode (Just entry),
                   DataSymbol replaySrtMarker 0,
                   DataInt I16 (toInteger (replayArgumentSlot - 1 + length shape)),
@@ -2867,19 +2884,19 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
       emitValue "heap_fits" I1 (Binary And I1 (typedOperand below) (typedOperand enough))
   collect <- freshLabel "gc_collect"
   reserved <- freshLabel "gc_reserved"
-  parameters <- forM vars $ \var -> do
-    parameter <- fresh (varBase var)
-    pure (var, parameter)
-  heap <- fresh "hp"
-  let heapArguments current = [contextHeap current]
-  terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
-  beginColdBlock collect []
   replay <- gets stateReplay
-  endReplay
   case replay of
     -- The code before the reservation only read values, so the function
     -- can run again from its entry after the collection. See 'Replay'.
+    -- The cold path does not come back to the reserved block, so the
+    -- block keeps the names of the roots and the heap context. New names
+    -- there would get other registers than the names before the
+    -- reservation, because the cold path also reads those, and each entry
+    -- of the function would then move every root to its new register.
     Just (Replay code arguments repush) -> do
+      terminate (Branch (typedOperand fits) (Target reserved []) (Target collect []))
+      beginColdBlock collect []
+      endReplay
       helper <- requireHelper (HelperCollectReplay [(ty, root) | (_, ty, root) <- arguments])
       replayContext <- case repush of
         Nothing -> pure context
@@ -2888,7 +2905,17 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
           pure context {contextStack = typedOperand stack}
       srt <- useSrt ctx
       terminate (TailCall helper (contextOperands replayContext <> [operand | (operand, _, _) <- arguments] <> [OperandLiteral (LitSymbol code), srt, words']))
+      beginBlock reserved []
+      pure (Map.fromList [(var, Typed root Ptr) | (var, root) <- zip vars rootOperands] `Map.union` env)
     Nothing -> do
+      parameters <- forM vars $ \var -> do
+        parameter <- fresh (varBase var)
+        pure (var, parameter)
+      heap <- fresh "hp"
+      let heapArguments current = [contextHeap current]
+      terminate (Branch (typedOperand fits) (Target reserved (rootOperands <> heapArguments context)) (Target collect []))
+      beginColdBlock collect []
+      endReplay
       forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
         storeSlot AnyRegion Ptr root array (toInteger (8 * index))
       -- The compare above is the reservation, so this is the collector rather
@@ -2903,9 +2930,9 @@ reserveHeap ctx env vars requiredWords words' roots rootOperands array = do
         loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
       collected <- loadHeapContext capability context
       terminate (Jump (Target reserved (map typedOperand relocated <> heapArguments collected)))
-  beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
-  setContext context {contextHeap = OperandVar heap}
-  pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
+      beginBlock reserved ([(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
+      setContext context {contextHeap = OperandVar heap}
+      pure (Map.fromList [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters] `Map.union` env)
 
 -- | Bind the result variables of a direct expression, converting each value
 -- to the representation of its variable.
@@ -2969,6 +2996,16 @@ countAllocation info tag words' = do
   allocated <- loadSlot AnyRegion "words" I64 counters (offset + 8)
   allocated' <- emitValue "words" I64 (Binary Add I64 (typedOperand allocated) (OperandLiteral (LitInt (toInteger words'))))
   storeSlot AnyRegion I64 (typedOperand allocated') counters (offset + 8)
+  -- The first object of a counter registers the table of the unit with
+  -- the runtime. A unit that counts nothing stays out of the report.
+  first <- emitValue "first_object" I1 (Compare Eq I64 (typedOperand objects) (OperandLiteral (LitInt 0)))
+  register <- freshLabel "profile_register"
+  counted <- freshLabel "profile_counted"
+  terminate (Branch (typedOperand first) (Target register []) (Target counted []))
+  beginColdBlock register []
+  _ <- callRuntime "aihc_allocation_profile_register" [Ptr] [] [OperandLiteral (LitSymbol allocationTableSymbol)]
+  terminate (Jump (Target counted []))
+  beginBlock counted []
   where
     -- A linked name separates its package, module and name with control
     -- characters, which a C string cannot hold.
@@ -2979,16 +3016,18 @@ countAllocation info tag words' = do
           GrinClosure name layouts -> "P " <> unFunctionName name <> "/" <> T.pack (show (length layouts))
           GrinThunk name -> "F " <> unFunctionName name
 
--- | The symbols of the allocation profile: the counters, the names, and
--- the number of counters.
-allocationCountsSymbol, allocationNamesSymbol, allocationSizeSymbol :: Symbol
+-- | The symbols of the allocation profile of a unit: the counters, the
+-- names, and the table that the unit gives the runtime. Each unit has its
+-- own, so the symbols are internal.
+allocationCountsSymbol, allocationNamesSymbol, allocationTableSymbol :: Symbol
 allocationCountsSymbol = Symbol "aihc_allocation_profile_counts"
 allocationNamesSymbol = Symbol "aihc_allocation_profile_names"
-allocationSizeSymbol = Symbol "aihc_allocation_profile_size"
+allocationTableSymbol = Symbol "aihc_allocation_profile_table"
 
 -- | The data of the allocation profile of a unit, after its code: the
--- zeroed counters, the name of each, and their number. A unit with no
--- allocation still defines all three, because the entry names them.
+-- zeroed counters, the name of each, and the table of the runtime with
+-- their number. See @AihcAllocationTable@ in the runtime. The runtime
+-- writes the link and the registered flag of the table.
 lowerAllocationProfile :: LowerM ()
 lowerAllocationProfile = do
   target <- targetM
@@ -2997,9 +3036,9 @@ lowerAllocationProfile = do
     let symbol = Symbol ("aihc_allocation_profile_name_" <> T.pack (show index))
     emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes (TE.encodeUtf8 name), DataInt I8 0]))
     pure symbol
-  emitItem (ItemData (DataItem allocationCountsSymbol Export True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
-  emitItem (ItemData (DataItem allocationNamesSymbol Export False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
-  emitItem (ItemData (DataItem allocationSizeSymbol Export False 8 [DataInt I64 (toInteger (length sites))]))
+  emitItem (ItemData (DataItem allocationCountsSymbol Internal True 8 (if null sites then [DataInt I64 0] else concat [[DataInt I64 0, DataInt I64 0] | _ <- sites])))
+  emitItem (ItemData (DataItem allocationNamesSymbol Internal False (toInteger (lowerWordSize target)) (if null names then [DataNull] else [DataSymbol symbol 0 | symbol <- names])))
+  emitItem (ItemData (DataItem allocationTableSymbol Internal True 8 [DataInt I64 (toInteger (length sites)), DataInt I64 0, DataSymbol allocationNamesSymbol 0, DataSymbol allocationCountsSymbol 0, DataNull]))
 
 -- | The symbols of the time profile tables: the code of each function, its
 -- name, and their number, then the info tables of the functions and their
@@ -3229,11 +3268,19 @@ compileForeignCall ctx env foreignCall arguments =
       _ -> failWith (LowerUnsupportedExpression "callback creation requires one closure")
 
 -- | Spill live heap pointers while C can call Haskell and collect.
+--
+-- An unsafe call of a named C function is a plain C call. It cannot call
+-- Haskell, so it cannot collect, and it keeps the capability, so no other
+-- capability collects while it runs. Thus it needs no root spill and no
+-- foreign frame. An unsafe dynamic call keeps the frame: a function pointer
+-- can be a Haskell callback, and the frame lets the runtime refuse to enter
+-- it.
 protectedForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM ([Typed], ValueEnv)
 protectedForeignCall ctx env call arguments = case grinForeignCallTarget call of
   GrinForeignAddress -> (,env) <$> compileForeignCall ctx env call arguments
   GrinForeignFunctionAddress _ -> (,env) <$> compileForeignCall ctx env call arguments
   GrinForeignWrapper _ -> (,env) <$> compileForeignCall ctx env call arguments
+  GrinForeignUnsafeFunction -> (,env) <$> compileForeignCall ctx env call arguments
   target -> do
     let roots = [(var, value) | (var, value) <- Map.toAscList env, isPointerRuntimeRep (grinVarRuntimeRep var)]
         allowed = target `notElem` [GrinForeignUnsafeFunction, GrinForeignUnsafeDynamic]
@@ -3544,7 +3591,7 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     (_, [value])
       | name `elem` ["dataToTagSmall#", "dataToTagLarge#"] -> do
           object <- pointerValue ctx env value
-          header <- loadObjectInfo HeapRegion object
+          header <- loadConstructorInfo object
           index <- loadInfoConstructorIndex (typedOperand header)
           bind [index]
     ("not#", [value]) -> do
@@ -4765,14 +4812,14 @@ compileCase ctx env scrutinee binder alternatives = do
               let indices = [index | (_, index, _) <- constructors]
               when (Set.size (Set.fromList indices) /= length indices) $
                 failWith (LowerUnsupportedExpression "two alternatives of one case give the same constructor index")
-              header <- loadObjectInfo HeapRegion (typedOperand typed)
+              header <- loadConstructorInfo (typedOperand typed)
               index <- loadInfoConstructorIndex (typedOperand header)
               terminate (Switch I64 (typedOperand index) [SwitchCase (toInteger constructorIndex) (Target label []) | (_, constructorIndex, label) <- constructors] (Just (Target fallback [])))
             else do
               -- The header of a saturated constructor names its saturated
               -- table, and a case only sees saturated constructors, so the
               -- table address itself is the identity.
-              identity <- loadObjectInfo HeapRegion (typedOperand typed)
+              identity <- loadConstructorInfo (typedOperand typed)
               checks <- forM constructors $ \(name, _, label) -> do
                 let symbol = constructorInfoSymbol name 0
                 unless (Map.member (ConstructorRuntimeInfo name SaturatedConstructor) (envInfoSymbols (ctxEnv ctx))) (requireExternData symbol)
@@ -4869,11 +4916,6 @@ lowerExecutableMain runtimeOptions gcProgram = do
     void (callRuntime "aihc_runtime_default_options" [Ptr, I64] [] [OperandLiteral (LitSymbol optionsSymbol), OperandLiteral (LitInt (toInteger (BS.length optionBytes)))])
   _ <- callRuntime "aihc_program_arguments_initialize" [I32, Ptr] [] [OperandVar argc, OperandVar argv]
   _ <- callRuntime "aihc_program_environment_initialize" [] [] []
-  profiling <- gets stateProfileAllocations
-  when profiling $ do
-    mapM_ requireExternData [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol]
-    _ <- callRuntime "aihc_allocation_profile_register" [Ptr, Ptr, Ptr] [] (map (OperandLiteral . LitSymbol) [allocationNamesSymbol, allocationCountsSymbol, allocationSizeSymbol])
-    pure ()
   profilingTime <- gets stateProfileTime
   when profilingTime $ do
     let tables = [timeProfileCodesSymbol, timeProfileNamesSymbol, timeProfileCodeCountSymbol, timeProfileInfosSymbol, timeProfileInfoCountSymbol]
@@ -5330,8 +5372,7 @@ applySlow capability context current continuation continuationSlot arguments gro
 applyPartial :: Context -> Operand -> Operand -> Operand -> Int -> [(Var, Type)] -> Label -> LowerM ()
 applyPartial context function continuation header groups values slow = do
   target <- targetM
-  let width = toInteger (lowerWordSize target)
-      nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (width * toInteger infoNextIndex)) (wordAlignment 1))
+  let nextStage current = typedOperand <$> emitValue "next_header" Ptr (LoadInvariant Ptr (byteAddress current (infoNextOffset target)) (wordAlignment 1))
   next <- foldM (\current _ -> nextStage current) header [1 .. groups]
   held <- loadInfoFieldCount "held" header
   total <- loadInfoFieldCount "total" next
@@ -5393,10 +5434,23 @@ applyOverSaturated context function continuation header supplied held = do
 
 -- | The word fields of an info table precede its byte fields. See the
 -- "Info tables" section of @docs/lir.md@.
-infoWordFieldCount, infoNextIndex, infoBackendEntryIndex :: Int
-infoWordFieldCount = 5
-infoNextIndex = 2
-infoBackendEntryIndex = 3
+infoWordFieldCount, infoBackendEntryIndex :: Int
+infoWordFieldCount = 4
+infoBackendEntryIndex = 2
+
+-- | The byte offset of the next word of an info table, after the eight bytes
+-- of the byte fields. Only a table for which 'infoHasNext' holds has it.
+infoNextOffset :: LowerTarget -> Integer
+infoNextOffset target = toInteger (lowerWordSize target * infoWordFieldCount + 8)
+
+-- | Whether an info table has the next word: a partial constructor names the
+-- table of its saturated constructor, and a closure that takes two or more
+-- argument groups names the table after one more group. Other tables do not
+-- have the word, so most tables are one word smaller.
+infoHasNext :: Int -> Int -> Bool
+infoHasNext objectKind remainingArity =
+  objectKind == runtimeObjectPartialConstructor
+    || (objectKind == runtimeObjectClosure && remainingArity >= 2)
 
 -- | The fields of an info table after the word fields, as byte offsets from
 -- the end of the word fields. The field count and the constructor index

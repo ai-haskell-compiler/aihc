@@ -35,14 +35,13 @@
   const APPLY_GROUP_LIMIT = 4;
 
   const TARGETS = {
-    "64-bit": { word: 8, size: 48 },
-    wasm32: { word: 4, size: 28 },
+    "64-bit": { word: 8, size: 40 },
+    wasm32: { word: 4, size: 24 },
   };
 
   const FIELDS = [
     "identity",
     "field_is_pointer",
-    "next",
     "backend_entry",
     "srt",
     "field_count",
@@ -50,14 +49,19 @@
     "frame_kind",
     "object_kind",
     "needs_eval",
+    "next",
   ];
+
+  // The byte offsets after the four word fields. See struct AihcInfo.
+  const BYTE_OFFSETS = { field_count: 0, remaining_arity: 2, frame_kind: 3, object_kind: 4, needs_eval: 5, next: 8 };
 
   const THUNK_STATES = ["Not evaluated", "Under evaluation", "Updated"];
 
-  // Five word fields, then five byte fields. See struct AihcInfo.
+  // Four word fields, then the byte fields. Only a table with a next stage
+  // has the next word after them. See struct AihcInfoWithNext.
   function fieldOffset(index, target) {
     const word = TARGETS[target].word;
-    return index < 5 ? index * word : 5 * word + (index - 5);
+    return index < 4 ? index * word : 4 * word + BYTE_OFFSETS[FIELDS[index]];
   }
 
   function argSlots(reps, count) {
@@ -535,7 +539,9 @@
 
     function renderTable(table, model, previous) {
       const current = table.id === model.current;
-      const rows = FIELDS.map((field, index) => {
+      const fields = FIELDS.filter((field) => field !== "next" || table.values.next !== "null");
+      const rows = fields.map((field) => {
+        const index = FIELDS.indexOf(field);
         const value = table.values[field];
         const changed = previous && previous.current !== model.current && current;
         return el("tr", {}, [
@@ -588,7 +594,7 @@
         el("pre", { class: "ix-source" }, [el("code", { text: model.source.join("\n") })]),
         renderObject(model),
         el("p", { class: "ix-note", text: model.note }),
-        el("div", { class: "ix-heading", text: "Info tables (" + TARGETS[state.target].size + " bytes each)" }),
+        el("div", { class: "ix-heading", text: "Info tables (" + TARGETS[state.target].size + " bytes, or " + (TARGETS[state.target].size + TARGETS[state.target].word) + " bytes with next)" }),
         el("div", { class: "ix-chain" }, chain),
       );
       state.previous = model;

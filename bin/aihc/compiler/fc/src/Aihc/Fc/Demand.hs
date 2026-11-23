@@ -420,9 +420,12 @@ lazySignature env binder rhs
 -- a member needs them.
 lazyRecursiveSignatures :: Env -> [Bind] -> Env
 lazyRecursiveSignatures env binds =
-  let fixed = fixSignatures env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]
+  let (fixed, evaluates) = fixRecursive env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]
       members = [(name, LazyMap.findWithDefault (Signature []) name fixed) | bind <- binds, let name = binderName (bindBinder bind)]
-   in env {envSignatures = List.foldl' (\current (name, signature) -> LazyMap.insert name signature current) (envSignatures env) members}
+   in env
+        { envSignatures = List.foldl' (\current (name, signature) -> LazyMap.insert name signature current) (envSignatures env) members,
+          envEvaluates = LazyMap.union evaluates (envEvaluates env)
+        }
 
 -- | The one constructor of a type that a worker can take apart and build
 -- again, with the type arguments of the type and the types of the
@@ -554,10 +557,60 @@ bindSignature env binder rhs
     binders = fst (collectLambdas rhs)
     (signature, evaluates) = lambdaStrictness env rhs
 
--- | The signatures in scope under a recursive group.
+-- | The signatures in scope under a recursive group, and the free
+-- variables that the body of each member evaluates.
 bindRecursiveSignatures :: Env -> [Bind] -> Env
 bindRecursiveSignatures env binds =
-  env {envSignatures = fixSignatures env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]}
+  let (signatures, evaluates) = fixRecursive env [(binderName (bindBinder bind), bindRhs bind) | bind <- binds]
+   in env {envSignatures = signatures, envEvaluates = Map.union evaluates (envEvaluates env)}
+
+-- | The signatures of a local recursive group, as 'fixSignatures' gives
+-- them, and the free variables that the body of each member evaluates on
+-- every call. A saturated call of a member then evaluates these variables
+-- too, as a call of a local function that is not recursive does.
+--
+-- The free variables have their own fixpoint. It starts from the guess
+-- that a member evaluates every free value of the group, and it removes
+-- the variables that a step does not confirm. A loop such as
+--
+-- > let len = length line
+-- >     go i | i + 1 >= len = ...
+-- >          | otherwise = ... go (i + 1) ...
+-- > in go 0
+--
+-- evaluates @len@ on every call: the base case compares it, and the
+-- recursive case calls @go@, which the guess says evaluates it. Thus the
+-- body of the let evaluates @len@, and the let becomes a case.
+fixRecursive :: Env -> [(Name, Expr)] -> (Signatures, Map Name (Int, Set Name))
+fixRecursive env members = loop (0 :: Int) optimistic optimisticEvaluates
+  where
+    names = Set.fromList (map fst members)
+    arities = [(name, length (fst (collectLambdas rhs))) | (name, rhs) <- members]
+    universe = Set.unions (map (exprValueNames . snd) members) `Set.difference` names
+    optimistic = Map.fromList [(name, Signature (replicate arity Strict)) | (name, arity) <- arities]
+    pessimistic = Map.fromList [(name, Signature (replicate arity Lazy)) | (name, arity) <- arities]
+    optimisticEvaluates = Map.fromList [(name, (arity, universe)) | (name, arity) <- arities]
+    nothingEvaluated = Map.fromList [(name, (arity, Set.empty)) | (name, arity) <- arities]
+    bound = 1 + sum (map snd arities) + Set.size universe * length members
+    loop iteration current evaluates
+      | iteration > bound = (Map.union pessimistic (envSignatures env), nothingEvaluated)
+      | strictOnly next == current && nextEvaluates == evaluates = (Map.union next (envSignatures env), evaluates)
+      | otherwise = loop (iteration + 1) (strictOnly next) nextEvaluates
+      where
+        inner =
+          env
+            { envSignatures = Map.union current (envSignatures env),
+              envEvaluates = Map.union evaluates (envEvaluates env)
+            }
+        results = [(name, lambdaStrictness inner rhs) | (name, rhs) <- members]
+        next = Map.fromList [(name, signature) | (name, (signature, _)) <- results]
+        nextEvaluates =
+          Map.fromList
+            [ (name, (arity, Set.intersection found guessed))
+            | (name, (_, found)) <- results,
+              Just (arity, guessed) <- [Map.lookup name evaluates]
+            ]
+    strictOnly = Map.map (\(Signature demands) -> Signature [if isStrict demand then Strict else Lazy | demand <- demands])
 
 -- | The free variables an expression evaluates whenever it is evaluated.
 -- A lambda is a value. Its body contributes no immediate strictness facts.

@@ -1,0 +1,85 @@
+---
+extensions: []
+modules:
+- |
+  module Test (Box (..), Pair (..)) where
+
+  class Pair f where
+    first :: f a -> a
+    both :: f a -> (a, a)
+    both x = (first x, first x)
+
+  data Box s a = Box a
+
+  instance Pair (Box s) where
+    first (Box x) = x
+passes:
+- specialise-top
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [2.c(,)] 2.tTuple2 :: ∀(a1 : sType) (a2 : sType). sType;
+    3.sType :: sType;
+    2.c(,) :: ∀(a1 : sType) (a2 : sType). a1 → a2 → tTuple2 a1 a2;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.t$Dict$Pair (f : sType → sType) :: sType {
+    pub 1.c$Dict$Pair :: ∀(f : sType → sType). (∀(a : sType). f a → a) → (∀(a : sType). f a → tTuple2 a a) → t$Dict$Pair f
+  }
+
+  pub type 1.tBox (s : sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(s : sType) (a : sType). a → tBox s a
+  }
+
+  pub val 1.vfirst :: ∀(f : sType → sType) (a : sType). t$Dict$Pair f → f a → a
+    = Λ(f : sType → sType) (a : sType). λ($dPair : t$Dict$Pair f).
+      let! c$Dict$Pair ($cfirst : ∀(a{1} : sType). f a{1} → a{1}) (unused $cboth : ∀(a{1} : sType). f a{1} → tTuple2 a{1} a{1}) =
+        $dPair;
+      $cfirst @a
+
+  pub val 1.vboth :: ∀(f : sType → sType) (a : sType). t$Dict$Pair f → f a → tTuple2 a a
+    = Λ(f : sType → sType) (a : sType). λ($dPair : t$Dict$Pair f).
+      let! c$Dict$Pair (unused $cfirst : ∀(a{1} : sType). f a{1} → a{1}) ($cboth : ∀(a{1} : sType). f a{1} → tTuple2 a{1} a{1}) =
+        $dPair;
+      $cboth @a
+
+  pub val 1.v$dmboth :: ∀(f : sType → sType) (a : sType). t$Dict$Pair f → f a → tTuple2 a a
+    = Λ(f : sType → sType) (a : sType). λ($dPair : t$Dict$Pair f) (x : f a).
+      c(,) @a @a (vfirst @f @a $dPair x) (vfirst @f @a $dPair x)
+
+  pub val 1.v$fPairBoxs :: ∀(s : sType). t$Dict$Pair (tBox s)
+    = Λ(s : sType).
+      c$Dict$Pair @(tBox s) (v$fPairBoxs$cfirst @s) (v$fPairBoxs$cboth @s)
+
+  val 1.v$fPairBoxs$cfirst :: ∀(s : sType) (a : sType). tBox s a → a
+    = Λ(s : sType) (a : sType). λ(x : tBox s a).
+      let! cBox (x{1} : a) = x;
+      x{1}
+
+  val 1.v$fPairBoxs$cboth :: ∀(s : sType) (a : sType). tBox s a → tTuple2 a a
+    = Λ(s : sType) (a : sType).
+      v$s$dmboth_0 @s @a
+
+  val 1.v$s$dmboth_0 :: ∀($t0 : sType) (a : sType). tBox $t0 a → tTuple2 a a
+    = Λ($t0 : sType) (a : sType). λ(x : tBox $t0 a).
+      c(,) @a @a (v$sfirst_0 @$t0 @a x) (v$sfirst_0 @$t0 @a x)
+
+  val 1.v$sfirst_0 :: ∀($t0 : sType) (a : sType). tBox $t0 a → a
+    = Λ($t0 : sType) (a : sType).
+      let! c$Dict$Pair ($cfirst : ∀(a{1} : sType). tBox $t0 a{1} → a{1}) (unused $cboth : ∀(a{1} : sType). tBox $t0 a{1} → tTuple2 a{1} a{1}) =
+        v$fPairBoxs @$t0;
+      $cfirst @a
+status: pass
+reason: The instance method calls the default method with the dictionary of its own instance, and that dictionary names the type variable of the instance. The specialisation makes a copy for the dictionary that takes the type variable as a parameter, so the copy knows the instance.

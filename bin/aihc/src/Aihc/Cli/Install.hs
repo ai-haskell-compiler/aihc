@@ -533,18 +533,18 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- interfaces of the modules it imports. Only a plan that optimizes
     -- each module on its own sets it. See "Aihc.Fc.Interface".
     compileModuleInterfaces :: !Bool,
-    -- | Count the heap objects of the whole program, as
-    -- @--profile-allocations@ asks. Only the whole-program object and the
-    -- entry get the counters, because the counters of two units would have
-    -- the same symbols.
+    -- | Count the heap objects that each unit allocates, as
+    -- @--profile-allocations@ asks. Each unit has its own counters and
+    -- registers them with the runtime itself.
     compileProfileAllocations :: !Bool,
     -- | Give the whole program the time profile tables and entry stores, as
     -- @--profile-time@ asks. Only the whole-program object and the entry
-    -- get them, for the same reason as 'compileProfileAllocations'.
+    -- get them, because the tables of two units would have the same
+    -- symbols.
     compileProfileTime :: !Bool,
-    -- | Give the units this config compiles the profiles that the config
-    -- asks for. 'compileLtoProgram' sets it for the whole-program object
-    -- alone.
+    -- | Give the units this config compiles the time profile that the
+    -- config asks for. 'compileLtoProgram' sets it for the whole-program
+    -- object alone.
     compileProfileUnit :: !Bool,
     compileNoCode :: !Bool,
     -- | The level Clang receives for C sources and LLVM output.
@@ -646,6 +646,10 @@ data CompiledPackageModules = CompiledPackageModules
 
 data BackendPhaseTimings = BackendPhaseTimings
   { backendDesugarNs :: !Word64,
+    -- | The time of the System FC optimizer. The optimized program is
+    -- forced inside this timer, so that its work is not in the GRIN time
+    -- or in the native time.
+    backendOptimizeNs :: !Word64,
     backendGrinNs :: !Word64,
     backendNativeNs :: !Word64,
     backendOtherNs :: !Word64
@@ -655,13 +659,14 @@ instance Semigroup BackendPhaseTimings where
   left <> right =
     BackendPhaseTimings
       { backendDesugarNs = backendDesugarNs left + backendDesugarNs right,
+        backendOptimizeNs = backendOptimizeNs left + backendOptimizeNs right,
         backendGrinNs = backendGrinNs left + backendGrinNs right,
         backendNativeNs = backendNativeNs left + backendNativeNs right,
         backendOtherNs = backendOtherNs left + backendOtherNs right
       }
 
 instance Monoid BackendPhaseTimings where
-  mempty = BackendPhaseTimings 0 0 0 0
+  mempty = BackendPhaseTimings 0 0 0 0 0
 
 data PackageTaskContext = PackageTaskContext
   { taskModuleCompileConfig :: !ModuleCompileConfig,
@@ -3927,7 +3932,7 @@ wiredDerivingModules =
 -- | Every module whose type interface a compilation needs without an
 -- import.
 wiredInterfaceModules :: [Text]
-wiredInterfaceModules = wiredTypeModules <> ["Control.Monad", "GHC.IsList", "Type.Reflection.Literal"] <> wiredDerivingModules
+wiredInterfaceModules = wiredTypeModules <> ["Control.Monad", "GHC.IsList", "GHC.Records", "Type.Reflection.Literal"] <> wiredDerivingModules
 
 -- | The scope of the functions that desugaring reaches without an import.
 -- The argument is everything the unit can see, as 'resolveUnit' takes it.
@@ -3948,7 +3953,7 @@ withOtherTime started ended timings =
     { backendOtherNs = extra
     }
   where
-    accounted = backendDesugarNs timings + backendGrinNs timings + backendNativeNs timings
+    accounted = backendDesugarNs timings + backendOptimizeNs timings + backendGrinNs timings + backendNativeNs timings
     elapsed = ended - started
     extra
       | elapsed > accounted = elapsed - accounted
@@ -3958,6 +3963,7 @@ renderBackendPhaseTotals :: BackendPhaseTimings -> String
 renderBackendPhaseTotals timings =
   unlines
     [ "desugar total: " <> renderDuration (backendDesugarNs timings),
+      "optimize total: " <> renderDuration (backendOptimizeNs timings),
       "grin total: " <> renderDuration (backendGrinNs timings),
       "native total: " <> renderDuration (backendNativeNs timings),
       "other total: " <> renderDuration (backendOtherNs timings)
@@ -4054,16 +4060,16 @@ desugarCheckedModules config verbose primIdentity interface outputPaths desugarC
 -- state of the unit is gone.
 compileUnitFcModules :: PackageId -> ModuleCompileConfig -> CapiStubOptions -> (String -> IO ()) -> (Text -> ModuleOutputPaths) -> [Fc.Program] -> PendingBackend -> IO (BackendPhaseTimings, [CapiStubOutput])
 compileUnitFcModules primPackage config capiOptions verbose outputPaths interfaces pending = do
-  (grinNs, nativeNs) <-
+  (optimizeNs, grinNs, nativeNs) <-
     if lto
-      then pure (0, 0)
+      then pure (0, 0, 0)
       else do
         -- Each module is inlined on its own: the program is not known here.
         -- The modules of a unit are optimized in the order the unit holds
         -- them, and each one reads the interfaces of the modules it
         -- imports. A module of the same unit is in a cycle with this one,
         -- so it offers nothing: its own passes have not run.
-        optimized <- forM (pendingFcModules pending) $ \fcModule -> do
+        (optimized, optimizeElapsed) <- measureTime . forM (pendingFcModules pending) $ \fcModule -> do
           let grafted = Fc.graftIndexed index (fcProgram fcModule)
               env = Fc.PassEnv {Fc.envPrimPackage = primPackage, Fc.envHome = fcModuleHome fcModule, Fc.envRoots = Nothing, Fc.envImported = Fc.graftedExported grafted}
           unless (null interfaces) $
@@ -4071,14 +4077,16 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
           program <- optimizeFcProgram env config verbose (fcModuleName fcModule) (Fc.graftedProgram grafted)
           let stripped = Fc.stripInterfaces primPackage grafted program
           lintOptimized primPackage config "strip interfaces" (fcModuleName fcModule) stripped
-          pure fcModule {fcProgram = stripped}
-        compileFcModules primPackage config verbose outputPaths optimized
+          fcModule {fcProgram = stripped} <$ evaluate (force stripped)
+        (grinElapsed, nativeElapsed) <- compileFcModules primPackage config verbose outputPaths optimized
+        pure (optimizeElapsed, grinElapsed, nativeElapsed)
   -- The wrappers are part of the native phase: they are the last objects the
   -- backend writes for a unit.
   (capiOutputs, capiNs) <- measureTime (concat <$> mapM (uncurry buildCapiStub) (pendingCapiStubs pending))
   pure
     ( BackendPhaseTimings
         { backendDesugarNs = 0,
+          backendOptimizeNs = optimizeNs,
           backendGrinNs = grinNs,
           backendNativeNs = nativeNs + capiNs,
           backendOtherNs = 0
@@ -4236,7 +4244,7 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
     -- An @-O1@ or @-O2@ build copies small continuations into their
     -- callers. An @-O0@ build and an @-Os@ build do not, because the
     -- copies make the code larger.
-    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileUnit config && compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config) (compileOptimization config `elem` [O1, O2])
+    lirSettings = Lower.ModuleSettings (compileCheckPrimBounds config) (compileProfileAllocations config) (compileProfileUnit config && compileProfileTime config) (compileOptimization config `elem` [O1, O2])
     compileOne (grinTotal, nativeTotal) fcModule = do
       (grinNs, nativeNs) <-
         if null (Fc.programDecls (fcProgram fcModule))
@@ -4312,7 +4320,12 @@ compileFcModules primPackage config verbose outputPaths = foldM compileOne (0, 0
       when keepGrin $ do
         writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram cpsProgram)
         verbose ("Write CPS-GRIN: " <> T.unpack name)
-      let gcProgram = Grin.lowerGc cpsProgram
+      -- A time profile gives one entry for each function, so it keeps
+      -- identical functions apart.
+      let lowered = Grin.lowerGc cpsProgram
+          gcProgram
+            | compileProfileTime config = lowered
+            | otherwise = Grin.mergeIdenticalFunctions lowered
       when (compileLint config) $ do
         let gcErrors = Grin.lintGcProgram gcProgram
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed in " <> T.unpack (fcModuleName fcModule) <> ": " <> show gcErrors)))

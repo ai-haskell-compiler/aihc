@@ -598,6 +598,8 @@ ignoredPragma pragma =
           True
     PragmaDeprecated _ -> True
     PragmaWarning _ -> True
+    -- A cost-centre pragma on a declaration is a profiler hint.
+    PragmaSCC _ -> True
     -- GHC ignores a file-header pragma between declarations.
     PragmaLanguage _ -> True
     PragmaUnknown rawText ->
@@ -1001,14 +1003,13 @@ resolveExpr expr =
     EVar name -> do
       inQuote <- inExpressionQuote
       scope <- currentScope
-      -- GHC accepts a variable that is not in scope in an expression
-      -- quote. The quote gives an unbound variable, and the code that gets
-      -- the syntax tree finds its binder.
+      -- GHC accepts a variable or a constructor that is not in scope in
+      -- an expression quote. The quote gives an unbound variable, and the
+      -- code that gets the syntax tree finds its binder.
       case termUseResolution scope name of
         NotFound _
           | inQuote,
-            isNothing (nameQualifier name),
-            nameType name == NameVarId ->
+            isNothing (nameQualifier name) ->
               pure (fromParserExpr expr)
         _ -> R.EVar <$> resolveTermUse name
     -- An implicit parameter has no lexical binder. The type checker
@@ -1061,8 +1062,15 @@ resolveExpr expr =
       pure (R.ELetDecls decls' body')
     ECase scrutinee alts ->
       R.ECase <$> resolveExpr scrutinee <*> mapM resolveCaseAlt alts
-    EArithSeq arithSeq ->
-      R.EArithSeq <$> resolveArithSeq arithSeq
+    EArithSeq arithSeq -> do
+      sequence' <- R.EArithSeq <$> resolveArithSeq arithSeq
+      info <- currentModuleInfo
+      -- Under OverloadedLists, GHC applies fromList to an arithmetic
+      -- sequence. The sequence does not have a static length, thus it does
+      -- not use fromListN.
+      if OverloadedLists `elem` moduleInfoExtensions info
+        then annotateSyntaxTerm "fromList" sequence'
+        else pure sequence'
     ERecordCon name fields wildcard -> do
       name' <- resolveTermUse name
       fields' <- resolveRecordFields fields
@@ -1072,9 +1080,13 @@ resolveExpr expr =
       pure (R.ERecordCon name' (fields' <> wildcardFields) False)
     ERecordUpd record fields ->
       R.ERecordUpd <$> resolveExpr record <*> resolveRecordUpdateFields fields
-    EGetField record name ->
-      R.EGetField <$> resolveExpr record <*> pure (fromParserName name)
-    EGetFieldProjection {} -> pure (fromParserExpr expr)
+    -- Record dot syntax applies the getField syntax term, as GHC does.
+    -- The expression e.x is getField at the label "x", applied to e.
+    -- A projection such as (.x.y) applies getField for each field in turn.
+    EGetField record name -> do
+      record' <- resolveExpr record
+      annotateSyntaxTerm "getField" (R.EGetField record' (fromParserName name))
+    EGetFieldProjection {} -> annotateSyntaxTerm "getField" (fromParserExpr expr)
     ETypeSig inner ty ->
       R.ETypeSig <$> resolveExpr inner <*> resolveType ty
     EParen inner ->
@@ -1394,8 +1406,10 @@ builtinSyntaxTerm info name =
       [ "fromInteger",
         "fromRational",
         "fromString",
+        "fromList",
         "fromListN",
         "toList",
+        "getField",
         "negate",
         "==",
         ">=",

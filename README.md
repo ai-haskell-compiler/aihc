@@ -12,13 +12,13 @@ Can chatgpt, Claude Opus and Qwen-Coder write a Haskell compiler? Probably not b
 | --- | --- | --- |
 | Preprocessing | ●●●●● done | see [aihc-cpp](https://github.com/ai-haskell-compiler/aihc-cpp) |
 | Parsing | ●●●●● done | see [aihc-parser](https://github.com/ai-haskell-compiler/aihc-parser) |
-| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `137/137` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
-| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `570/575` (`99.13%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
-| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1279/1301` (`98.30%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
-| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `276/276` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
-| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `894/5013` (`17.83%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
-| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●●○○○ `4624/10061` (`45.96%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
-| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `131/132` (`99.24%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
+| Name resolution | <!-- AUTO-GENERATED: START resolve-progress --> ●●●●● `139/139` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress --> | fixture pass rate |
+| Type checking | <!-- AUTO-GENERATED: START tc-progress --> ●●●●○ `595/600` (`99.16%`) <!-- AUTO-GENERATED: END tc-progress --> | fixture pass rate |
+| Desugaring | <!-- AUTO-GENERATED: START desugar-progress --> ●●●●○ `1298/1320` (`98.33%`) <!-- AUTO-GENERATED: END desugar-progress --> | fixture pass rate |
+| Code generation | <!-- AUTO-GENERATED: START codegen-progress --> ●●●●● `282/282` (`100.00%`) <!-- AUTO-GENERATED: END codegen-progress --> | machine code, LLVM IR, WASM |
+| `ghc-prim` shim | <!-- AUTO-GENERATED: START ghc-prim-progress --> ○○○○○ `948/5013` (`18.91%`) <!-- AUTO-GENERATED: END ghc-prim-progress --> | exports implemented |
+| `base` implementation | <!-- AUTO-GENERATED: START base-progress --> ●●○○○ `4670/10061` (`46.42%`) <!-- AUTO-GENERATED: END base-progress --> | exports implemented |
+| Self-host | <!-- AUTO-GENERATED: START self-hosting-progress --> ●●●●○ `128/132` (`96.97%`) <!-- AUTO-GENERATED: END self-hosting-progress --> | packages that install, see [below](#self-hosting) |
 
 ## Getting started
 
@@ -39,9 +39,9 @@ The [user guide](https://ai-haskell-compiler.github.io/aihc/) has the full instr
 ## Latest News
 
 <!-- AUTO-GENERATED: START latest-news -->
-**[AIHC weekly highlights: a compiler that builds itself and learns from conflicts](https://blog.aihc.app/posts/2026-11-13-aihc-highlights/)** (13 Nov 2026)
+**[GHC not required](https://blog.aihc.app/posts/2026-11-21-ghc-not-required/)** (21 Nov 2026)
 
-Default-configuration self-compilation, a single-capability STM fix, PubGrub dependency solving, and precise n+k parser support.
+A compiler written in Haskell needs a Haskell compiler, and the only pre-compiled one was GHC. A Haskell interpreter in 19,464 lines of C99 now builds AIHC from source, with no pre-compiled executables in the chain.
 
 Read all posts at [blog.aihc.app](https://blog.aihc.app/).
 <!-- AUTO-GENERATED: END latest-news -->
@@ -72,7 +72,7 @@ Expand the details to see the required packages and their installation status.
 
 <!-- AUTO-GENERATED: START self-hosting-details -->
 <details>
-<summary>Self-compile packages: 131 install, 1 fail, 0 wait for a dependency</summary>
+<summary>Self-compile packages: 128 install, 1 fail, 3 wait for a dependency</summary>
 
 Each package of [the self-hosting package list](docs/self-hosting-packages.md), in dependency order.
 
@@ -135,7 +135,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | exceptions | 0.10.12 | ✅ installs |
 | os-string | 2.0.11 | ✅ installs |
 | filepath | 1.5.5.0 | ✅ installs |
-| aihc-cpp | 2.0.0.0 | ✅ installs |
+| aihc-cpp | 2.0.0.1 | ✅ installs |
 | ech-config | 0.0.2 | ✅ installs |
 | hashable | 1.5.1.0 | ✅ installs |
 | case-insensitive | 1.2.2.0 | ✅ installs |
@@ -155,12 +155,12 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | text-short | 0.1.6.1 | ✅ installs |
 | base16 | 2.0 | ✅ installs |
 | base64 | 2.1 | ✅ installs |
-| crypton | 2.2.6 | ✅ installs |
+| crypton | 2.3.0 | ✅ installs |
 | crypton-asn1-types | 0.4.1 | ✅ installs |
-| crypton-asn1-encoding | 0.10.0 | ✅ installs |
+| crypton-asn1-encoding | 0.11.0 | ✅ installs |
 | crypton-asn1-parse | 0.10.0 | ✅ installs |
 | crypton-pem | 0.3.0 | ✅ installs |
-| crypton-x509 | 1.10.1 | ✅ installs |
+| crypton-x509 | 1.11.0 | ✅ installs |
 | hpke | 0.4.0 | ✅ installs |
 | these | 1.2.1 | ✅ installs |
 | strict | 0.5.1 | ✅ installs |
@@ -168,19 +168,19 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | text-iso8601 | 0.1.1.2 | ✅ installs |
 | transformers-compat | 0.7.2 | ✅ installs |
 | unix | 2.8.8.0 | ✅ installs |
-| directory-ospath-streaming | 0.3 | ✅ installs |
+| directory-ospath-streaming | 0.3 | ❌ fails (In directory-ospath-streaming-0.3: Template Haskell failed in module System.Directory.OsPath.Streaming.Internal.Raw: The) |
 | file-io | 0.1.6 | ✅ installs |
 | directory | 1.3.11.0 | ✅ installs |
 | aihc-hackage | 0.1.0.0 | ✅ installs |
-| crypton-x509-store | 1.10.0 | ✅ installs |
-| network | 3.2.14.0 | ✅ installs |
+| crypton-x509-store | 1.10.2 | ✅ installs |
+| crypton-x509-system | 1.10.2 | ✅ installs |
+| network | 3.2.15.0 | ✅ installs |
 | crypton-socks | 0.6.2 | ✅ installs |
 | iproute | 1.8.0 | ✅ installs |
-| crypton-x509-validation | 1.10.1 | ✅ installs |
+| crypton-x509-validation | 1.11.0 | ✅ installs |
 | process | 1.6.30.0 | ✅ installs |
-| crypton-x509-system | 1.10.0 | ✅ installs |
 | optparse-applicative | 0.18.1.0 | ✅ installs |
-| tar | 0.6.4.0 | ✅ installs |
+| tar | 0.6.4.0 | ⏸️ needs `directory-ospath-streaming` |
 | unix-time | 0.6.0 | ✅ installs |
 | unordered-containers | 0.2.21 | ✅ installs |
 | async | 2.2.6 | ✅ installs |
@@ -195,7 +195,7 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | serialise | 0.2.6.1 | ✅ installs |
 | wherefrom-compat | 0.2.0.0 | ✅ installs |
 | nothunks | 0.3.2 | ✅ installs |
-| monoidmap | 0.1.4.0 | ✅ installs |
+| monoidmap | 0.1.5.0 | ✅ installs |
 | aihc-resolve | 0.1.0.0 | ✅ installs |
 | aihc-tc | 0.1.0.0 | ✅ installs |
 | witherable | 0.5 | ✅ installs |
@@ -204,12 +204,12 @@ Each package of [the self-hosting package list](docs/self-hosting-packages.md), 
 | zlib | 0.7.1.1 | ✅ installs |
 | streaming-commons | 0.2.3.1 | ✅ installs |
 | http-client | 0.7.19 | ✅ installs |
-| tls | 2.5.2 | ✅ installs |
+| tls | 2.6.2 | ✅ installs |
 | crypton-connection | 0.4.6 | ✅ installs |
 | http-client-tls | 0.4.0 | ✅ installs |
 | aihc-http | 0.1.0.0 | ✅ installs |
-| aihc-hackage-fetch | 0.1.0.0 | ✅ installs |
-| aihc | 0.1.0 | ❌ fails (linker command failed with exit code 1 (use -v to see invocation)) |
+| aihc-hackage-fetch | 0.1.0.0 | ⏸️ needs `tar` |
+| aihc | 0.2.1 | ⏸️ needs `aihc-hackage-fetch` |
 
 </details>
 <!-- AUTO-GENERATED: END self-hosting-details -->

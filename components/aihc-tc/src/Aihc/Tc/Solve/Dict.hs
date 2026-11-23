@@ -32,7 +32,7 @@ import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zon
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstancesForArguments, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
-import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, stuckGivenConstraints)
+import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, rewriteApplicationPrefix, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (irreduciblePred, isTypeFamilyApplication, isTypeFamilyTyCon, normalizeFamilyPred, reclassifyIrreduciblePred, reducePredFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies)
@@ -49,6 +49,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.List (elemIndex, partition, sortOn)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
@@ -392,9 +393,17 @@ solveNormalizedDict visited givens ct
     rewrittenIrreducibleGiven _ _ _ [] = pure Nothing
     rewrittenIrreducibleGiven visited' rules target (given : rest) =
       case given of
-        IrredPred constraint
-          | let (rewritten, proof) = rewriteWithRules rules constraint,
-            not (sameType rewritten constraint) -> do
+        IrredPred written -> do
+          -- The rules have reduced sides, so they are compared with the
+          -- given in its reduced form too. With the given @TagOf f ~
+          -- 'TagId@, the given @c (Payload f a)@ shows @TagOf f@ only
+          -- after @Payload f a@ reduces to @Apply (TagOf f) a@. The proof
+          -- still names the given as written.
+          constraint <- reduceTypeFamilies written
+          let (rewritten, proof) = rewriteWithRules rules constraint
+          if sameType rewritten constraint
+            then rewrittenIrreducibleGiven visited' rules target rest
+            else do
               normalized <- normalizeGiven (IrredPred rewritten)
               let evidence = EvCast (EvGiven given) proof
               found <-
@@ -1323,6 +1332,10 @@ rewriteWithRules rules = go
         (to, proof) : _ -> (to, proof)
         [] ->
           case ty of
+            TcTyConApp tyCon kindArguments arguments
+              | Just (to, proof, extra) <- rewriteApplicationPrefix rules tyCon kindArguments arguments ->
+                  let (extra', extraProofs) = unzip (map go extra)
+                   in (List.foldl' mkAppTy to extra', List.foldl' AppCo proof extraProofs)
             TcTyConApp tyCon kindArguments arguments ->
               let (arguments', proofs) = unzip (map go arguments)
                in if and (zipWith sameType arguments' arguments)

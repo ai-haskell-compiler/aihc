@@ -7,19 +7,21 @@
 
 ; Info-table offsets use target words for pointer fields.
 ; A 16-bit field count, four byte fields, and a 16-bit constructor index
-; follow the five pointer fields. These eight bytes give 48 bytes on a 64-bit
-; target and 28 bytes on wasm32.
+; follow the four pointer fields. These eight bytes give 40 bytes on a 64-bit
+; target and 24 bytes on wasm32. A partial constructor, and a closure that
+; takes two or more argument groups, have one more word after them: the
+; table of the next stage. No other table has this word.
 const @AIHC_INFO_BITMAP_OFFSET = 1 word
-const @AIHC_INFO_NEXT_OFFSET = 2 words
-const @AIHC_INFO_ENTRY_OFFSET = 3 words
-const @AIHC_INFO_SRT_OFFSET = 4 words
-const @AIHC_INFO_COUNT_OFFSET = 5 words
-const @AIHC_INFO_ARITY_OFFSET = 5 words + 2
-const @AIHC_INFO_FRAME_OFFSET = 5 words + 3
-const @AIHC_INFO_KIND_OFFSET = 5 words + 4
-const @AIHC_INFO_NEEDS_EVAL_OFFSET = 5 words + 5
-const @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET = 5 words + 6
-const @AIHC_INFO_BYTES = 5 words + 8
+const @AIHC_INFO_ENTRY_OFFSET = 2 words
+const @AIHC_INFO_SRT_OFFSET = 3 words
+const @AIHC_INFO_COUNT_OFFSET = 4 words
+const @AIHC_INFO_ARITY_OFFSET = 4 words + 2
+const @AIHC_INFO_FRAME_OFFSET = 4 words + 3
+const @AIHC_INFO_KIND_OFFSET = 4 words + 4
+const @AIHC_INFO_NEEDS_EVAL_OFFSET = 4 words + 5
+const @AIHC_INFO_CONSTRUCTOR_INDEX_OFFSET = 4 words + 6
+const @AIHC_INFO_BYTES = 4 words + 8
+const @AIHC_INFO_NEXT_OFFSET = 4 words + 8
 
 
 ; AihcCapability fields used by evaluation. C assertions check these offsets.

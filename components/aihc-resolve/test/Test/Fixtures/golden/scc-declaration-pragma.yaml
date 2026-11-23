@@ -1,0 +1,21 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    {-# SCC x #-}
+    x :: () -> ()
+    x a = a
+annotated:
+  - |
+    module Main where
+    {-# SCC x #-}
+    x :: () -> ()
+    │    │     └─ t Builtin ()
+    │    └─ t Builtin ()
+    └─ v Main
+    x a = a
+    │ │   └─ v 0
+    │ └─ v 0
+    └─ v Main
+status: pass
+reason: A cost-centre pragma on a declaration is a profiler hint, so the resolver accepts it without diagnostics

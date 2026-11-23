@@ -1,0 +1,37 @@
+extensions:
+  - OverloadedRecordDot
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE OverloadedRecordDot #-}
+    module Test where
+
+    import Prelude
+
+    data Inner = Inner { value :: Int, tag :: Bool }
+
+    data Outer = Outer { inner :: Inner, flag :: Bool }
+
+    newtype Wrap = Wrap { get :: Int }
+
+    outer :: Outer
+    outer = Outer (Inner 42 True) False
+
+    checks :: [Bool]
+    checks =
+      [ outer.inner.value == 42,
+        outer.inner.tag,
+        not outer.flag,
+        map (.inner.value) [outer, outer] == [42, 42],
+        map (.get) [Wrap 1, Wrap 2] == [1, 2]
+      ]
+
+    result :: Bool
+    result = and checks
+expression: |
+  result
+output: |
+  True
+status: pass
+reason: Record dot syntax applies getField at the label of each field, and the HasField solver selects the field

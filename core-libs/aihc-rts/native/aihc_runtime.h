@@ -137,33 +137,33 @@ typedef uint8_t AihcFrameKind;
    tables of the functions its code calls directly, so the collector walks the
    graph instead of the compiler flattening it.
 
-   Backends emit one word-uniform record per table: the walk link, the two
-   counts, then object_count static object addresses followed by child_count
-   table addresses. The link is mutable, so tables belong in a writable
-   section even though info tables themselves are read-only. */
+   Backends emit one record per table: the walk link, the two 32-bit counts,
+   then object_count static object addresses followed by child_count table
+   addresses. The two counts use one word on a 64-bit target. The link is
+   mutable, so tables belong in a writable section even though info tables
+   themselves are read-only. */
 struct AihcSrt {
   /* Null until a collection walks this table, then the next walked table.
      Recursive functions make the table graph cyclic, so the collector links
      every table it walks and clears the whole list when the collection
      ends. */
   AihcSrt *walked;
-  uintptr_t object_count;
-  uintptr_t child_count;
+  uint32_t object_count;
+  uint32_t child_count;
   uintptr_t entries[];
 };
 
-/* Five word-wide fields followed by five byte-wide ones, so Lir addresses
-   word field k at offset k words and byte field j at offset 5 words + j on
-   every target. See the "Info tables" section of docs/lir.md. */
+/* Four word-wide fields followed by the byte fields, so Lir addresses word
+   field k at offset k words and byte field j at offset 4 words + j on every
+   target. A table that names a next stage has one more word after the byte
+   fields. See AihcInfoWithNext and the "Info tables" section of
+   docs/lir.md. */
 struct AihcInfo {
   uintptr_t identity;
   /* One byte per slot of the saturated object. A partial constructor indexes
      the same array as the finished one: the slots it has filled are a prefix
      of the slots the saturated constructor holds. */
   const uint8_t *field_is_pointer;
-  /* The info table of the saturated constructor, for a partial constructor.
-     Null for every other kind. */
-  const AihcInfo *next;
   /* Backend-owned dynamic entry. Lir gives this word its own callable
      type. */
   AihcBackendEntry backend_entry;
@@ -191,10 +191,25 @@ struct AihcInfo {
   uint8_t needs_eval;
   /* The index of a constructor in its data declaration, and zero for every
      other kind. A case with many alternatives selects its alternative from
-     this field. The field uses padding, so the table stays 48 bytes on a
-     64-bit target and 28 bytes on wasm32. */
+     this field. The field uses padding, so the table is 40 bytes on a
+     64-bit target and 24 bytes on wasm32. */
   uint16_t constructor_index;
 };
+
+/* The info table of an object that has a next stage. A partial constructor
+   names the table of the saturated constructor. A closure that takes two or
+   more argument groups names the table of the closure after one more group.
+   No other table has the next word, so read it only through
+   aihc_info_next, and only for these two kinds. */
+typedef struct AihcInfoWithNext {
+  AihcInfo info;
+  const AihcInfo *next;
+} AihcInfoWithNext;
+
+static inline const AihcInfo *aihc_info_next(const AihcInfo *info) {
+  /* The table is the first member of AihcInfoWithNext. */
+  return ((const AihcInfoWithNext *)info)->next;
+}
 
 struct AihcValue {
   /* Ordinarily an unmodified info-table pointer. During semispace collection,
@@ -692,7 +707,7 @@ static inline uint64_t aihc_partial_applied(const AihcValue *value) {
 /* The slots a partial constructor still needs. The saturated info table names
    the full width. */
 static inline uint64_t aihc_partial_total(const AihcValue *value) {
-  return aihc_value_info_table(value)->next->field_count;
+  return aihc_info_next(aihc_value_info_table(value))->field_count;
 }
 
 static inline AihcSlot *aihc_partial_fields(AihcValue *value) {
@@ -787,13 +802,24 @@ int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
    environment names one. The generated main calls this when the capability
    halts, and aihc_exit_process calls it before the process exits. */
 void aihc_runtime_statistics_report(void);
-/* The allocation counters of a program built with --profile-allocations:
+/* The allocation counters of one unit built with --profile-allocations:
    a name for each info table, a pair of counters for each (the objects and
-   the words), and the number of info tables. The entry registers them
-   before the capability starts, and the statistics report writes them. */
-void aihc_allocation_profile_register(const char *const *names,
-                                      const uint64_t *counts,
-                                      const uint64_t *size);
+   the words), and the number of info tables. The unit writes the table, and
+   the runtime writes the link and the registered flag. */
+typedef struct AihcAllocationTable {
+  /* The two words come first, so the layout has no padding on a host of
+     32-bit or 64-bit pointers. */
+  uint64_t size;
+  uint64_t registered;
+  const char *const *names;
+  uint64_t *counts;
+  struct AihcAllocationTable *next;
+} AihcAllocationTable;
+/* Add the table of a unit to the allocation profile. The code of the unit
+   calls it when a counter of the unit counts its first object, so the
+   tables of the units that allocate nothing stay out. A second call for the
+   same table does nothing. The statistics report writes the tables. */
+void aihc_allocation_profile_register(AihcAllocationTable *table);
 /* The tables of a program built with --profile-time: the code of each
    function, its name, and their number, then the info tables of the
    functions and their number. The entry registers them before the
@@ -963,6 +989,13 @@ int64_t aihc_io_handle_size(void *handle);
 /* A monotonic clock in nanoseconds, for GHC.Clock. The start point is not
    specified. */
 uint64_t aihc_clock_monotonic_ns(void);
+/* Free a stable pointer from C, as GHC's HsFFI.h declares it. The stable
+   pointer table is a Haskell value, so this only records the pointer. The
+   next GHC.Stable.newStablePtr frees each recorded pointer. */
+void hs_free_stable_ptr(void *stable_ptr);
+/* Give one stable pointer that hs_free_stable_ptr recorded and remove it
+   from the record. This gives 0 when the record is empty. */
+uintptr_t aihc_take_freed_stable_ptr(void);
 /* Keep the value of each CAF that a later evaluation updates. An engine
    guest calls it, because the engine loads code that can refer to an old
    CAF. */

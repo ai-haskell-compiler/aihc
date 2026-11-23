@@ -627,7 +627,9 @@ Put a pointer to the table in the info table of every closure and thunk whose en
 
 A compiled function passes its own table, or null when it has none, as an argument to the collector at each of its safepoints. After CPS conversion every call is a tail call, so a running function has no heap object of its own to carry its table, and no global records it either. A collection inside a runtime helper passes no table: the helper is reached by a tail call, or by a call whose only continuation is a transfer to heap objects, so the static references of the function that called it are dead by then. The lowering keeps every CPS runtime call in that shape.
 
-A table record is word-uniform: a mutable walk link, the object count, the child count, then the static object addresses followed by the addresses of the child tables. The link is mutable, so records belong in a writable section even though info tables are read-only.
+A table record has a mutable walk link, a 32-bit object count, and a 32-bit child count. The static object addresses and then the addresses of the child tables follow. On a 64-bit target, the two counts use one word. The link is mutable, so records belong in a writable section even though info tables are read-only.
+
+A table that names no static object and only one child table names the same objects as its child. The compiler does not emit such a table. The function and its info tables use the table of the child.
 
 ### Native linking
 

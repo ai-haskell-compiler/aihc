@@ -34,7 +34,7 @@ expected: |
     %header_word_19 = load i64 [%foreign_root_18] align 8 region stack
     %info_word_20 = and i64 %header_word_19, -4
     %header_21 = ptr.from_int %info_word_20
-    %entry_22 = load.invariant code [%header_21 + 24] align 1 word
+    %entry_22 = load.invariant code [%header_21 + 16] align 1 word
     %forward_25 = eq code %entry_22, null
     br %forward_25, continue_slow_23, continue_enter_24
 

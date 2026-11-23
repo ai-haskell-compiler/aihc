@@ -10,6 +10,7 @@ import Aihc.Grin.Dce (sweptGrinProgram)
 import Aihc.Grin.Gc (gcGrinProgram, lowerGc)
 import Aihc.Grin.Interpret (InterpretError (..), ProgramStreams (..), interpretProgramBinding, interpretProgramIoBinding)
 import Aihc.Grin.Lint (lintGcProgram)
+import Aihc.Grin.Merge (mergeIdenticalFunctions)
 import Aihc.Grin.Parser qualified as GrinParser
 import Aihc.Grin.Simplify (simplifyGrinProgram)
 import Aihc.Grin.Tidy (tidyGrinProgram)
@@ -289,14 +290,14 @@ checkGcFixture path = do
     Right value ->
       case parseEither parseFixture value of
         Left problem -> assertFailure problem
-        Right (source, expected) ->
+        Right (source, expected, merge) ->
           case GrinParser.parseProgram source of
             Left problem -> assertFailure (GrinParser.renderParseError problem)
             Right program ->
               case toCpsGrin (normalizeGrinProgram program) of
                 Left problem -> assertFailure (show problem)
                 Right cps -> do
-                  let gc = lowerGc cps
+                  let gc = (if merge then mergeIdenticalFunctions else id) (lowerGc cps)
                       output = tidyGrinProgram (gcGrinProgram gc)
                       actual = T.strip (T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram output))))
                   case lintGcProgram gc of
@@ -317,8 +318,10 @@ checkGcFixture path = do
       expected <- object .: "expected"
       status <- object .: "status"
       reason <- object .: "reason"
+      -- A fixture can also merge identical functions after GC lowering.
+      merge <- object .:? "merge" .!= False
       if status == ("pass" :: Text) && not (T.null reason)
-        then pure (source, expected :: Text)
+        then pure (source, expected :: Text, merge)
         else fail "invalid GRIN GC fixture status"
 
 -- | Lower aihc-prim and aihc-base to GRIN one time.

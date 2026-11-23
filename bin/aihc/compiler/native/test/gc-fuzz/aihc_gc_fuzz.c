@@ -1494,8 +1494,8 @@ static void command_srt(char **tokens, size_t count) {
   }
   AihcSrt *srt = checked_calloc(1, sizeof(*srt) + (size_t)(objects + children) *
                                                       sizeof(uintptr_t));
-  srt->object_count = objects;
-  srt->child_count = children;
+  srt->object_count = (uint32_t)objects;
+  srt->child_count = (uint32_t)children;
   srts[index] = srt;
   for (uint64_t entry = 0; entry < objects; ++entry) {
     const char *token = tokens[4 + entry];
@@ -1568,7 +1568,10 @@ static void command_new(char **tokens, size_t count) {
   }
   uint64_t field_count = 0;
   uint8_t *pointers = parse_bitmap(tokens[3], &field_count);
-  AihcInfo *info = checked_calloc(1, sizeof(*info));
+  /* A partial constructor has the next word after its table. See
+     AihcInfoWithNext. */
+  AihcInfoWithNext *staged = checked_calloc(1, sizeof(*staged));
+  AihcInfo *info = &staged->info;
   info->identity = identity;
   info->field_count = field_count;
   info->field_is_pointer = pointers;
@@ -1595,7 +1598,7 @@ static void command_new(char **tokens, size_t count) {
     saturated->field_is_pointer = pointers;
     saturated->frame_kind = AIHC_FRAME_NONE;
     saturated->object_kind = AIHC_OBJECT_NODE;
-    info->next = saturated;
+    staged->next = saturated;
   }
   uint64_t words = partial ? 2 + field_count : aihc_object_words(info);
   if (words > reserved_words) {

@@ -54,6 +54,7 @@ import Data.Void
 import Data.Word
 import GHC.Exts
 import GHC.Internal.TH.Syntax
+import GHC.IsList qualified as IsList
 import Numeric.Natural
 import Prelude
 
@@ -162,12 +163,22 @@ instance Lift Natural where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift x = return (LitE (IntegerL (fromIntegral x)))
 
--- | GHC lifts a byte array through the primitive bytes literal, which this
--- standin has no builder for. The instance is still declared, because a
--- datatype with a byte array field derives its own instance from it.
+-- | GHC lifts a byte array through the primitive bytes literal. This
+-- standin gives the list of the bytes to 'fromList' of the 'IsList'
+-- instance, with a signature for the type. A datatype with a byte array
+-- field, for example @ShortByteString@, derives its own instance from it.
 instance Lift ByteArray where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift _ = error "Template Haskell ByteArray lifting is not available"
+  lift bytes =
+    return
+      ( SigE
+          (AppE (VarE fromListName) (ListE (map (LitE . IntegerL . toInteger) (IsList.toList bytes))))
+          (ConT byteArrayName)
+      )
+    where
+      byteArrayTyCon = typeRepTyCon (typeRep (Proxy :: Proxy ByteArray))
+      fromListName = mkNameG_v (tyConPackage byteArrayTyCon) "GHC.IsList" "fromList"
+      byteArrayName = mkNameG_tc (tyConPackage byteArrayTyCon) (tyConModule byteArrayTyCon) "ByteArray"
 
 instance (Integral a) => Lift (Ratio a) where
   liftTyped x = unsafeCodeCoerce (lift x)

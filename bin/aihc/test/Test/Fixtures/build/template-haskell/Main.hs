@@ -5,7 +5,9 @@
 
 module Main (main) where
 
+import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
+import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
 import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, twiceHelper, warmType)
 import Language.Haskell.TH
@@ -38,6 +40,11 @@ nested = [|\y -> $([|y|])|]
 -- and the syntax tree has unbound variables.
 holeCase :: Q Exp
 holeCase = [|case _ of { "a" -> missing; _ -> 'c' }|]
+
+-- | A quote with a constructor that is not in scope. GHC accepts it, and
+-- the syntax tree has an unbound variable.
+holeConstructor :: Q Exp
+holeConstructor = [|Missing|]
 
 -- | A type operator of this module.
 type a :+ b = Either a b
@@ -285,6 +292,7 @@ main = do
   showTriple
   runQ nested >>= print
   runQ holeCase >>= print
+  runQ holeConstructor >>= print
   -- A splice uses a function of a different module of the program.
   print $(plusHelper 1)
   putStrLn (describe (Circle 1))
@@ -355,4 +363,7 @@ main = do
   -- A splice gets the facts of a name from mkName in the scope of the
   -- splice: a type, a function, and a data constructor of the module.
   print $(do TyConI (DataD _ _ _ _ constructors _) <- reify (mkName "Shape"); VarI _ _ _ <- reify (mkName "answer"); DataConI _ _ parent <- reify (mkName "Circle"); tupE [litE (integerL (fromIntegral (length constructors))), if parent == ''Shape then [|True|] else [|False|]])
+  -- A splice lifts a byte array, as the derived instance of a type with a
+  -- byte array field does. The program gets the same bytes.
+  print (Exts.toList ($(lift (Exts.fromList [1, 2, 255] :: ByteArray)) :: ByteArray))
   mapM_ putStrLn quasiLines

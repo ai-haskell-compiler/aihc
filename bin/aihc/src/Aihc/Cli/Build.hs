@@ -170,7 +170,7 @@ linkPrograms reporter options adjust targetsOf = do
       report = progressReport reporter
       verbose message = when (buildVerbose options) (report (ProgressLog message))
       printTimings message = when (buildPrintTimings options) (report (ProgressLog message))
-  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileAllocations options || buildProfileTime options) (buildOptimization options)
+  levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (buildLto options || buildProfileTime options) (buildOptimization options)
   let config =
         adjust
           levelConfig

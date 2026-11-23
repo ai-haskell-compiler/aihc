@@ -9,12 +9,12 @@ expected: |
     %header_word_6 = load i64 [%f_3] align 8
     %info_word_7 = and i64 %header_word_6, -4
     %header_8 = ptr.from_int %info_word_7
-    %kind_9 = load.invariant i8 [%header_8 + 44] align 1
+    %kind_9 = load.invariant i8 [%header_8 + 36] align 1
     %closure_13 = eq i8 %kind_9, 1
     br %closure_13, entry$next0, apply_helper_17
 
   entry$next0:
-    %arity_11 = load.invariant i8 [%header_8 + 42] align 1
+    %arity_11 = load.invariant i8 [%header_8 + 34] align 1
     %saturated_14 = eq i8 %arity_11, 1
     br %saturated_14, apply_enter_16, apply_helper_17
 
@@ -22,7 +22,7 @@ expected: |
     tailcall @aihc_lir_apply_p(%hp_0, %sp_1, %base_2, %f_3, %$cps_return_5, %x_4)
 
   apply_enter_16:
-    %entry_18 = load.invariant code [%header_8 + 24] align 1 word
+    %entry_18 = load.invariant code [%header_8 + 16] align 1 word
     tailcall.indirect %entry_18(%hp_0, %sp_1, %base_2, %f_3, %$cps_return_5, %x_4) : (ptr, ptr, ptr, ptr, ptr, ptr)
   }
 status: pass

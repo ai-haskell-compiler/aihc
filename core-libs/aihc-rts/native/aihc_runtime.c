@@ -38,33 +38,33 @@ _Static_assert(offsetof(AihcCapability, stack_limit) == 9 * sizeof(void *) + 16,
 /* Five words, five bytes, one byte of padding, and a two-byte constructor
    index, rounded up to a word. This matches
    @AIHC_INFO_BYTES in aihc_constants.lir. */
-_Static_assert(sizeof(AihcInfo) == 5 * sizeof(void *) + 8,
+_Static_assert(sizeof(AihcInfo) == 4 * sizeof(void *) + 8,
                "info-table size ABI");
 _Static_assert(_Alignof(AihcInfo) >= 4, "info tables need two header tag bits");
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 8,
                "info-table bitmap ABI");
-_Static_assert(offsetof(AihcInfo, next) == 16, "info-table next ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 24,
+_Static_assert(offsetof(AihcInfo, backend_entry) == 16,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 32, "info-table SRT ABI");
-_Static_assert(offsetof(AihcInfo, field_count) == 40,
+_Static_assert(offsetof(AihcInfo, srt) == 24, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 32,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 42,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 34,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 43,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 35,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 44,
+_Static_assert(offsetof(AihcInfo, object_kind) == 36,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 45,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 37,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, constructor_index) == 46,
+_Static_assert(offsetof(AihcInfo, constructor_index) == 38,
                "info-table constructor-index ABI");
-_Static_assert(sizeof(AihcInfo) == 48, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 40, "info-table size ABI");
+_Static_assert(offsetof(AihcInfoWithNext, next) == 40, "info-table next ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 8, "SRT object-count ABI");
-_Static_assert(offsetof(AihcSrt, child_count) == 16, "SRT child-count ABI");
-_Static_assert(offsetof(AihcSrt, entries) == 24, "SRT entries ABI");
+_Static_assert(offsetof(AihcSrt, child_count) == 12, "SRT child-count ABI");
+_Static_assert(offsetof(AihcSrt, entries) == 16, "SRT entries ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
@@ -81,23 +81,23 @@ _Static_assert(offsetof(AihcMVar, value) == 16, "MVar value ABI");
 #elif UINTPTR_MAX == UINT32_MAX
 _Static_assert(offsetof(AihcInfo, field_is_pointer) == 4,
                "info-table bitmap ABI");
-_Static_assert(offsetof(AihcInfo, next) == 8, "info-table next ABI");
-_Static_assert(offsetof(AihcInfo, backend_entry) == 12,
+_Static_assert(offsetof(AihcInfo, backend_entry) == 8,
                "info-table backend-entry ABI");
-_Static_assert(offsetof(AihcInfo, srt) == 16, "info-table SRT ABI");
-_Static_assert(offsetof(AihcInfo, field_count) == 20,
+_Static_assert(offsetof(AihcInfo, srt) == 12, "info-table SRT ABI");
+_Static_assert(offsetof(AihcInfo, field_count) == 16,
                "info-table field-count ABI");
-_Static_assert(offsetof(AihcInfo, remaining_arity) == 22,
+_Static_assert(offsetof(AihcInfo, remaining_arity) == 18,
                "info-table remaining-arity ABI");
-_Static_assert(offsetof(AihcInfo, frame_kind) == 23,
+_Static_assert(offsetof(AihcInfo, frame_kind) == 19,
                "info-table frame-kind ABI");
-_Static_assert(offsetof(AihcInfo, object_kind) == 24,
+_Static_assert(offsetof(AihcInfo, object_kind) == 20,
                "info-table object-kind ABI");
-_Static_assert(offsetof(AihcInfo, needs_eval) == 25,
+_Static_assert(offsetof(AihcInfo, needs_eval) == 21,
                "info-table needs-eval ABI");
-_Static_assert(offsetof(AihcInfo, constructor_index) == 26,
+_Static_assert(offsetof(AihcInfo, constructor_index) == 22,
                "info-table constructor-index ABI");
-_Static_assert(sizeof(AihcInfo) == 28, "info-table size ABI");
+_Static_assert(sizeof(AihcInfo) == 24, "info-table size ABI");
+_Static_assert(offsetof(AihcInfoWithNext, next) == 24, "info-table next ABI");
 _Static_assert(offsetof(AihcSrt, object_count) == 4, "SRT object-count ABI");
 _Static_assert(offsetof(AihcSrt, child_count) == 8, "SRT child-count ABI");
 _Static_assert(offsetof(AihcSrt, entries) == 12, "SRT entries ABI");
@@ -520,24 +520,86 @@ static char *aihc_append_decimal(char *cursor, uint64_t value) {
   return cursor;
 }
 
-static const char *const *aihc_allocation_names;
-static const uint64_t *aihc_allocation_counts;
-static uint64_t aihc_allocation_size;
+/* The tables of the units that counted an object. Each unit adds its own
+   table, from any capability. */
+static AihcAllocationTable *aihc_allocation_tables;
 
-void aihc_allocation_profile_register(const char *const *names,
-                                      const uint64_t *counts,
-                                      const uint64_t *size) {
-  aihc_allocation_names = names;
-  aihc_allocation_counts = counts;
-  aihc_allocation_size = *size;
+void aihc_allocation_profile_register(AihcAllocationTable *table) {
+  uint64_t unregistered = 0;
+  if (!__atomic_compare_exchange_n(&table->registered, &unregistered, 1, 0,
+                                   __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+    return;
+  }
+  AihcAllocationTable *head =
+      __atomic_load_n(&aihc_allocation_tables, __ATOMIC_ACQUIRE);
+  do {
+    table->next = head;
+  } while (!__atomic_compare_exchange_n(&aihc_allocation_tables, &head, table,
+                                        1, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+}
+
+/* One line of the allocation report: an info table name and its counts,
+   summed over the units that have a counter with the name. */
+typedef struct {
+  const char *name;
+  uint64_t objects;
+  uint64_t words;
+} AihcAllocationEntry;
+
+static int aihc_allocation_name_order(const void *left, const void *right) {
+  return strcmp(((const AihcAllocationEntry *)left)->name,
+                ((const AihcAllocationEntry *)right)->name);
 }
 
 /* The order of the allocation report: the most bytes first. */
 static int aihc_allocation_order(const void *left, const void *right) {
-  uint64_t left_words = aihc_allocation_counts[2 * *(const uint64_t *)left + 1];
-  uint64_t right_words =
-      aihc_allocation_counts[2 * *(const uint64_t *)right + 1];
+  uint64_t left_words = ((const AihcAllocationEntry *)left)->words;
+  uint64_t right_words = ((const AihcAllocationEntry *)right)->words;
   return left_words < right_words ? 1 : left_words > right_words ? -1 : 0;
+}
+
+/* The counters of every registered table that counted an object, one entry
+   for each name, the most bytes first. The result is malloc'd. */
+static AihcAllocationEntry *aihc_allocation_entries(uint64_t *count) {
+  uint64_t total = 0;
+  for (AihcAllocationTable *table = aihc_allocation_tables; table != NULL;
+       table = table->next) {
+    total += table->size;
+  }
+  *count = 0;
+  if (total == 0) {
+    return NULL;
+  }
+  AihcAllocationEntry *entries = malloc(total * sizeof(*entries));
+  if (entries == NULL) {
+    aihc_fail("out of memory");
+  }
+  uint64_t used = 0;
+  for (AihcAllocationTable *table = aihc_allocation_tables; table != NULL;
+       table = table->next) {
+    for (uint64_t index = 0; index < table->size; ++index) {
+      if (table->counts[2 * index] != 0) {
+        entries[used].name = table->names[index];
+        entries[used].objects = table->counts[2 * index];
+        entries[used].words = table->counts[2 * index + 1];
+        ++used;
+      }
+    }
+  }
+  qsort(entries, used, sizeof(*entries), aihc_allocation_name_order);
+  uint64_t merged = 0;
+  for (uint64_t index = 0; index < used; ++index) {
+    if (merged != 0 &&
+        strcmp(entries[merged - 1].name, entries[index].name) == 0) {
+      entries[merged - 1].objects += entries[index].objects;
+      entries[merged - 1].words += entries[index].words;
+    } else {
+      entries[merged++] = entries[index];
+    }
+  }
+  qsort(entries, merged, sizeof(*entries), aihc_allocation_order);
+  *count = merged;
+  return entries;
 }
 
 /* A JSON string. A name holds no control character, so only a quote and a
@@ -554,26 +616,20 @@ static char *aihc_append_json_string(char *cursor, const char *text) {
   return cursor;
 }
 
-/* The counters as a JSON array, one object for each info table that
+/* The counters as a JSON array, one object for each info table name that
    allocated, the most bytes first. */
-static char *aihc_append_allocations(char *cursor, const uint64_t *order) {
+static char *aihc_append_allocations(char *cursor,
+                                     const AihcAllocationEntry *entries,
+                                     uint64_t count) {
   cursor = aihc_append_text(cursor, ", \"allocations\": [");
-  int first = 1;
-  for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
-    uint64_t site = order[index];
-    uint64_t objects = aihc_allocation_counts[2 * site];
-    if (objects == 0) {
-      continue;
-    }
-    cursor = aihc_append_text(cursor,
-                              first ? "\n  {\"name\": " : ",\n  {\"name\": ");
-    first = 0;
-    cursor = aihc_append_json_string(cursor, aihc_allocation_names[site]);
+  for (uint64_t index = 0; index < count; ++index) {
+    cursor = aihc_append_text(cursor, index == 0 ? "\n  {\"name\": "
+                                                 : ",\n  {\"name\": ");
+    cursor = aihc_append_json_string(cursor, entries[index].name);
     cursor = aihc_append_text(cursor, ", \"objects\": ");
-    cursor = aihc_append_decimal(cursor, objects);
+    cursor = aihc_append_decimal(cursor, entries[index].objects);
     cursor = aihc_append_text(cursor, ", \"bytes\": ");
-    cursor =
-        aihc_append_decimal(cursor, 8 * aihc_allocation_counts[2 * site + 1]);
+    cursor = aihc_append_decimal(cursor, 8 * entries[index].words);
     *cursor++ = '}';
   }
   return aihc_append_text(cursor, "]");
@@ -610,17 +666,10 @@ void aihc_runtime_statistics_report(void) {
      An allocation entry takes its name, which can double with escapes, and
      at most 90 more bytes. */
   size_t capacity = 1024;
-  uint64_t *order = NULL;
-  if (aihc_allocation_size != 0) {
-    order = malloc(aihc_allocation_size * sizeof(uint64_t));
-    if (order == NULL) {
-      aihc_fail("out of memory");
-    }
-    for (uint64_t index = 0; index < aihc_allocation_size; ++index) {
-      order[index] = index;
-      capacity += 2 * strlen(aihc_allocation_names[index]) + 90;
-    }
-    qsort(order, aihc_allocation_size, sizeof(uint64_t), aihc_allocation_order);
+  uint64_t entry_count = 0;
+  AihcAllocationEntry *entries = aihc_allocation_entries(&entry_count);
+  for (uint64_t index = 0; index < entry_count; ++index) {
+    capacity += 2 * strlen(entries[index].name) + 90;
   }
   char *text = malloc(capacity);
   if (text == NULL) {
@@ -662,9 +711,9 @@ void aihc_runtime_statistics_report(void) {
   cursor = aihc_append_text(cursor, ", \"gc_gen2_limit_count\": ");
   cursor =
       aihc_append_decimal(cursor, capability->machine->gc_gen2_limit_count);
-  if (order != NULL) {
-    cursor = aihc_append_allocations(cursor, order);
-    free(order);
+  if (entries != NULL) {
+    cursor = aihc_append_allocations(cursor, entries, entry_count);
+    free(entries);
   }
   cursor = aihc_append_text(cursor, "}\n");
   if (aihc_host_write_file(path, text, (size_t)(cursor - text)) != 0) {
@@ -1263,9 +1312,12 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
   const AihcInfo *next = info;
   for (uint64_t stage = 0; stage < stages; ++stage) {
     const AihcInfo *current = next;
-    next = current->next;
-    if (current->remaining_arity == 0 || next == NULL ||
-        next->remaining_arity + 1 != current->remaining_arity ||
+    /* Only a closure that takes two or more groups has a next stage. */
+    if (current->remaining_arity < 2) {
+      aihc_fail("application does not match static info-table transition");
+    }
+    next = aihc_info_next(current);
+    if (next == NULL || next->remaining_arity + 1 != current->remaining_arity ||
         next->field_count < current->field_count) {
       aihc_fail("application does not match static info-table transition");
     }
@@ -1282,9 +1334,11 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
    table it already has. */
 const AihcInfo *aihc_applied_constructor_info(const AihcInfo *info,
                                               uint64_t applied) {
-  const AihcInfo *saturated = info->next;
-  if (info->object_kind != AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
-      saturated == NULL) {
+  if (info->object_kind != AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
+    aihc_fail("applied a value that is not a partial constructor");
+  }
+  const AihcInfo *saturated = aihc_info_next(info);
+  if (saturated == NULL) {
     aihc_fail("applied a value that is not a partial constructor");
   }
   if (applied > saturated->field_count) {
@@ -4955,6 +5009,57 @@ int rtsSupportsBoundThreads(void) { return 0; }
 int64_t nocldstop = 0;
 
 uint64_t aihc_clock_monotonic_ns(void) { return aihc_host_monotonic_ns(); }
+
+/* The stable pointers that C code freed and that GHC.Stable did not yet
+   remove from its table. A spin lock keeps the record, because C code can
+   free a pointer on each capability. */
+static uintptr_t *aihc_freed_stable_ptrs = NULL;
+static size_t aihc_freed_stable_ptr_count = 0;
+static size_t aihc_freed_stable_ptr_capacity = 0;
+static int aihc_freed_stable_ptr_lock = 0;
+
+static void aihc_freed_stable_ptr_acquire(void) {
+  while (
+      __atomic_exchange_n(&aihc_freed_stable_ptr_lock, 1, __ATOMIC_ACQUIRE)) {
+  }
+}
+
+static void aihc_freed_stable_ptr_release(void) {
+  __atomic_store_n(&aihc_freed_stable_ptr_lock, 0, __ATOMIC_RELEASE);
+}
+
+void hs_free_stable_ptr(void *stable_ptr) {
+  if (stable_ptr == NULL) {
+    return;
+  }
+  aihc_freed_stable_ptr_acquire();
+  if (aihc_freed_stable_ptr_count == aihc_freed_stable_ptr_capacity) {
+    size_t capacity = aihc_freed_stable_ptr_capacity == 0
+                          ? 16
+                          : aihc_freed_stable_ptr_capacity * 2;
+    uintptr_t *grown =
+        realloc(aihc_freed_stable_ptrs, capacity * sizeof(*grown));
+    if (grown == NULL) {
+      /* The value stays alive. This is a leak, not a fault. */
+      aihc_freed_stable_ptr_release();
+      return;
+    }
+    aihc_freed_stable_ptrs = grown;
+    aihc_freed_stable_ptr_capacity = capacity;
+  }
+  aihc_freed_stable_ptrs[aihc_freed_stable_ptr_count++] = (uintptr_t)stable_ptr;
+  aihc_freed_stable_ptr_release();
+}
+
+uintptr_t aihc_take_freed_stable_ptr(void) {
+  uintptr_t stable_ptr = 0;
+  aihc_freed_stable_ptr_acquire();
+  if (aihc_freed_stable_ptr_count > 0) {
+    stable_ptr = aihc_freed_stable_ptrs[--aihc_freed_stable_ptr_count];
+  }
+  aihc_freed_stable_ptr_release();
+  return stable_ptr;
+}
 
 int64_t aihc_capability_count(void) {
   return (int64_t)__atomic_load_n(&aihc_machine.capability_count,

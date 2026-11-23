@@ -1239,7 +1239,11 @@ desugarClassDefaults classDecl = do
   -- A default method with several equations parses as one item per equation,
   -- so the equations are collected before the worker is emitted: one worker
   -- per method, not one per equation.
-  mapM (uncurry desugarDefaultWorker) (groupDefaultEquations equations)
+  -- An @INLINE@ pragma in the class body is for the default method, so the
+  -- worker takes it: an instance that leaves the method out calls the
+  -- worker, and a copy at that call knows the instance.
+  let specs = classInlineSpecs (Syn.classDeclItems classDecl)
+  mapM (\(annotation, matches) -> desugarDefaultWorker (Map.findWithDefault InlineDefault (tcInstanceMethodName annotation) specs) annotation matches) (groupDefaultEquations equations)
   where
     defaultItem maybeAnnotation item =
       case item of
@@ -1270,8 +1274,8 @@ valueDeclMatches valueDecl =
     Syn.FunctionBind _ sourceMatches -> sourceMatches
     Syn.PatternBind _ _ rhs -> [emptyMatch rhs]
 
-desugarDefaultWorker :: TcInstanceMethodAnnotation -> [Syn.Match] -> ValueM Decl
-desugarDefaultWorker annotation matches = do
+desugarDefaultWorker :: InlineSpec -> TcInstanceMethodAnnotation -> [Syn.Match] -> ValueM Decl
+desugarDefaultWorker spec annotation matches = do
   let workerType = tcInstanceMethodType annotation
       methodName = tcInstanceMethodName annotation
   body <- desugarMatches workerType matches
@@ -1284,7 +1288,7 @@ desugarDefaultWorker annotation matches = do
             -- the worker by name, and no export list mentions @$dm@ names,
             -- so a default worker is always public.
             valVis = Pub,
-            valInline = InlineDefault,
+            valInline = spec,
             valName = topName moduleOrigin (defaultMethodName methodName),
             valType = convertedType,
             valBody = body
@@ -1857,6 +1861,16 @@ inlinePragmaSpecs decls = Map.fromList (mapMaybe declSpec decls)
     declSpec decl =
       case Syn.peelDeclAnn decl of
         Syn.DeclPragma pragma -> inlinePragmaSpec pragma
+        _ -> Nothing
+
+-- | The inline pragmas among the items of a class, by method name.
+classInlineSpecs :: [Syn.ClassDeclItem] -> Map Text InlineSpec
+classInlineSpecs items = Map.fromList (mapMaybe itemSpec items)
+  where
+    itemSpec item =
+      case item of
+        Syn.ClassItemAnn _ inner -> itemSpec inner
+        Syn.ClassItemPragma pragma -> inlinePragmaSpec pragma
         _ -> Nothing
 
 -- | The inline pragmas among the items of an instance, by method name.
@@ -3617,6 +3631,12 @@ desugarAnnotatedExpr annotation inner = do
               count <- listLength list
               let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)) intHashType)
               ExApp (ExApp method size) <$> desugarExpr list
+        Syn.EAnn resolutionAnnotation sequence'
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
+            resolutionIdentifier resolution == IdentifierNamed "fromList" -> do
+              method <- desugarResolvedOccurrence annotation resolution
+              ExApp method <$> desugarExpr sequence'
         Syn.EAnn resolutionAnnotation (Syn.EIf condition thenExpression elseExpression)
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             isIfThenElseResolution resolution ->
@@ -3633,6 +3653,14 @@ desugarAnnotatedExpr annotation inner = do
                 _ -> do
                   method <- desugarResolvedOccurrence annotation resolution
                   ExApp method <$> desugarExpr operand
+        Syn.EAnn resolutionAnnotation (Syn.EGetField record field)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            isGetFieldResolution resolution ->
+              ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
+        Syn.EAnn resolutionAnnotation (Syn.EGetFieldProjection fields)
+          | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
+            isGetFieldResolution resolution ->
+              desugarGetFieldProjection annotation resolution fields
         Syn.EAnn resolutionAnnotation primitiveLiteral
           | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
             resolutionNamespace resolution == ResolutionNamespaceType,
@@ -3864,6 +3892,29 @@ desugarSectionL annotation operand operator
       operator' <- desugarInfixOperator operator
       operand' <- desugarExpr operand
       shareSectionOperand operand operand' (\shared -> ExLam binder (ExApp (ExApp operator' shared) (ExVar (binderName binder))))
+
+-- | Whether a resolution names the getField syntax term of record dot
+-- syntax.
+isGetFieldResolution :: Resolved -> Bool
+isGetFieldResolution resolution =
+  resolutionNamespace resolution == ResolutionNamespaceTerm
+    && resolutionIdentifier resolution == IdentifierNamed "getField"
+
+-- | The getField occurrence that selects one field of record dot syntax.
+-- The type checker puts the occurrence annotation on the field name.
+desugarFieldSelection :: Resolved -> Syn.Name -> ValueM Expr
+desugarFieldSelection resolution field =
+  case mapMaybe Syn.fromAnnotation (Syn.nameAnns field) of
+    annotation : _ -> desugarResolvedOccurrence annotation resolution
+    [] -> failValue ("record dot field " <> T.unpack (Syn.nameText field) <> " has no checked getField occurrence")
+
+-- | A record dot projection such as @(.x.y)@ is the function
+-- @\\r -> getField \@"y" (getField \@"x" r)@.
+desugarGetFieldProjection :: TcAnnotation -> Resolved -> [Syn.Name] -> ValueM Expr
+desugarGetFieldProjection annotation resolution fields = do
+  binder <- freshBinder "_record" =<< sectionArgumentType annotation
+  selections <- mapM (desugarFieldSelection resolution) fields
+  pure (ExLam binder (foldl (flip ExApp) (ExVar (binderName binder)) selections))
 
 desugarSectionR :: TcAnnotation -> Syn.Name -> Syn.Expr -> ValueM Expr
 desugarSectionR annotation operator operand = do
@@ -5415,7 +5466,7 @@ desugarDoStatements resultType end statements =
           bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           failure <- doBindFailure statement
-          continuation <- desugarDoPatternContinuation annotation pattern' failure continue
+          continuation <- desugarDoPatternContinuation statement annotation pattern' failure continue
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
@@ -5429,9 +5480,17 @@ desugarDoStatements resultType end statements =
 
 -- | The continuation of a bind statement. The failure expression, when the
 -- type checker gives one, is the default alternative of the pattern match.
-desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
-desugarDoPatternContinuation annotation pattern' failure rest = do
-  ty <- requiredPatternType pattern'
+--
+-- The type checker can put a cast before the pattern, for example when a
+-- given equality changes the type of the bound value. Then the pattern type
+-- is the cast target, and the lambda binder has the argument type of the
+-- continuation that the method takes.
+desugarDoPatternContinuation :: Syn.DoStmt Syn.Expr -> TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation statement annotation pattern' failure rest = do
+  ty <-
+    case patternScrutineeCast pattern' of
+      Just _ -> doBindArgumentType statement annotation
+      Nothing -> requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
   case locals of
@@ -5940,6 +5999,28 @@ doBindOccurrence = go Nothing Nothing
         _ -> (,) <$> maybeAnnotation <*> maybeResolution
 
 -- | The type of the continuation body of a checked @>>=@ method.
+-- | The argument type of the continuation of a checked @>>=@ method. When a
+-- given equality made the method fit, the statement casts the method, and
+-- the cast target has the type that the statement uses.
+doBindArgumentType :: Syn.DoStmt body -> TcAnnotation -> ValueM TcType
+doBindArgumentType statement annotation =
+  case doMethodCastTarget statement of
+    Just target -> argumentOf target
+    Nothing -> argumentOf (tcAnnType annotation)
+  where
+    argumentOf ty =
+      case ty of
+        TcFunTy _ (TcFunTy (TcFunTy argument _) _) -> pure argument
+        _ -> failValue ("invalid checked >>= type: " <> show ty)
+
+doMethodCastTarget :: Syn.DoStmt body -> Maybe TcType
+doMethodCastTarget statement =
+  case statement of
+    Syn.DoAnn annotation inner
+      | Just (TcCastAnnotation (Just _) target) <- Syn.fromAnnotation annotation -> Just target
+      | otherwise -> doMethodCastTarget inner
+    _ -> Nothing
+
 doBindResultType :: TcAnnotation -> ValueM TcType
 doBindResultType annotation =
   case tcAnnType annotation of
@@ -6867,9 +6948,12 @@ convertCoercionAtKind expectedKind coercion =
         Just binder -> pure (CoVar (binderName binder), [])
         Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)), [])
+    -- A coercion relates types, not contexts. Thus an equality in the
+    -- type is the dictionary type of the class @~@, as in an argument of
+    -- a constraint tuple, and not the type of a bare proof.
     Ev.Refl ty -> do
       env <- gets vsConvertEnv
-      (,[]) . CoRefl <$> liftEither (convertTypeWithExpectedKind env expectedKind ty)
+      (,[]) . CoRefl <$> liftEither (convertNestedTypeWithExpectedKind env expectedKind ty)
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
     -- A projection, an application, and an arrow have parts whose kinds

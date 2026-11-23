@@ -16,25 +16,24 @@ expected: |
   func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %value_3: ptr, %$cps_return_4: ptr) {
   entry:
     %header_word_7 = load i64 [%value_3] align 8 region heap
-    %info_word_8 = and i64 %header_word_7, -4
-    %header_9 = ptr.from_int %info_word_8
-    %matches_10 = eq ptr %header_9, @aihc_c_aihc_entry_Just_0
-    br %matches_10, alt_5, alt_6
+    %header_8 = ptr.from_int %header_word_7
+    %matches_9 = eq ptr %header_8, @aihc_c_aihc_entry_Just_0
+    br %matches_9, alt_5, alt_6
 
   alt_5:
-    %payload_11 = load i64 [%value_3 + 8] align 8 region heap
-    %header_word_12 = load i64 [%$cps_return_4] align 8 region stack
-    %info_word_13 = and i64 %header_word_12, -4
-    %header_14 = ptr.from_int %info_word_13
-    %entry_15 = load.invariant code [%header_14 + 24] align 1 word
-    %forward_18 = eq code %entry_15, null
-    br %forward_18, continue_slow_16, continue_enter_17
+    %payload_10 = load i64 [%value_3 + 8] align 8 region heap
+    %header_word_11 = load i64 [%$cps_return_4] align 8 region stack
+    %info_word_12 = and i64 %header_word_11, -4
+    %header_13 = ptr.from_int %info_word_12
+    %entry_14 = load.invariant code [%header_13 + 16] align 1 word
+    %forward_17 = eq code %entry_14, null
+    br %forward_17, continue_slow_15, continue_enter_16
 
-  cold continue_slow_16:
-    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %payload_11)
+  cold continue_slow_15:
+    tailcall @aihc_lir_continue_i(%hp_0, %sp_1, %base_2, %$cps_return_4, %payload_10)
 
-  continue_enter_17:
-    tailcall.indirect %entry_15(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %payload_11) : (ptr, ptr, ptr, ptr, i64)
+  continue_enter_16:
+    tailcall.indirect %entry_14(%hp_0, %$cps_return_4, %base_2, %$cps_return_4, %payload_10) : (ptr, ptr, ptr, ptr, i64)
 
   alt_6:
     call @aihc_no_match()
@@ -43,7 +42,7 @@ expected: |
 
   data @aihc_lir_bitmap_0 align 1 = { bytes "\x00" }
 
-  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, ptr null, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
+  data @aihc_c_aihc_entry_Just_0 align 8 = { ptr @aihc_c_aihc_entry_Just_0, ptr @aihc_lir_bitmap_0, code null, ptr null, i16 1, i8 0, i8 0, i8 0, i8 0, i16 0 }
 status: pass
 reason: |
   A case that can match no alternative has a default that is a case without
