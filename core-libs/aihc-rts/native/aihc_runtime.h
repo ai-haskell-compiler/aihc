@@ -795,7 +795,7 @@ int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
    process environment and flattens it like argv; the parser in
    aihc_runtime_options.lir keeps the AIHC_RTS_STATS value, and keeps the
    flattened buffer itself for lookupEnv and getEnvironment. The WASI P3 host
-   reads no environment: see aihc_host_wasip3.c. */
+   reads the environment of wasi:cli/environment: see aihc_wasip3.c. */
 void aihc_program_environment_initialize(void);
 int64_t aihc_runtime_environment_initialize(const void *buffer, int64_t length);
 /* Write the runtime statistics to the AIHC_RTS_STATS file, once, when the

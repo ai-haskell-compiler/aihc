@@ -9,7 +9,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Mode (..), lowerFile)
 import Quasi (quasiLines)
@@ -400,3 +400,4 @@ main = do
   -- A pattern quote. The variable of the pattern binds the variable of a
   -- different quote.
   putStrLn ($(lamE [[p|(Just letter, _)|]] [|[letter]|]) (Just 'p', True))
+  putStrLn $pathVariable
