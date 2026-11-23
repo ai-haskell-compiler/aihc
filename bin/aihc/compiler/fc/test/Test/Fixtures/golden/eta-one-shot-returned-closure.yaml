@@ -1,0 +1,84 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Types (Bool (..))
+
+  data Nat = Z | S Nat
+
+  keep :: Nat -> Bool
+  keep n = case n of
+    Z -> False
+    S m -> keep m
+
+  run :: Nat -> Nat -> Nat
+  run start initial =
+    let loop x =
+          let rest = case x of
+                Z -> \accumulator -> accumulator
+                S y -> loop y
+           in case keep x of
+                True -> \accumulator -> rest (S accumulator)
+                False -> rest
+     in loop start initial
+passes:
+- eta
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cFalse :: tBool;
+    2.cLifted :: tLevity;
+    2.cTrue :: tBool
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tNat :: sType {
+    1.cZ :: tNat;
+    1.cS :: tNat → tNat
+  }
+
+  val 1.vkeep :: tNat → tBool
+    = λ(x : tNat).
+      case x of {
+        cZ →
+          cFalse;
+        cS (m : tNat) →
+          vkeep m
+      }
+
+  pub val 1.vrun :: tNat → tNat → tNat
+    = λ(x : tNat) (y : tNat).
+      rec {
+        loop : tNat → tNat → tNat =
+          λ(x{1} : tNat) (eta{3} : tNat).
+            let rest : tNat → tNat =
+              λ(eta{2} : tNat).
+                case x{1} of {
+                  cZ →
+                    eta{2};
+                  cS (y{1} : tNat) →
+                    loop y{1} eta{2}
+                };
+            case vkeep x{1} of {
+              cTrue →
+                rest (cS eta{3});
+              cFalse →
+                rest eta{3}
+            }
+      } in
+      loop x y
+status: pass
+reason: The local value 'rest' is a function that each path of 'loop' applies one time or returns as the result. The caller applies that result one time, so the result of 'loop' is one-shot. Thus 'loop' takes the accumulator, though the call of 'keep' is not cheap, and 'rest' is a join point.

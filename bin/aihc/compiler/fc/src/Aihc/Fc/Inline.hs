@@ -822,6 +822,7 @@ simplifyValue config known knownVersions diverging blocked reducing inTemplates 
                                 spInline = candidates,
                                 spLocals = Map.empty,
                                 spLocalArities = Map.empty,
+                                spLocalPartials = Map.empty,
                                 spLocalDictionaries = Map.empty,
                                 spExcluded = MonoidMap.empty,
                                 spCse = Map.empty,

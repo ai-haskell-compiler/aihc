@@ -131,12 +131,49 @@ listFoldl f initial values = loop initial values
 listFoldl' :: (b -> a -> b) -> b -> [a] -> b
 listFoldl' combine !initial values = listFoldlEvaluated combine initial values
 
--- | The loop of 'listFoldl''. The accumulator is always evaluated.
+-- | The loop of 'listFoldl''. The accumulator is always evaluated. The
+-- loop is local and the function is INLINE, so each call gets a loop with
+-- the known step function, as 'listFoldl' does.
 listFoldlEvaluated :: (b -> a -> b) -> b -> [a] -> b
-listFoldlEvaluated _ accumulator [] = accumulator
-listFoldlEvaluated combine accumulator (value : values) =
+listFoldlEvaluated combine initial values = loop initial values
+  where
+    loop accumulator [] = accumulator
+    loop accumulator (value : rest) =
+      case combine accumulator value of
+        !next -> loop next rest
+{-# INLINE listFoldlEvaluated #-}
+
+-- | The step of a strict left fold written as a 'GHC.Base.foldr'. The
+-- fold gives a function of the accumulator. The step evaluates the new
+-- accumulator and gives it to the function of the rest of the list.
+foldlStrictFB :: (b -> a -> b) -> a -> (b -> c) -> b -> c
+foldlStrictFB combine value rest accumulator =
   case combine accumulator value of
-    !next -> listFoldlEvaluated combine next values
+    !next -> rest next
+{-# INLINE [1] foldlStrictFB #-}
+
+-- | The end of a strict left fold written as a 'GHC.Base.foldr': the
+-- accumulator is the result.
+foldlStrictEnd :: b -> b
+foldlStrictEnd accumulator = accumulator
+{-# INLINE [1] foldlStrictEnd #-}
+
+-- | A strict left fold of a list, and then a function of its result. This
+-- is the 'GHC.Base.foldr' of 'foldlStrictFB' on a list that no producer
+-- gave.
+foldlStrictThen :: (b -> a -> b) -> (b -> c) -> [a] -> b -> c
+foldlStrictThen combine continue values accumulator = continue (listFoldlEvaluated combine accumulator values)
+{-# INLINE [1] foldlStrictThen #-}
+
+-- A strict left fold consumes its list with 'GHC.Base.foldr', so that it
+-- fuses with a producer of the list, as GHC's @foldl'@ does. The fold
+-- that did not fuse turns back into the loop. The base of that fold is a
+-- function of the last accumulator, and for the second list of an append
+-- it is the fold of that list. Thus the rule keeps the base.
+{-# RULES
+"listFoldl'" [~1] forall k z xs. listFoldl' k z xs = z `seq` GHC.Base.foldr (foldlStrictFB k) foldlStrictEnd xs z
+"listFoldl'/list" [1] forall k continue xs. GHC.Base.foldr (foldlStrictFB k) continue xs = foldlStrictThen k continue xs
+  #-}
 
 -- | The largest element of a list, as GHC's @foldl1' max@. The class
 -- default is a lazy right fold, which builds a 'Just' and a thunk of 'max'

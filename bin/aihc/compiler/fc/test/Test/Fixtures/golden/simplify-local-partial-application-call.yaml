@@ -1,0 +1,60 @@
+---
+extensions: []
+modules:
+- |
+  module Test (run) where
+
+  import GHC.Types (Bool (..))
+
+  data Pair = Pair [Bool] [Bool]
+
+  walk :: Bool -> [Bool] -> [Bool]
+  walk flag rest = case rest of
+    [] -> [flag]
+    value : values -> value : walk flag values
+
+  run :: Bool -> [Bool] -> [Bool] -> Pair
+  run flag xs ys =
+    let step = walk flag
+     in Pair (step xs) (step ys)
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cFalse, 2.cTrue] 2.tBool :: sType;
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.c: :: ∀(a : sType). a → t[] a → t[] a;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  type 1.tPair :: sType {
+    pub 1.cPair :: t[] tBool → t[] tBool → tPair
+  }
+
+  val 1.vwalk :: tBool → t[] tBool → t[] tBool
+    = λ(x : tBool) (y : t[] tBool).
+      case y of {
+        c[] →
+          c: @tBool x (c[] @tBool);
+        c: (value : tBool) (values : t[] tBool) →
+          c: @tBool value (vwalk x values)
+      }
+
+  pub val 1.vrun :: tBool → t[] tBool → t[] tBool → tPair
+    = λ(x : tBool) (y : t[] tBool) (z : t[] tBool).
+      cPair (vwalk x y) (vwalk x z)
+status: pass
+reason: The local value 'step' is a partial application of 'walk' to a variable. Each call of 'step' becomes a call of 'walk' with both arguments, and the binding goes away.
