@@ -68,6 +68,7 @@ import Aihc.Tc
     tcModuleDiagnostics,
     typecheckModulesWithInterface,
   )
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -163,7 +164,7 @@ resolveProblem failure =
   Problem "resolve" (resolveErrorSpan failure) (resolveErrorName failure <> ": " <> T.pack (resolveErrorMessage failure))
 
 -- | Type check the resolved module of the reader against the session.
-typecheckUserModule :: Session -> [ResolvedModule] -> ([Problem], [Module])
+typecheckUserModule :: Session -> [ResolvedModule] -> ([Problem], [TcSyntax.Module])
 typecheckUserModule session resolved =
   (concatMap (map tcProblem . filter isError . tcModuleDiagnostics) checked, checked)
   where
@@ -175,7 +176,7 @@ tcProblem diagnostic =
   Problem "typecheck" (diagLoc diagnostic) (T.pack (renderKind (diagKind diagnostic)))
 
 -- | Check the user module and the executable entry with the same interface.
-checkProgram :: Session -> Text -> Either [Problem] ([Module], TcInterface)
+checkProgram :: Session -> Text -> Either [Problem] ([TcSyntax.Module], TcInterface)
 checkProgram session source = do
   let (parseProblems, modu, extensions) = parseUserModule source
       entryExtensions = headerExtensions GHC2021Edition entrySource

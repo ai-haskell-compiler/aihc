@@ -63,6 +63,7 @@ import Aihc.Resolve
     unnamedPackage,
   )
 import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, unless)
@@ -372,9 +373,12 @@ desugarConfigsByModule exports packageModules =
 moduleKeyOf :: Surface.Module -> Text
 moduleKeyOf = fromMaybe "Main" . Surface.moduleName
 
-evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> Surface.Module -> Fc.DesugarConfig
+checkedModuleKey :: TcSyntax.Module -> Text
+checkedModuleKey = fromMaybe "Main" . TcSyntax.moduleName
+
+evalDesugarConfig :: Map.Map Text Fc.DesugarConfig -> TcSyntax.Module -> Fc.DesugarConfig
 evalDesugarConfig configs modu =
-  Map.findWithDefault (Fc.allPublicDesugarConfig evalKinds primPackageId) (moduleKeyOf modu) configs
+  Map.findWithDefault (Fc.allPublicDesugarConfig evalKinds primPackageId) (checkedModuleKey modu) configs
 
 -- | Fixtures have no cabal file. They compile under one language edition,
 -- with whatever their own pragmas add to it.
@@ -465,11 +469,11 @@ evalDecl expr =
           }
       ]
 
-renderTcErrors :: [Module] -> String
+renderTcErrors :: [TcSyntax.Module] -> String
 renderTcErrors results =
   let rendered =
         unlines
-          [ T.unpack (fromMaybe "<unknown>" (Surface.moduleName result))
+          [ T.unpack (fromMaybe "<unknown>" (TcSyntax.moduleName result))
               <> ": "
               <> renderTcErrorKind (diagKind diagnostic)
           | result <- results,
@@ -504,14 +508,14 @@ renderTcErrorKind errorKind =
       "instance " <> renderPred predicate <> " conflicts with instance " <> renderPred other <> " under the functional dependency " <> renderFunDepNames determiners determined
     OtherError message -> message
 
-moduleGroupBindings :: [Module] -> [TcBindingResult]
+moduleGroupBindings :: [TcSyntax.Module] -> [TcBindingResult]
 moduleGroupBindings =
   concatMap (tcModuleBindings evalWiring)
 
 -- | Typecheck the core library modules. The wired-in modules are checked
 -- first as one group. Then each import cycle is checked as one group, in
 -- dependency order.
-typecheckCoreModules :: [ResolvedModule] -> ([Module], TcInterface)
+typecheckCoreModules :: [ResolvedModule] -> ([TcSyntax.Module], TcInterface)
 typecheckCoreModules units =
   let (checkedPrim, primInterface) =
         typecheckModuleSccWithInterface evalTcConfig emptyTcInterface (sortOn moduleOrder primModules)

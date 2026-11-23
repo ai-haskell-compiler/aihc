@@ -8,10 +8,10 @@ import Aihc.Grin.Cps qualified as Grin
 import Aihc.Grin.Gc qualified as Grin
 import Aihc.Grin.Lower qualified as Grin
 import Aihc.Lir.Lower qualified as Lir
-import Aihc.Parser.Syntax (Module)
 import Aihc.Play.Json (Json (..))
 import Aihc.Play.Session
 import Aihc.Tc (TcInterface, mkTcKinds, tcModuleBindings)
+import Aihc.Tc.Syntax (Module)
 import Aihc.Wasm.Lir qualified as Wasm
 import Data.Text (Text)
 import Data.Text qualified as T

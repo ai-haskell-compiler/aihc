@@ -241,6 +241,7 @@ import Aihc.Tc
     TcSeverity (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    checkedParserModule,
     derivingReferenceList,
     emptyTcInterface,
     factEnvFromModules,
@@ -257,6 +258,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Share (shareTcInterface)
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
 import Aihc.Th.Reify (exportedFixity)
@@ -3604,9 +3606,9 @@ runTypeUnit context runtimes runtime = do
                 quotedNames =
                   Map.fromListWith
                     Set.union
-                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home checked)
+                    [ (home, quotedModuleNames (packageIdText (packageId resolvePackage)) home (checkedParserModule checked))
                     | checked <- checkedModules,
-                      let home = fromMaybe "Main" (moduleName checked)
+                      let home = fromMaybe "Main" (TcSyntax.moduleName checked)
                     ]
                 withQuotedNames name desugarConfig =
                   case Map.lookup name quotedNames of
@@ -4004,9 +4006,9 @@ configMergeCheck config
 -- | Desugar the checked modules of a unit to System FC, lint it when asked,
 -- and write it when a later build or a @--lto@ link reads it. This is the
 -- last phase that sees the Haskell AST.
-desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> Fc.DesugarFacts -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [Module] -> IO [FcModule]
+desugarCheckedModules :: ModuleCompileConfig -> (String -> IO ()) -> PackageId -> Fc.DesugarFacts -> (Text -> ModuleOutputPaths) -> Map.Map Text DesugarConfig -> [TcSyntax.Module] -> IO [FcModule]
 desugarCheckedModules config verbose primIdentity interface outputPaths desugarConfigs checkedModules = do
-  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+  let moduleNames = map (fromMaybe "Main" . TcSyntax.moduleName) checkedModules
   do
     let kinds = primKinds primIdentity
         -- A module the resolver did not report on keeps every name public.

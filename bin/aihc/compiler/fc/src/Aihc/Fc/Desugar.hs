@@ -26,19 +26,6 @@ import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Fc.Wired (equalityRep, typeConstructor, wiredGhcTypes)
-import Aihc.Parser.Syntax
-  ( DataDecl (..),
-    Module (..),
-    TypeFamilyDecl (..),
-    TypeSynDecl (..),
-    binderHeadName,
-    binderHeadParams,
-    fromAnnotation,
-    peelDeclAnn,
-    tyVarBinderName,
-    unqualifiedNameText,
-  )
-import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve (Entity (..), GlobalName (..), ModuleExports, Package (..), PackageId (..), ResolutionNamespace (..), exportedLocalNames)
 import Aihc.Tc
   ( AssociatedTypeInfo (..),
@@ -71,6 +58,18 @@ import Aihc.Tc
 import Aihc.Tc.Annotations (TcInstanceAnnotation (..), TcModuleIdentity (..))
 import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
 import Aihc.Tc.Match (matchTypes)
+import Aihc.Tc.Syntax
+  ( DataDecl (..),
+    Module (..),
+    TypeFamilyDecl (..),
+    TypeSynDecl (..),
+    binderHeadName,
+    binderHeadParams,
+    peelDeclAnn,
+    tyVarBinderName,
+    unqualifiedNameText,
+  )
+import Aihc.Tc.Syntax qualified as Syn
 import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
@@ -629,18 +628,18 @@ dsDecl ::
   Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings decl =
   case decl of
-    Syn.DeclAnn ann inner
-      | Just familyInfo <- fromAnnotation ann ->
-          convertDataFamilyInst env package moduleName' bindings familyInfo
-      | Just familyEquation <- fromAnnotation ann ->
-          (: []) <$> convertTypeFamilyEquation env familyEquation
-      | Just instanceAnnotation <- fromAnnotation ann,
-        Syn.DeclInstance {} <- peelDeclAnn inner ->
+    Syn.DeclTc (Syn.InfoDataFamilyInstance familyInfo) _ ->
+      convertDataFamilyInst env package moduleName' bindings familyInfo
+    Syn.DeclTc (Syn.InfoTypeFamilyInstance familyEquation) _ ->
+      (: []) <$> convertTypeFamilyEquation env familyEquation
+    Syn.DeclTc (Syn.InfoInstance instanceAnnotation) inner
+      | Syn.DeclInstance {} <- peelDeclAnn inner ->
           -- The associated type family equations of an instance, explicit
           -- ones and instantiated class defaults, become axioms.
           mapM (convertTypeFamilyEquation env) (tcInstanceAssociatedTypes instanceAnnotation)
-      | otherwise ->
-          dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
+    Syn.DeclTc _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
+    Syn.DeclAnn _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
+    Syn.DeclError _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
     _ ->
       case peelDeclAnn decl of
         Syn.DeclData dataDecl -> do
@@ -1229,5 +1228,5 @@ resolvedModuleOrigin checked =
   fromMaybe (error "System FC module has no TcModuleIdentity annotation") $
     listToMaybe
       [ (package, moduleName')
-      | TcModuleIdentity package moduleName' <- mapMaybe fromAnnotation (Syn.moduleAnns checked)
+      | Syn.InfoModuleIdentity (TcModuleIdentity package moduleName') <- Syn.moduleTc checked
       ]
