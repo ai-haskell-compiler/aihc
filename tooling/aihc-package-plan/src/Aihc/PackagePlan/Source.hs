@@ -19,7 +19,7 @@ import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (DependencyVersions, cppMacrosFromOptions, injectSyntheticCppMacros)
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
-import Aihc.PackagePlan.Diagnostic (Diagnostic, DiagnosticSourceMap, cppDiagnosticValue, diagnosticSourceMap, parseDiagnosticValue)
+import Aihc.PackagePlan.Diagnostic (Diagnostic (..), DiagnosticSourceMap, diagnosticSourceMap)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
@@ -138,7 +138,7 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
       cfg = defaultConfig {parserSourceName = path, parserExtensions = extensions}
       (parseErrs, parsedModu) = parseModule cfg source
       modu = standinImportPackages parsedModu
-      parseDiagnostics = map (parseDiagnosticValue path) parseErrs
+      parseDiagnostics = map (uncurry (ParseDiagnostic path)) parseErrs
       sourceLines = diagnosticSourceMap path source
       dependencies = HackageCabal.fileInfoDependencies fileInfo
       deps =
@@ -208,7 +208,7 @@ preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
     drive environmentDirs includes step =
       case step of
         Cpp.Done result ->
-          pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map cppDiagnosticValue (Cpp.resultDiagnostics result), includes)
+          pure (TE.decodeUtf8With lenientDecode (Cpp.resultOutput result), map CppDiagnostic (Cpp.resultDiagnostics result), includes)
         Cpp.NeedInclude req k -> do
           resolved <- resolveInclude headerDir environmentDirs packageRoot (HackageCabal.fileInfoIncludeDirs fileInfo) path req
           case resolved of

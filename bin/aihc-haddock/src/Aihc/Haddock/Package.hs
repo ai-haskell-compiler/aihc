@@ -97,8 +97,8 @@ buildParsedModule
         fallbackName = T.intercalate "." (map T.pack (splitDirectories (dropExtension relative)))
         name = fromMaybe fallbackName (moduleName modu)
         diagnostics =
-          map (T.pack . renderHumanDiagnostic "parse") parseDiagnostics
-            <> map (T.pack . renderHumanDiagnostic "cpp") cppDiagnostics
+          map (T.pack . renderHumanDiagnostic) parseDiagnostics
+            <> map (T.pack . renderHumanDiagnostic) cppDiagnostics
      in buildModuleDoc
           BuildInput
             { buildFile = path,

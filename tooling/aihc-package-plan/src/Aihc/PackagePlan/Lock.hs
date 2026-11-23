@@ -3,7 +3,7 @@
 -- Description : The aihc.lock file
 --
 -- A lock file records a solved plan so that later builds reuse it instead
--- of solving, and so that the plan survives changes on Hackage. It is JSON
+-- of solving, and so that the plan survives changes on Hackage. It is TOML
 -- with the packages sorted by name, one package per line, so that a diff
 -- touches only the packages that changed.
 --
@@ -14,6 +14,7 @@
 -- ignored and rewritten.
 module Aihc.PackagePlan.Lock
   ( LockFile (..),
+    LockProblem (..),
     LockEntry (..),
     LockSource (..),
     lockFileName,
@@ -31,20 +32,19 @@ where
 
 import Aihc.Hackage.Package (Arch, FlagAssignment, OS, PackageName, Version, archName, mkFlagAssignment, mkFlagName, mkPackageName, osName, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.PackagePlan.Solver (Assignment (..), CandidateSource (..), Preference (..), Solution)
+import Aihc.PackagePlan.Toml (Value (..))
+import Aihc.PackagePlan.Toml qualified as Toml
 import Control.Exception (bracket)
-import Control.Monad (when)
-import Data.Aeson ((.:), (.:?), (.=))
-import Data.Aeson qualified as Aeson
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Aeson.Types qualified as AesonTypes
+import Control.Monad (unless, when, (>=>))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.ByteString.Lazy.Char8 qualified as BLC
+import Data.Char (isSpace)
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import System.Directory (doesFileExist, removeFile, renameFile)
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, openBinaryTempFileWithDefaultPermissions)
@@ -55,7 +55,7 @@ lockFileName = "aihc.lock"
 
 -- | Bumped on any change to the shape of the file.
 lockFormatVersion :: Int
-lockFormatVersion = 1
+lockFormatVersion = 2
 
 data LockSource = LockCore | LockHackage | LockLocal
   deriving (Eq, Ord, Show)
@@ -86,10 +86,18 @@ data LockFile = LockFile
 platformKey :: OS -> Arch -> String
 platformKey os arch = osName os <> "-" <> archName arch
 
--- | The lock beside a package, if there is one. A file that does not parse
--- is reported rather than ignored, since a hand edit that broke it should
--- not silently drop every pin.
-readLockFile :: FilePath -> IO (Maybe (Either String LockFile))
+-- | Why a lock file gives no plan.
+data LockProblem
+  = -- | The file does not parse. This is reported rather than ignored,
+    -- since a hand edit that broke it should not silently drop every pin.
+    LockInvalid String
+  | -- | The file is JSON, the format 1 of an earlier aihc. It is ignored and
+    -- written again, as a lock for another compiler release is.
+    LockOldFormat
+  deriving (Eq, Show)
+
+-- | The lock beside a package, if there is one.
+readLockFile :: FilePath -> IO (Maybe (Either LockProblem LockFile))
 readLockFile path = do
   exists <- doesFileExist path
   if not exists
@@ -112,52 +120,38 @@ writeLockFile path lock =
       exists <- doesFileExist temporary
       when exists (removeFile temporary)
 
--- | Render the file with one package per line, in name order.
+-- | Render the file with one package per line, in name order. Each line of
+-- an array ends with a comma, so a new last package changes one line only.
 renderLockFile :: LockFile -> BL.ByteString
 renderLockFile lock =
-  BLC.unlines
-    ( [ BLC.pack "{",
-        field "format" (Aeson.encode lockFormatVersion) <> BLC.pack ",",
-        field "compiler" (Aeson.encode (lockCompiler lock)) <> BLC.pack ",",
-        field "index-state" (Aeson.encode (lockIndexState lock)) <> BLC.pack ",",
-        BLC.pack "  \"platforms\": {"
-      ]
-        <> concat (separatedGroups (map platform (Map.toAscList (lockPlatforms lock))))
-        <> [BLC.pack "  }", BLC.pack "}"]
-    )
+  BL.fromStrict . TE.encodeUtf8 . T.unlines $
+    [ "format = " <> Toml.renderValue (Integer (toInteger lockFormatVersion)),
+      "compiler = " <> Toml.renderValue (string (lockCompiler lock))
+    ]
+      <> ["index-state = " <> Toml.renderValue (string indexState) | Just indexState <- [lockIndexState lock]]
+      <> ["", "[platforms]"]
+      <> concatMap platform (Map.toAscList (lockPlatforms lock))
   where
-    field :: String -> BL.ByteString -> BL.ByteString
-    field name value = BLC.pack ("  " <> show name <> ": ") <> value
     platform (key, entries) =
-      [BLC.pack ("    " <> show key <> ": [")]
-        <> separated (map ((BLC.pack "      " <>) . renderEntry) (sortOn lockName entries))
-        <> [BLC.pack "    ]"]
-    separated [] = []
-    separated [x] = [x]
-    separated (x : rest) = (x <> BLC.pack ",") : separated rest
-    -- A comma after the last line of every group but the last.
-    separatedGroups [] = []
-    separatedGroups [group] = [group]
-    separatedGroups (group : rest) = (init group <> [last group <> BLC.pack ","]) : separatedGroups rest
+      [Toml.renderKey (T.pack key) <> " = ["]
+        <> map (\entry -> "  " <> renderEntry entry <> ",") (sortOn lockName entries)
+        <> ["]"]
 
-renderEntry :: LockEntry -> BL.ByteString
+-- | One package as an inline table, with its fields in a fixed order.
+renderEntry :: LockEntry -> Text
 renderEntry entry =
-  BLC.pack "{"
-    <> BLC.intercalate
-      (BLC.pack ", ")
-      ( [ pair "name" (Aeson.encode (unPackageName (lockName entry))),
-          pair "version" (Aeson.encode (showVersion (lockVersion entry))),
-          pair "source" (Aeson.encode (sourceText (lockSource entry)))
-        ]
-          <> [pair "revision" (Aeson.encode revision) | Just revision <- [lockRevision entry]]
-          <> [ pair "flags" (Aeson.encode (Aeson.object [Key.fromString (unFlagName flag) .= value | (flag, value) <- sortOn fst (unFlagAssignment (lockFlags entry))]))
-             | not (null (unFlagAssignment (lockFlags entry)))
-             ]
-      )
-    <> BLC.pack "}"
+  Toml.renderInlineTable $
+    [ ("name", string (unPackageName (lockName entry))),
+      ("version", string (showVersion (lockVersion entry))),
+      ("source", string (sourceText (lockSource entry)))
+    ]
+      <> [("revision", Integer (toInteger revision)) | Just revision <- [lockRevision entry]]
+      <> [("flags", Table (Map.fromList [(T.pack (unFlagName flag), Bool on) | (flag, on) <- flags])) | not (null flags)]
   where
-    pair :: String -> BL.ByteString -> BL.ByteString
-    pair name value = BLC.pack (show name <> ": ") <> value
+    flags = unFlagAssignment (lockFlags entry)
+
+string :: String -> Value
+string = String . T.pack
 
 sourceText :: LockSource -> String
 sourceText source =
@@ -166,43 +160,53 @@ sourceText source =
     LockHackage -> "hackage"
     LockLocal -> "local"
 
-parseLockFile :: BL.ByteString -> Either String LockFile
-parseLockFile bytes = do
-  value <- Aeson.eitherDecode bytes
-  AesonTypes.parseEither parseLock value
+parseLockFile :: BL.ByteString -> Either LockProblem LockFile
+parseLockFile bytes
+  | BL.take 1 (BL.dropWhile (isSpace . toEnum . fromIntegral) bytes) == "{" = Left LockOldFormat
+  | otherwise = either (Left . LockInvalid) Right $ do
+      text <- either (Left . show) Right (TE.decodeUtf8' (BL.toStrict bytes))
+      root <- Toml.parseToml lockFileName text
+      format <- required "format" asInt root
+      unless (format == lockFormatVersion) $
+        Left ("unsupported lock format " <> show format <> "; this compiler writes format " <> show lockFormatVersion)
+      LockFile
+        <$> required "compiler" asString root
+        <*> optional "index-state" asString root
+        <*> (required "platforms" asTable root >>= traverse (asArray >=> traverse lockEntry) . Map.mapKeys T.unpack)
   where
-    parseLock = Aeson.withObject "lock file" $ \object -> do
-      format <- object .: "format"
-      if format /= lockFormatVersion
-        then fail ("unsupported lock format " <> show (format :: Int) <> "; this compiler writes format " <> show lockFormatVersion)
-        else
-          LockFile
-            <$> object .: "compiler"
-            <*> object .:? "index-state"
-            <*> (object .: "platforms" >>= Aeson.withObject "platforms" (fmap Map.fromList . mapM parsePlatform . KeyMap.toList))
-    parsePlatform (key, value) = do
-      entries <- Aeson.parseJSON value >>= mapM parseEntry
-      pure (Key.toString key, entries)
-    parseEntry = Aeson.withObject "package" $ \object -> do
-      name <- object .: "name"
-      versionText <- object .: "version"
-      version <- maybe (fail ("invalid version " <> versionText)) pure (parseVersionString versionText)
-      sourceName <- object .: "source"
-      source <- case sourceName :: String of
-        "core" -> pure LockCore
-        "hackage" -> pure LockHackage
-        "local" -> pure LockLocal
-        other -> fail ("unknown package source " <> other)
-      revision <- object .:? "revision"
-      flags <- object .:? "flags"
+    lockEntry content = do
+      table <- asTable content
+      name <- required "name" asString table
+      versionText <- required "version" asString table
+      version <- maybe (Left ("invalid version " <> versionText)) Right (parseVersionString versionText)
+      source <- required "source" asString table >>= lockSourceFromText
+      revision <- optional "revision" asInt table
+      flags <- maybe (Right Map.empty) (traverse asBool) =<< optional "flags" asTable table
       pure
         LockEntry
           { lockName = mkPackageName name,
             lockVersion = version,
             lockSource = source,
             lockRevision = revision,
-            lockFlags = mkFlagAssignment [(mkFlagName (T.unpack flag), value) | (flag, value) <- maybe [] Map.toList flags]
+            lockFlags = mkFlagAssignment [(mkFlagName (T.unpack flag), on) | (flag, on) <- Map.toList flags]
           }
+    lockSourceFromText sourceName =
+      case sourceName of
+        "core" -> Right LockCore
+        "hackage" -> Right LockHackage
+        "local" -> Right LockLocal
+        other -> Left ("unknown package source " <> other)
+    required name convert table =
+      maybe (Left ("the key " <> T.unpack name <> " is missing")) (inKey name convert) (Map.lookup name table)
+    optional name convert table =
+      traverse (inKey name convert) (Map.lookup name table)
+    inKey name convert content =
+      either (\problem -> Left (problem <> " at the key " <> T.unpack name)) Right (convert content)
+    asString content = case content of String text -> Right (T.unpack text); _ -> Left "expected a string"
+    asInt content = case content of Integer number -> Right (fromInteger number); _ -> Left "expected an integer"
+    asBool content = case content of Bool on -> Right on; _ -> Left "expected a boolean"
+    asTable content = case content of Table table -> Right table; _ -> Left "expected a table"
+    asArray content = case content of Array items -> Right items; _ -> Left "expected an array"
 
 -- | The entries of one platform from a solution.
 lockEntriesFromSolution :: Solution -> [LockEntry]

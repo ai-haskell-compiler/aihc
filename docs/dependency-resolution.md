@@ -278,29 +278,25 @@ The alternatives were considered and rejected:
 
 ### Contents
 
-JSON, with packages sorted by name so that a diff touches only the packages
-that changed:
+TOML, with packages sorted by name and one package on each line, so that a
+diff touches only the packages that changed:
 
-```json
-{
-  "format": 1,
-  "compiler": "ghc-9.12.4",
-  "index-state": "2026-09-17T00:00:00Z",
-  "platforms": {
-    "linux-x86_64": [
-      {"name": "base", "version": "4.21.0.0", "source": "core"},
-      {"name": "filepath", "version": "1.5.5.0", "source": "hackage",
-       "revision": 2},
-      {"name": "os-string", "version": "2.0.11", "source": "hackage",
-       "revision": 0},
-      {"name": "unix", "version": "2.8.8.0", "source": "hackage",
-       "revision": 1, "flags": {"os-string": true}}
-    ]
-  }
-}
+```toml
+format = 2
+compiler = "ghc-9.12.4"
+index-state = "2026-09-17T00:00:00Z"
+
+[platforms]
+linux-x86_64 = [
+  {name = "base", version = "4.21.0.0", source = "core"},
+  {name = "filepath", version = "1.5.5.0", source = "hackage", revision = 2},
+  {name = "os-string", version = "2.0.11", source = "hackage", revision = 0},
+  {name = "unix", version = "2.8.8.0", source = "hackage", revision = 1, flags = {os-string = true}},
+]
 ```
 
-- `format` is bumped on any shape change.
+- `format` is bumped on any shape change. Format 1 was JSON. aihc ignores a
+  format 1 file and writes a new lock file.
 - `compiler` is the emulated GHC release. A lock written for another release
   is ignored and rewritten, since the core-library versions differ.
 - `index-state` is the moment the plan was solved against Hackage. It is
@@ -315,7 +311,7 @@ that changed:
 - `revision` is the cabal file revision the plan was solved with. Hackage
   revisions can tighten bounds after the fact; the build uses the recorded
   revision so a later revision cannot invalidate a committed plan.
-- Local and workspace packages appear with `"source": "local"` and their
+- Local and workspace packages appear with `source = "local"` and their
   version, and no revision.
 
 ### Behaviour
