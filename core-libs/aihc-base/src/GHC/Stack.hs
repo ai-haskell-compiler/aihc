@@ -16,11 +16,39 @@ module GHC.Stack
     withFrozenCallStack,
     prettyCallStack,
     prettySrcLoc,
+    whoCreated,
+    CostCentreStack,
+    CostCentre,
+    getCurrentCCS,
+    getCCSOf,
+    clearCCS,
+    ccsCC,
+    ccsParent,
+    ccLabel,
+    ccModule,
+    ccSrcSpan,
+    ccsToStrings,
+    renderStack,
   )
 where
 
 import GHC.Internal.Stack (popCallStack, prettyCallStack, prettySrcLoc)
-import GHC.Stack.CCS (currentCallStack)
+import GHC.Stack.CCS
+  ( CostCentre,
+    CostCentreStack,
+    ccLabel,
+    ccModule,
+    ccSrcSpan,
+    ccsCC,
+    ccsParent,
+    ccsToStrings,
+    clearCCS,
+    currentCallStack,
+    getCCSOf,
+    getCurrentCCS,
+    renderStack,
+    whoCreated,
+  )
 import GHC.Stack.Types
   ( CallStack (..),
     HasCallStack,

@@ -38,9 +38,9 @@ import GHC.Enum (Bounded (..))
 import GHC.Internal.Base (Applicative (..), Functor (..), Maybe (..), Monad (..), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Foldable (Foldable (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Internal.Read (Read (..))
 import GHC.Internal.Traversable (Traversable (..))
-import GHC.Num (Num (..))
 import GHC.Show (Show (..), showParen, showString, shows)
 
 newtype First a = First {getFirst :: Maybe a}

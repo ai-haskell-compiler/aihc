@@ -67,7 +67,7 @@ import GHC.Internal.IO.Types
   )
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer, flushWriteBuffer)
 import GHC.Internal.IO.Types qualified as RawIO (read, write)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Addr#,
     Int#,

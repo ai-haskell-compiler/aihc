@@ -49,7 +49,7 @@ module GHC.Word
 where
 
 import GHC.Internal.Integer (integerToInt#)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Word#,
     Word16#,

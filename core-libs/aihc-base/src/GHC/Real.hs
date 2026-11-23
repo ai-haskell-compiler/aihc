@@ -54,7 +54,7 @@ import GHC.Int (Int (..), Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Base ((.))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerMul, integerQuotRem, integerRem, magnitudeRemWord#, wordToInteger)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Int#,
     Word#,

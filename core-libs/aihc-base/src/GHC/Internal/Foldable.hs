@@ -27,7 +27,7 @@ import GHC.Internal.Base (Maybe (..), String, id, seq, (++), (.))
 import GHC.Internal.Base qualified as GHC.Base
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim (Int#, (+#))
 import GHC.Tuple (Solo (..))
 

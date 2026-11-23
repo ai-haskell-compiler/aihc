@@ -1,0 +1,35 @@
+extensions: [MagicHash]
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Exts (int2Word#)
+    import GHC.Float (isDoubleFinite, isFloatFinite)
+    import GHC.Num (integerFromWord#, naturalFromWord)
+    import GHC.Stack (ccsToStrings, getCurrentCCS)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    -- text-show gets integerFromWord# from GHC.Num.
+    fromWord :: Bool
+    fromWord = integerFromWord# (int2Word# 42#) == 42 && toInteger (naturalFromWord 7) == 7
+
+    -- fp-ieee gets isDoubleFinite from GHC.Float. The result is 1 or 0.
+    finite :: Bool
+    finite =
+      [isDoubleFinite 1.5, isDoubleFinite (1 / 0), isDoubleFinite (0 / 0), isFloatFinite 2.5]
+        == [1, 0, 0, 1]
+
+    -- reflex gets the cost-centre API from GHC.Stack. Without profiling, the
+    -- current stack is empty.
+    noProfiling :: Bool
+    noProfiling = null (unsafePerformIO (getCurrentCCS () >>= ccsToStrings))
+
+    answer :: Bool
+    answer = fromWord && finite && noProfiling
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: GHC.Num, GHC.Float and GHC.Stack export the GHC names that text-show, fp-ieee and reflex use

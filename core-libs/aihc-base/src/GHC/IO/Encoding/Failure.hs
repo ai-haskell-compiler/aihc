@@ -17,7 +17,7 @@ import GHC.IO.Buffer (Buffer (..), CharBuffer, readCharBuf, readWord8Buf, writeC
 import GHC.Internal.Base (Char, Monad (..), String, ord, unsafeChr)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..))
 import GHC.Word (Word8)

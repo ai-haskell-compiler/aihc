@@ -17,7 +17,7 @@ import GHC.Integer (Integer)
 import GHC.Internal.Base (Monad (..), String)
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (SeekMode (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Real (fromIntegral, toInteger)
 
 -- | Whether the descriptor can move its position. A pipe, a socket, or a

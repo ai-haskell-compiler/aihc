@@ -10,7 +10,7 @@ module GHC.Int
 where
 
 import GHC.Internal.Integer (integerToInt#)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Int#,
     Int16#,

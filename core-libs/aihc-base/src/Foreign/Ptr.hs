@@ -31,7 +31,7 @@ import GHC.Enum (Bounded (..), Enum (..))
 import GHC.IO (IO)
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim (addr2Int#, int2Addr#, int2Word#, word2Int#)
 import GHC.Ptr
   ( FunPtr (..),

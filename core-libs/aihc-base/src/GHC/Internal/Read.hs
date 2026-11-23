@@ -28,7 +28,7 @@ import GHC.Internal.Base (Applicative (..), Functor (..), List (..), Maybe (..),
 import GHC.Internal.Classes (Ord (..))
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
 import GHC.Internal.Integer (Integer)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim.Read
   ( Digits,
     Lexeme (..),
