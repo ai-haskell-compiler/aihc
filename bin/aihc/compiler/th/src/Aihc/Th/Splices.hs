@@ -292,6 +292,7 @@ traverseSplicesAt onExpression onType onPattern onDeclaration = go Nothing
       case expr of
         EAnn annotation inner -> EAnn annotation <$> expression (annotationSpan here annotation) inner
         ETHSplice body -> onExpression here body
+        ETHTypedSplice body -> onExpression here (typedSpliceBody body)
         EQuasiQuote quoter text -> onExpression here (quasiQuoteBody QuoteExpression quoter text)
         ETHExpQuote {} -> pure expr
         ETHTypedQuote {} -> pure expr
@@ -345,6 +346,15 @@ traverseSplicesAt onExpression onType onPattern onDeclaration = go Nothing
       case expr of
         EAnn _ inner -> explicitSplice inner
         _ -> expr
+
+-- | The body of the splice of a typed splice @$$e@: @unTypeCode e@. GHC
+-- gives @e@ the type @Code m t@. The splice runs the code and puts its
+-- syntax tree in the position of the splice. The type checker then checks
+-- the result in that position. The splice module imports
+-- @Aihc.TH.Splice@, which exports 'unTypeCode'.
+typedSpliceBody :: Expr -> Expr
+typedSpliceBody body =
+  EApp (EVar (mkName (Just "Aihc.TH.Splice") NameVarId "unTypeCode")) (EParen body)
 
 -- | The field of a quasi-quoter that a quasi-quote uses. The field
 -- depends on the position of the quasi-quote.

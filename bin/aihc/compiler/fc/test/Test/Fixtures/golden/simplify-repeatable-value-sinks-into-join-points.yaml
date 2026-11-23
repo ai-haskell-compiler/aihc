@@ -1,0 +1,131 @@
+---
+extensions:
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test (scan) where
+
+  import GHC.Prim (Addr#, Int#, (+#), (<#), (==#), readIntOffAddr#, realWorld#)
+  import GHC.Types (Int (..))
+
+  scan :: Addr# -> Int# -> Int# -> Int
+  scan address mode first =
+    let next = case first <# 4# of
+          1# -> case readIntOffAddr# address 1# realWorld# of
+            (# _, value #) -> I# value
+          _ -> I# 0#
+        j :: Int# -> Int
+        j k = case k ==# 7# of
+          1# -> I# 0#
+          _ -> case next of
+            I# value -> case value ==# k of
+              1# -> I# (value +# k)
+              _ -> case k <# value of
+                1# -> I# (k +# 3#)
+                _ -> I# (value +# 5#)
+     in case mode <# 0# of
+          1# -> j 1#
+          _ -> case first <# 0# of
+            1# -> j 2#
+            _ -> case first <# 9# of
+              1# -> case next of I# value -> I# (value +# 4#)
+              _ -> I# 0#
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    <# = 2.v<# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    ==# = 2.v==# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    readIntOffAddr# = 2.vreadIntOffAddr# :: ∀(a : sType). FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @(cTupleRep (c[] tRuntimeRep)) @(cTupleRep (c: tRuntimeRep (cTupleRep (c[] tRuntimeRep)) (c: tRuntimeRep cIntRep (c[] tRuntimeRep)))) (tState# a) (tTuple2# (cTupleRep (c[] tRuntimeRep)) cIntRep (tState# a) tInt#)));
+    realWorld# = 2.vrealWorld# :: tState# tRealWorld
+
+  import headers
+    2.tAddr# :: tTYPE cAddrRep;
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    2.tRealWorld :: sType;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    2.tState# :: ∀(s : sType). tTYPE (cTupleRep (c[] tRuntimeRep));
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    constructors [3.cTuple2#] 3.tTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). tTYPE (cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep))));
+    3.sType :: sType;
+    constructors [3.c[], 3.c:] 3.t[] :: ∀(a : sType). sType;
+    3.c: :: ∀(a : sType). a → t[] a → t[] a;
+    3.cAddrRep :: tRuntimeRep;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity;
+    unboxed-tuple 3.cTuple2# :: ∀(r1 : tRuntimeRep) (r2 : tRuntimeRep) (a1 : tTYPE r1) (a2 : tTYPE r2). FUN @r1 @sLiftedRep a1 (FUN @r2 @(cTupleRep (c: tRuntimeRep r1 (c: tRuntimeRep r2 (c[] tRuntimeRep)))) a2 (tTuple2# r1 r2 a1 a2));
+    3.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    3.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub val 1.vscan :: FUN @cAddrRep @sLiftedRep tAddr# (FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt))
+    = λ(x : tAddr#) (y : tInt#) (z : tInt#).
+      let j : FUN @cIntRep @sLiftedRep tInt# tInt =
+        λ(x{1} : tInt#).
+          case x{1} of {
+            7#cIntRep →
+              cI# lit (0#cIntRep) :: tInt#;
+            _ →
+              let value : tInt# =
+                case prim <# z lit (4#cIntRep) :: tInt# of {
+                  1#cIntRep →
+                    let! cTuple2# (unused _pat : tState# tRealWorld) (value{1} : tInt#) =
+                      prim readIntOffAddr# @tRealWorld x lit (1#cIntRep) :: tInt# (prim realWorld#);
+                    value{1};
+                  _ →
+                    lit (0#cIntRep) :: tInt#
+                };
+              case prim ==# value x{1} of {
+                1#cIntRep →
+                  cI# (prim +# value x{1});
+                _ →
+                  case prim <# x{1} value of {
+                    1#cIntRep →
+                      cI# (prim +# x{1} lit (3#cIntRep) :: tInt#);
+                    _ →
+                      cI# (prim +# value lit (5#cIntRep) :: tInt#)
+                  }
+              }
+          };
+      case prim <# y lit (0#cIntRep) :: tInt# of {
+        1#cIntRep →
+          j lit (1#cIntRep) :: tInt#;
+        _ →
+          case prim <# z lit (0#cIntRep) :: tInt# of {
+            1#cIntRep →
+              j lit (2#cIntRep) :: tInt#;
+            _ →
+              case prim <# z lit (9#cIntRep) :: tInt# of {
+                1#cIntRep →
+                  let value : tInt# =
+                    case prim <# z lit (4#cIntRep) :: tInt# of {
+                      1#cIntRep →
+                        let! cTuple2# (unused _pat : tState# tRealWorld) (value{1} : tInt#) =
+                          prim readIntOffAddr# @tRealWorld x lit (1#cIntRep) :: tInt# (prim realWorld#);
+                        value{1};
+                      _ →
+                        lit (0#cIntRep) :: tInt#
+                    };
+                  cI# (prim +# value lit (4#cIntRep) :: tInt#);
+                _ →
+                  cI# lit (0#cIntRep) :: tInt#
+              }
+          }
+      }
+status: pass
+lint: pass
+reason: A small lazy read of memory must move into the join point that uses it and into the branch that uses it, so that no path allocates a thunk for it.
