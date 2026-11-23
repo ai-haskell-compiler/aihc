@@ -2,9 +2,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Change an expression quote or a type quote into an expression that
--- builds the syntax tree of its body, and a name quote into the Template
--- Haskell name.
+-- | Change an expression quote, a typed expression quote, or a type quote
+-- into an expression that builds the syntax tree of its body, and a name
+-- quote into the Template Haskell name.
 --
 -- The change needs the result of name resolution, because the form of a
 -- variable in a quote depends on its binder:
@@ -96,6 +96,8 @@ data Quote
     DeclarationQuote [Decl]
   | -- | @[p| p |]@, with its body.
     PatternQuote Pattern
+  | -- | @[|| e ||]@, with its body.
+    TypedQuote Expr
 
 -- | Change each quote of a module that is in the subset. The first module
 -- is the parsed form, and the second module is the resolved form of the
@@ -238,6 +240,12 @@ desugarQuotes dynamic outerBinders parsed resolved
           (_, PatternQuote resolvedBody) -> quotedPattern resolvedBody
           (DeclarationQuote parsedBody, DeclarationQuote resolvedBody) ->
             evalStateT (quotedDeclarations dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
+          -- GHC gives @[|| e ||]@ the type @Code m t@, with @t@ the type of
+          -- @e@. The compiler does not check the body against @t@: a
+          -- splice of the result checks the syntax tree at the splice.
+          (TypedQuote parsedBody, TypedQuote resolvedBody) ->
+            (\body -> call "unsafeCodeCoerce" [body])
+              <$> evalStateT (quoted dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           _ -> Nothing
     replace original _ =
       state $ \case
@@ -260,6 +268,7 @@ bindSpliceNameQuotes dynamic lookupName = runIdentity . outside
         Just Refl ->
           case value of
             ETHSplice body -> pure (ETHSplice (runIdentity (inside body)))
+            ETHTypedSplice body -> pure (ETHTypedSplice (runIdentity (inside body)))
             _ -> gmapM outside value
         Nothing ->
           case eqT @value @Decl of
@@ -327,7 +336,7 @@ traverseQuotes onQuote = go
         ETHTypeQuote body -> onQuote expr (TypeQuote body)
         ETHDeclQuote body -> onQuote expr (DeclarationQuote body)
         ETHPatQuote body -> onQuote expr (PatternQuote body)
-        ETHTypedQuote {} -> pure expr
+        ETHTypedQuote body -> onQuote expr (TypedQuote body)
         _ -> gmapM go expr
 
 -- | The Template Haskell name of the term of a name quote. A top-level
@@ -443,8 +452,9 @@ quotedType dynamic binders = go
         TAnn _ inner -> withoutTypeAnnotations inner
         _ -> ty
 
--- | The body of each expression splice and type splice of a quote body, in
--- source order. A splice in the body of a splice is not in the result.
+-- | The body of each expression splice, typed expression splice, and type
+-- splice of a quote body, in source order. A splice in the body of a splice
+-- is not in the result.
 quoteSplices :: (Data syntax) => syntax -> [Expr]
 quoteSplices = go
   where
@@ -454,6 +464,7 @@ quoteSplices = go
         Just Refl ->
           case value of
             ETHSplice body -> [body]
+            ETHTypedSplice body -> [body]
             _ -> concat (gmapQ go value)
         Nothing ->
           case eqT @value @Type of
@@ -535,12 +546,25 @@ quoted dynamic binders = go
           inner' <- go inner
           signature' <- quotedType dynamic binders signature
           pure (call "sigE" [inner', signature'])
+        -- A left section and a right section. GHC gives an infix
+        -- application with one operand.
+        ESectionL left operator -> do
+          left' <- go left
+          operator' <- lift (variable operator)
+          pure (call "sectionL" [left', operator'])
+        ESectionR operator right -> do
+          operator' <- lift (variable operator)
+          right' <- go right
+          pure (call "sectionR" [operator', right'])
         ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
         ELetDecls decls body -> do
           decls' <- quotedDeclarationList dynamic binders decls
           body' <- go body
           pure (call "letE" [EList decls', body'])
         EDo statements DoPlain -> (\statements' -> call "doE" [EList statements']) <$> mapM statement statements
+        -- The body of @$$e@ has the type @Code m t@. The syntax tree of
+        -- the splice is the syntax tree of that code.
+        ETHTypedSplice resolvedBody -> (\body -> call "unTypeCode" [body]) <$> spliced dynamic binders resolvedBody
         _ -> lift Nothing
     -- A statement of a do expression. A rec statement is outside the
     -- subset.
