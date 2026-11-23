@@ -743,13 +743,16 @@ test_lockRoundTrip = do
   assertEqual "the platform key" "linux-x86_64" (platformKey Linux X86_64)
   assertBool ("one package per line:\n" <> BLC.unpack rendered) ("  {name = \"aihc-base\", version = \"4.21.2.0\", source = \"core\"}," `isInfixOf` BLC.unpack rendered)
   case parseLockFile rendered of
-    Left problem -> assertFailure ("failed to parse the rendered lock: " <> problem)
+    Left problem -> assertFailure ("failed to parse the rendered lock: " <> show problem)
     Right parsed -> do
       assertEqual "compiler" (lockCompiler lock) (lockCompiler parsed)
       assertEqual "index state" (lockIndexState lock) (lockIndexState parsed)
       assertEqual "entries sorted by name" (Map.map (map lockName) (lockPlatforms parsed)) (Map.fromList [(platformKey Linux X86_64, map mkPackageName ["aihc-base", "root", "unix"]), (platformKey OSX AArch64, [mkPackageName "unix"])])
       assertEqual "the unix entry" (Just unixEntry) (lookup (mkPackageName "unix") [(lockName entry, entry) | entry <- lockPlatforms parsed Map.! platformKey Linux X86_64])
-  assertBool "an unsupported format is rejected" (either ("unsupported lock format" `isInfixOf`) (const False) (parseLockFile (BLC.pack "format = 99\ncompiler = \"ghc-9.12.4\"\n[platforms]\n")))
+  assertBool "an unsupported format is rejected" $
+    case parseLockFile (BLC.pack "format = 99\ncompiler = \"ghc-9.12.4\"\n[platforms]\n") of
+      Left (LockInvalid problem) -> "unsupported lock format" `isInfixOf` problem
+      _ -> False
 
 test_verifiesLock :: Assertion
 test_verifiesLock = do

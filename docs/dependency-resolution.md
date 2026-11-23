@@ -295,7 +295,8 @@ linux-x86_64 = [
 ]
 ```
 
-- `format` is bumped on any shape change. Format 1 was JSON.
+- `format` is bumped on any shape change. Format 1 was JSON. aihc ignores a
+  format 1 file and writes a new lock file.
 - `compiler` is the emulated GHC release. A lock written for another release
   is ignored and rewritten, since the core-library versions differ.
 - `index-state` is the moment the plan was solved against Hackage. It is

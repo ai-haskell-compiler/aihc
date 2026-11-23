@@ -14,6 +14,7 @@
 -- ignored and rewritten.
 module Aihc.PackagePlan.Lock
   ( LockFile (..),
+    LockProblem (..),
     LockEntry (..),
     LockSource (..),
     lockFileName,
@@ -85,10 +86,18 @@ data LockFile = LockFile
 platformKey :: OS -> Arch -> String
 platformKey os arch = osName os <> "-" <> archName arch
 
--- | The lock beside a package, if there is one. A file that does not parse
--- is reported rather than ignored, since a hand edit that broke it should
--- not silently drop every pin.
-readLockFile :: FilePath -> IO (Maybe (Either String LockFile))
+-- | Why a lock file gives no plan.
+data LockProblem
+  = -- | The file does not parse. This is reported rather than ignored,
+    -- since a hand edit that broke it should not silently drop every pin.
+    LockInvalid String
+  | -- | The file is JSON, the format 1 of an earlier aihc. It is ignored and
+    -- written again, as a lock for another compiler release is.
+    LockOldFormat
+  deriving (Eq, Show)
+
+-- | The lock beside a package, if there is one.
+readLockFile :: FilePath -> IO (Maybe (Either LockProblem LockFile))
 readLockFile path = do
   exists <- doesFileExist path
   if not exists
@@ -151,11 +160,10 @@ sourceText source =
     LockHackage -> "hackage"
     LockLocal -> "local"
 
-parseLockFile :: BL.ByteString -> Either String LockFile
+parseLockFile :: BL.ByteString -> Either LockProblem LockFile
 parseLockFile bytes
-  | BL.take 1 (BL.dropWhile (isSpace . toEnum . fromIntegral) bytes) == "{" =
-      Left "the file is in the JSON format of an earlier aihc. Delete it, and aihc writes a new lock file"
-  | otherwise = do
+  | BL.take 1 (BL.dropWhile (isSpace . toEnum . fromIntegral) bytes) == "{" = Left LockOldFormat
+  | otherwise = either (Left . LockInvalid) Right $ do
       text <- either (Left . show) Right (TE.decodeUtf8' (BL.toStrict bytes))
       root <- Toml.parseToml lockFileName text
       format <- required "format" asInt root
