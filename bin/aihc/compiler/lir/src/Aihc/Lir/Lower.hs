@@ -2561,14 +2561,14 @@ smallByteArraySet to byte bytes = do
   (repeated, narrow) <- case byte of
     OperandLiteral (LitInt value) ->
       let low = value `mod` 256
-          pattern = low * 0x0101010101010101
+          wordFill = low * 0x0101010101010101
           signed bits wide = if wide >= 2 ^ (bits - 1 :: Int) then wide - 2 ^ bits else wide
-       in pure (OperandLiteral (LitInt (signed 64 pattern)), OperandLiteral (LitInt (signed 8 low)))
+       in pure (OperandLiteral (LitInt (signed 64 wordFill)), OperandLiteral (LitInt (signed 8 low)))
     _ -> do
       low <- emitValue "fill_low" I64 (Binary And I64 byte (OperandLiteral (LitInt 255)))
-      pattern <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
+      wordFill <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
       narrow <- emitValue "fill_narrow" I8 (Convert Trunc I64 (typedOperand low) I8)
-      pure (typedOperand pattern, typedOperand narrow)
+      pure (typedOperand wordFill, typedOperand narrow)
   terminate (Jump (Target wordLabel [zero]))
   index <- fresh "fill_index"
   beginBlock wordLabel [(index, I64)]
