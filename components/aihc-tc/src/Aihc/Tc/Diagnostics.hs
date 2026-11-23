@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Give type diagnostics to the modules of the final tree, and put them
 -- in the order of the syntax nodes that they belong to.
@@ -110,7 +111,7 @@ moduleDiagnostics m =
   where
     groupEntries diagnostics =
       let (located, unlocated) = partitionDiagnostics diagnostics
-       in locatedEntries m located <> map ((,) moduleAnnotationsNode) unlocated
+       in locatedEntries m located <> map (moduleAnnotationsNode,) unlocated
 
 -- | The node number of the annotation list of a module. The walk visits
 -- that list first.
@@ -192,7 +193,7 @@ placementWalk =
             Just (sp, diagnostics) ->
               placement
                 { placementPending = Map.delete sp (placementPending placement),
-                  placementPlaced = reverse (map ((,) index) diagnostics) <> placementPlaced placement
+                  placementPlaced = reverse (map (index,) diagnostics) <> placementPlaced placement
                 }
 
 -- | The span of the leading wrappers of a node. A wrapper that holds a

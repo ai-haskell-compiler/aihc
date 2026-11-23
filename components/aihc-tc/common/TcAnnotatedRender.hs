@@ -49,6 +49,7 @@ import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Types
 import Aihc.Testing.AnnotatedModule (renderLabeledSource)
 import Control.Applicative ((<|>))
+import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe)
@@ -145,7 +146,7 @@ labelWalk =
         PLit literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
           addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
-        _ -> () <$ children base
+        _ -> void (children base)
       pure node
 
 addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
