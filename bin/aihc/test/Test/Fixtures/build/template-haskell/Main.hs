@@ -11,7 +11,7 @@ import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
 import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
-import Lower (Mode (..), lowerFile)
+import Lower (Fam (..), Mode (..), lowerFile)
 import Quasi (quasiLines)
 import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
@@ -364,6 +364,10 @@ main = do
   -- dollar sign. The directory of the file depends on the build, so the
   -- program only shows the file name.
   putStrLn $(do loc <- location; litE (stringL (unwords [reverse (takeWhile (/= '/') (reverse (loc_filename loc))), loc_module loc, show (loc_start loc), show (loc_end loc)])))
+  -- A splice reads the facts of an imported data family and of a
+  -- constructor of its instance. The parent of the constructor is the
+  -- family, and the family gives its instance.
+  putStrLn $(do DataConI _ _ parent <- reify 'FamInt; FamilyI (DataFamilyD _ binders _) instances <- reify ''Fam; litE (stringL (show (parent == ''Fam, length binders, [(nameBase name, length fields) | DataInstD _ _ _ _ constructors _ <- instances, NormalC name fields <- constructors]))))
   -- A quote of a different module names a function that its module does
   -- not export.
   print ($twiceHelper (21 :: Int))
