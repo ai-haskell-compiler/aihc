@@ -1842,7 +1842,7 @@ emits an acquire load, because LLVM gives no guarantee for a dependency.
 | Location | Writer | Reader | Order |
 | --- | --- | --- | --- |
 | Object header, claim | The pause of the claiming thread | Every reader, every other pause | `cas acq_rel` to the claiming state, then `store.atomic release` to the claimed state. Readers use `load.dependent`. |
-| Object header, update and abandon | The updater, the thread that abandons | Every reader | `store.atomic release`, `load.dependent` |
+| Object header, update and abandon | The updater, the thread that abandons | Every reader | `store.atomic release`, `load.dependent`. The update of an unclaimed thunk in the nursery of the updater uses plain stores for the header and field zero: only the threads of its capability can read the thunk, and an escape promotes it first. |
 | Object header, forwarding | A collection worker | A collection worker | `cas acq_rel`, `load.atomic acquire` |
 | Field zero of a thunk, owner | The claiming thread, between its swap and its header store | Every reader that saw bits `01` | `store.atomic release`, then the release store of the header. Readers use `load.dependent` after the header load, then `load.dependent` of the kind of the record. The owner store is a release store, because a reader can see the owner under the header store of an update, which publishes nothing of the claiming thread. GHC uses a release store here too. |
 | Field zero of a thunk, queue and value | The capability of the owner, the updater | Every reader that saw bit zero, the recovery walk | `store.atomic release`, `load.dependent` |

@@ -145,9 +145,15 @@ Each 4 KiB stack chunk header gets one generation byte. The rules are:
   running thread is always young. A thread switch marks the top chunk of the
   new running thread young in the scheduler, which already runs in C.
 - A collection of the generations up to g walks each live stack from its top
-  frame. It scans each chunk of generation g or below, evacuates the referents
-  of its frames into generation g plus one, and labels the chunk g plus one.
-  The walk stops at the first older chunk.
+  frame. It scans each chunk of generation g or below. The referents of its
+  frames age as other survivors do: a frame does not put them into an older
+  generation. The collection labels the chunk g plus one, or the youngest
+  generation that its frames name when that is lower. The walk stops at the
+  first older chunk.
+- A frame names the thunks under evaluation. If a frame put such a thunk
+  into gen2, the update of the thunk would put its value into gen2 through
+  the remembered set. Each new cell of a lazy list that the thunk produces
+  would then go to gen2, until a gen2 cycle found the thunk dead.
 - A pop into a lower chunk labels that chunk young. New frames then overwrite
   the space above the entered frame.
 

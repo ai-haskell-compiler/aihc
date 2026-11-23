@@ -880,14 +880,17 @@ entry:
   %plain = and i1 %unclaimed, %young
   br %plain, plain, waiters
 
-; Both stores are release stores. The value is in field zero before a
-; reader can see bit zero, and the stores of the evaluation are visible to
-; a reader that loads the value with a dependency.
+; Both stores are plain stores. The thunk is in the nursery of this
+; capability, so only the threads of this capability can read it. See
+; "Local heaps" in docs/multi-threaded-rts-design.md. An escape promotes
+; the thunk before another capability can read it, and the promotion
+; publishes the copy. Two release stores cost 4% of the run time of a
+; nest of appends on an Apple M4 Pro.
 plain:
   %result_word = ptr.to_int %result
-  store.atomic release i64 %result_word, [%blackhole + 8]
+  store i64 %result_word, [%blackhole + 8] align 8
   %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
-  store.atomic release i64 %evaluated_word, [%blackhole]
+  store i64 %evaluated_word, [%blackhole] align 8
   return 1
 
 ; The C update gives null when the update is an escape whose promotion
@@ -970,7 +973,8 @@ entry:
 ; The usual update: a young thunk that no pause claimed, and a result that
 ; is a value. The update and the return to the parent continuation happen
 ; here, as @aihc_lir_cps_update and @aihc_lir_continue_p do them. Any other
-; case goes to @aihc_lir_cps_update.
+; case goes to @aihc_lir_cps_update. The stores are plain stores, as in
+; @aihc_update_blackhole_inline.
 young_check:
   %young = call @aihc_object_is_young(%base, %blackhole)
   br %young, ready_check, shared
@@ -981,9 +985,9 @@ ready_check:
 
 update:
   %result_word = ptr.to_int %result
-  store.atomic release i64 %result_word, [%blackhole + 8]
+  store i64 %result_word, [%blackhole + 8] align 8
   %evaluated_word = or i64 %header_word, @AIHC_HEADER_EVALUATING
-  store.atomic release i64 %evaluated_word, [%blackhole]
+  store i64 %evaluated_word, [%blackhole] align 8
   ; A frame with an entry is in the chunk of the stack pointer: a chunk
   ; boundary has a forward frame, which goes to the continue helper.
   %outer_header = call @aihc_info_table(%outer)

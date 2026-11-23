@@ -4,8 +4,17 @@ modules:
 
     import Control.Exception (ErrorCall, catch, evaluate)
     import GHC.Arr (Array, array, listArray, (!))
-    import GHC.Ix (index)
+    import GHC.Ix (Ix (..))
     import Prelude
+
+    -- An index outside the array that the bounds check of (!) finds.
+    data Wrong = Wrong deriving (Eq, Ord, Show)
+
+    instance Ix Wrong where
+      range _ = [Wrong]
+      index _ _ = 5
+      inRange _ _ = True
+      rangeSize _ = 1
 
     -- Each error gives the message of GHC instead of a loop.
     report :: Int -> IO ()
@@ -18,11 +27,13 @@ modules:
       report (array (0, 1) [(0, 10)] ! 1)
       report ((listArray (0, -2) [] :: Array Int Int) ! 0)
       report (listArray (0, 2) [1, 2, 3] ! 2)
+      report (listArray (Wrong, Wrong) [1] ! Wrong)
 stdout: |
   Ix{Int}.index: Index (7) out of range ((0,3))
   (Array.!): undefined array element
   Ix{Int}.index: Index (0) out of range ((0,-2))
   3
+  Error in array index; 5 not in range [0..1)
 output: |
   ()
 expression: main

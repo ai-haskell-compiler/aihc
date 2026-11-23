@@ -2671,13 +2671,20 @@ static void aihc_scan_large_array(AihcGcContext *context, AihcValue *array,
 static void aihc_scan_one(AihcGcContext *context, AihcValue *object,
                           unsigned generation, int is_frame,
                           AihcValue **parent) {
-  /* The referents of a static object go to gen2. The referents of a frame
-     go there too, unless gen2 is global and the collection keeps its
-     survivors local: the chunk then takes the youngest generation that its
-     frames name, and later collections scan it again. A frame that names a
-     lazy list would otherwise put the producer of the list into gen2, and
-     each new cell would then escape. */
-  unsigned static_target = is_frame && context->gen1_target == 1 ? 0 : 2;
+  /* The referents of a static object go to gen2. A frame makes no demand:
+     its referents age as other survivors do, the chunk takes the youngest
+     generation that its frames name, and later collections scan it again.
+     GHC does the same for a stack, which is a mutable object.
+
+     A frame that put its referents into gen2 put a thunk under evaluation
+     there. The update of the old thunk then entered the remembered set, and
+     its value went to gen2 at the next collection, with the evaluated cells
+     after it. A lazy list whose producer is old thus put each new cell into
+     gen2, until a gen2 cycle found the producer dead. The breadth-first
+     queue of fgl, a nest of appends, made 94% of the copies of a
+     collection this way. When gen2 is global and the collection keeps its
+     survivors local, an escape of each new cell had the same cause. */
+  unsigned static_target = is_frame ? 0 : 2;
   AihcScanContext scan = {
       .gc = context,
       .target =

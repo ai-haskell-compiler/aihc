@@ -50,6 +50,10 @@
 --   dependency order. A binding that is not part of a cycle becomes a plain
 --   @store@, so that the rules above see its node.
 --
+-- * A bind of a case whose tails each give a box with one unlifted field,
+--   followed only by a @fetch@ of the field, binds the field instead. See
+--   'unboxedCase'.
+--
 -- The pass keeps the bind spine as it finds it and leaves copy binds behind;
 -- the ANF normalizer that follows it folds them.
 module Aihc.Grin.Simplify
@@ -72,6 +76,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as Text
 
 data Env = Env
   { -- | The parameter count and the result of every function of the
@@ -98,7 +103,9 @@ data Env = Env
     envPointerVars :: !(Set GrinVar),
     -- | The functions that return a box, with the worker that returns its
     -- field. See 'boxWorkers'.
-    envBoxWorkers :: !(Map FunctionName BoxWorker)
+    envBoxWorkers :: !(Map FunctionName BoxWorker),
+    -- | The functions that never return. See 'divergingFunctions'.
+    envDiverging :: !(Set FunctionName)
   }
 
 -- | Simplify every function body of a program.
@@ -137,7 +144,8 @@ simplifyGrinProgram program00 =
           envEvaluated = Set.empty,
           envPointers = Map.empty,
           envPointerVars = Set.empty,
-          envBoxWorkers = workers
+          envBoxWorkers = workers,
+          envDiverging = divergingFunctions program
         }
     simplifyFunction function =
       function {grinFunctionBody = fst (simplifyExpr env (grinFunctionBody function))}
@@ -266,7 +274,12 @@ simplifyExpr env expression =
       let (value', valueFree) = simplifyExpr env valueExpression
        in case unboxedCall env vars value' body of
             Just unboxed -> simplifyExpr env unboxed
-            Nothing -> bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
+            Nothing
+              -- The value is already simplified. A second simplification
+              -- of it would repeat for each level of nested cases.
+              | Just (fieldVars, fieldValue, rest) <- unboxedCase env vars value' body ->
+                  bindSimplified fieldVars (fieldValue, freeExprVars fieldValue) (simplifyExpr (bindResults env fieldVars fieldValue) rest)
+              | otherwise -> bindSimplified vars (value', valueFree) (simplifyExpr (bindResults env vars value') body)
     GrinStoreRec bindings body -> simplifyStoreRec env bindings body
     GrinStoreRecUnchecked bindings body ->
       let inner = List.foldl' (\current (var, node) -> know var node current) (forget (map fst bindings) env) bindings
@@ -339,6 +352,87 @@ unboxedCall env vars value body =
               box = GrinStore (GrinNode (GrinConstructor (boxWorkerConstructor worker) 0) [GrinVarValue field])
            in Just (GrinBind [field] (GrinCall (ResultRep (boxWorkerFieldRep worker)) (grinFunctionName (boxWorkerFunction worker)) arguments) (GrinBind [var] box body))
     _ -> Nothing
+
+-- | A bind of a case whose tails each give a box, when the code after the
+-- bind only reads the field of the box. All boxes have one constructor
+-- with one unlifted field. A tail can also not return. The tails then give
+-- the field, and the read goes. The result is the binders of the read, the
+-- new value, and the code after the read.
+--
+-- The safe index of an array is such a case: @safeIndex@ boxes the index
+-- because the error of its bounds check takes the box, and the code after
+-- it reads the index again. The box is then only on the error path, where
+-- 'placeGrinAllocations' moves its store. The loop of @intersect@ in the
+-- dominators of @fgl@ allocated one box for each step.
+unboxedCase :: Env -> [GrinVar] -> GrinExpr -> GrinExpr -> Maybe ([GrinVar], GrinExpr, GrinExpr)
+unboxedCase env vars value body =
+  case (vars, body) of
+    ([var], GrinBind fieldVars@[_] (GrinFetch (GrinConstructor constructor 0) (GrinVarValue fetched)) rest)
+      | isCaseValue value,
+        fetched == var,
+        Set.notMember var (freeExprVars rest),
+        Just [[rep]] <- Map.lookup constructor (envConstructors env),
+        rep /= liftedGrinRep,
+        Just value' <- fieldTails env constructor var value ->
+          Just (fieldVars, value', rest)
+    _ -> Nothing
+  where
+    isCaseValue expression =
+      case expression of
+        GrinCase {} -> True
+        GrinBind _ _ inner -> isCaseValue inner
+        _ -> False
+
+-- | The tails of an expression with the field of each box in place of the
+-- box, when each tail gives a box of the constructor or does not return. A
+-- tail that does not return reads the field of its result, which it never
+-- gets. The result of each such tail gets the unique of the given variable
+-- with a name of its own.
+fieldTails :: Env -> Text -> GrinVar -> GrinExpr -> Maybe GrinExpr
+fieldTails env constructor var expression0 = fst <$> go (envKnown env) (0 :: Int) expression0
+  where
+    go known next expression
+      | doesNotReturn (envDiverging env) expression =
+          let diverged = GrinVar (grinVarName var <> "_diverged" <> Text.pack (show next)) (grinVarUnique var) liftedGrinRep
+           in Just (GrinBind [diverged] expression (GrinFetch (GrinConstructor constructor 0) (GrinVarValue diverged)), next + 1)
+      | otherwise =
+          case expression of
+            GrinStore node | Just field <- boxField node -> Just (GrinConstant [field], next)
+            GrinConstant [GrinVarValue pointer]
+              | Just field <- boxField =<< Map.lookup pointer known -> Just (GrinConstant [field], next)
+            GrinConstant [GrinGlobalValue name]
+              | Just field <- boxField =<< Map.lookup name (envStatics env) -> Just (GrinConstant [field], next)
+            GrinBind binders bound rest ->
+              let known' = case (binders, bound) of
+                    ([binder], GrinStore node) -> Map.insert binder node (deleteAll binders known)
+                    _ -> deleteAll binders known
+               in first (GrinBind binders bound) <$> go known' next rest
+            GrinStoreRec bindings rest ->
+              first (GrinStoreRec bindings) <$> go (deleteAll (map fst bindings) known) next rest
+            GrinCase scrutinee binder alternatives -> do
+              let step accumulated alternative = do
+                    (done, current) <- accumulated
+                    (rhs, current') <- go (alternativeKnown scrutinee binder alternative known) current (grinAltRhs alternative)
+                    pure (done <> [alternative {grinAltRhs = rhs}], current')
+              (alternatives', next') <- List.foldl' step (Just ([], next)) alternatives
+              pure (GrinCase scrutinee binder alternatives', next')
+            _ -> Nothing
+    boxField node =
+      case node of
+        GrinNode (GrinConstructor name 0) [field] | name == constructor -> Just field
+        _ -> Nothing
+    deleteAll binders known = List.foldl' (flip Map.delete) known binders
+    -- In a constructor alternative of a lifted scrutinee, the case binder
+    -- and the scrutinee are the matched node.
+    alternativeKnown scrutinee binder alternative known =
+      let matched = binder : [scrutineeVar | GrinVarValue scrutineeVar <- [scrutinee]]
+          cleared = deleteAll (matched <> grinAltBinders alternative) known
+       in case grinAltCon alternative of
+            GrinDataAlt name _
+              | grinValueRuntimeRep scrutinee == liftedGrinRep ->
+                  let node = GrinNode (GrinConstructor name 0) (map GrinVarValue (grinAltBinders alternative))
+                   in List.foldl' (\current matchedVar -> Map.insert matchedVar node current) cleared matched
+            _ -> cleared
 
 -- | The workers of the functions that return a box. Such a function
 -- returns, on each path, a new constructor node of one constructor with

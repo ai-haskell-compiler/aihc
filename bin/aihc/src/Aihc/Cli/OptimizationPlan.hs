@@ -138,9 +138,20 @@ optimizationPlan lto level =
 -- inliner and before the first demand analysis. The passes at the end
 -- clean up after it: the specialised copies expose new strict calls, so
 -- demand analysis runs again, and sharing is restored after it.
+--
+-- It runs a second time after the first growing inliner, before the
+-- specialisation of the top-level values. The growing inliner copies
+-- wrappers such as @differenceWith f@ of @containers@, which give a new
+-- lambda to a function such as @differenceWithKey@. The first run cannot see
+-- these calls. In the breadth-first queries of @fgl@, each graph
+-- decomposition called @differenceWithKey@ with an unknown function, which
+-- boxed each key and returned a 'Just' that the caller took apart.
 superSpecialisation :: [Fc.Pass] -> [Fc.Pass]
 superSpecialisation passes = insert passes <> [Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassSimplify 0, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
   where
-    insert (pass@(Fc.PassDemand _) : rest) = Fc.PassSuperSpecialise : Fc.PassSpecialise : Fc.PassInline Fc.shrinkPolicy 2 2 : pass : rest
+    insert (pass@(Fc.PassDemand _) : rest) = Fc.PassSuperSpecialise : Fc.PassSpecialise : Fc.PassInline Fc.shrinkPolicy 2 2 : pass : again rest
     insert (pass : rest) = pass : insert rest
     insert [] = []
+    again (pass@Fc.PassTopSpecialise : rest) = Fc.PassSuperSpecialise : pass : rest
+    again (pass : rest) = pass : again rest
+    again [] = []
