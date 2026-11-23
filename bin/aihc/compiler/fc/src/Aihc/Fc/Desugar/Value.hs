@@ -5429,7 +5429,7 @@ desugarDoStatements resultType end statements =
           bind <- desugarDoMethod statement annotation resolution
           action' <- desugarExpr action
           failure <- doBindFailure statement
-          continuation <- desugarDoPatternContinuation annotation pattern' failure continue
+          continuation <- desugarDoPatternContinuation statement annotation pattern' failure continue
           pure (ExApp (ExApp bind action') continuation)
         Syn.DoExpr action -> do
           (annotation, resolution) <- requiredDoBindOccurrence statement
@@ -5443,9 +5443,17 @@ desugarDoStatements resultType end statements =
 
 -- | The continuation of a bind statement. The failure expression, when the
 -- type checker gives one, is the default alternative of the pattern match.
-desugarDoPatternContinuation :: TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
-desugarDoPatternContinuation annotation pattern' failure rest = do
-  ty <- requiredPatternType pattern'
+--
+-- The type checker can put a cast before the pattern, for example when a
+-- given equality changes the type of the bound value. Then the pattern type
+-- is the cast target, and the lambda binder has the argument type of the
+-- continuation that the method takes.
+desugarDoPatternContinuation :: Syn.DoStmt Syn.Expr -> TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation statement annotation pattern' failure rest = do
+  ty <-
+    case patternScrutineeCast pattern' of
+      Just _ -> doBindArgumentType statement annotation
+      Nothing -> requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
   case locals of
@@ -5954,6 +5962,28 @@ doBindOccurrence = go Nothing Nothing
         _ -> (,) <$> maybeAnnotation <*> maybeResolution
 
 -- | The type of the continuation body of a checked @>>=@ method.
+-- | The argument type of the continuation of a checked @>>=@ method. When a
+-- given equality made the method fit, the statement casts the method, and
+-- the cast target has the type that the statement uses.
+doBindArgumentType :: Syn.DoStmt body -> TcAnnotation -> ValueM TcType
+doBindArgumentType statement annotation =
+  case doMethodCastTarget statement of
+    Just target -> argumentOf target
+    Nothing -> argumentOf (tcAnnType annotation)
+  where
+    argumentOf ty =
+      case ty of
+        TcFunTy _ (TcFunTy (TcFunTy argument _) _) -> pure argument
+        _ -> failValue ("invalid checked >>= type: " <> show ty)
+
+doMethodCastTarget :: Syn.DoStmt body -> Maybe TcType
+doMethodCastTarget statement =
+  case statement of
+    Syn.DoAnn annotation inner
+      | Just (TcCastAnnotation (Just _) target) <- Syn.fromAnnotation annotation -> Just target
+      | otherwise -> doMethodCastTarget inner
+    _ -> Nothing
+
 doBindResultType :: TcAnnotation -> ValueM TcType
 doBindResultType annotation =
   case tcAnnType annotation of
@@ -6881,9 +6911,12 @@ convertCoercionAtKind expectedKind coercion =
         Just binder -> pure (CoVar (binderName binder), [])
         Nothing -> failValue ("missing given equality for " <> show predicate)
     Ev.CoVar (Ev.EvVar unique) -> pure (CoVar (Name "c" SortValue (OriginLocal unique)), [])
+    -- A coercion relates types, not contexts. Thus an equality in the
+    -- type is the dictionary type of the class @~@, as in an argument of
+    -- a constraint tuple, and not the type of a bare proof.
     Ev.Refl ty -> do
       env <- gets vsConvertEnv
-      (,[]) . CoRefl <$> liftEither (convertTypeWithExpectedKind env expectedKind ty)
+      (,[]) . CoRefl <$> liftEither (convertNestedTypeWithExpectedKind env expectedKind ty)
     Ev.Sym inner -> unary CoSym inner
     Ev.Trans left right -> binary CoTrans left right
     -- A projection, an application, and an arrow have parts whose kinds
