@@ -3221,9 +3221,75 @@ static void *aihc_pinned_allocation(AihcPinnedBlock *block) {
          aihc_pinned_offset(aihc_pinned_recorded_alignment(block));
 }
 
+/* A pool of small C allocations for pinned blocks, with one free list for
+   each size class. A small pinned byte array is common: each pack, concat
+   or copy of a short ByteString makes one, and aihc-cpp-stackage makes
+   about 250,000 of 256 bytes or less. The C allocator took and freed each
+   one. A block that the sweep frees goes back on its list, and the next
+   allocation of its class takes it. The pool keeps its memory. Only a block
+   without an alignment offset uses the pool, because its allocation starts
+   at its header. */
+#define AIHC_PINNED_POOL_STEP ((size_t)16)
+#define AIHC_PINNED_POOL_LIMIT ((size_t)512)
+
+typedef struct AihcPinnedFree {
+  struct AihcPinnedFree *next;
+} AihcPinnedFree;
+
+static AihcPinnedFree
+    *aihc_pinned_pool[AIHC_PINNED_POOL_LIMIT / AIHC_PINNED_POOL_STEP];
+/* Several capabilities allocate, and a collection frees, so the lists
+   take a lock. It is rarely contended. */
+static int aihc_pinned_pool_lock;
+
+static size_t aihc_pinned_pool_class(size_t bytes) {
+  return (bytes + AIHC_PINNED_POOL_STEP - 1) / AIHC_PINNED_POOL_STEP - 1;
+}
+
+static void aihc_pinned_pool_acquire(void) {
+  while (__atomic_exchange_n(&aihc_pinned_pool_lock, 1, __ATOMIC_ACQUIRE)) {
+    while (__atomic_load_n(&aihc_pinned_pool_lock, __ATOMIC_RELAXED)) {
+    }
+  }
+}
+
+static void aihc_pinned_pool_release(void) {
+  __atomic_store_n(&aihc_pinned_pool_lock, 0, __ATOMIC_RELEASE);
+}
+
+/* A C allocation of at least the given bytes, from the pool when the size
+   is small. The content is unspecified. */
+static void *aihc_pinned_pool_take(size_t bytes) {
+  if (bytes > AIHC_PINNED_POOL_LIMIT) {
+    return malloc(bytes);
+  }
+  size_t size_class = aihc_pinned_pool_class(bytes);
+  aihc_pinned_pool_acquire();
+  AihcPinnedFree *entry = aihc_pinned_pool[size_class];
+  if (entry != NULL) {
+    aihc_pinned_pool[size_class] = entry->next;
+  }
+  aihc_pinned_pool_release();
+  if (entry != NULL) {
+    return entry;
+  }
+  return malloc((size_class + 1) * AIHC_PINNED_POOL_STEP);
+}
+
 void aihc_pinned_block_release(AihcPinnedBlock *block) {
   void *allocation = aihc_pinned_allocation(block);
   if (aihc_region_kind(block) == AIHC_REGION_OUTSIDE) {
+    size_t bytes = (size_t)aihc_pinned_bytes(block);
+    if ((block->bytes & AIHC_PINNED_ALIGNED) == 0 &&
+        bytes <= AIHC_PINNED_POOL_LIMIT) {
+      AihcPinnedFree *entry = allocation;
+      size_t size_class = aihc_pinned_pool_class(bytes);
+      aihc_pinned_pool_acquire();
+      entry->next = aihc_pinned_pool[size_class];
+      aihc_pinned_pool[size_class] = entry;
+      aihc_pinned_pool_release();
+      return;
+    }
     free(allocation);
   } else {
     aihc_regions_release(allocation);
@@ -5629,7 +5695,10 @@ static AihcValue *aihc_gc_allocate_pinned_block(AihcCapability *capability,
       aihc_fail("unchecked pinned allocation exceeded reserved heap");
     }
     if (offset == 0) {
-      allocation = zero_payload ? calloc(1, bytes) : malloc(bytes);
+      allocation = aihc_pinned_pool_take(bytes);
+      if (allocation != NULL && zero_payload) {
+        memset(allocation, 0, bytes);
+      }
     } else {
       /* aligned_alloc takes a size that is a multiple of the alignment. */
       size_t rounded = (bytes + alignment - 1) & ~(size_t)(alignment - 1);
