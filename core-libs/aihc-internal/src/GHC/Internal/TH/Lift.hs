@@ -190,7 +190,7 @@ instance Lift (Fixed a) where
   lift (MkFixed units) = AppE (ConE mkFixedName) <$> lift units
 
 mkFixedName :: Name
-mkFixedName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Fixed" "MkFixed"
+mkFixedName = libraryConstructorName (Proxy :: Proxy (Fixed ())) "MkFixed"
 
 instance Lift Float where
   liftTyped x = unsafeCodeCoerce (lift x)
@@ -369,15 +369,23 @@ trueName = mkNameG_d "ghc-prim" "GHC.Types" "True"
 falseName = mkNameG_d "ghc-prim" "GHC.Types" "False"
 
 nothingName, justName :: Name
-nothingName = mkNameG_d "ghc-internal" "GHC.Internal.Maybe" "Nothing"
-justName = mkNameG_d "ghc-internal" "GHC.Internal.Maybe" "Just"
+nothingName = libraryConstructorName (Proxy :: Proxy (Maybe ())) "Nothing"
+justName = libraryConstructorName (Proxy :: Proxy (Maybe ())) "Just"
 
 leftName, rightName :: Name
-leftName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Either" "Left"
-rightName = mkNameG_d "ghc-internal" "GHC.Internal.Data.Either" "Right"
+leftName = libraryConstructorName (Proxy :: Proxy (Either () ())) "Left"
+rightName = libraryConstructorName (Proxy :: Proxy (Either () ())) "Right"
 
 nonemptyName :: Name
-nonemptyName = mkNameG_d "ghc-internal" "GHC.Internal.Base" ":|"
+nonemptyName = libraryConstructorName (Proxy :: Proxy (NonEmpty ())) ":|"
+
+-- | The name of a constructor of the type of the proxy. The name has the
+-- package and the module that define the type in these libraries. The
+-- modules of GHC that define these types are not in these libraries.
+libraryConstructorName :: (Typeable a) => Proxy a -> String -> Name
+libraryConstructorName proxy = mkNameG_d (tyConPackage tyCon) (tyConModule tyCon)
+  where
+    tyCon = typeRepTyCon (typeRep proxy)
 
 -----------------------------------------------------
 --
