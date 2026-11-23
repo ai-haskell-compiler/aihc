@@ -35,8 +35,21 @@ import Data.Text qualified as T
 -- GHC does not define the word macros, for example @WORD_SIZE_IN_BITS@.
 -- A module gets them only when it includes @MachDeps.h@. An undefined macro
 -- is 0 in an @#if@ line, and some packages select their branch from that 0.
+--
+-- The C preprocessor also defines @__DATE__@ and @__TIME__@. Here they
+-- have fixed values, so that the output of a build does not depend on the
+-- time of the build.
 builtinCppMacros :: Map Text Text
-builtinCppMacros = compilerVersionCppMacros
+builtinCppMacros = compilerVersionCppMacros <> buildTimeCppMacros
+
+-- | The date and time macros, with the values that aihc-cpp also uses as
+-- its defaults: the Unix epoch.
+buildTimeCppMacros :: Map Text Text
+buildTimeCppMacros =
+  M.fromList
+    [ ("__DATE__", "\"Jan  1 1970\""),
+      ("__TIME__", "\"00:00:00\"")
+    ]
 
 -- | The @__GLASGOW_HASKELL__@ family alone.
 compilerVersionCppMacros :: Map Text Text
