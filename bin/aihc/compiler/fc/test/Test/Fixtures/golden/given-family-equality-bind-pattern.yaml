@@ -1,0 +1,21 @@
+extensions:
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, ScopedTypeVariables, FlexibleContexts #-}
+  module Test where
+  import GHC.Prim.Base (Monad, return)
+  type family Elem s
+  class Elem (Storage c) ~ c => Component c where
+    type Storage c
+  class Component c => Has m c where
+    getStore :: m (Storage c)
+  newtype ReadOnly s = ReadOnly s
+  type instance Elem (ReadOnly s) = Elem s
+  get :: forall m s c. (Monad m, Has m c, Storage c ~ ReadOnly s, Elem s ~ c) => c -> m s
+  get _ = do
+    ReadOnly s <- getStore
+    return s
+reason: a do bind pattern that a given family equality casts gets a lambda binder of the bound
+  value type, not of the constructor result type
+status: pass
