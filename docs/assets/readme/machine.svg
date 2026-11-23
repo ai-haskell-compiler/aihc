@@ -26,9 +26,9 @@
     @keyframes belt { to { transform: translateX(90px); } }
     @keyframes tread { to { stroke-dashoffset: -15; } }
     @keyframes flow { to { stroke-dashoffset: -12; } }
-    @keyframes on1 { 0%, 30% { opacity: 1; } 33%, 97% { opacity: 0.35; } 100% { opacity: 1; } }
-    @keyframes on2 { 0%, 31% { opacity: 0.35; } 34%, 63% { opacity: 1; } 66%, 100% { opacity: 0.35; } }
-    @keyframes on3 { 0%, 64% { opacity: 0.35; } 67%, 96% { opacity: 1; } 99%, 100% { opacity: 0.35; } }
+    @keyframes on1 { 0% { opacity: 0.35; } 2%, 29% { opacity: 1; } 31%, 100% { opacity: 0.35; } }
+    @keyframes on2 { 0%, 33.3% { opacity: 0.35; } 35.3%, 62% { opacity: 1; } 64%, 100% { opacity: 0.35; } }
+    @keyframes on3 { 0%, 66.7% { opacity: 0.35; } 68.7%, 95.5% { opacity: 1; } 97.5%, 100% { opacity: 0.35; } }
     @keyframes blink { 0%, 46%, 50%, 100% { transform: scaleY(1); } 48% { transform: scaleY(0.1); } }
     @keyframes bulb { 50% { opacity: 0.3; } }
     @keyframes shake { 50% { transform: translateY(1px); } }

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="700 -36 1000 260" role="img" aria-label="Pieces of Haskell ride a conveyor belt into a machine with the label AIHC. Blocks of binary code come out on the other side.">
+  <!-- This drawing is a copy of the machine on https://aihc.app/, with the colors of the other README drawings. -->
+  <style>
+    svg { fill: none; stroke: #ebe6de; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    text { stroke: none; text-anchor: middle; }
+    .m-legs { stroke: #736c62; stroke-width: 2; }
+    .m-belt { fill: #2b2240; stroke-width: 2; }
+    .m-belt-dash { stroke: #736c62; stroke-width: 2; stroke-dasharray: 3 37; animation: belt 1.25s linear infinite; }
+    .m-in, .m-out { animation: convey 40s linear infinite; }
+    .m-in text { font: 500 21px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #9c958b; }
+    .m-in text.hot { fill: #b7a8e6; }
+    .m-out rect { fill: #27223a; stroke: #b7a8e6; stroke-width: 2; }
+    .m-out text { font: 600 14px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #b7a8e6; }
+    .m-box { animation: chug 0.5s ease-in-out infinite alternate; }
+    .m-body, .m-part { fill: #2b2240; }
+    .m-part { fill: #3a2f5c; }
+    .m-slot { stroke: #ebe6de; stroke-width: 5; stroke-linecap: butt; }
+    .m-foot { stroke-width: 6; }
+    .m-label { font: 500 50px 'Iowan Old Style', 'Palatino Linotype', Georgia, serif; letter-spacing: 0.04em; fill: #ebe6de; }
+    .m-vent { stroke: #736c62; stroke-width: 2; }
+    .m-gauge circle { fill: #1b1530; stroke-width: 2; }
+    .m-needle { stroke: #b7a8e6; transform-box: fill-box; transform-origin: 50% 100%; animation: needle 2.6s ease-in-out infinite alternate; }
+    .m-lights circle { stroke-width: 1.5; fill: #4cc04c; animation: lamp 1.8s steps(1) infinite; }
+    .m-lights circle:nth-child(2) { animation-delay: 0.6s; }
+    .m-lights circle:nth-child(3) { animation-delay: 1.2s; }
+    .m-rivets circle { fill: #736c62; stroke: none; }
+    .m-gear { fill: #3a2f5c; animation: spin 6s linear infinite; }
+    .m-gear circle { fill: #ebe6de; stroke: none; }
+    .m-puffs circle { fill: #2b2240; stroke: #736c62; stroke-width: 1.5; opacity: 0; transform-box: fill-box; transform-origin: center; animation: puff 3s ease-out infinite; }
+    .m-puffs circle:nth-child(2) { animation-delay: 1s; }
+    .m-puffs circle:nth-child(3) { animation-delay: 2s; }
+    @keyframes convey { to { transform: translateX(1280px); } }
+    @keyframes belt { to { stroke-dashoffset: -40; } }
+    @keyframes chug { to { transform: translateY(-1.5px); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes needle { from { transform: rotate(-50deg); } to { transform: rotate(55deg); } }
+    @keyframes lamp { 0% { fill: #4cc04c; } 34% { fill: #3a2f5c; } }
+    @keyframes puff {
+      0% { opacity: 0; transform: translate(0, 6px) scale(0.5); }
+      20% { opacity: 0.9; }
+      100% { opacity: 0; transform: translate(14px, -30px) scale(1.7); }
+    }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <clipPath id="card"><rect x="700" y="-36" width="1000" height="260" rx="18"/></clipPath>
+  <g clip-path="url(#card)">
+  <rect x="700" y="-36" width="1000" height="260" fill="#1b1530" stroke="none"/>
+      <defs>
+        <path id="gear-12" d="M37.1 -5.7L45.9 -3.4L45.9 3.4L37.1 5.7L34.9 13.6L41.4 20.0L38.0 25.9L29.3 23.4L23.4 29.3L25.9 38.0L20.0 41.4L13.6 34.9L5.7 37.1L3.4 45.9L-3.4 45.9L-5.7 37.1L-13.6 34.9L-20.0 41.4L-25.9 38.0L-23.4 29.3L-29.3 23.4L-38.0 25.9L-41.4 20.0L-34.9 13.6L-37.1 5.7L-45.9 3.4L-45.9 -3.4L-37.1 -5.7L-34.9 -13.6L-41.4 -20.0L-38.0 -25.9L-29.3 -23.4L-23.4 -29.3L-25.9 -38.0L-20.0 -41.4L-13.6 -34.9L-5.7 -37.1L-3.4 -45.9L3.4 -45.9L5.7 -37.1L13.6 -34.9L20.0 -41.4L25.9 -38.0L23.4 -29.3L29.3 -23.4L38.0 -25.9L41.4 -20.0L34.9 -13.6Z"/>
+        <path id="gear-8" d="M22.9 -5.3L31.8 -3.5L31.8 3.5L22.9 5.3L19.9 12.4L25.0 20.0L20.0 25.0L12.4 19.9L5.3 22.9L3.5 31.8L-3.5 31.8L-5.3 22.9L-12.4 19.9L-20.0 25.0L-25.0 20.0L-19.9 12.4L-22.9 5.3L-31.8 3.5L-31.8 -3.5L-22.9 -5.3L-19.9 -12.4L-25.0 -20.0L-20.0 -25.0L-12.4 -19.9L-5.3 -22.9L-3.5 -31.8L3.5 -31.8L5.3 -22.9L12.4 -19.9L20.0 -25.0L25.0 -20.0L19.9 -12.4Z"/>
+        <path id="gear-6" d="M15.7 -4.9L24.7 -3.7L24.7 3.7L15.7 4.9L12.1 11.2L15.5 19.6L9.2 23.2L3.6 16.1L-3.6 16.1L-9.2 23.2L-15.5 19.6L-12.1 11.2L-15.7 4.9L-24.7 3.7L-24.7 -3.7L-15.7 -4.9L-12.1 -11.2L-15.5 -19.6L-9.2 -23.2L-3.6 -16.1L3.6 -16.1L9.2 -23.2L15.5 -19.6L12.1 -11.2Z"/>
+        <clipPath id="belt-in"><rect x="0" y="0" width="1080" height="224"/></clipPath>
+        <clipPath id="belt-out"><rect x="1322" y="0" width="1078" height="224"/></clipPath>
+      </defs>
+      <path class="m-legs" d="M80 188V230M240 188V230M400 188V230M560 188V230M720 188V230M880 188V230M1040 188V230M1360 188V230M1520 188V230M1680 188V230M1840 188V230M2000 188V230M2160 188V230M2320 188V230"/>
+      <path class="m-belt" d="M-10 177H2410V188H-10Z"/>
+      <path class="m-belt-dash" d="M-40 182.5H2440"/>
+      <g clip-path="url(#belt-in)"><g class="m-in"><g><text x="-60" y="170" transform="rotate(-4 -60 170)">map f xs</text><text x="100" y="170" transform="rotate(3 100 170)" class="hot">λx → x</text><text x="260" y="170" transform="rotate(-6 260 170)">&gt;&gt;=</text><text x="420" y="170" transform="rotate(2 420 170)">where</text><text x="580" y="170" transform="rotate(-3 580 170)" class="hot">Maybe a</text><text x="740" y="170" transform="rotate(5 740 170)">foldr</text><text x="900" y="170" transform="rotate(-5 900 170)" class="hot">&lt;$&gt;</text><text x="1060" y="170" transform="rotate(3 1060 170)">data T</text></g><g transform="translate(-1280)"><text x="-60" y="170" transform="rotate(-4 -60 170)">map f xs</text><text x="100" y="170" transform="rotate(3 100 170)" class="hot">λx → x</text><text x="260" y="170" transform="rotate(-6 260 170)">&gt;&gt;=</text><text x="420" y="170" transform="rotate(2 420 170)">where</text><text x="580" y="170" transform="rotate(-3 580 170)" class="hot">Maybe a</text><text x="740" y="170" transform="rotate(5 740 170)">foldr</text><text x="900" y="170" transform="rotate(-5 900 170)" class="hot">&lt;$&gt;</text><text x="1060" y="170" transform="rotate(3 1060 170)">data T</text></g></g></g>
+      <g clip-path="url(#belt-out)"><g class="m-out"><g><g transform="translate(1350 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100001</text></g><g transform="translate(1510 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101001</text></g><g transform="translate(1670 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101000</text></g><g transform="translate(1830 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100011</text></g><g transform="translate(1990 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100001</text></g><g transform="translate(2150 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101001</text></g><g transform="translate(2310 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101000</text></g><g transform="translate(2470 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100011</text></g></g><g transform="translate(-1280)"><g transform="translate(1350 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100001</text></g><g transform="translate(1510 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101001</text></g><g transform="translate(1670 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101000</text></g><g transform="translate(1830 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100011</text></g><g transform="translate(1990 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100001</text></g><g transform="translate(2150 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101001</text></g><g transform="translate(2310 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01101000</text></g><g transform="translate(2470 144)"><rect width="100" height="30" rx="7"/><text x="50" y="20.5">01100011</text></g></g></g></g>
+      <g class="m-puffs"><circle cx="1262" cy="22" r="7"/><circle cx="1262" cy="22" r="7"/><circle cx="1262" cy="22" r="7"/></g>
+      <g transform="translate(1132 50)"><g class="m-gear"><use href="#gear-8"/><circle r="7"/></g></g>
+      <g class="m-box">
+        <path class="m-part" d="M1250 50V28H1274V50"/>
+        <path class="m-part" d="M1092 112L1060 98V177H1092Z"/>
+        <path class="m-part" d="M1308 128L1334 138V177H1308Z"/>
+        <path class="m-foot" d="M1104 202V214M1296 202V214"/>
+        <rect class="m-body" x="1090" y="50" width="220" height="152" rx="16"/>
+        <path class="m-slot" d="M1090 124V177M1310 138V177"/>
+        <text class="m-label" x="1200" y="124">AIHC</text>
+        <g class="m-gauge"><circle cx="1130" cy="160" r="15"/><path class="m-needle" d="M1130 160V149"/></g>
+        <path class="m-vent" d="M1164 152H1232M1164 160H1232M1164 168H1232"/>
+        <g class="m-lights"><circle cx="1252" cy="160" r="5"/><circle cx="1269" cy="160" r="5"/><circle cx="1286" cy="160" r="5"/></g>
+        <g class="m-rivets"><circle cx="1104" cy="64" r="2"/><circle cx="1296" cy="64" r="2"/><circle cx="1104" cy="188" r="2"/><circle cx="1296" cy="188" r="2"/></g>
+      </g>
+  </g>
+</svg>

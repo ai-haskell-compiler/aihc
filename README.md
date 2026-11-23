@@ -81,6 +81,10 @@ All releases are on the [releases page](https://github.com/ai-haskell-compiler/a
 
 ## Your first program
 
+<p align="center">
+  <img src="docs/assets/readme/conveyor.svg" alt="Pieces of Haskell ride a conveyor belt into the AIHC machine. Blocks of binary code come out on the other side." width="880">
+</p>
+
 Write `Main.hs`:
 
 ```haskell
