@@ -24,7 +24,7 @@ import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify', put, runStateT)
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -94,7 +94,9 @@ data CpsState = CpsState
     -- | The variables of the function that a fetch from a constructor or
     -- a closure bound: the tag, the pointer, and every variable of that
     -- fetch. See 'rematerialize'.
-    cpsFetchedFields :: !(Map GrinVar (GrinNodeTag, GrinVar, [GrinVar]))
+    cpsFetchedFields :: !(Map GrinVar (GrinNodeTag, GrinVar, [GrinVar])),
+    -- | The functions that never return. See 'neverReturns'.
+    cpsDiverging :: !(Set FunctionName)
   }
 
 type CpsM = StateT CpsState (Either CpsGrinError)
@@ -132,7 +134,8 @@ toCpsGrin sourceProgram = do
           cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty,
           cpsParameterOrder = Map.empty,
-          cpsFetchedFields = Map.empty
+          cpsFetchedFields = Map.empty,
+          cpsDiverging = neverReturns sourceFunctions
         }
 
 transformFunction :: GrinFunction -> CpsM GrinFunction
@@ -213,7 +216,21 @@ transformTail parent bound resultRep continuation expression =
               continuation
               body
           pure (GrinBind resultVars valueExpression transformedBody)
-      | otherwise -> do
+      -- A call of a function that never returns gets the continuation of
+      -- the bind as it is, and the code after the call goes. The call
+      -- pushes no frame, and the code after it needs no continuation
+      -- function. The error of a bounds check is such a call: its
+      -- continuation named the join points after it, so the Lir lowering
+      -- could not merge them into their function. An exception still
+      -- finds each frame below, because the call pushes none of its own.
+      | GrinCall _ functionName arguments <- valueExpression -> do
+          diverging <- gets cpsDiverging
+          if Set.member functionName diverging
+            then pure (GrinCall (ResultRep cpsResultRep) functionName (arguments <> [continuation]))
+            else reified
+      | otherwise -> reified
+      where
+        reified = do
           next <-
             reifyContinuation
               parent
@@ -754,3 +771,21 @@ varsRuntimeRep vars =
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
   name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#", "noDuplicate#", "prompt#", "aihcControl0#", "aihcResume#", "maskAsyncExceptions#", "maskUninterruptible#", "unmaskAsyncExceptions#", "killThread#"]
+
+-- | The functions that never return: each path throws, exits, fails to
+-- match, or calls such a function.
+neverReturns :: [GrinFunction] -> Set FunctionName
+neverReturns functions = grow Set.empty
+  where
+    grow known =
+      let known' = Set.fromList [grinFunctionName function | function <- functions, diverges known (grinFunctionBody function)]
+       in if known' == known then known else grow (known' <> known)
+    diverges known expression =
+      case expression of
+        GrinThrow {} -> True
+        GrinExit {} -> True
+        GrinCall _ name _ -> Set.member name known
+        GrinBind _ value body -> diverges known value || diverges known body
+        GrinStoreRec _ body -> diverges known body
+        GrinCase _ _ alternatives -> all (diverges known . grinAltRhs) alternatives
+        _ -> False
