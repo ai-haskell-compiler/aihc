@@ -2817,7 +2817,10 @@ loadExcerptSources loadSource spans =
 -- excerpt.
 --
 -- A span names its file relative to the package root, so the loader finds
--- a module by its name and reads any other file under the package root.
+-- a module by its name and reads any other file under the package root. A
+-- preprocessed module keeps the name of its source file, for example a
+-- @.hsc@ file, and the spans of the module point into that file. Thus the
+-- loader reads that source file and not the generated module.
 excerptSourceLoader :: FilePath -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> FilePath -> IO DiagnosticSourceMap
 excerptSourceLoader headerDir root versions files name =
   case Map.lookup name fileInfos of
@@ -2831,7 +2834,12 @@ excerptSourceLoader headerDir root versions files name =
           Left (_ :: IOException) -> MonoidMap.empty
           Right bytes -> MonoidMap.singleton name (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
   where
-    fileInfos = Map.fromList [(HackageCabal.fileInfoName fileInfo, fileInfo) | fileInfo <- files]
+    fileInfos =
+      Map.fromList
+        [ (HackageCabal.fileInfoName fileInfo, fileInfo)
+        | fileInfo <- files,
+          takeExtension (HackageCabal.fileInfoName fileInfo) == takeExtension (HackageCabal.fileInfoPath fileInfo)
+        ]
 
 renderParseDiagnostics :: [Diagnostic] -> String
 renderParseDiagnostics diagnostics =
