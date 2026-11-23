@@ -95,6 +95,7 @@ import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ)
+import Data.Either (partitionEithers)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -1691,6 +1692,10 @@ resolveDoStmt isLast stmt =
 -- and it needs only a Functor or an Applicative instance. A block of a
 -- different form stays a monadic do block.
 --
+-- The block can also have let statements between the binds. A let
+-- statement must not use a variable that an earlier pattern binds. As in
+-- GHC, the let statements then go around the applicative expression.
+--
 -- GHC also splits a block with dependencies into independent segments.
 -- This rewrite does not do that.
 --
@@ -1707,17 +1712,20 @@ applicativeDo sourceStmts stmts = do
     || length binderNames /= Set.size (Set.fromList binderNames)
     then pure Nothing
     else case List.unsnoc (map R.peelDoStmtAnn stmts) of
-      Just (args@(_ : _), R.DoExpr final)
-        | Just actions <- traverse applicativeArg args,
+      Just (args, R.DoExpr final)
+        | Just parts <- traverse applicativeArg args,
+          (lets, actions@(_ : _)) <- partitionEithers parts,
           independentActions actions,
+          independentLets parts,
           Just result <- returnedExpr info final ->
-            Just <$> applicativeExpr actions result
+            Just . flip (foldr R.ELetDecls) lets <$> applicativeExpr actions result
       _ -> pure Nothing
   where
     applicativeArg stmt =
       case stmt of
-        R.DoBind pat action | lazyPattern pat -> Just (pat, action)
-        R.DoExpr action -> Just (R.PWildcard, action)
+        R.DoBind pat action | lazyPattern pat -> Just (Right (pat, action))
+        R.DoExpr action -> Just (Right (R.PWildcard, action))
+        R.DoLetDecls decls -> Just (Left decls)
         _ -> Nothing
     lazyPattern pat =
       case R.peelPatternAnn pat of
@@ -1726,6 +1734,19 @@ applicativeDo sourceStmts stmts = do
         R.PWildcard -> True
         R.PIrrefutable {} -> True
         _ -> False
+
+-- | Whether no let statement uses a variable that an earlier pattern binds.
+-- As in GHC, such let statements move to the start of the block. Thus they
+-- go around the applicative expression, and each action and the result can
+-- use their variables.
+independentLets :: [Either [R.Decl] (R.Pattern, R.Expr)] -> Bool
+independentLets = go Set.empty
+  where
+    go _ [] = True
+    go bound (Left decls : rest) =
+      Set.disjoint (localEntities decls) bound && go bound rest
+    go bound (Right (pat, _) : rest) =
+      go (Set.union bound (localEntities pat)) rest
 
 -- | Whether no action or pattern uses a variable that an earlier pattern
 -- binds.
