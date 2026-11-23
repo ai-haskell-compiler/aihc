@@ -103,13 +103,17 @@ toCpsGrin :: GrinProgram -> Either CpsGrinError CpsGrinProgram
 toCpsGrin sourceProgram = do
   (functions, finalState) <- runStateT (mapM transformFunction sourceFunctions) initialState
   let continuationFrames = cpsContinuationFramesState finalState
+      (merged, continuations) =
+        mergeFrameContinuations
+          (Map.keysSet continuationFrames)
+          (grinGlobals program)
+          (functions <> reverse (cpsGeneratedFunctionsRev finalState))
+          (cpsComputationContinuations finalState)
   pure
     CpsGrinProgram
       { cpsGrinProgram =
           program
-            { grinFunctions =
-                functions
-                  <> reverse (cpsGeneratedFunctionsRev finalState),
+            { grinFunctions = merged,
               -- An extern function is a computation entry of its own unit,
               -- so it takes the continuation as its last parameter too.
               grinExternFunctions =
@@ -119,7 +123,7 @@ toCpsGrin sourceProgram = do
             },
         cpsContinuationFunctions = Map.keysSet continuationFrames,
         cpsContinuationFrames = continuationFrames,
-        cpsFunctionContinuations = cpsComputationContinuations finalState
+        cpsFunctionContinuations = continuations
       }
   where
     program = normalizeGrinProgram sourceProgram
@@ -134,6 +138,57 @@ toCpsGrin sourceProgram = do
           cpsParameterOrder = Map.empty,
           cpsFetchedFields = Map.empty
         }
+
+-- | Put the body of a continuation function in the entry of its frame,
+-- when the body of that entry is only a call of the function and nothing
+-- else names the function.
+--
+-- The entry of a frame reads the values the frame saved, and its body
+-- calls the function of the code after the call with them. A frame of a
+-- loop with many live values, such as the state of @processFile@ in
+-- @aihc-cpp@, then moved each value two times: from the frame into the
+-- argument registers and the stack slots of the call, and from there to
+-- the registers of the function. With the body in the entry, each value
+-- goes from the frame where the code needs it.
+--
+-- The parameters of the function are bound to the arguments of the call,
+-- and the entry takes the continuation of the function, when the function
+-- has one. Each name is unique, so the body needs no new names.
+mergeFrameContinuations :: Set FunctionName -> [GrinGlobal] -> [GrinFunction] -> Map FunctionName GrinVar -> ([GrinFunction], Map FunctionName GrinVar)
+mergeFrameContinuations frames globals functions continuations =
+  ( [ maybe function (\(target, arguments) -> function {grinFunctionBody = GrinBind (grinFunctionParameters target) (GrinConstant arguments) (grinFunctionBody target)}) (Map.lookup (grinFunctionName function) merges)
+    | function <- functions,
+      Set.notMember (grinFunctionName function) moved
+    ],
+    List.foldl' moveContinuation continuations (Map.toList merges)
+  )
+  where
+    byName = Map.fromList [(grinFunctionName function, function) | function <- functions]
+    references =
+      Map.fromListWith
+        (+)
+        ( [(name, 1 :: Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+            <> [(name, 1) | global <- globals, name <- grinNodeFunctionNames (grinGlobalNode global)]
+        )
+    merges =
+      Map.fromList
+        [ (grinFunctionName function, (target, arguments))
+        | function <- functions,
+          Set.member (grinFunctionName function) frames,
+          GrinCall rep callee arguments <- [grinFunctionBody function],
+          callee /= grinFunctionName function,
+          Set.notMember callee frames,
+          Map.lookup callee references == Just 1,
+          Just target <- [Map.lookup callee byName],
+          grinFunctionResultRep target == rep,
+          grinFunctionResultRep function == rep,
+          length (grinFunctionParameters target) == length arguments
+        ]
+    moved = Set.fromList [grinFunctionName target | (target, _) <- Map.elems merges]
+    moveContinuation current (frame, (target, _)) =
+      case Map.lookup (grinFunctionName target) current of
+        Just continuation -> Map.insert frame continuation (Map.delete (grinFunctionName target) current)
+        Nothing -> current
 
 transformFunction :: GrinFunction -> CpsM GrinFunction
 transformFunction function = do
