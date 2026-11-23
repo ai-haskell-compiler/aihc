@@ -151,7 +151,7 @@ import Aihc.Hackage.Source (HackageSource)
 import Aihc.Lir.Lower qualified as Lower
 import Aihc.Lir.Resolve qualified as Lir
 import Aihc.Llvm.Lir qualified as Llvm
-import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wasmSysrootArchives)
+import Aihc.Native (NativeTarget (..), OptimizationLevel (..), WasmSysroot (..), backendArchiver, backendCompiler, cxxStandardLibraryArguments, defaultOptimizationLevel, filePrefixMapArguments, handwrittenCArguments, handwrittenCOverrideArguments, hostNativeTarget, llvmLto, llvmLtoArguments, nativeTargetHasFrameworks, nativeTargetStoreDirectory, optimizationArgument, renderOptimizationLevel, wasmSysroot, wasmSysrootArchives)
 import Aihc.PackagePlan
   ( DependencyVersions,
     LockMode (..),
@@ -319,6 +319,9 @@ instance NFData InstallResult
 
 data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
+    -- | The name of the module's file in spans, relative to the package
+    -- root. It does not depend on the directory of the package.
+    sourceModuleFileName :: !FilePath,
     sourceModuleSize :: !Int,
     -- | A digest of everything the parse of this module depended on: its
     -- bytes, the cabal settings that shaped it, and, for a module that runs
@@ -2647,6 +2650,7 @@ parseSource headerDir root versions fileInfo = do
   evaluate
     SourceModule
       { sourceModulePath = path,
+        sourceModuleFileName = HackageCabal.fileInfoName fileInfo,
         sourceModuleSize = BS.length bytes,
         sourceModuleHash = moduleDepsDigest deps,
         sourceModuleParsed = parsed,
@@ -2811,20 +2815,23 @@ loadExcerptSources loadSource spans =
 -- their own paths, exactly as the parse did. Any other file (a header a
 -- span points into) is read as it is. A file that cannot be read gets no
 -- excerpt.
+--
+-- A span names its file relative to the package root, so the loader finds
+-- a module by its name and reads any other file under the package root.
 excerptSourceLoader :: FilePath -> FilePath -> DependencyVersions -> [HackageCabal.FileInfo] -> FilePath -> IO DiagnosticSourceMap
-excerptSourceLoader headerDir root versions files path =
-  case Map.lookup path fileInfos of
+excerptSourceLoader headerDir root versions files name =
+  case Map.lookup name fileInfos of
     Just fileInfo -> do
-      bytes <- BS.readFile path
+      bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
       parsedFileSourceLines <$> parseInterfaceBytes headerDir root versions fileInfo bytes
     Nothing -> do
-      result <- try (BS.readFile path)
+      result <- try (BS.readFile (root </> name))
       pure $
         case result of
           Left (_ :: IOException) -> MonoidMap.empty
-          Right bytes -> MonoidMap.singleton path (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
+          Right bytes -> MonoidMap.singleton name (Map.fromList (zip [1 ..] (T.lines (TE.decodeUtf8With lenientDecode bytes))))
   where
-    fileInfos = Map.fromList [(HackageCabal.fileInfoPath fileInfo, fileInfo) | fileInfo <- files]
+    fileInfos = Map.fromList [(HackageCabal.fileInfoName fileInfo, fileInfo) | fileInfo <- files]
 
 renderParseDiagnostics :: [Diagnostic] -> String
 renderParseDiagnostics diagnostics =
@@ -2953,7 +2960,6 @@ runResolveUnit context runtimes runtime = do
   dependencyResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
-      root = taskPackageRoot context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
       unitNames = map sourceName sources
@@ -2964,7 +2970,7 @@ runResolveUnit context runtimes runtime = do
       availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResults) <> dependencyExports)
       availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResults ++ [dependencyScopeHashes]))
       scopeInputs = dependencyInputs "scope:" resolvePackage unitNames dependencies availableScopeHashes
-      sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
+      sourceHashes = [("source:" <> T.pack (sourceModuleFileName source), sourceModuleHash source) | source <- sources]
       inputs = sortOn fst (sourceHashes <> scopeInputs <> [("options:reexports", T.pack (show (taskLocalReexports context)))])
       resolvePath source = sourceModuleDirectory source </> "resolve.cbor"
       stampPath = storePath </> unitResolveStampPath unit
@@ -3346,7 +3352,6 @@ runTypeUnit context runtimes runtime = do
   let storePath = taskStorePath context
       resolvePackage = taskResolvePackage context
       primIdentity = taskPrimIdentity context
-      root = taskPackageRoot context
       provider = taskModuleProvider context
       verbose = compileVerbose config
       sources = sourceUnitSources unit
@@ -3372,7 +3377,7 @@ runTypeUnit context runtimes runtime = do
       availableTypeHashes = localReexportFacts context (byModuleUnions (map typeUnitHashes dependencyResults ++ [dependencyTypeHashes]))
       availableExports = localReexportExports context (mconcat (map resolveUnitExports dependencyResolveResults) <> dependencyExports)
       availableScopeHashes = localReexportFacts context (byModuleUnions (map resolveUnitScopeHashes dependencyResolveResults ++ [dependencyScopeHashes]))
-      sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
+      sourceHashes = [("source:" <> T.pack (sourceModuleFileName source), sourceModuleHash source) | source <- sources]
       scopeInputs = dependencyInputs "scope:" resolvePackage unitNames dependencies availableScopeHashes
       typeInputs = dependencyInputs "type:" resolvePackage unitNames dependencies availableTypeHashes
       -- The instances a unit sees come from every unit below it and from
@@ -4118,6 +4123,7 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
           runTool
             compiler
             ( arguments
+                <> filePrefixMapArguments [takeDirectory (outputCapiSourcePath paths)]
                 <> ["-MD", "-MF", outputCapiDependencyPath paths]
                 <> ["-c", outputCapiSourcePath paths, "-o", outputCapiObjectPath paths]
             )
@@ -4473,6 +4479,10 @@ compilePackageCFiles target level lto headerDirectory verbose packageRoot storeP
             sysrootIncludes
               <> ["-I" <> directory | directory <- HackageCabal.cCompileIncludeDirs info]
               <> ["-I" <> headerDirectory]
+              -- A source is named relative to the package root, and a
+              -- header relative to its directory, so that the objects do
+              -- not depend on where the package and the store are.
+              <> filePrefixMapArguments [packageRoot, storePath, headerDirectory]
           ltoArguments = llvmLtoArguments target lto
           objectRoot = storePath </> "cbits"
       createDirectoryIfMissing True objectRoot

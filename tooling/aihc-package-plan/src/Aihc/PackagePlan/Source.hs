@@ -48,7 +48,7 @@ import Data.Text.Encoding.Error (lenientDecode)
 import Numeric (showHex)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
-import System.FilePath (makeRelative, normalise, splitDirectories, splitSearchPath, takeDirectory, takeExtension, (</>))
+import System.FilePath (addTrailingPathSeparator, isRelative, makeRelative, normalise, splitDirectories, splitSearchPath, takeDirectory, takeExtension, (</>))
 
 -- | One loaded source file. 'parsedFileSource' is what the parser saw, so
 -- offsets in the module's spans index into it directly.
@@ -121,7 +121,7 @@ parseInterfaceFile headerDir packageRoot versions fileInfo = do
 -- | Parse the same source bytes that the caller uses for its input hash.
 parseInterfaceBytes :: FilePath -> FilePath -> DependencyVersions -> HackageCabal.FileInfo -> BS.ByteString -> IO ParsedInterfaceFile
 parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
-  let normalized = normalizeSource path (TE.decodeUtf8With lenientDecode bytes)
+  let normalized = relativeLinePragmas packageRoot (normalizeSource path (TE.decodeUtf8With lenientDecode bytes))
       -- The extensions of the source as it stands, which decide whether CPP
       -- runs on it. A module turns CPP off with @{-# LANGUAGE NoCPP #-}@ the
       -- same way it turns off any other extension the cabal file enabled.
@@ -158,7 +158,7 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
           }
   pure
     ParsedInterfaceFile
-      { parsedFilePath = path,
+      { parsedFilePath = HackageCabal.fileInfoPath fileInfo,
         parsedFileModule = modu,
         parsedFileSourceLines = sourceLines,
         parsedFileParseDiagnostics = parseDiagnostics,
@@ -168,7 +168,9 @@ parseInterfaceBytes headerDir packageRoot versions fileInfo bytes = do
         parsedFileDeps = deps
       }
   where
-    path = HackageCabal.fileInfoPath fileInfo
+    -- The name of the file in spans and diagnostics. It does not depend on
+    -- the directory of the package.
+    path = HackageCabal.fileInfoName fileInfo
 
     cabalExtSettings = mapMaybe (parseExtensionSettingName . T.pack) (HackageCabal.fileInfoExtensions fileInfo)
 
@@ -191,12 +193,15 @@ preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
   environmentDirs <- cpathDirectories
   drive environmentDirs M.empty (Cpp.preprocess cppConfig (TE.encodeUtf8 injectedSource))
   where
+    -- The file is read from its path. CPP names it by its name, in its
+    -- @#line@ directives and in @__FILE__@.
     path = HackageCabal.fileInfoPath fileInfo
+    name = HackageCabal.fileInfoName fileInfo
     cppOptions = HackageCabal.fileInfoCppOptions fileInfo
-    injectedSource = injectSyntheticCppMacros path cppOptions versions (HackageCabal.fileInfoDependencies fileInfo) source
+    injectedSource = injectSyntheticCppMacros name cppOptions versions (HackageCabal.fileInfoDependencies fileInfo) source
     cppConfig =
       Cpp.defaultConfig
-        { Cpp.configInputFile = path,
+        { Cpp.configInputFile = name,
           Cpp.configMacros = M.mapKeys TE.encodeUtf8 (M.map TE.encodeUtf8 (cppMacrosFromOptions cppOptions))
         }
 
@@ -209,9 +214,58 @@ preprocessInterfaceSource headerDir packageRoot versions fileInfo source = do
           case resolved of
             -- A package can include a dependency header with either CPP form.
             IncludeFromFile file content ->
-              drive environmentDirs (M.insert (normalise (makeRelative packageRoot file)) (digestChunks [content]) includes) (k (Just content))
-            IncludeFromCompiler content -> drive environmentDirs includes (k (Just content))
+              let header = includeName packageRoot req file
+               in drive environmentDirs (M.insert header (digestChunks [content]) includes) (k (Just (namedInclude req header content)))
+            IncludeFromCompiler content -> drive environmentDirs includes (k (Just (namedInclude req (normalise (Cpp.includePath req)) content)))
             IncludeMissing -> drive environmentDirs includes (k Nothing)
+
+-- | The name of an included file in the dependencies of a module. A file of
+-- the package is named by its path relative to the package root. Any other
+-- file, for example a header of a dependency, is named by its path relative
+-- to the include directory it was found in, which is the path in the
+-- @#include@ line. Thus the name does not depend on the directory of the
+-- package or of its dependencies.
+includeName :: FilePath -> Cpp.IncludeRequest -> FilePath -> FilePath
+includeName packageRoot req file
+  | isRelative relative = normalise relative
+  | otherwise = normalise (Cpp.includePath req)
+  where
+    relative = makeRelative packageRoot file
+
+-- | The content of an included file, with a @#line@ directive that gives
+-- the file its name when CPP would name it differently. CPP names a file
+-- of an @#include "..."@ line by the directory of the including file, also
+-- when the file is in an include directory. The directive makes @__FILE__@
+-- and the source spans of the file name the file that was really read.
+namedInclude :: Cpp.IncludeRequest -> FilePath -> BS.ByteString -> BS.ByteString
+namedInclude req header content
+  | normalise cppName == header = content
+  | otherwise = BS8.pack ("#line 1 " <> show header <> "\n") <> content
+  where
+    cppName =
+      case Cpp.includeKind req of
+        Cpp.IncludeLocal -> takeDirectory (Cpp.includeFrom req) </> Cpp.includePath req
+        Cpp.IncludeSystem -> Cpp.includePath req
+
+-- | Make the file of each @LINE@ pragma relative to the package root when it
+-- is in the package. A preprocessor such as hsc2hs, alex or happy names its
+-- input file in these pragmas, and aihc gives it the input by its full path.
+-- The pragmas name the source file of each span, so without this change the
+-- spans, and the program text that shows them, depend on the directory of
+-- the package.
+relativeLinePragmas :: FilePath -> Text -> Text
+relativeLinePragmas packageRoot source
+  | not (T.pack "{-# LINE " `T.isInfixOf` source) = source
+  | otherwise = T.unlines (map relativeLine (T.lines source))
+  where
+    root = T.pack (addTrailingPathSeparator (normalise packageRoot))
+    relativeLine line =
+      case T.breakOn (T.pack "\"") line of
+        (before, quoted)
+          | T.pack "{-# LINE " `T.isPrefixOf` T.stripStart before,
+            Just file <- T.stripPrefix (T.pack "\"") quoted >>= T.stripPrefix root ->
+              before <> T.pack "\"" <> file
+        _ -> line
 
 -- | The include directories of the @CPATH@ environment variable. The C
 -- compiler searches them after the directories of its @-I@ options, for

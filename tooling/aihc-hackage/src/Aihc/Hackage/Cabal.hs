@@ -2,6 +2,7 @@
 module Aihc.Hackage.Cabal
   ( -- * File info
     FileInfo (..),
+    packageRelativeName,
     CCompileInfo (..),
     cCompileLinkArguments,
 
@@ -148,12 +149,19 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
-import System.FilePath (takeDirectory, takeExtension, takeFileName, (<.>), (</>))
+import System.FilePath (isRelative, makeRelative, normalise, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
 import System.IO (hClose, openBinaryTempFileWithDefaultPermissions)
 
 -- | Information about a Haskell source file discovered via a @.cabal@ file.
 data FileInfo = FileInfo
-  { fileInfoPath :: FilePath,
+  { -- | The path that the compiler reads the file from.
+    fileInfoPath :: FilePath,
+    -- | The name of the file in the compiler output: in source spans, in the
+    -- @#line@ directives of CPP, and in @__FILE__@. It is the path of the
+    -- file relative to the root of its package, as GHC under Cabal names a
+    -- file. Thus the output does not change when the package is in a
+    -- different directory.
+    fileInfoName :: FilePath,
     -- | Extension names as strings (e.g. @\"OverloadedStrings\"@, @\"NoImplicitPrelude\"@).
     fileInfoExtensions :: [String],
     -- | CPP options from the @cpp-options@ field. For a file of a build
@@ -608,7 +616,7 @@ libraryFilesFor package evalCond packageRoot libName tree = do
       generatedPaths <- generatedPathsFiles packageRoot package (maybe "" (("-lib-" <>) . T.unpack) libName) moduleNames
       pure $
         [sourceFileInfo packageRoot build path | path <- paths]
-          <> [generatedPathsFileInfo path | path <- generatedPaths]
+          <> [generatedPathsFileInfo packageRoot path | path <- generatedPaths]
 
 executableFilesFor :: Package -> (Condition -> Bool) -> FilePath -> String -> Text -> Conditional BuildInfo -> IO [FileInfo]
 executableFilesFor package evalCond packageRoot suffix exeName tree = do
@@ -623,7 +631,7 @@ executableFilesFor package evalCond packageRoot suffix exeName tree = do
       pure $
         [sourceFileInfo packageRoot build path | path <- moduleFiles]
           <> mainFiles
-          <> [generatedPathsFileInfo path | path <- generatedPaths]
+          <> [generatedPathsFileInfo packageRoot path | path <- generatedPaths]
 
 -- | The @main-is@ file of an executable in each source directory that has it.
 executableMainFiles :: FilePath -> BuildInfo -> IO [FileInfo]
@@ -635,6 +643,7 @@ sourceFileInfo :: FilePath -> BuildInfo -> FilePath -> FileInfo
 sourceFileInfo packageRoot build path =
   FileInfo
     { fileInfoPath = path,
+      fileInfoName = packageRelativeName packageRoot path,
       fileInfoExtensions = extractExtensions build,
       fileInfoCppOptions = map T.unpack (cppOptions build),
       fileInfoIncludeDirs = extractIncludeDirs packageRoot build,
@@ -642,6 +651,16 @@ sourceFileInfo packageRoot build path =
       fileInfoDependencies = extractDependencies build,
       fileInfoPreprocessor = filePreprocessor path
     }
+
+-- | The name of a file of a package in the compiler output: its path
+-- relative to the package root. A file outside the package root keeps its
+-- path.
+packageRelativeName :: FilePath -> FilePath -> FilePath
+packageRelativeName packageRoot path
+  | isRelative relative = normalise relative
+  | otherwise = path
+  where
+    relative = makeRelative packageRoot path
 
 -- | Collect package and executable names referenced by active build-tool fields.
 buildToolDependencyNames :: Package -> [Text]
@@ -717,10 +736,11 @@ ghcOptionsRuntimeOptions = go []
         | opt == flag, value : after <- rest -> go (words value) after
         | otherwise -> go found rest
 
-generatedPathsFileInfo :: FilePath -> FileInfo
-generatedPathsFileInfo path =
+generatedPathsFileInfo :: FilePath -> FilePath -> FileInfo
+generatedPathsFileInfo packageRoot path =
   FileInfo
     { fileInfoPath = path,
+      fileInfoName = packageRelativeName packageRoot path,
       fileInfoExtensions = [],
       fileInfoCppOptions = [],
       fileInfoIncludeDirs = [],

@@ -116,6 +116,7 @@ tests =
                 testCase "builds against two packages that hold a module of one name" (test_buildSharedModuleName coreStore),
                 testCase "builds a module that imports a dependency module of its own name" (test_buildPackageImportSameName coreStore),
                 testCase "starts each executable with the main module that its main-is file declares" (test_buildMainModule coreStore),
+                testCase "gives the same objects and executable in each build directory" (test_buildReproducible coreStore),
                 testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
                 testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
                 testCase "gives the -with-rtsopts options of a Cabal executable to the runtime" (test_buildRuntimeOptions coreStore),
@@ -419,6 +420,7 @@ test_moduleDepsIncludedHeader =
         fileInfo =
           HackageCabal.FileInfo
             { HackageCabal.fileInfoPath = sourceDir </> "Demo.hs",
+              HackageCabal.fileInfoName = "src" </> "Demo.hs",
               HackageCabal.fileInfoExtensions = ["CPP"],
               HackageCabal.fileInfoCppOptions = [],
               HackageCabal.fileInfoIncludeDirs = [includeDir],
@@ -1467,6 +1469,81 @@ test_buildMainModule getStore =
       assertEqual (name <> " exit status") ExitSuccess status
       assertEqual (name <> " stdout") output stdout
       assertEqual (name <> " stderr") "" stderr
+
+-- | The output of a build does not depend on the directory of the
+-- checkout, of the store, of the build root, or of a dependency in the
+-- Hackage cache. The test builds the same package in two directories and
+-- requires the same objects and the same executable. The program shows the
+-- source locations that get into it: a @HasCallStack@ location, the
+-- message of a failed pattern bind, and @__FILE__@ in a module and in an
+-- included header. Each one names its file relative to its package root.
+test_buildReproducible :: IO SeedStore -> Assertion
+test_buildReproducible getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/reproducible"
+  dependencyRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/reproducible-dependency"
+  withBuildPackageSandbox getStore "aihc-build-reproducible" $ \sandbox _ options -> do
+    let buildIn name = do
+          let root = sandboxRoot sandbox </> name
+              checkout = root </> "checkout" </> "reproducible"
+              hackageCache = root </> "home" </> ".cache" </> "aihc" </> "hackage"
+              buildRoot = root </> "work" </> "build"
+          copyWritable fixtureRoot checkout
+          copyWritable dependencyRoot (hackageCache </> "reproducible-dependency")
+          storeRoot <- sandboxStore sandbox (name </> "store")
+          outputs <-
+            build
+              options
+                { buildInput = checkout,
+                  buildStoreRoot = Just storeRoot,
+                  buildBuildRoot = Just buildRoot,
+                  buildWorkspace = Just hackageCache
+                }
+          executable <- case outputs of
+            [path] -> pure path
+            _ -> assertFailure ("expected one executable, got " <> show outputs)
+          objects <- objectFiles buildRoot
+          pure (executable, objects)
+    (firstExecutable, firstObjects) <- buildIn "first"
+    (secondExecutable, secondObjects) <- buildIn "second-build-directory"
+    (status, stdout, stderr) <- readProcessWithExitCode firstExecutable [] ""
+    assertEqual "exit status" ExitSuccess status
+    assertEqual "stderr" "" stderr
+    assertEqual
+      "source locations"
+      [ "CallStack (from HasCallStack):",
+        "  location, called at app/Main.hs:34:12 in exe:Main",
+        "CallStack (from HasCallStack):",
+        "  locate, called at include/dependency.h:5:22 in reproducible-dependency-1.0:Dependency",
+        "include/dependency.h",
+        "app/Cpp.hs",
+        "app/cpp.h",
+        "CallStack (from HasCallStack):",
+        "  location, called at app/cpp.h:5:18 in exe:Cpp",
+        "Pattern match failure in do expression at app/Main.hs:29:3-29"
+      ]
+      (lines stdout)
+    assertEqual "object files" (map fst firstObjects) (map fst secondObjects)
+    assertBool "the build has object files" (not (null firstObjects))
+    forM_ (zip firstObjects secondObjects) $ \((path, first), (_, second)) ->
+      assertBool ("the object files are the same: " <> path) (first == second)
+    firstBytes <- BS.readFile firstExecutable
+    secondBytes <- BS.readFile secondExecutable
+    assertBool "the executables are the same" (firstBytes == secondBytes)
+  where
+    -- The bytes of each object file and archive under a directory, by the
+    -- path relative to that directory.
+    objectFiles root = do
+      paths <- filesUnder root
+      sequence [(,) path <$> BS.readFile (root </> path) | path <- sort paths, takeExtension path `elem` [".o", ".a"]]
+    filesUnder root = do
+      entries <- listDirectory root
+      concat
+        <$> mapM
+          ( \entry -> do
+              isDirectory <- doesDirectoryExist (root </> entry)
+              if isDirectory then map (entry </>) <$> filesUnder (root </> entry) else pure [entry]
+          )
+          entries
 
 -- A package with @asm-sources@ assembles them with the C compiler and
 -- links their objects. The fixture's Haskell calls a function that only
