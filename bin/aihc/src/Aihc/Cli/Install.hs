@@ -2379,7 +2379,8 @@ storePackageIdentity config dependencies inputs = do
                   : packageNameText
                   : packageVersionText
                   : packageFlagsKey inputs
-                  : inputPkgConfigKey inputs
+                  : packageSubLibrariesKey inputs
+                    <> inputPkgConfigKey inputs
                     <> maybe [] (pure . T.pack) (inputSourceDigest inputs)
                     <> sortOn id (map installedIdentity dependencies)
               )
@@ -2396,6 +2397,16 @@ packageFlagsKey inputs =
           inputRevision inputs
         )
     )
+
+-- | The sub-libraries that other packages of the plan depend on, so that a
+-- package built with one of them and without it are two store entries. A
+-- package without such a sub-library adds nothing to its key.
+packageSubLibrariesKey :: PackageInputs -> [Text]
+packageSubLibrariesKey inputs =
+  [ T.pack (show ("sub-libraries" :: String, Set.toAscList libraries))
+  | let libraries = HackageCabal.contextSubLibraries (inputContext inputs),
+    not (Set.null libraries)
+  ]
 
 -- | The directory name and unit identity of a package in a build directory.
 localPackageIdentity :: PackageInputs -> (FilePath, Text)

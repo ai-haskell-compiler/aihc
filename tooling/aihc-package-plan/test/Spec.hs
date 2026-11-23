@@ -60,6 +60,7 @@ main =
       testCase "backtracks to an older version when the newest conflicts" test_backtracksOnVersionConflict,
       testCase "backjumps past choices a failure does not blame" test_backjumpsPastIrrelevantChoices,
       testCase "learns a conflict once under a chain of dependents" test_learnsConflictUnderDependentChain,
+      testCase "plans the dependencies of a sub-library that a different package uses" test_subLibraryOfOtherPackage,
       testCase "tries deprecated versions last" test_deprecatedLast,
       testCase "keeps the preferred version of a lock" test_prefersLockedVersion,
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
@@ -255,6 +256,7 @@ configFor roots =
       configGoals = [],
       configUnsupported = Map.empty,
       configPkgConfigModules = Nothing,
+      configSubLibraries = Map.empty,
       configMaxConflicts = 100
     }
 
@@ -264,7 +266,7 @@ solveWith packages config = runIdentity (solve (inputsFor packages) config)
 cabalFile :: String -> String -> [String] -> [String] -> String
 cabalFile name versionText flags library =
   unlines
-    ( [ "cabal-version: 2.2",
+    ( [ "cabal-version: 3.0",
         "name: " <> name,
         "version: " <> versionText,
         "build-type: Simple"
@@ -498,6 +500,26 @@ test_backtracksOnVersionConflict = do
   solution <- expectSolution (solveWith packages (configFor ["root"]))
   assertEqual "chosen versions" [("a", "1.0"), ("b", "1.0"), ("c", "2.0"), ("root", "0.1")] (chosen solution)
 
+-- A sub-library that only a different package uses is a part of the plan,
+-- with its dependencies. A sub-library that no package uses is not.
+test_subLibraryOfOtherPackage :: Assertion
+test_subLibraryOfOtherPackage = do
+  let subLibrary name dependency =
+        ["library " <> name, "  visibility: public", "  default-language: Haskell2010", "  build-depends: " <> dependency]
+      packages =
+        universe
+          [ baseEntry,
+            ("root", "0.1", False, CandidateLocal "/work/root", cabalFile "root" "0.1" [] ["build-depends: base, dep:used"]),
+            ("dep", "1.0", False, hackage, cabalFile "dep" "1.0" (subLibrary "used" "x" <> subLibrary "unused" "y") ["build-depends: base"]),
+            ("x", "1.0", False, hackage, cabalFile "x" "1.0" [] ["build-depends: base"]),
+            ("y", "1.0", False, hackage, cabalFile "y" "1.0" [] ["build-depends: base"])
+          ]
+      config = configFor ["root"]
+  solution <- expectSolution (solveWith packages config)
+  assertEqual "chosen versions" [("aihc-base", "4.21.2.0"), ("dep", "1.0"), ("root", "0.1"), ("x", "1.0")] (chosen solution)
+  let recorded = Map.map (\assignment -> (assignmentVersion assignment, Just (assignmentRevision assignment), assignmentFlags assignment)) solution
+  assertEqual "the recorded plan is valid" (Right solution) (runIdentity (verifySolution (inputsFor packages) config recorded))
+
 test_deprecatedLast :: Assertion
 test_deprecatedLast = do
   let packages =
@@ -721,11 +743,11 @@ test_searchableFlags = do
   assertEqual
     "the library dependencies under the defaults"
     ["y", "z"]
-    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) Nothing gpd)))
+    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) Set.empty Nothing gpd)))
   assertEqual
     "the dependencies with tests requested"
     ["hspec", "y", "z"]
-    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) (Just (Stanzas True False Nothing)) gpd)))
+    (map unPackageName (Map.keys (candidateDependencies (Linux, X86_64) Map.empty (mkFlagAssignment []) Set.empty (Just (Stanzas True False Nothing)) gpd)))
 
 test_lockRoundTrip :: Assertion
 test_lockRoundTrip = do

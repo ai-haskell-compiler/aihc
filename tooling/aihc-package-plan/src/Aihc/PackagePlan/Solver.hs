@@ -84,6 +84,7 @@ import Aihc.Cabal
     Condition (..),
     Conditional (..),
     Dependency (..),
+    LibraryTarget (..),
     Package,
     ToolDependency (..),
     buildTools,
@@ -128,6 +129,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (intercalate, nub, sortOn)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe)
@@ -245,6 +247,10 @@ data SolverConfig = SolverConfig
     -- does not examine them, for example for a target that does not run on
     -- the host.
     configPkgConfigModules :: !(Maybe (Set String)),
+    -- | The sub-libraries of each package that other packages of the plan
+    -- depend on. Their dependencies are dependencies of the package. A
+    -- caller gives an empty map, and 'solve' and 'verifySolution' fill it.
+    configSubLibraries :: !(Map PackageName (Set Text)),
     -- | Give up after this many conflicts. A normal solve resolves a few
     -- conflicts at most, so the limit is a guard against a search that
     -- does not end.
@@ -261,7 +267,12 @@ data Assignment = Assignment
     assignmentSource :: !CandidateSource,
     -- | The packages it depends on, after aliasing, with the range each
     -- must satisfy.
-    assignmentDependencies :: !(Map PackageName VersionRange)
+    assignmentDependencies :: !(Map PackageName VersionRange),
+    -- | The sub-libraries of other packages that it depends on, after
+    -- aliasing.
+    assignmentUsedSubLibraries :: !(Map PackageName (Set Text)),
+    -- | Its sub-libraries that other packages of the plan depend on.
+    assignmentSubLibraries :: !(Set Text)
   }
   deriving (Eq, Show)
 
@@ -508,7 +519,7 @@ unavailablePackages inputs config =
           dependent = DependentPackage name (candidateVersion candidate) flags
       pure
         [ (dependency, dependent, dependencyRange)
-        | (dependency, dependencyRange) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) flags root gpd)
+        | (dependency, dependencyRange) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) flags (demandedSubLibraries config name) root gpd)
         ]
 
 -- | The candidates and cabal files already fetched.
@@ -668,7 +679,15 @@ type Solve m = StateT St m
 
 -- | Solve the roots and goals of the configuration.
 solve :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
-solve inputs config =
+solve inputs config = do
+  result <- solveOnce inputs config
+  case result of
+    Right solution | Just grown <- withUsedSubLibraries config solution -> solve inputs grown
+    _ -> pure result
+
+-- | Solve with the sub-libraries that the configuration gives.
+solveOnce :: (Monad m) => SolverInputs m -> SolverConfig -> m (Either SolveFailure Solution)
+solveOnce inputs config =
   evalStateT start (St IntMap.empty 0 MonoidMap.empty Map.empty emptyPartial (Memo Map.empty Map.empty) Set.empty 0)
   where
     start = do
@@ -909,6 +928,7 @@ chooseVersion inputs config var allowed =
                     length
                       ( missingPkgConfigModules
                           config
+                          name
                           ( completeFlags
                               setup
                               [ (searched, if searched == flag then value else maybe (setupDefaults setup Map.! searched) (== flagOn) (Map.lookup (VarFlag name searched) decisions))
@@ -971,7 +991,7 @@ expandPackage inputs config name version = do
           (\(range, new) (_, old) -> (range, old <> new))
           [ ((dependency, showVersionRange range), (range, [Map.fromList flags]))
           | flags <- assignments,
-            (dependency, range) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) (completeFlags setup flags) root gpd)
+            (dependency, range) <- Map.toAscList (candidateDependencies (configPlatform config) (configAliases config) (completeFlags setup flags) (demandedSubLibraries config name) root gpd)
           ]
   forM_ (Map.toAscList grouped) $ \((dependency, _), (range, under)) -> do
     universe <- universeOf inputs config (VarPackage dependency)
@@ -1033,7 +1053,9 @@ extractSolution inputs config = do
             assignmentRevision = revision,
             assignmentFlags = flags,
             assignmentSource = candidateSource candidate,
-            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) flags root gpd
+            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) flags (demandedSubLibraries config name) root gpd,
+            assignmentUsedSubLibraries = usedSubLibraries (configPlatform config) (configAliases config) flags (demandedSubLibraries config name) root gpd,
+            assignmentSubLibraries = demandedSubLibraries config name
           }
       )
   pure (Map.fromList assignments)
@@ -1329,14 +1351,14 @@ pkgConfigFlags config root gpd =
 
 -- | The @pkgconfig-depends@ modules that a candidate names under one flag
 -- assignment and that the host does not have.
-missingPkgConfigModules :: SolverConfig -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
-missingPkgConfigModules config flags root gpd =
+missingPkgConfigModules :: SolverConfig -> PackageName -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
+missingPkgConfigModules config name flags root gpd =
   case configPkgConfigModules config of
     Nothing -> []
     Just available ->
       nub
         [ module'
-        | build <- contributingBuildInfos (configPlatform config) flags root gpd,
+        | build <- contributingBuildInfos (configPlatform config) flags (demandedSubLibraries config name) root gpd,
           module' <- extractPkgconfigDepends build,
           module' `Set.notMember` available
         ]
@@ -1360,12 +1382,13 @@ allLibraryTrees gpd = [tree | Component (Library _) tree <- packageComponents gp
 
 -- | The build infos of the components that contribute dependencies under
 -- one flag assignment: the buildable libraries that an install builds, and for a root package its
--- executables and requested stanzas as well.
-contributingBuildInfos :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> Package -> [BuildInfo]
-contributingBuildInfos (os, arch) flags root gpd =
+-- executables and requested stanzas as well. The set gives the
+-- sub-libraries that other packages of the plan depend on.
+contributingBuildInfos :: (OS, Arch) -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> [BuildInfo]
+contributingBuildInfos (os, arch) flags demanded root gpd =
   filter
     isBuildable
-    ( map (merged . snd) (installedLibraryTrees evalCond gpd)
+    ( map (merged . snd) (installedLibraryTrees evalCond demanded gpd)
         <> concat
           [ map merged (selectedExecutableTrees stanzas gpd)
               <> [merged tree | stanzasTests stanzas, tree <- testSuiteTrees gpd]
@@ -1374,21 +1397,21 @@ contributingBuildInfos (os, arch) flags root gpd =
           ]
     )
   where
-    evalCond = conditionEvaluatorIn (BuildContext os arch flags) gpd
+    evalCond = conditionEvaluatorIn (BuildContext os arch flags demanded) gpd
     merged = collectMergedBuildInfo evalCond
 
 -- | The packages a candidate needs under one flag assignment, after
 -- aliasing, each with the intersection of the ranges the components
 -- demand. A dependency on the package itself, which a sub-library or an
 -- executable states, is not a dependency of the plan.
-candidateDependencies :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Maybe Stanzas -> Package -> Map PackageName VersionRange
-candidateDependencies platform aliases flags root gpd =
+candidateDependencies :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> Map PackageName VersionRange
+candidateDependencies platform aliases flags demanded root gpd =
   Map.map
     simplifyVersionRange
     ( Map.fromListWith
         intersectVersionRanges
         [ (resolved, range)
-        | build <- contributingBuildInfos platform flags root gpd,
+        | build <- contributingBuildInfos platform flags demanded root gpd,
           Dependency packageName range _ <- dependencies build,
           let name = mkPackageName (T.unpack packageName)
               resolved = fromMaybe name (Map.lookup name aliases),
@@ -1398,15 +1421,50 @@ candidateDependencies platform aliases flags root gpd =
   where
     self = fromMaybe (packageNameOf gpd) (Map.lookup (packageNameOf gpd) aliases)
 
+-- | The sub-libraries of other packages that a candidate depends on under
+-- one flag assignment, after aliasing.
+usedSubLibraries :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> Map PackageName (Set Text)
+usedSubLibraries platform aliases flags demanded root gpd =
+  Map.fromListWith
+    Set.union
+    [ (resolved, Set.singleton library)
+    | build <- contributingBuildInfos platform flags demanded root gpd,
+      Dependency packageName _ libraries <- dependencies build,
+      let name = mkPackageName (T.unpack packageName)
+          resolved = fromMaybe name (Map.lookup name aliases),
+      resolved /= self,
+      NamedLibrary library <- NE.toList libraries
+    ]
+  where
+    self = fromMaybe (packageNameOf gpd) (Map.lookup (packageNameOf gpd) aliases)
+
+-- | The sub-libraries of a package that the configuration says other
+-- packages depend on.
+demandedSubLibraries :: SolverConfig -> PackageName -> Set Text
+demandedSubLibraries config name = Map.findWithDefault Set.empty name (configSubLibraries config)
+
+-- | The configuration with the sub-libraries that the packages of a
+-- solution use added, or 'Nothing' when the configuration has them all. A
+-- sub-library has dependencies of its own, so a caller computes the
+-- solution again with the new configuration. The set of each package only
+-- grows and a package has a finite number of sub-libraries, so this ends.
+withUsedSubLibraries :: SolverConfig -> Solution -> Maybe SolverConfig
+withUsedSubLibraries config solution
+  | demanded == configSubLibraries config = Nothing
+  | otherwise = Just config {configSubLibraries = demanded}
+  where
+    used = Map.unionsWith Set.union (map assignmentUsedSubLibraries (Map.elems solution))
+    demanded = Map.unionWith Set.union (configSubLibraries config) used
+
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
 -- preprocessor table rather than solved against the target plan.
-unknownBuildTools :: (OS, Arch) -> FlagAssignment -> Maybe Stanzas -> Package -> [String]
-unknownBuildTools platform flags root gpd =
+unknownBuildTools :: (OS, Arch) -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> [String]
+unknownBuildTools platform flags demanded root gpd =
   Set.toAscList
     ( Set.fromList
         [ tool
-        | build <- contributingBuildInfos platform flags root gpd,
+        | build <- contributingBuildInfos platform flags demanded root gpd,
           tool <- [T.unpack (toolName dependency) | dependency <- buildTools build],
           tool `notElem` knownTools
         ]
@@ -1420,14 +1478,21 @@ unknownBuildTools platform flags root gpd =
 -- range, and nothing is listed that the roots do not reach. The result
 -- carries the dependencies each package has under its recorded flags.
 verifySolution :: (Monad m) => SolverInputs m -> SolverConfig -> Map PackageName (Version, Maybe Int, FlagAssignment) -> m (Either String Solution)
-verifySolution inputs config recorded = do
+verifySolution inputs initial recorded = do
   candidates <- foldM candidateFor (Right Map.empty) (Map.toAscList recorded)
   case candidates of
     Left problem -> pure (Left problem)
-    Right chosen -> do
-      solution <- Map.traverseWithKey assignmentFor chosen
-      pure (checks solution)
+    Right chosen -> checks <$> assignmentsFor initial chosen
   where
+    -- The assignments with the sub-libraries that they use from each other.
+    assignmentsFor subConfig chosen = do
+      solution <- Map.traverseWithKey (assignmentFor subConfig) chosen
+      case withUsedSubLibraries subConfig solution of
+        Just grown -> assignmentsFor grown chosen
+        Nothing -> pure solution
+
+    config = initial
+
     candidateFor acc (name, (version, revision, flags)) =
       case acc of
         Left problem -> pure (Left problem)
@@ -1442,7 +1507,7 @@ verifySolution inputs config recorded = do
               | otherwise -> pure (Left (unPackageName name <> "-" <> showVersion version <> " cannot be read at revision " <> maybe "" show revision))
             [] -> pure (Left ("no candidate " <> unPackageName name <> "-" <> showVersion version))
 
-    assignmentFor name (candidate, flags) = do
+    assignmentFor subConfig name (candidate, flags) = do
       (revision, gpd) <- inputsDescription inputs candidate
       let root = Map.lookup name (configRoots config)
           decided = Map.union (constrainedFlags config name) (Map.fromList (targetFlagOverrides (snd (configPlatform config)) (packageNameOf gpd)))
@@ -1453,7 +1518,9 @@ verifySolution inputs config recorded = do
             assignmentRevision = revision,
             assignmentFlags = full,
             assignmentSource = candidateSource candidate,
-            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full root gpd
+            assignmentDependencies = candidateDependencies (configPlatform config) (configAliases config) full (demandedSubLibraries subConfig name) root gpd,
+            assignmentUsedSubLibraries = usedSubLibraries (configPlatform config) (configAliases config) full (demandedSubLibraries subConfig name) root gpd,
+            assignmentSubLibraries = demandedSubLibraries subConfig name
           }
 
     checks solution =

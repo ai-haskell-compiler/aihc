@@ -121,6 +121,8 @@ data PackagePlan = PackagePlan
     planRevision :: !(Maybe Int),
     -- | The flags the solver decided. Every other flag takes its default.
     planFlags :: !FlagAssignment,
+    -- | Its sub-libraries that other packages of the plan depend on.
+    planSubLibraries :: !(Set.Set Text),
     planDependencyPlans :: ![PackagePlan]
   }
   deriving (Eq, Show)
@@ -139,7 +141,7 @@ data PlanOrigin
 
 -- | The conditions a planned package is built under on one platform.
 planBuildContext :: (OS, Arch) -> PackagePlan -> BuildContext
-planBuildContext (os, arch) plan = BuildContext os arch (planFlags plan)
+planBuildContext (os, arch) plan = BuildContext os arch (planFlags plan) (planSubLibraries plan)
 
 -- | A package the plan is made for.
 data PlanRoot
@@ -281,6 +283,7 @@ planPackages request = do
                 <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
             configUnsupported = unsupportedPackages,
             configPkgConfigModules = requestPkgConfigModules request,
+            configSubLibraries = Map.empty,
             configMaxConflicts = 10000
           }
       inputs = solverInputs request descriptions localRoots localDirectories
@@ -444,7 +447,7 @@ checkBuildTools :: PlanRequest -> SolverInputs IO -> SolverConfig -> Solution ->
 checkBuildTools request inputs config solution = do
   problems <- forM (Map.toList solution) $ \(name, assignment) -> do
     (_, gpd) <- inputsDescription inputs (assignmentCandidate name assignment)
-    let unknown = unknownBuildTools (requestPlatform request) (assignmentFlags assignment) (Map.lookup name (configRoots config)) gpd
+    let unknown = unknownBuildTools (requestPlatform request) (assignmentFlags assignment) (assignmentSubLibraries assignment) (Map.lookup name (configRoots config)) gpd
     pure [unPackageName name <> "-" <> showVersion (assignmentVersion assignment) <> " needs the build tool " <> tool | tool <- unknown]
   unless (all null problems) $
     ioError (userError ("The plan needs build tools this compiler cannot run:\n" <> intercalate "\n" (map ("  " <>) (concat problems))))
@@ -599,6 +602,7 @@ buildPlans request inputs solution = do
                           CandidateHackage -> Just (assignmentRevision assignment)
                           _ -> Nothing,
                         planFlags = assignmentFlags assignment,
+                        planSubLibraries = assignmentSubLibraries assignment,
                         planDependencyPlans = dependencies
                       }
               modifyIORef' built (Map.insert name plan)

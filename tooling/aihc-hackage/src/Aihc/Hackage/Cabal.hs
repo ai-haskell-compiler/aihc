@@ -248,7 +248,7 @@ collectLibraryFilesFor os arch = collectLibraryFilesIn (buildContextFor os arch)
 collectLibraryFilesIn :: BuildContext -> Package -> FilePath -> IO [FileInfo]
 collectLibraryFilesIn context package packageRoot = do
   let evalCond = conditionEvaluatorIn context package
-      libraryTrees = installedLibraryTrees evalCond package
+      libraryTrees = installedLibraryTrees evalCond (contextSubLibraries context) package
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor package evalCond packageRoot)) libraryTrees)
   pure (map (withPlatformCppOptions context) (dedupeFiles libraryFiles))
 
@@ -276,7 +276,7 @@ collectLibraryCCompileInfoIn context package packageRoot =
 activeLibraryBuildInfos :: BuildContext -> Package -> [BuildInfo]
 activeLibraryBuildInfos context package =
   [ build
-  | (_, tree) <- installedLibraryTrees evalCond package,
+  | (_, tree) <- installedLibraryTrees evalCond (contextSubLibraries context) package,
     let build = collectMergedBuildInfo evalCond tree,
     isBuildable build
   ]
@@ -470,14 +470,16 @@ collectLibraryReexportsIn context package =
 
 -- | The library components that an install builds under the active
 -- conditions. These are the main library and each sub-library that the main
--- library or an executable uses, directly or through a different
--- sub-library. Cabal builds only these components of a dependency, and a
+-- library, an executable, or a different package of the plan uses, directly
+-- or through a different sub-library. The second argument gives the
+-- sub-libraries that the other packages use. Cabal builds only these
+-- components of a dependency, and a
 -- sub-library that nothing uses can have dependencies that the plan does not
 -- have (the @benchmarks-O2@ library of vector depends on tasty). A package
 -- without a main library and without executables gives all its
 -- sub-libraries. The main library has no name.
-installedLibraryTrees :: (Condition -> Bool) -> Package -> [(Maybe Text, Conditional BuildInfo)]
-installedLibraryTrees evalCond package
+installedLibraryTrees :: (Condition -> Bool) -> Set.Set Text -> Package -> [(Maybe Text, Conditional BuildInfo)]
+installedLibraryTrees evalCond demanded package
   | null mainLibrary && null executables = subLibraries
   | otherwise = mainLibrary <> filter (maybe False (`Set.member` used) . fst) subLibraries
   where
@@ -487,7 +489,7 @@ installedLibraryTrees evalCond package
     executables = [tree | Component (Executable _) tree <- packageComponents package]
     subLibraryTrees = Map.fromList [(name, tree) | (Just name, tree) <- subLibraries]
     rootDependencies = concatMap (activeDependencies . snd) mainLibrary <> concatMap activeDependencies executables
-    used = reach Set.empty (ownLibraries rootDependencies)
+    used = reach Set.empty (ownLibraries rootDependencies <> Set.toAscList demanded)
     reach seen [] = seen
     reach seen (name : rest)
       | name `Set.member` seen = reach seen rest
@@ -806,7 +808,11 @@ data BuildContext = BuildContext
     contextArch :: !Arch,
     -- | The flags the dependency plan decided for the package, on top of
     -- the defaults and the target's overrides.
-    contextFlags :: !FlagAssignment
+    contextFlags :: !FlagAssignment,
+    -- | The sub-libraries of the package that other packages of the plan
+    -- depend on. An install builds them in addition to the sub-libraries
+    -- that the package itself uses.
+    contextSubLibraries :: !(Set.Set Text)
   }
   deriving (Eq, Show)
 
@@ -816,7 +822,7 @@ hostBuildContext = buildContextFor buildOS buildArch
 
 -- | One platform with every flag at its default.
 buildContextFor :: OS -> Arch -> BuildContext
-buildContextFor os arch = BuildContext os arch (mkFlagAssignment [])
+buildContextFor os arch = BuildContext os arch (mkFlagAssignment []) Set.empty
 
 -- | Evaluate cabal conditions using the emulated compiler and default flag values.
 conditionEvaluator :: Package -> Condition -> Bool
