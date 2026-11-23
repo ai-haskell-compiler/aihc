@@ -50,10 +50,10 @@ expected: |-
   pub val 1.vf :: tInt → (tInt → tInt) → (tInt → tInt → tInt) → tBool → tInt
     = λ(x : tInt) (y : tInt → tInt) (z : tInt → tInt → tInt) (x1 : tBool).
       let! cI# (a : tInt#) = x;
-      let b : tInt =
-        cI# a;
       let j : FUN @cIntRep @sLiftedRep tInt# tInt =
         λ(x{1} : tInt#).
+          let b : tInt =
+            cI# a;
           z (y b) (z (cI# (prim +# x{1} a)) (y (cI# (prim +# a x{1}))));
       case x1 of {
         cTrue →
