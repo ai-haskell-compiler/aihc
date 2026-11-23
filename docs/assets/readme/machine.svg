@@ -5,6 +5,7 @@
       <stop offset="1" stop-color="#3a2f5c"/>
     </linearGradient>
     <clipPath id="card"><rect width="720" height="360" rx="18"/></clipPath>
+    <clipPath id="entry"><rect x="-100" y="240" width="364" height="50"/></clipPath>
     <clipPath id="c"><polygon points="18,18 62,18 40,88"/></clipPath>
   </defs>
   <style>
@@ -48,7 +49,6 @@
   <text font-size="26" font-weight="800"><tspan x="28" y="58">One compiler.</tspan><tspan x="28" y="90" style="fill:#f2b8c6">Three backends.</tspan></text>
   <!-- The conveyor belt -->
   <path d="M50 306 V340 M190 306 V340" stroke="#5e5086" stroke-width="8"/>
-  <g class="boxes"><g transform="translate(-70 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(20 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(110 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(200 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g></g>
   <rect x="-20" y="286" width="290" height="22" rx="11" fill="#2b2240" stroke="#8e82b5" stroke-width="2"/>
   <path class="tread" d="M-20 286 H270" stroke="#c9c1e0" stroke-width="2"/>
   <g class="spin roll"><circle cx="30" cy="297" r="7" fill="#7d6fa6"/><path d="M23 297 H37 M30 290 V304" stroke="#2b2240" stroke-width="2"/></g>
@@ -83,7 +83,7 @@
   <!-- The machine -->
   <g class="shake">
     <rect x="240" y="130" width="240" height="210" rx="14" fill="#5e5086"/>
-    <rect x="240" y="244" width="24" height="44" rx="4" fill="#1b1530"/>
+    <path d="M240 244 H258 A6 6 0 0 1 264 250 V282 A6 6 0 0 1 258 288 H240 Z" fill="#1b1530"/>
     <rect x="315" y="196" width="100" height="100" rx="22" fill="#46396b"/>
     <g transform="translate(326 207) scale(0.78)" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
       <path d="M24 54 Q40 36 56 54" clip-path="url(#c)" stroke-linecap="butt"/>
@@ -95,6 +95,10 @@
     <circle class="out o2" cx="436" cy="182" r="6" fill="#e8d28f"/>
     <circle class="out o3" cx="436" cy="202" r="6" fill="#f2b8c6"/>
     <path d="M428 222 H458 M428 232 H458 M428 242 H458" stroke="#46396b" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <!-- The boxes go into the entry hole. The clip hides each box at the back of the hole. -->
+  <g clip-path="url(#entry)">
+  <g class="boxes"><g transform="translate(-70 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(20 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(110 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g><g transform="translate(200 0)"><rect x="0" y="254" width="36" height="32" rx="5" fill="#faf8f3"/><text class="mono" x="18" y="275" text-anchor="middle" font-size="13" style="fill:#46396b" font-weight="700">.hs</text></g></g>
   </g>
   <!-- The gears. Each gear changes size opposite to the other, thus the teeth stay in mesh. -->
   <g class="size g1"><g class="turn g1">
