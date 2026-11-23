@@ -12,7 +12,7 @@ module Aihc.Cli.CapiStub
   )
 where
 
-import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendCompiler, handwrittenCArguments, llvmLtoArguments, wasmSysroot)
+import Aihc.Native (NativeTarget (..), OptimizationLevel, WasmSysroot (..), backendCompiler, filePrefixMapArguments, handwrittenCArguments, llvmLtoArguments, wasmSysroot)
 
 -- | Where the C compiler looks for the headers a capi wrapper includes.
 --
@@ -53,4 +53,5 @@ capiStubArguments target level lto options headerDirectory = do
         <> sysrootIncludes
         <> ["-I" <> directory | directory <- capiStubIncludeDirs options]
         <> ["-I" <> headerDirectory]
+        <> filePrefixMapArguments (headerDirectory : capiStubIncludeDirs options)
     )
