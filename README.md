@@ -24,7 +24,7 @@ It builds real Hackage packages.
 It builds them quickly, and it makes small executables.
 
 <p align="center">
-  <img src="docs/assets/readme/terminal.svg" alt="The command aihc build compiles the hello-world example in 0.2 seconds." width="880">
+  <img src="docs/assets/readme/terminal.svg" alt="The command aihc build compiles the hello-world example in 0.2 seconds." width="640">
 </p>
 
 ## Why AIHC
@@ -37,7 +37,7 @@ It builds them quickly, and it makes small executables.
 - **Three backends.** One compiler makes native machine code, LLVM IR, and WebAssembly.
 
 <p align="center">
-  <img src="docs/assets/readme/targets.svg" alt="AIHC compiles Haskell source to native machine code, LLVM IR, and WebAssembly." width="880">
+  <img src="docs/assets/readme/machine.svg" alt="A robot moves a lever on a machine to select one of three backends: native code, LLVM IR, or WebAssembly." width="760">
 </p>
 
 The benchmark site compares AIHC with GHC on each commit.

@@ -1,12 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 290" role="img" aria-label="A terminal. The command aihc build compiles the hello-world example in 0.2 seconds. The program prints Hello, world!">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 544 250" role="img" aria-label="A terminal. The command aihc build compiles the hello-world example in 0.2 seconds. The program prints Hello, world!">
   <defs>
-    <clipPath id="t1"><rect class="type ty1" x="46" y="62" width="351" height="24"/></clipPath>
-    <clipPath id="t2"><rect class="type ty2" x="46" y="182" width="243" height="24"/></clipPath>
+    <clipPath id="t1"><rect class="type ty1" x="38" y="42" width="351" height="24"/></clipPath>
+    <clipPath id="t2"><rect class="type ty2" x="38" y="186" width="243" height="24"/></clipPath>
   </defs>
   <style>
     text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 15px; fill: #e8e4f2; }
     .dim { fill: #9b93b8; } .ok { fill: #8fd6a4; } .acc { fill: #b9a9ec; } .out { fill: #f2b8c6; font-weight: 700; }
-    .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; fill: #9b93b8; }
     .all { animation: all 14s linear infinite; }
     .type { transform-box: fill-box; transform-origin: left; }
     .ty1 { animation: ty1 14s linear infinite; }
@@ -29,25 +28,23 @@
     @keyframes blink { 50% { opacity: 0; } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
   </style>
-  <rect width="880" height="290" rx="14" fill="#1b1530"/>
-  <path d="M0 14 A14 14 0 0 1 14 0 H866 A14 14 0 0 1 880 14 V38 H0 Z" fill="#2b2240"/>
-  <circle cx="24" cy="19" r="6" fill="#f2b8c6"/>
-  <circle cx="44" cy="19" r="6" fill="#e8d28f"/>
-  <circle cx="64" cy="19" r="6" fill="#8fd6a4"/>
-  <text class="title" x="440" y="24" text-anchor="middle">aihc</text>
+  <rect width="544" height="250" rx="12" fill="#1b1530"/>
+  <path d="M0 12 A12 12 0 0 1 12 0 H532 A12 12 0 0 1 544 12 V28 H0 Z" fill="#2b2240"/>
+  <circle cx="18" cy="14" r="5" fill="#f2b8c6"/>
+  <circle cx="34" cy="14" r="5" fill="#e8d28f"/>
+  <circle cx="50" cy="14" r="5" fill="#8fd6a4"/>
   <g class="all">
-    <text class="acc" x="28" y="80">$</text>
-    <text x="46" y="80" textLength="351" clip-path="url(#t1)">aihc build examples/hello-world/Main.hs</text>
-    <text class="l1 dim" x="28" y="104">Plan: 3 packages, 1 executable</text>
-    <text class="l2 dim" x="28" y="128" xml:space="preserve">  aihc-rts-1.0.2  aihc-prim-0.13.0  aihc-base-4.21.2.0  Main (executable)</text>
-    <text class="l3" x="28" y="152" xml:space="preserve"><tspan class="ok">✔</tspan> Main (executable)  2 modules  <tspan class="ok">0.2 s</tspan></text>
-    <text class="l4 dim" x="28" y="176">executable: examples/hello-world/Main</text>
-    <text class="l5 acc" x="28" y="200">$</text>
-    <text x="46" y="200" textLength="243" clip-path="url(#t2)">./examples/hello-world/Main</text>
-    <text class="l6 out" x="28" y="224">Hello, world!</text>
-    <g class="l7">
-      <text class="acc" x="28" y="248">$</text>
-      <rect class="cur" x="46" y="234" width="9" height="18" fill="#e8e4f2"/>
+    <text class="acc" x="20" y="60">$</text>
+    <text x="38" y="60" textLength="351" clip-path="url(#t1)">aihc build examples/hello-world/Main.hs</text>
+    <text class="l1 dim" x="20" y="84" textLength="270">Plan: 3 packages, 1 executable</text>
+    <g class="l2">
+      <text class="dim" x="38" y="108" textLength="468" xml:space="preserve">aihc-rts-1.0.2  aihc-prim-0.13.0  aihc-base-4.21.2.0</text>
+      <text class="dim" x="20" y="132" textLength="153">Main (executable)</text>
     </g>
+    <text class="l3" x="20" y="156" xml:space="preserve"><tspan class="ok">✔</tspan> Main (executable)  2 modules  <tspan class="ok">0.2 s</tspan></text>
+    <text class="l4 dim" x="20" y="180" textLength="333">executable: examples/hello-world/Main</text>
+    <text class="l5 acc" x="20" y="204">$</text>
+    <text x="38" y="204" textLength="243" clip-path="url(#t2)">./examples/hello-world/Main</text>
+    <text class="l6 out" x="20" y="228">Hello, world!</text>
   </g>
 </svg>

@@ -51,11 +51,11 @@
     <circle class="ring" cx="86" cy="18" r="6" stroke-width="2"/>
     <circle class="dot" cx="86" cy="18" r="6" fill="#fff" stroke="none"/>
   </g>
-  <text class="up u1" x="250" y="132" font-size="84" font-weight="800" letter-spacing="2" fill="#fff">AIHC</text>
-  <text x="252" y="182" font-size="28" font-weight="600" fill="#e8e4f2">
+  <text class="up u1" x="250" y="118" font-size="84" font-weight="800" letter-spacing="2" fill="#fff">AIHC</text>
+  <text x="252" y="170" font-size="28" font-weight="600" fill="#e8e4f2">
     <tspan class="up u2">Fast builds.</tspan>
     <tspan class="up u3"> Small binaries.</tspan>
     <tspan class="up u4" font-style="italic" fill="#f2b8c6"> Real Haskell.</tspan>
   </text>
-  <text class="up u5" x="252" y="222" font-size="17" fill="#c9c1e0">A self-hosting Haskell compiler for native code, LLVM IR, and WebAssembly.</text>
+  <text class="up u5" font-size="20" fill="#c9c1e0"><tspan x="252" y="218">A self-hosting Haskell compiler for</tspan><tspan x="252" y="244">native code, LLVM IR, and WebAssembly.</tspan></text>
 </svg>
