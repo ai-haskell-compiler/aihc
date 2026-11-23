@@ -1,0 +1,13 @@
+extensions:
+  - TemplateHaskellQuotes
+modules:
+  - |
+    module Main where
+    hole = [| Missing () |]
+annotated:
+  - |
+    module Main where
+    hole = [| Missing () |]
+    └─ v Main         └─ v Builtin ()
+status: pass
+reason: GHC accepts a constructor that is not in scope in an expression quote. The constructor Missing has no resolution and no error
