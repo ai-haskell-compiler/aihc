@@ -29,6 +29,7 @@ import GHC.Enum (Bounded (..))
 import GHC.IO (FilePath, IO (..))
 import GHC.IO.Buffer (newByteBuffer)
 import GHC.IO.BufferedIO (readBuf, readBufNonBlocking, writeBuf, writeBufNonBlocking)
+import GHC.IO.FD.Duplicate (descriptorDup, descriptorDup2)
 import GHC.IO.FD.Position (descriptorSeek, descriptorSeekable, descriptorSize)
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.Runtime
@@ -38,6 +39,7 @@ import GHC.IO.Runtime
     awaitIO,
     closeIOHandle,
     decodeError,
+    descriptorMode,
     ioHandleDescriptor,
     ioHandlePosition,
     ioHandleSetPosition,
@@ -220,6 +222,37 @@ instance IODevice FD where
         size <- runtimeSize "GHC.IO.FD.getSize" fd
         return (toInteger size)
       False -> descriptorSize "GHC.IO.FD.getSize" (fromIntegral descriptor)
+
+  -- The new descriptor is a new runtime resource for the same open file.
+  -- A resource without a descriptor has no duplicate.
+  dup fd = do
+    descriptor <- ioHandleDescriptor (fdHandle fd)
+    case descriptor < 0 of
+      True -> ioe_unsupportedOperation
+      False -> do
+        duplicate <- descriptorDup location (fromIntegral descriptor)
+        mode <- descriptorMode (fromIntegral duplicate)
+        case mode < 0 of
+          True -> ioError (errnoToIOError location (Errno (fromIntegral (decodeError mode))) Nothing Nothing)
+          False -> do
+            rawHandle <- adoptIOHandle (fromIntegral duplicate) mode
+            errno <- openResultError rawHandle
+            case errno == 0 of
+              True -> return fd {fdFD = duplicate, fdHandle = rawHandle}
+              False -> ioError (errnoToIOError location (Errno (fromIntegral errno)) Nothing Nothing)
+    where
+      location = "GHC.IO.FD.dup"
+
+  -- The descriptor number of the target stays the same. Thus, the runtime
+  -- resource of the target stays valid and refers to the new open file.
+  dup2 fd target = do
+    source <- ioHandleDescriptor (fdHandle fd)
+    destination <- ioHandleDescriptor (fdHandle target)
+    case source < 0 || destination < 0 of
+      True -> ioe_unsupportedOperation
+      False -> do
+        descriptorDup2 "GHC.IO.FD.dup2" (fromIntegral source) (fromIntegral destination)
+        return target
 
 -- | Read up to @count@ bytes. The result is zero at the end of the input.
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> Int -> IO Int

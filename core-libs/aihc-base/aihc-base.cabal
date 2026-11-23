@@ -258,6 +258,7 @@ library
     Foreign.C.Types.Repr
     Foreign.Storable.Repr
     GHC.IO.Console
+    GHC.IO.FD.Duplicate
     GHC.IO.FD.Position
     GHC.IO.Handle.Lock.Common
     GHC.IO.Handle.Lock.Descriptor

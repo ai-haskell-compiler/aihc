@@ -1,0 +1,2 @@
+written through the duplicate
+stdout stays open after the duplicate is closed

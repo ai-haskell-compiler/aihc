@@ -39,7 +39,10 @@
   # end an STM wait that has a timer. The wasm32-wasip3 host cannot stop a
   # timer that it started, so that example does not run there either.
   threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "thread-status" "workers"];
-  wasip3GateExampleNames = builtins.filter (name: !builtins.elem name threadedExampleNames) gateExampleNames;
+  # WASI has no call that duplicates a descriptor, so this example does not
+  # run on wasm32-wasip3.
+  descriptorExampleNames = ["system-io-duplicate"];
+  wasip3GateExampleNames = builtins.filter (name: !builtins.elem name (threadedExampleNames ++ descriptorExampleNames)) gateExampleNames;
   # The test C sources include the runtime headers by name, as the tests
   # compile them with the include directories of the aihc-rts package.
   cTidyCompilerFlags =
