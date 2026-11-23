@@ -59,6 +59,7 @@ where
 
 import Aihc.Grin.Allocation (placeGrinAllocations)
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
+import Aihc.Grin.Gc (substituteExpr)
 import Aihc.Grin.Primitive (primitiveAllocates, primitiveInitializes)
 import Aihc.Grin.Syntax
 import Control.Applicative ((<|>))
@@ -105,7 +106,7 @@ simplifyGrinProgram :: GrinProgram -> GrinProgram
 simplifyGrinProgram program00 =
   placeGrinAllocations program {grinFunctions = map simplifyFunction (grinFunctions program)}
   where
-    program0 = inlineLeafCalls program00
+    program0 = distributeKnownCases (inlineLeafCalls program00)
     workers = boxWorkers program0
     -- The new workers join the program. A worker that no call names goes
     -- in the sweep that follows. A program that an earlier run made has
@@ -790,3 +791,139 @@ copyLeaf leafCall substitution expression =
       rhs <- copyLeaf leafCall (Map.union (Map.fromList (zip (grinAltBinders alt) (map GrinVarValue binders))) inner) (grinAltRhs alt)
       pure alt {grinAltBinders = binders, grinAltRhs = rhs}
     freshVar var = state (\unique -> (var {grinVarUnique = unique}, unique + 1))
+
+-- * Cases on known constructors
+
+-- | Copy a small case on a variable into the tails of the case that binds
+-- the variable, when each of those tails gives a nullary constructor. Each
+-- copy then selects its alternative.
+--
+-- A copy of a comparison, such as @compareBytes@ of @bytestring@, gives
+-- @LT@, @EQ@ or @GT@ in each of its tails, and the code after it is a case
+-- on the result. Without the copies, the code tests at run time which
+-- static object the result is. The lookup of a @Map ByteString@ does this
+-- at each level of the tree.
+--
+-- The case must have at most 'knownCaseSize' nodes, and the copies at
+-- most 'knownCaseCopies' nodes. The copies get fresh names for their
+-- binders. A tail that fails to match stays.
+distributeKnownCases :: GrinProgram -> GrinProgram
+distributeKnownCases program =
+  program {grinFunctions = evalState (mapM distributeFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)}
+  where
+    nullary = Set.fromList [grinConstructorName c | c <- grinConstructors program, null (grinConstructorLayouts c)]
+    distributeFunction function = do
+      body <- distribute (grinFunctionBody function)
+      pure function {grinFunctionBody = body}
+    distribute expression =
+      case expression of
+        GrinBind [var] value (GrinCase (GrinVarValue scrutinee) binder alternatives)
+          | scrutinee == var,
+            Just tails <- constructorTails value,
+            not (null tails),
+            Set.notMember var (foldMap (freeExprVars . grinAltRhs) alternatives),
+            all (`Set.member` nullary) tails,
+            sum (map (caseSize . grinAltRhs) alternatives) <= knownCaseSize,
+            length tails * sum (map (caseSize . grinAltRhs) alternatives) <= knownCaseCopies,
+            all (\name -> any (const True) (selected name alternatives)) tails -> do
+              alternatives' <- traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> distribute (grinAltRhs alternative)) alternatives
+              mapTails (copyAlternative binder alternatives') value
+        GrinBind vars value body -> GrinBind vars <$> distribute value <*> distribute body
+        GrinStoreRec bindings body -> GrinStoreRec bindings <$> distribute body
+        GrinStoreRecUnchecked bindings body -> GrinStoreRecUnchecked bindings <$> distribute body
+        GrinIfWhnf value ready slow -> GrinIfWhnf value <$> distribute ready <*> distribute slow
+        GrinCase value binder alternatives ->
+          GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> distribute (grinAltRhs alternative)) alternatives
+        _ -> pure expression
+    -- The constructor of each tail, when each tail gives a static object
+    -- or fails to match.
+    constructorTails expression =
+      case expression of
+        GrinConstant [GrinGlobalValue name] -> Just [name]
+        GrinBind _ _ body -> constructorTails body
+        GrinCase _ _ alternatives
+          | isMatchFailure expression -> Just []
+          | otherwise -> concat <$> traverse (constructorTails . grinAltRhs) alternatives
+        _ | isMatchFailure expression -> Just []
+        _ -> Nothing
+    selected name alternatives =
+      List.find (\alternative -> case grinAltCon alternative of GrinDataAlt candidate _ -> candidate == name; _ -> False) alternatives
+        <|> List.find ((== GrinDefaultAlt) . grinAltCon) alternatives
+    copyAlternative binder alternatives value =
+      case value of
+        GrinGlobalValue name
+          | Just alternative <- selected name alternatives -> do
+              binder' <- freshGrinVar binder
+              rhs <- renameBody (Map.singleton binder binder') (grinAltRhs alternative)
+              pure (GrinBind [binder'] (GrinConstant [value]) rhs)
+        _ -> pure (GrinConstant [value])
+    mapTails copy expression =
+      case expression of
+        GrinConstant [value] -> copy value
+        GrinBind vars value body -> GrinBind vars value <$> mapTails copy body
+        GrinCase value binder alternatives
+          | isMatchFailure expression -> pure expression
+          | otherwise -> GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> mapTails copy (grinAltRhs alternative)) alternatives
+        _ -> pure expression
+
+-- | The most nodes of a case that 'distributeKnownCases' copies.
+knownCaseSize :: Int
+knownCaseSize = 24
+
+-- | The most nodes of all copies of one case.
+knownCaseCopies :: Int
+knownCaseCopies = 160
+
+-- | The nodes of an expression.
+caseSize :: GrinExpr -> Int
+caseSize expression =
+  case expression of
+    GrinBind _ value body -> 1 + caseSize value + caseSize body
+    GrinCase _ _ alternatives -> 1 + sum (map (caseSize . grinAltRhs) alternatives)
+    GrinIfWhnf _ ready slow -> 1 + caseSize ready + caseSize slow
+    GrinStoreRec bindings body -> length bindings + caseSize body
+    GrinStoreRecUnchecked bindings body -> length bindings + caseSize body
+    _ -> 1
+
+-- | A copy of a body with a fresh name for each binder, and the given
+-- names in place of the free variables that the map names.
+renameBody :: Map GrinVar GrinVar -> GrinExpr -> State Int GrinExpr
+renameBody names expression =
+  case expression of
+    GrinBind vars value body -> do
+      value' <- renameBody names value
+      fresh <- traverse freshGrinVar vars
+      GrinBind fresh value' <$> renameBody (bindAll vars fresh) body
+    GrinStoreRec bindings body -> do
+      (bindings', body') <- recursive bindings body
+      pure (GrinStoreRec bindings' body')
+    GrinStoreRecUnchecked bindings body -> do
+      (bindings', body') <- recursive bindings body
+      pure (GrinStoreRecUnchecked bindings' body')
+    GrinIfWhnf value ready slow -> GrinIfWhnf (renameValue names value) <$> renameBody names ready <*> renameBody names slow
+    GrinCase value binder alternatives -> do
+      binder' <- freshGrinVar binder
+      let inner = Map.insert binder binder' names
+      alternatives' <- traverse (alternative inner) alternatives
+      pure (GrinCase (renameValue names value) binder' alternatives')
+    _ -> pure (substituteExpr names expression)
+  where
+    bindAll vars fresh = Map.union (Map.fromList (zip vars fresh)) names
+    recursive bindings body = do
+      fresh <- traverse (freshGrinVar . fst) bindings
+      let inner = bindAll (map fst bindings) fresh
+      body' <- renameBody inner body
+      pure ([(var, node {grinNodeFields = map (renameValue inner) (grinNodeFields node)}) | (var, (_, node)) <- zip fresh bindings], body')
+    alternative inner alt = do
+      binders <- traverse freshGrinVar (grinAltBinders alt)
+      rhs <- renameBody (Map.union (Map.fromList (zip (grinAltBinders alt) binders)) inner) (grinAltRhs alt)
+      pure alt {grinAltBinders = binders, grinAltRhs = rhs}
+
+renameValue :: Map GrinVar GrinVar -> GrinValue -> GrinValue
+renameValue names value =
+  case value of
+    GrinVarValue var -> GrinVarValue (Map.findWithDefault var var names)
+    _ -> value
+
+freshGrinVar :: GrinVar -> State Int GrinVar
+freshGrinVar var = state (\unique -> (var {grinVarUnique = unique}, unique + 1))

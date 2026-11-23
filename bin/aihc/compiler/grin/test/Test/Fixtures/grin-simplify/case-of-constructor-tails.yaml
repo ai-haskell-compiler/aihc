@@ -1,0 +1,50 @@
+program: |
+  primitive <# :: IntRep/2
+
+  constructor LT []
+  constructor EQ []
+  constructor GT []
+
+  $sign (value :: IntRep) -> IntRep =
+    order :: BoxedRep Lifted <-
+      case_value :: IntRep <-
+        primitive-call @IntRep <# (value :: IntRep) (0 :: IntRep)
+      case (case_value :: IntRep) as negative :: IntRep of
+        (1 :: IntRep) ->
+          constant global-ref LT
+        _ ->
+          case (value :: IntRep) as zero :: IntRep of
+            (0 :: IntRep) ->
+              constant global-ref EQ
+            _ ->
+              constant global-ref GT
+    case (order :: BoxedRep Lifted) as selected :: BoxedRep Lifted of
+      data LT ->
+        constant (1 :: IntRep)
+      data EQ ->
+        constant (2 :: IntRep)
+      data GT ->
+        constant (3 :: IntRep)
+expected: |-
+  constructor LT []
+
+  constructor EQ []
+
+  constructor GT []
+
+  primitive <# :: IntRep/2
+
+  $sign (value :: IntRep) -> IntRep =
+    case_value :: IntRep <-
+      primitive-call @IntRep <# (value :: IntRep) (0 :: IntRep)
+    case (case_value :: IntRep) as negative :: IntRep of
+      (1 :: IntRep) ->
+        constant (1 :: IntRep)
+      _ ->
+        case (value :: IntRep) as zero :: IntRep of
+          (0 :: IntRep) ->
+            constant (2 :: IntRep)
+          _ ->
+            constant (3 :: IntRep)
+status: pass
+reason: a case on a variable whose case gives a nullary constructor in each tail is copied into those tails, and each copy selects its alternative, so no code tests the constructor at run time

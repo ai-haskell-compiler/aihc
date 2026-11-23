@@ -11,6 +11,7 @@ module Aihc.Grin.Gc
     lowerGc,
     nodeWords,
     dynamicReservation,
+    substituteExpr,
   )
 where
 
