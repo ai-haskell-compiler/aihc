@@ -7,7 +7,8 @@
 <p align="center">
   <a href="https://aihc.app/"><b>Website</b></a> ·
   <a href="https://docs.aihc.app/"><b>Manual</b></a> ·
-  <a href="https://lazy.aihc.app/"><b>Try it in the browser</b></a> ·
+  <a href="https://aihc.app/#examples"><b>Try it in the browser</b></a> ·
+  <a href="https://lazy.aihc.app/"><b>Lazy Reader</b></a> ·
   <a href="https://perf.aihc.app/"><b>Benchmarks</b></a> ·
   <a href="https://blog.aihc.app/"><b>Journal</b></a> ·
   <a href="https://discord.gg/uGWkhMCZrZ"><b>Discord</b></a>
