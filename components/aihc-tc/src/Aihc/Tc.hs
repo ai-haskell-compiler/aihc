@@ -65,6 +65,7 @@ module Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
+    checkedParserModule,
 
     -- * Re-exports for convenience
     TcType (..),
@@ -136,7 +137,7 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Parser.Syntax (Extension (..), Module)
+import Aihc.Parser.Syntax (Extension (..))
 import Aihc.Resolve (ResolvedModule (..))
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
@@ -148,6 +149,7 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, tcModule, tcModuleScc, withModuleIdentity)
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
+import Aihc.Tc.Syntax (Module)
 import Aihc.Tc.Syntax qualified as Final
 import Aihc.Tc.Syntax.FromPending (FromPending (..))
 import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
@@ -201,18 +203,16 @@ typecheckModuleSccWithFacts config = typecheckWithFacts (typecheckModuleSccWithS
 
 -- | Use the same module identity and interface rules for both check orders.
 --
--- The check gives final syntax trees of the type checker. This function
--- changes them into parser syntax trees for the phases after the type
--- checker.
+-- The check gives final syntax trees of the type checker.
 typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Final.Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
 typecheckWithFacts check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the modules add no types, evidence, or diagnostics.
-  | all (null . R.moduleDecls . resolvedModuleSyntax) resolved = (map (checkedParserModule . annotateIdentity) resolved, emptyTcInterface)
+  | all (null . R.moduleDecls . resolvedModuleSyntax) resolved = (map annotateIdentity resolved, emptyTcInterface)
   | otherwise =
       let initialState = initialTcState imported
           (checkedModules, finalState) = check initialState resolved
-       in (map checkedParserModule checkedModules, tcInterfaceDifference initialState finalState)
+       in (checkedModules, tcInterfaceDifference initialState finalState)
   where
     annotateIdentity unit = uncheckedModule (withModuleIdentity (resolvedModulePackage unit) (fromResolved (resolvedModuleSyntax unit)))
 

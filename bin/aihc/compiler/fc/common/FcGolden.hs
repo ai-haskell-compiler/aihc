@@ -43,6 +43,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -503,9 +504,9 @@ fixtureWiring = primTcWiring (PackageId "aihc-prim")
 fixtureKinds :: TcKinds
 fixtureKinds = mkTcKinds fixtureWiring
 
-desugarConfig :: Package -> ModuleExports -> Module -> DesugarConfig
+desugarConfig :: Package -> ModuleExports -> TcSyntax.Module -> DesugarConfig
 desugarConfig package exports modu =
-  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (moduleName modu)) exports
+  moduleDesugarConfig fixtureKinds (PackageId "aihc-prim") package (fromMaybe "Main" (TcSyntax.moduleName modu)) exports
 
 parsePrimitiveModule :: FilePath -> Text -> Either String Module
 parsePrimitiveModule sourceName input =

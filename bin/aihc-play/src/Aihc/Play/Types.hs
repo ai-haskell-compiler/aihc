@@ -26,7 +26,8 @@ import Aihc.Parser.Syntax
     sourceSpanStartLine,
   )
 import Aihc.Play.Json (Json (..))
-import Aihc.Tc (TcBindingResult (..), TcType, TcWiring, renderTcTypeInModule, tcModuleBindings)
+import Aihc.Tc (TcBindingResult (..), TcType, TcWiring, checkedParserModule, renderTcTypeInModule, tcModuleBindings)
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Control.Applicative ((<|>))
 import Data.Char (isAlphaNum, isUpper)
 import Data.Data (Data, cast, gmapQ)
@@ -46,8 +47,8 @@ data Signature = Signature
 
 -- | The signatures of the top-level bindings that have no signature in the
 -- source, in source order. The module is the output of the type checker.
-inferredSignatures :: TcWiring -> Module -> [Signature]
-inferredSignatures wiring modu =
+inferredSignatures :: TcWiring -> TcSyntax.Module -> [Signature]
+inferredSignatures wiring checked =
   sortOn
     signatureLine
     [ Signature line name (renderPlainType current ty)
@@ -57,8 +58,11 @@ inferredSignatures wiring modu =
       Just ty <- [Map.lookup name types]
     ]
   where
+    -- The parser tree of the checked module gives the source lines and
+    -- the signatures.
+    modu = checkedParserModule checked
     current = moduleName modu
-    types = Map.fromList [(tbDisplayName result, tbType result) | result <- tcModuleBindings wiring modu]
+    types = Map.fromList [(tbDisplayName result, tbType result) | result <- tcModuleBindings wiring checked]
     declared = Set.fromList (concatMap signatureNames (moduleDecls modu))
     bindings = concatMap binding (moduleDecls modu)
 

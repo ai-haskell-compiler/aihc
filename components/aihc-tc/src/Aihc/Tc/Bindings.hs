@@ -3,12 +3,7 @@
 
 -- | The top-level bindings and the diagnostics of a type-checked module.
 --
--- The type checker gives its modules as parser syntax trees, because the
--- phases after it read that tree. This module reads the type checker
--- annotations of such a module. It thus has parser syntax copies of some
--- helpers of "Aihc.Tc.Generate.Decl", which read the resolved syntax tree.
--- When the phases after the type checker read the resolved syntax tree,
--- this module goes back into "Aihc.Tc.Generate.Decl".
+-- This module reads the final syntax tree of "Aihc.Tc.Syntax".
 module Aihc.Tc.Bindings
   ( moduleBindings,
     moduleDiagnostics,
@@ -17,25 +12,31 @@ module Aihc.Tc.Bindings
   )
 where
 
-import Aihc.Parser.Syntax
-import Aihc.Resolve (PackageId (..), recordSelectorNames)
+import Aihc.Parser.Syntax qualified as P
+import Aihc.Resolve (PackageId (..))
 import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Context (typeTyVars)
+import Aihc.Tc.Diagnostics (checkedParserModule)
 import Aihc.Tc.Env (DataConSourceForm (..))
 import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName)
+import Aihc.Tc.Syntax
 import Aihc.Tc.Types
 import Aihc.Tc.Wiring (BuiltinDataCon (..), TcWiring, builtinDataCon, mkTcKinds)
 import Control.Applicative ((<|>))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 
--- | The diagnostics that the type checker annotations of a module carry.
+-- | The diagnostics of a module, in the order of the nodes that they are
+-- attached to in the parser tree. A module without a diagnostic does not
+-- make that tree.
 moduleDiagnostics :: Module -> [TcDiagnostic]
-moduleDiagnostics = collectAnnotations fromAnnotation
+moduleDiagnostics modu
+  | all null (moduleTcDiagnostics modu) = []
+  | otherwise = collectAnnotations P.fromAnnotation (checkedParserModule modu)
 
 -- | One data constructor that a declaration binds: a constructor the
 -- source names, or a built-in form such as @(,)@, @(# | _ #)@ or @[]@,
@@ -53,8 +54,10 @@ moduleBindings wiring modu =
 declBindings :: TcWiring -> TcKinds -> (Text, Text) -> Decl -> [TcBindingResult]
 declBindings wiring kinds origin decl =
   case decl of
-    DeclAnn ann inner ->
-      annotationBindings kinds origin ann inner <> declBindings wiring kinds origin inner
+    DeclAnn _ inner -> declBindings wiring kinds origin inner
+    DeclError _ inner -> declBindings wiring kinds origin inner
+    DeclTc info inner ->
+      infoBindings kinds origin info inner <> declBindings wiring kinds origin inner
     DeclData dataDecl ->
       concatMap (dataConBindings wiring origin) (dataDeclConstructors dataDecl)
         <> concatMap (recordSelectorBindings origin) (dataDeclConstructors dataDecl)
@@ -65,48 +68,48 @@ declBindings wiring kinds origin decl =
         <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
     _ -> []
 
-annotationBindings :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-annotationBindings kinds origin ann decl =
-  tcAnnotationBindings origin ann decl
-    <> classAnnotationBindings kinds origin ann decl
-    <> instanceAnnotationBindings origin ann
+infoBindings :: TcKinds -> (Text, Text) -> TcInfo -> Decl -> [TcBindingResult]
+infoBindings kinds origin info decl =
+  case info of
+    InfoType tcAnn -> typeBindings origin tcAnn decl
+    InfoClass classAnn -> classBindings kinds origin classAnn decl
+    InfoInstance instAnn ->
+      [TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
+    _ -> []
 
-tcAnnotationBindings :: (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-tcAnnotationBindings origin ann decl =
-  case fromAnnotation ann of
-    Nothing -> []
-    Just tcAnn ->
-      case decl of
-        DeclValue (FunctionBind binder _) ->
-          let (name, displayName) = binderBindingName binder
-           in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
-        -- The declaration type of a pattern binding is the type of the
-        -- whole pattern, thus each binder must give its own type. The
-        -- binders of @(a, b) = ...@ do not have the type of the pair.
-        DeclValue (PatternBind _ pat _) ->
-          [ TcBindingResult (originTermKey origin name) displayName (fromMaybe (tcAnnType tcAnn) (binderCheckedType binder))
-          | binder <- patternBinderNames pat,
-            let (name, displayName) = binderBindingName binder
-          ]
-        DeclData dataDecl ->
-          let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclNewtype newtypeDecl ->
-          let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclDataFamilyDecl familyDecl ->
-          let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-           in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
-        DeclForeign foreignDecl ->
-          let name = unqualifiedNameText (foreignName foreignDecl)
-              displayName = renderBinderName (foreignName foreignDecl)
-           in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
-        _ -> []
+typeBindings :: (Text, Text) -> TcAnnotation -> Decl -> [TcBindingResult]
+typeBindings origin tcAnn decl =
+  case decl of
+    DeclValue (FunctionBind binder _) ->
+      let (name, displayName) = binderBindingName binder
+       in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
+    -- The declaration type of a pattern binding is the type of the
+    -- whole pattern, thus each binder must give its own type. The
+    -- binders of @(a, b) = ...@ do not have the type of the pair.
+    DeclValue (PatternBind _ pat _) ->
+      [ TcBindingResult (originTermKey origin name) displayName (fromMaybe (tcAnnType tcAnn) (binderCheckedType binder))
+      | binder <- patternBinderNames pat,
+        let (name, displayName) = binderBindingName binder
+      ]
+    DeclData dataDecl ->
+      let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+    DeclNewtype newtypeDecl ->
+      let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
+       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+    DeclDataFamilyDecl familyDecl ->
+      let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
+       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+    DeclForeign foreignDecl ->
+      let name = unqualifiedNameText (foreignName foreignDecl)
+          displayName = renderBinderName (foreignName foreignDecl)
+       in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
+    _ -> []
 
-classAnnotationBindings :: TcKinds -> (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
-classAnnotationBindings kinds origin ann decl =
-  case (fromAnnotation ann, decl) of
-    (Just classAnn, DeclClass {}) ->
+classBindings :: TcKinds -> (Text, Text) -> TcClassAnnotation -> Decl -> [TcBindingResult]
+classBindings kinds origin classAnn decl =
+  case decl of
+    DeclClass {} ->
       [ TcBindingResult (originTermKey origin (tcClassMethodName method)) (tcClassMethodName method) (tcClassMethodType method)
       | method <- tcClassMethods classAnn
       ]
@@ -129,32 +132,25 @@ classDefaultWorkerType kinds classAnnotation method =
            in foldr TcForAllTy qualifiedBody tyVars
     _ -> tcClassMethodType method
 
-instanceAnnotationBindings :: (Text, Text) -> Annotation -> [TcBindingResult]
-instanceAnnotationBindings origin ann =
-  case fromAnnotation ann of
-    Just instAnn ->
-      [TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
-    Nothing -> []
-
 dataConBindings :: TcWiring -> (Text, Text) -> DataConDecl -> [TcBindingResult]
 dataConBindings wiring origin dataConDecl =
   case dataConDecl of
-    DataConAnn ann inner ->
-      case fromAnnotation ann of
-        Just tcAnn ->
-          [ TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)
-          | name <- map (dataConIdentityName wiring) (dataConIdentities inner)
-          ]
-        Nothing -> dataConBindings wiring origin inner
+    DataConTc (InfoType tcAnn) inner ->
+      [ TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)
+      | name <- map (dataConIdentityName wiring) (dataConIdentities inner)
+      ]
+    DataConTc _ inner -> dataConBindings wiring origin inner
+    DataConAnn _ inner -> dataConBindings wiring origin inner
+    DataConResolved _ inner -> dataConBindings wiring origin inner
     _ -> []
 
 recordSelectorBindings :: (Text, Text) -> DataConDecl -> [TcBindingResult]
 recordSelectorBindings origin declaration =
   case declaration of
-    DataConAnn ann inner ->
-      case fromAnnotation ann of
-        Just tcAnn -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
-        Nothing -> recordSelectorBindings origin inner
+    DataConTc (InfoType tcAnn) inner -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
+    DataConTc _ inner -> recordSelectorBindings origin inner
+    DataConAnn _ inner -> recordSelectorBindings origin inner
+    DataConResolved _ inner -> recordSelectorBindings origin inner
     _ -> []
   where
     selectorBindingsFromConstructorType constructorType inner =
@@ -183,7 +179,7 @@ recordSelectorBindings origin declaration =
             Map.fromList
               [ (unqualifiedNameText name, ty)
               | name <- recordFieldNamesOf inner,
-                TcSelectorType ty <- take 1 (mapMaybe fromAnnotation (unqualifiedNameAnns name))
+                ty <- take 1 [selectorType | InfoSelectorType selectorType <- unqualifiedNameTc name]
               ]
           computedType fieldType
             | all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType) = Just (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
@@ -200,6 +196,8 @@ recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
 recordFieldNamesOf declaration =
   case declaration of
     DataConAnn _ inner -> recordFieldNamesOf inner
+    DataConTc _ inner -> recordFieldNamesOf inner
+    DataConResolved _ inner -> recordFieldNamesOf inner
     RecordCon _ _ _ fields -> concatMap fieldNames fields
     GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
     _ -> []
@@ -207,12 +205,14 @@ recordFieldNamesOf declaration =
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
 binderCheckedType name =
-  tcAnnType <$> listToMaybe (mapMaybe fromAnnotation (unqualifiedNameAnns name))
+  listToMaybe [tcAnnType annotation | InfoType annotation <- unqualifiedNameTc name]
 
 dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
+    DataConTc _ inner -> dataConIdentities inner
+    DataConResolved _ inner -> dataConIdentities inner
     PrefixCon _ _ name _ -> [DeclaredDataCon name]
     InfixCon _ _ _ name _ -> [DeclaredDataCon name]
     RecordCon _ _ name _ -> [DeclaredDataCon name]
@@ -262,6 +262,8 @@ dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType
 dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
+    DataConTc _ inner -> dataConSourceLayout inner
+    DataConResolved _ inner -> dataConSourceLayout inner
     PrefixCon _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
     InfixCon _ _ left _ right ->
@@ -302,7 +304,7 @@ resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $
     listToMaybe
       [ (packageIdText packageId, moduleName')
-      | TcModuleIdentity packageId moduleName' <- mapMaybe fromAnnotation (moduleAnns resolvedModule)
+      | InfoModuleIdentity (TcModuleIdentity packageId moduleName') <- moduleTc resolvedModule
       ]
 
 -- | The variables that a pattern binds, in source order. Every pattern form
@@ -313,6 +315,8 @@ patternBinderNames :: Pattern -> [UnqualifiedName]
 patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
+    PTc _ inner -> patternBinderNames inner
+    PResolved _ inner -> patternBinderNames inner
     PVar name -> [name]
     PTypeBinder _ -> []
     PTypeSyntax _ _ -> []
@@ -346,6 +350,9 @@ recStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
+        DoTc _ inner -> stmtBinders inner
+        DoResolved _ inner -> stmtBinders inner
+        DoRecKnot _ inner -> stmtBinders inner
         DoBind pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
         DoExpr _ -> []
@@ -367,6 +374,7 @@ compStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         CompAnn _ inner -> stmtBinders inner
+        CompTc _ inner -> stmtBinders inner
         CompGen pat _ -> patternBinderNames pat
         CompLetDecls decls -> concatMap declBinders decls
         _ -> []

@@ -44,6 +44,7 @@ import Aihc.Tc
     TcConfig,
     TcInterface,
     TcWiring (..),
+    checkedParserModule,
     emptyTcInterface,
     mergeTcInterfaces,
     tcModuleDiagnostics,
@@ -53,6 +54,7 @@ import Aihc.Tc
 import Aihc.Tc.Generate.Bind (freeVarsDecl)
 import Aihc.Tc.Generate.Pattern (patternBinderNames)
 import Aihc.Tc.Monad (TcConfig (tcConfigWiring), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
+import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types (Entity (..))
@@ -265,7 +267,7 @@ renderTcAnnotatedCase tc = do
   (resolved, checked) <- resolveAndCheckTcAnnotatedCase tc
   mapM_ (checkDependencies (map resolvedModuleSyntax resolved)) (caseDependencies tc)
   case caseAnnotated tc of
-    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) checked)
+    Just _ -> pure (renderAnnotatedTcResults (caseModules tc) (map checkedParserModule checked))
     Nothing
       | all tcModuleSuccess checked -> pure []
       | otherwise ->
@@ -301,12 +303,12 @@ checkDependencies modules expected = do
       _ -> T.pack (show key)
 
 -- | Parse, resolve, and type-check the modules of one case.
-checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [Module]
+checkTcAnnotatedCase :: TcAnnotatedCase -> Either String [TcSyntax.Module]
 checkTcAnnotatedCase tc = snd <$> resolveAndCheckTcAnnotatedCase tc
 
 -- | The resolved modules of a case, and the modules that the type checker
 -- gives for them.
-resolveAndCheckTcAnnotatedCase :: TcAnnotatedCase -> Either String ([ResolvedModule], [Module])
+resolveAndCheckTcAnnotatedCase :: TcAnnotatedCase -> Either String ([ResolvedModule], [TcSyntax.Module])
 resolveAndCheckTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
@@ -347,7 +349,7 @@ data ModuleNode = ModuleNode
     nodeDependencies :: ![Int]
   }
 
-typecheckModuleGraph :: TcConfig -> TcInterface -> [ResolvedModule] -> Either String [Module]
+typecheckModuleGraph :: TcConfig -> TcInterface -> [ResolvedModule] -> Either String [TcSyntax.Module]
 typecheckModuleGraph config baseInterface units = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
   traverse (lookupCheckedModule checkedModules) [0 .. length units - 1]
@@ -392,7 +394,7 @@ lookupDependencyInterface :: Map Int TcInterface -> Int -> Either String TcInter
 lookupDependencyInterface interfaces index =
   maybe (Left ("module graph dependency was not checked: " <> show index)) Right (Map.lookup index interfaces)
 
-lookupCheckedModule :: Map Int Module -> Int -> Either String Module
+lookupCheckedModule :: Map Int TcSyntax.Module -> Int -> Either String TcSyntax.Module
 lookupCheckedModule checked index =
   maybe (Left ("module graph result is missing: " <> show index)) Right (Map.lookup index checked)
 
