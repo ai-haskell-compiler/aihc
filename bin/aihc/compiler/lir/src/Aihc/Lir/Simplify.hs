@@ -502,7 +502,10 @@ simplifyWidths uses function
        in (result, Set.insert result names)
 
 -- | Replace a multiplication by a power of two with a left shift. Both give
--- the same result modulo the width of the type.
+-- the same result modulo the width of the type. Replace an unsigned division
+-- by a power of two with a right shift, and the unsigned remainder with a
+-- mask. A division instruction is much slower than a shift, and a divisor
+-- that is not zero cannot trap.
 simplifyMultiplications :: Function -> Function
 simplifyMultiplications function =
   function {functionBlocks = map simplifyBlock (functionBlocks function)}
@@ -514,6 +517,10 @@ simplifyMultiplications function =
           | Just count <- power ty factor -> Instruction results (Binary Shl ty value (OperandLiteral (LitInt count)))
         Binary Mul ty (OperandLiteral (LitInt factor)) value
           | Just count <- power ty factor -> Instruction results (Binary Shl ty value (OperandLiteral (LitInt count)))
+        Binary DivU ty value (OperandLiteral (LitInt divisor))
+          | Just count <- power ty divisor -> Instruction results (Binary ShrU ty value (OperandLiteral (LitInt count)))
+        Binary RemU ty value (OperandLiteral (LitInt divisor))
+          | Just _ <- power ty divisor -> Instruction results (Binary And ty value (OperandLiteral (LitInt (divisor - 1))))
         _ -> instruction
     power ty factor
       | factor > 1,

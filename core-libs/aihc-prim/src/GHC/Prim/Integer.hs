@@ -222,18 +222,33 @@ multiplyByInt# value factor =
         1# -> integerFromMagnitude# (0# -# signInteger# value) (multiplyMagnitudeByWord# (magnitudeBytes# value) (absoluteIntWord# factor))
         _ -> integerFromMagnitude# (signInteger# value) (multiplyMagnitudeByWord# (magnitudeBytes# value) (int2Word# factor))
 
+-- | The product of a magnitude and a factor that is not zero. The top limb
+-- has a bits and the factor has b bits. The top limb of the product is
+-- less than 2^(a + b), because the carry into it is less than the factor.
+-- Thus the product has no carry limb when a + b is 64 or less, and the
+-- result needs no trim.
 multiplyMagnitudeByWord# :: ByteArray# -> Word# -> ByteArray#
 multiplyMagnitudeByWord# magnitude factor =
   let count = wordCount# magnitude
-   in case newByteArray# ((count +# 1#) *# 8#) realWorld# of
-        (# state, mutable #) ->
-          case aihcLimbsMul# mutable 0# magnitude 0# count factor state of
-            (# state1, carry #) ->
-              case eqWord# carry 0## of
-                1# -> freezeTrimmed# mutable count state1
-                _ ->
-                  case writeWordArray# mutable count carry state1 of
-                    state2 -> freezeTrimmed# mutable (count +# 1#) state2
+      spareBits = word2Int# (clz# (indexWordArray# magnitude (count -# 1#))) +# word2Int# (clz# factor)
+   in case spareBits <# 64# of
+        0# ->
+          case newByteArray# (count *# 8#) realWorld# of
+            (# state, mutable #) ->
+              case aihcLimbsMul# mutable 0# magnitude 0# count factor state of
+                (# state1, _ #) ->
+                  case unsafeFreezeByteArray# mutable state1 of
+                    (# _, product #) -> product
+        _ ->
+          case newByteArray# ((count +# 1#) *# 8#) realWorld# of
+            (# state, mutable #) ->
+              case aihcLimbsMul# mutable 0# magnitude 0# count factor state of
+                (# state1, carry #) ->
+                  case eqWord# carry 0## of
+                    1# -> freezeTrimmed# mutable count state1
+                    _ ->
+                      case writeWordArray# mutable count carry state1 of
+                        state2 -> freezeTrimmed# mutable (count +# 1#) state2
 
 -- | The limb kernels of the runtime (aihc_limbs.c). Each kernel takes the
 -- destination array and its limb index, the source array and its limb
@@ -1060,7 +1075,7 @@ addMagnitudes# left right = addByteArrays# (magnitudeBytes# left) (magnitudeByte
 addByteArrayWord# :: ByteArray# -> Word# -> ByteArray#
 addByteArrayWord# magnitude word =
   let count = wordCount# magnitude
-   in case newByteArray# ((count +# 1#) *# 8#) realWorld# of
+   in case newByteArray# ((count +# sumCarryLimbs# magnitude count 1#) *# 8#) realWorld# of
         (# state, mutable #) ->
           case addRemainingWords# magnitude mutable count 0# word state of
             (# state1, used #) -> freezeTrimmed# mutable used state1
@@ -1073,9 +1088,19 @@ addByteArrays# left right =
         1# -> addSizedByteArrays# right left rightSize leftSize
         _ -> addSizedByteArrays# left right leftSize rightSize
 
+-- | The limbs that a sum can have above the limbs of its larger operand:
+-- zero or one. If the larger operand has more limbs than the smaller one,
+-- the carry into its top limb is zero or one. Then the sum has a carry
+-- limb only if each bit of that top limb is one.
+sumCarryLimbs# :: ByteArray# -> Int# -> Int# -> Int#
+sumCarryLimbs# larger largerSize smallerSize =
+  case smallerSize <# largerSize of
+    1# -> eqWord# (indexWordArray# larger (largerSize -# 1#)) (not# 0##)
+    _ -> 1#
+
 addSizedByteArrays# :: ByteArray# -> ByteArray# -> Int# -> Int# -> ByteArray#
 addSizedByteArrays# larger smaller largerSize smallerSize =
-  case newByteArray# ((largerSize +# 1#) *# 8#) realWorld# of
+  case newByteArray# ((largerSize +# sumCarryLimbs# larger largerSize smallerSize) *# 8#) realWorld# of
     (# state, mutable #) ->
       case addMagnitudeWords# larger smaller mutable smallerSize 0# 0# state of
         (# state1, carry #) ->
@@ -1199,60 +1224,24 @@ sameMagnitude# left right leftSize rightSize =
         _ -> compareMagnitudeWords# left right (leftSize -# 1#) ==# 0#
     _ -> 0#
 
--- | Add the products of two different limbs first. Then double that sum
--- and add the square of each limb in one pass.
+-- | The square of a magnitude, by the square kernel of the runtime.
 squareMagnitude# :: ByteArray# -> Int# -> ByteArray#
 squareMagnitude# magnitude size =
   let resultSize = size +# size
    in case newByteArray# (resultSize *# 8#) realWorld# of
         (# state, mutable #) ->
-          case zeroMagnitudeWords# mutable resultSize 0# state of
-            (# state1, _ #) ->
-              case squareCrossProducts# magnitude mutable size 0# state1 of
-                state2 ->
-                  case addSquareDiagonal# magnitude mutable size 0# 0## 0## state2 of
-                    state3 ->
-                      case trimMagnitudeWords# mutable (resultSize -# 1#) state3 of
-                        (# state4, used #) -> freezeTrimmed# mutable used state4
+          case aihcLimbsSquare# mutable magnitude size state of
+            state1 ->
+              case trimMagnitudeWords# mutable (resultSize -# 1#) state1 of
+                (# state2, used #) -> freezeTrimmed# mutable used state2
 
--- | Row i adds the limbs above i times limb i at the position 2i + 1.
-squareCrossProducts# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> State# RealWorld -> State# RealWorld
-squareCrossProducts# magnitude mutable size index state =
-  case (index +# 1#) <# size of
-    1# ->
-      case multiplyInner# magnitude mutable size (indexWordArray# magnitude index) index (index +# 1#) state of
-        state1 -> squareCrossProducts# magnitude mutable size (index +# 1#) state1
-    _ -> state
-
--- | The sum of the cross products is less than half of the square. Thus
--- the shift and the final carry do not go out of the result.
-addSquareDiagonal# :: ByteArray# -> MutableByteArray# RealWorld -> Int# -> Int# -> Word# -> Word# -> State# RealWorld -> State# RealWorld
-addSquareDiagonal# magnitude mutable size index shifted carry state =
-  case index ==# size of
-    1# -> state
-    _ ->
-      let position = index +# index
-          word = indexWordArray# magnitude index
-       in case readWordArray# mutable position state of
-            (# state1, low #) ->
-              case readWordArray# mutable (position +# 1#) state1 of
-                (# state2, high #) ->
-                  let doubledLow = or# (uncheckedShiftL# low 1#) shifted
-                      doubledHigh = or# (uncheckedShiftL# high 1#) (uncheckedShiftRL# low 63#)
-                   in case timesWord2# word word of
-                        (# squareHigh, squareLow #) ->
-                          case addWordC# doubledLow squareLow of
-                            (# partialLow, carry0 #) ->
-                              case addWordC# partialLow carry of
-                                (# resultLow, carry1 #) ->
-                                  case addWordC# doubledHigh squareHigh of
-                                    (# partialHigh, carry2 #) ->
-                                      case addWordC# partialHigh (int2Word# (carry0 +# carry1)) of
-                                        (# resultHigh, carry3 #) ->
-                                          case writeWordArray# mutable position resultLow state2 of
-                                            state3 ->
-                                              case writeWordArray# mutable (position +# 1#) resultHigh state3 of
-                                                state4 -> addSquareDiagonal# magnitude mutable size (index +# 1#) (uncheckedShiftRL# high 63#) (int2Word# (carry2 +# carry3)) state4
+-- | The square kernel of the runtime (aihc_limbs_square). It takes the
+-- result array, the source array, and the limb count of the source, which
+-- is one or more. It writes the square of the source limbs to the result,
+-- which has two times the limbs of the source. A square computes each
+-- product of two different limbs one time. Thus it does about half of the
+-- limb products of a general product.
+foreign import prim aihcLimbsSquare# :: MutableByteArray# s -> ByteArray# -> Int# -> State# s -> State# s
 
 zeroMagnitudeWords# :: MutableByteArray# RealWorld -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
 zeroMagnitudeWords# mutable wordCount index state =

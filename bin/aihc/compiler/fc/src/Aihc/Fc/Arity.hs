@@ -1201,7 +1201,7 @@ expandLocals env expr =
     ExAbsurd scrutinee resultType -> (`ExAbsurd` resultType) <$> expandLocals env scrutinee
     ExCast body coercion -> (`ExCast` coercion) <$> expandLocals env body
     ExLet bind body -> do
-      rhs <- expandLocal env bind
+      rhs <- expandLocal False env bind
       let binder = bindBinder bind
           inner = extendSig (bindTerm env binder) (binderName binder) (bindingArityType env binder rhs)
       ExLet bind {bindRhs = rhs} <$> expandLocals inner body
@@ -1210,7 +1210,9 @@ expandLocals env expr =
       -- finds for its members, both in their right sides and in the body.
       let recursive = List.foldl' bindTerm env (map bindBinder binds)
           inner = List.foldl' (\current (name, at) -> extendSig current name at) recursive (Map.toList (recursiveArities recursive binds))
-      rhss <- traverse (expandLocal inner) binds
+          names = Set.fromList (map (binderName . bindBinder) binds)
+          inCycle bind = not (Set.disjoint names (valueReferences (bindRhs bind)))
+      rhss <- traverse (\bind -> expandLocal (inCycle bind) inner bind) binds
       let binds' = [bind {bindRhs = rhs} | (bind, rhs) <- zip binds rhss]
       ExRec binds' <$> expandLocals inner body
     ExCase scrutinee binder alternatives -> do
@@ -1329,23 +1331,34 @@ groupArities env members supported = loop (0 :: Int) (Map.fromList [(name, typeA
         ]
 
 -- | Expand the local bindings inside a right side, then the right side
--- itself.
-expandLocal :: Env -> Bind -> ExpandM Expr
-expandLocal env bind = do
+-- itself. The flag tells that the right side refers to a member of its
+-- own recursive group.
+expandLocal :: Bool -> Env -> Bind -> ExpandM Expr
+expandLocal inCycle env bind = do
   rhs <- expandLocals env (bindRhs bind)
-  expandLocalValueWith (oneShotLocal env (binderName (bindBinder bind)) rhs) env (binderType (bindBinder bind)) rhs
+  expandLocalValueWith inCycle (oneShotLocal env (binderName (bindBinder bind)) rhs) env (binderType (bindBinder bind)) rhs
 
 -- | Expand a local value of the given type. A variable applied to
 -- arguments stays as it is: if it takes more arguments, it is a partial
 -- application, which is already a closure, and otherwise its arity is
 -- not known.
 expandLocalValue :: Env -> Type -> Expr -> ExpandM Expr
-expandLocalValue = expandLocalValueWith id
+expandLocalValue = expandLocalValueWith False id
 
 -- | 'expandLocalValue', with a change to the arity type of the value.
-expandLocalValueWith :: (ArityType -> ArityType) -> Env -> Type -> Expr -> ExpandM Expr
-expandLocalValueWith adjust env ty expr
-  | isApplication expr = pure expr
+--
+-- A partial application in a cycle of its own recursive group expands:
+--
+-- > letrec values = takeFB c n x values in values count
+--
+-- Each step of this loop calls a partial application, and the runtime
+-- must copy it with the new argument before it can enter the function.
+-- The expansion @values = \m. takeFB c n x values m@ is a function with a
+-- saturated call. The inliner can open that call, and then the loop calls
+-- itself directly.
+expandLocalValueWith :: Bool -> (ArityType -> ArityType) -> Env -> Type -> Expr -> ExpandM Expr
+expandLocalValueWith inCycle adjust env ty expr
+  | isApplication expr && not inCycle = pure expr
   | otherwise = do
       expanded <- expandBindingWith adjust env ty expr
       case expanded of
