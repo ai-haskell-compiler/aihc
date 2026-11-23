@@ -1,0 +1,13 @@
+extensions:
+  - TypeFamilies
+  - StandaloneDeriving
+modules:
+  - |
+    module Test where
+    import GHC.Classes (Eq)
+    data LCH
+    data family Color cs e
+    data instance Color LCH e = ColorLCH e e
+    deriving instance Eq e => Eq (Color LCH e)
+status: pass
+reason: A standalone stock instance for a data family instance uses the constructors of the instance.

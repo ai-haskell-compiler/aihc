@@ -115,6 +115,10 @@ inferExprAt ambient expr = case expr of
         inferOverloadedList (resolutionSpan resolution <|> ambient) ann resolution inner
   EAnn ann inner
     | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
+      isSyntaxTermResolution "fromList" resolution ->
+        inferOverloadedSequence (resolutionSpan resolution <|> ambient) ann resolution inner
+  EAnn ann inner
+    | Just resolution <- fromAnnotation @ResolutionAnnotation ann,
       resolutionNamespace resolution == ResolutionNamespaceType,
       isPrimitiveLiteral inner ->
         inferPrimitiveLiteral ann resolution inner
@@ -731,7 +735,8 @@ checksExpectedResult :: Expr -> Bool
 checksExpectedResult expression = case expression of
   EAnn annotation _
     | Just resolution <- fromAnnotation @ResolutionAnnotation annotation,
-      isSyntaxTermResolution "fromListN" resolution ->
+      isSyntaxTermResolution "fromListN" resolution
+        || isSyntaxTermResolution "fromList" resolution ->
         False
   EAnn _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
@@ -1861,6 +1866,21 @@ inferOverloadedList sp resolutionAnn resolution inner = do
   equalityEvidence <- freshEvVar
   let expectedMethodTy = TcFunTy (TcTyCon intTyCon []) (TcFunTy listTy resultTy)
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+      resultPending = pendingAnnotation resultTy [] [] []
+      annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')
+  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
+
+-- | An arithmetic sequence under OverloadedLists applies fromList to an
+-- ordinary list.
+inferOverloadedSequence :: Maybe SourceSpan -> Annotation -> ResolutionAnnotation -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedSequence sp resolutionAnn resolution inner = do
+  (list', listTy, listCts) <- inferExprAt sp inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromList" resolution
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy listTy resultTy
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromList") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
       annotated = annotatePendingExpr methodPending (EAnn resolutionAnn list')

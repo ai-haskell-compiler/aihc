@@ -1,0 +1,47 @@
+extensions:
+- DataKinds
+- GADTs
+- PolyKinds
+- StandaloneKindSignatures
+- TypeAbstractions
+- TypeFamilies
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, PolyKinds, StandaloneKindSignatures, TypeAbstractions, TypeFamilies #-}
+  module Test where
+  import GHC.Types
+  type Sing :: k -> Type
+  type family Sing @k :: k -> Type
+  data SBool (b :: Bool) where
+    STrue :: SBool 'True
+    SFalse :: SBool 'False
+  type instance Sing @Bool = SBool
+  class SingI (a :: k) where
+    sing :: Sing a
+  instance SingI 'True where
+    sing = STrue
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, GADTs, PolyKinds, StandaloneKindSignatures, TypeAbstractions, TypeFamilies #-}
+  module Test where
+  import GHC.Types
+  type Sing :: k -> Type
+  type family Sing @k :: k -> Type
+              └─ type: k → Type
+  data SBool (b :: Bool) where
+       └─ type: GHC.Types.Bool → Type
+    STrue :: SBool 'True
+    └─ type: ∀ b. (b ~ 'GHC.Types.True) ⇒ SBool b
+    SFalse :: SBool 'False
+    └─ type: ∀ b. (b ~ 'GHC.Types.False) ⇒ SBool b
+  type instance Sing @Bool = SBool
+  class SingI (a :: k) where
+  └─ class methods: sing ∷ ∀ k a. (SingI a) ⇒ Sing a
+    sing :: Sing a
+  instance SingI 'True where
+  └─ $fSingITrue ∷ () ⇒ SingI 'True
+    sing = STrue
+    │      └─ type: SBool 'GHC.Types.True; type-args: 'True; evidence: refl 'True
+    └─ sing ∷ Sing 'True
+status: pass
+reason: an invisible binder of a type family head names a kind variable of the signature and is not a parameter

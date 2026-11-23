@@ -70,6 +70,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Annotations (TcInstanceAnnotation (..), TcModuleIdentity (..))
 import Aihc.Tc.Env (DataConSourceForm (..), TypeSynonymInfo (..))
+import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
     TcAxiomKey (..),
@@ -81,6 +82,7 @@ import Aihc.Tc.Types
     defaultMethodWorkerScheme,
     familyEquationRightKindWith,
     isEqualityTyCon,
+    tvUnique,
     tyConKey,
     tyConModuleName,
     tyConName,
@@ -966,7 +968,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
     else do
-      constructors <- mapM (convertFamilyConstructor bindersEnv representationType) (dfiiConstructors info)
+      constructors <- mapM (convertFamilyConstructor bindersEnv info representationType) (dfiiConstructors info)
       pure
         [ DeclType
             TypeDecl
@@ -980,10 +982,23 @@ convertDataFamilyInst env package moduleName' bindings info = do
           familyAxiom
         ]
 
-convertFamilyConstructor :: ConvertEnv -> Type -> DataConInfo -> Either String ConDecl
-convertFamilyConstructor bindersEnv representationType info = do
+convertFamilyConstructor :: ConvertEnv -> DataFamilyInstanceInfo -> Type -> DataConInfo -> Either String ConDecl
+convertFamilyConstructor bindersEnv instanceInfo representationType info = do
   declaration <- convertConstructor bindersEnv info
-  replaced <- replaceResultType (conType declaration) representationType
+  -- The result of a GADT constructor uses the variables of its own
+  -- signature, and not the variables of the instance head. Thus the
+  -- constructor result @Sing x1@ of @Nil :: Sing '[]@ for
+  -- @data instance Sing (x :: [k])@ gives the representation type
+  -- arguments. Match the instance head against the constructor result to
+  -- get them.
+  result <-
+    case matchTypes [dfiiFamilyType instanceInfo] [dciResTy info] of
+      Just substitution
+        | Just arguments <- mapM (\tyVar -> Map.lookup (tvUnique tyVar) substitution) (dfiiTyVars instanceInfo) -> do
+            let constructorEnv = withTyVars (dciUnivTyVars info <> dciExTyVars info) bindersEnv
+            convertType constructorEnv (TcTyCon (dfiiRepresentationTyCon instanceInfo) arguments)
+      _ -> Right representationType
+  replaced <- replaceResultType (conType declaration) result
   -- A module that uses a data instance builds and matches its constructor
   -- by name, so the constructor stays public, as the tables of the instance
   -- must be.
