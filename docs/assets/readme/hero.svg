@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 280" role="img" aria-label="AIHC. Fast builds. Small binaries. Real Haskell.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1530"/>
+      <stop offset="1" stop-color="#46396b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8e82b5" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8e82b5" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="c"><polygon points="18,18 62,18 40,88"/></clipPath>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .draw { stroke-dasharray: 1; animation: draw 0.9s cubic-bezier(.6,0,.2,1) both; }
+    .d1 { animation-delay: 0.2s; }
+    .d2 { animation-delay: 1.0s; animation-duration: 0.5s; }
+    .arc { animation: fade 0.5s 0.9s both; }
+    .dot { transform-box: fill-box; transform-origin: center; animation: pop 0.5s 1.4s cubic-bezier(.3,1.8,.5,1) both; }
+    .ring { transform-box: fill-box; transform-origin: center; animation: ring 3s 1.9s ease-out infinite; opacity: 0; }
+    .glow { animation: breathe 6s ease-in-out infinite; }
+    .up { animation: up 0.7s cubic-bezier(.2,.7,.2,1) both; }
+    .u1 { animation-delay: 0.5s; } .u2 { animation-delay: 1.3s; } .u3 { animation-delay: 1.7s; }
+    .u4 { animation-delay: 2.1s; } .u5 { animation-delay: 2.7s; }
+    .star { animation: twinkle 4s ease-in-out infinite; }
+    .s2 { animation-delay: 1.3s; } .s3 { animation-delay: 2.1s; } .s4 { animation-delay: 3.2s; }
+    @keyframes draw { from { stroke-dashoffset: 1; opacity: 0; } 10% { opacity: 1; } to { stroke-dashoffset: 0; } }
+    @keyframes fade { from { opacity: 0; } }
+    @keyframes pop { from { transform: scale(0); } }
+    @keyframes ring { 0% { transform: scale(1); opacity: 0.7; } 60%, 100% { transform: scale(3.2); opacity: 0; } }
+    @keyframes breathe { 50% { opacity: 0.55; } }
+    @keyframes up { from { opacity: 0; transform: translateY(14px); } }
+    @keyframes twinkle { 50% { opacity: 0.15; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <rect width="880" height="280" rx="18" fill="url(#bg)"/>
+  <g fill="#faf8f3">
+    <circle class="star" cx="800" cy="46" r="2" opacity="0.7"/>
+    <circle class="star s2" cx="742" cy="232" r="1.5" opacity="0.6"/>
+    <circle class="star s3" cx="836" cy="150" r="1.5" opacity="0.5"/>
+    <circle class="star s4" cx="640" cy="36" r="1.2" opacity="0.5"/>
+    <circle class="star s2" cx="250" cy="30" r="1.2" opacity="0.4"/>
+    <circle class="star s3" cx="30" cy="250" r="1.5" opacity="0.4"/>
+  </g>
+  <circle class="glow" cx="135" cy="140" r="130" fill="url(#glow)"/>
+  <rect x="60" y="65" width="150" height="150" rx="33" fill="#5e5086"/>
+  <g transform="translate(76.5 81.5) scale(1.17)" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path class="arc" d="M24 54 Q40 36 56 54" clip-path="url(#c)" stroke-linecap="butt"/>
+    <path class="draw d1" pathLength="1" d="M18 18 L40 88 L62 18"/>
+    <path class="draw d2" pathLength="1" d="M64 88 L79.1 40"/>
+    <circle class="ring" cx="86" cy="18" r="6" stroke-width="2"/>
+    <circle class="dot" cx="86" cy="18" r="6" fill="#fff" stroke="none"/>
+  </g>
+  <text class="up u1" x="250" y="132" font-size="84" font-weight="800" letter-spacing="2" fill="#fff">AIHC</text>
+  <text x="252" y="182" font-size="28" font-weight="600" fill="#e8e4f2">
+    <tspan class="up u2">Fast builds.</tspan>
+    <tspan class="up u3"> Small binaries.</tspan>
+    <tspan class="up u4" font-style="italic" fill="#f2b8c6"> Real Haskell.</tspan>
+  </text>
+  <text class="up u5" x="252" y="222" font-size="17" fill="#c9c1e0">A self-hosting Haskell compiler for native code, LLVM IR, and WebAssembly.</text>
+</svg>
