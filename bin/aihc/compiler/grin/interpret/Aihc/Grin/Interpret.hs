@@ -2829,6 +2829,11 @@ callForeign foreignCall arguments
     [] <- arguments = do
       now <- liftEvalIO Host.getMonotonicTimeNSec
       pure [RuntimeLit (GrinLitInt Word64Rep (toInteger now))]
+  -- No C code of the interpreted program can call hs_free_stable_ptr. Thus
+  -- the record of freed stable pointers is always empty.
+  | symbol == "aihc_take_freed_stable_ptr",
+    [] <- arguments =
+      pure [RuntimeLit (GrinLitInt IntRep 0)]
   -- The interpreter runs every thread on one capability.
   | symbol == "aihc_capability_count",
     [] <- arguments =
