@@ -2557,9 +2557,18 @@ smallByteArraySet to byte bytes = do
   _ <- callRuntime "aihc_memory_set" [Ptr, I64, I64] [] [to, byte, bytes]
   terminate (Jump (Target doneLabel []))
   beginBlock loopLabel []
-  low <- emitValue "fill_low" I64 (Binary And I64 byte (OperandLiteral (LitInt 255)))
-  repeated <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
-  narrow <- emitValue "fill_narrow" I8 (Convert Trunc I64 (typedOperand low) I8)
+  -- The word and the byte of a fixed fill value are literals.
+  (repeated, narrow) <- case byte of
+    OperandLiteral (LitInt value) ->
+      let low = value `mod` 256
+          pattern = low * 0x0101010101010101
+          signed bits wide = if wide >= 2 ^ (bits - 1 :: Int) then wide - 2 ^ bits else wide
+       in pure (OperandLiteral (LitInt (signed 64 pattern)), OperandLiteral (LitInt (signed 8 low)))
+    _ -> do
+      low <- emitValue "fill_low" I64 (Binary And I64 byte (OperandLiteral (LitInt 255)))
+      pattern <- emitValue "fill_pattern" I64 (Binary Mul I64 (typedOperand low) (OperandLiteral (LitInt 0x0101010101010101)))
+      narrow <- emitValue "fill_narrow" I8 (Convert Trunc I64 (typedOperand low) I8)
+      pure (typedOperand pattern, typedOperand narrow)
   terminate (Jump (Target wordLabel [zero]))
   index <- fresh "fill_index"
   beginBlock wordLabel [(index, I64)]
@@ -2568,7 +2577,7 @@ smallByteArraySet to byte bytes = do
   terminate (Branch (typedOperand fits) (Target wordBodyLabel []) (Target byteLabel [OperandVar index]))
   beginBlock wordBodyLabel []
   wordTo <- at to (OperandVar index)
-  emit [] (Store I64 (typedOperand repeated) wordTo (byteAlignment 1))
+  emit [] (Store I64 repeated wordTo (byteAlignment 1))
   terminate (Jump (Target wordLabel [typedOperand next]))
   byteIndex <- fresh "fill_byte_index"
   beginBlock byteLabel [(byteIndex, I64)]
@@ -2576,7 +2585,7 @@ smallByteArraySet to byte bytes = do
   terminate (Branch (typedOperand more) (Target byteBodyLabel []) (Target doneLabel []))
   beginBlock byteBodyLabel []
   byteTo <- at to (OperandVar byteIndex)
-  emit [] (Store I8 (typedOperand narrow) byteTo (byteAlignment 1))
+  emit [] (Store I8 narrow byteTo (byteAlignment 1))
   nextByte <- emitValue "fill_next_byte" I64 (Binary Add I64 (OperandVar byteIndex) (OperandLiteral (LitInt 1)))
   terminate (Jump (Target byteLabel [typedOperand nextByte]))
   beginBlock doneLabel []
@@ -2794,18 +2803,55 @@ compileBinding ctx env vars expression =
         pinned' <- materialize ctx env pinned >>= coerce I64
         rootOperands <- mapM (pointerValue ctx env) roots
         array <- rootArray roots
-        forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
-          storeSlot AnyRegion Ptr root array (toInteger (8 * index))
         context <- currentContext
-        capability <- capabilityOperand context
-        storeContext capability context
-        srt <- useSrt ctx
-        address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, srt]
-        moved <- forM (zip [0 :: Int ..] relocated) $ \(index, var) ->
-          (var,) <$> loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
-        collected <- loadHeapContext capability context
-        setContext collected
-        pure (Map.fromList ((memory, Typed address Ptr) : moved) `Map.union` env)
+        let runtimeAllocation = do
+              forM_ (zip [0 :: Int ..] rootOperands) $ \(index, root) ->
+                storeSlot AnyRegion Ptr root array (toInteger (8 * index))
+              capability <- capabilityOperand context
+              storeContext capability context
+              srt <- useSrt ctx
+              address <- callRuntime "aihc_heap_allocate" [Ptr, I64, I64, I64, Ptr, Ptr] [Ptr] [capability, words', pinned', OperandLiteral (LitInt (toInteger (length roots))), array, srt]
+              moved <- forM (zip [0 :: Int ..] relocated) $ \(index, var) ->
+                loadSlot AnyRegion (varBase var) Ptr array (toInteger (8 * index))
+              collected <- loadHeapContext capability context
+              pure (address, moved, collected)
+        case pinned of
+          -- A small movable object that fits in the nursery starts at the
+          -- heap pointer, as the object of a fixed reservation does. Thus
+          -- the usual allocation is a compare and an add, and it keeps
+          -- each root and the context in its register. The runtime makes
+          -- each other allocation: a large object gets regions of its own,
+          -- and a full nursery needs a collection. See 'reserveHeap' for
+          -- the compare of the room.
+          GrinLitValue (GrinLitInt _ 0) -> do
+            heapLimit <- loadHeapLimit context
+            nextWord <- emitValue "heap_word" I64 (PtrToInt (contextHeap context))
+            limitWord <- emitValue "heap_end_word" I64 (PtrToInt heapLimit)
+            below <- emitValue "heap_below_limit" I1 (Compare LeU I64 (typedOperand nextWord) (typedOperand limitWord))
+            room <- emitValue "heap_room" I64 (Binary Sub I64 (typedOperand limitWord) (typedOperand nextWord))
+            roomWords <- emitValue "heap_room_words" I64 (Binary ShrU I64 (typedOperand room) (OperandLiteral (LitInt 3)))
+            enough <- emitValue "heap_enough" I1 (Compare GeU I64 (typedOperand roomWords) words')
+            small <- emitValue "heap_small" I1 (Compare LeU I64 words' (OperandLiteral (LitInt inlineAllocationWords)))
+            nursery <- emitValue "heap_nursery" I1 (Binary And I1 (typedOperand below) (typedOperand enough))
+            fits <- emitValue "heap_fits" I1 (Binary And I1 (typedOperand small) (typedOperand nursery))
+            bytes <- emitValue "heap_bytes" I64 (Binary Shl I64 words' (OperandLiteral (LitInt 3)))
+            end <- emitValue "hp" Ptr (PtrAdd (contextHeap context) (typedOperand bytes))
+            runtime <- freshLabel "allocate_runtime"
+            allocated <- freshLabel "allocated"
+            object <- fresh "memory"
+            parameters <- forM relocated $ \var -> (var,) <$> fresh (varBase var)
+            heap <- fresh "hp"
+            terminate (Branch (typedOperand fits) (Target allocated (contextHeap context : rootOperands <> [typedOperand end])) (Target runtime []))
+            beginColdBlock runtime []
+            (address, moved, collected) <- runtimeAllocation
+            terminate (Jump (Target allocated (address : map typedOperand moved <> [contextHeap collected])))
+            beginBlock allocated ((object, Ptr) : [(parameter, Ptr) | (_, parameter) <- parameters] <> [(heap, Ptr)])
+            setContext context {contextHeap = OperandVar heap}
+            pure (Map.fromList ((memory, Typed (OperandVar object) Ptr) : [(var, Typed (OperandVar parameter) Ptr) | (var, parameter) <- parameters]) `Map.union` env)
+          _ -> do
+            (address, moved, collected) <- runtimeAllocation
+            setContext collected
+            pure (Map.fromList ((memory, Typed address Ptr) : zip relocated moved) `Map.union` env)
       _ -> failWith (LowerUnsupportedExpression "dynamic allocation result arity")
     GrinSafepoint top roots
       | length vars == length roots -> beginSafepoint ctx env vars top roots
@@ -3518,6 +3564,80 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           storeSlot HeapRegion Ptr (OperandLiteral (LitSymbol info)) object 0
           storeSlot HeapRegion I64 (literal size) object byteArraySizeOffset
           bind [array]
+    -- The charge of a movable byte array with the alignment of a word is
+    -- two header slots and the payload, which has one byte or more. A small
+    -- size needs no check, thus the code computes the charge itself. The
+    -- runtime checks each other size, and it fails for a negative size,
+    -- which is a large unsigned number here.
+    ("aihcByteArrayWords#", [size, GrinLitValue (GrinLitInt _ 0), GrinLitValue (GrinLitInt _ 8)]) -> do
+      bytes <- word size
+      let literal = OperandLiteral . LitInt
+      rounded <- emitValue "rounded" I64 (Binary Add I64 bytes (literal 23))
+      slots <- emitValue "slots" I64 (Binary ShrU I64 (typedOperand rounded) (literal 3))
+      empty <- emitValue "empty" I1 (Compare Eq I64 bytes (literal 0))
+      charge <- emitValue "charge" I64 (Select I64 (typedOperand empty) (literal (uncheckedByteArrayWords 0)) (typedOperand slots))
+      plain <- emitValue "plain" I1 (Compare LeU I64 bytes (literal (8 * inlineAllocationWords)))
+      checked <- freshLabel "byte_array_checked"
+      charged <- freshLabel "byte_array_charged"
+      result <- fresh "words"
+      terminate (Branch (typedOperand plain) (Target charged [typedOperand charge]) (Target checked []))
+      beginColdBlock checked []
+      checkedCharge <- callRuntime "aihc_byte_array_words" [I64, I64, I64] [I64] [bytes, literal 0, literal 8]
+      terminate (Jump (Target charged [checkedCharge]))
+      beginBlock charged [(result, I64)]
+      bind [Typed (OperandVar result) I64]
+    -- The header of a movable byte array is the info table and the size.
+    -- The helper before the allocation has checked the size.
+    ("aihcInitByteArray#", [memory, size, GrinLitValue (GrinLitInt _ 0), _]) -> do
+      object <- pointerValue ctx env memory
+      bytes <- word size
+      let info = Symbol "aihc_byte_array_info"
+      requireExternData info
+      storeSlot HeapRegion Ptr (OperandLiteral (LitSymbol info)) object 0
+      storeSlot HeapRegion I64 bytes object byteArraySizeOffset
+      bind [Typed object Ptr]
+    -- A shrink keeps the array where it is. A shrink to the current size
+    -- changes nothing. For a smaller size, the words that the array gives
+    -- up become zero, which a heap walk skips, and then a release store
+    -- publishes the new size. The runtime reports a size above the current
+    -- size. A negative size is a large unsigned number, thus the same
+    -- compare finds it.
+    ("shrinkMutableByteArray#", [array, size])
+      | null vars -> do
+          object <- pointerValue ctx env array
+          bytes <- word size
+          let literal = OperandLiteral . LitInt
+              -- The bytes of the object: the header and the payload, which
+              -- has one byte or more, up to the end of its last word.
+              objectBytes base occupied = do
+                empty <- emitValue (base <> "_empty") I1 (Compare Eq I64 occupied (literal 0))
+                extra <- emitValue (base <> "_extra") I64 (Convert ZExt I1 (typedOperand empty) I64)
+                payload <- emitValue (base <> "_payload") I64 (Binary Add I64 occupied (typedOperand extra))
+                unrounded <- emitValue (base <> "_unrounded") I64 (Binary Add I64 (typedOperand payload) (literal 23))
+                emitValue (base <> "_bytes") I64 (Binary And I64 (typedOperand unrounded) (literal (-8)))
+          current <- emitValue "size" I64 (Load I64 (heapAddress object byteArraySizeOffset) (byteAlignment 8))
+          same <- emitValue "same" I1 (Compare Eq I64 bytes (typedOperand current))
+          smaller <- freshLabel "shrink_smaller"
+          invalid <- freshLabel "shrink_invalid"
+          valid <- freshLabel "shrink_valid"
+          done <- freshLabel "shrink_done"
+          terminate (Branch (typedOperand same) (Target done []) (Target smaller []))
+          beginBlock smaller []
+          grows <- emitValue "grows" I1 (Compare GtU I64 bytes (typedOperand current))
+          terminate (Branch (typedOperand grows) (Target invalid []) (Target valid []))
+          beginColdBlock invalid []
+          _ <- callRuntime "aihc_byte_array_shrink" [Ptr, I64] [I64] [object, bytes]
+          terminate (Trap "invalid byte array shrink")
+          beginBlock valid []
+          oldBytes <- objectBytes "old" (typedOperand current)
+          newBytes <- objectBytes "new" bytes
+          freed <- emitValue "freed" I64 (Binary Sub I64 (typedOperand oldBytes) (typedOperand newBytes))
+          end <- emitValue "freed_start" Ptr (PtrAdd object (typedOperand newBytes))
+          smallByteArraySet (typedOperand end) (literal 0) (typedOperand freed)
+          emit [] (StoreAtomic Release I64 bytes (heapAddress object byteArraySizeOffset))
+          terminate (Jump (Target done []))
+          beginBlock done []
+          pure env
     ("divInt#", [left, right]) -> do
       leftOperand <- word left
       rightOperand <- word right
@@ -3931,6 +4051,14 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           factor <- word multiplier
           carry <- callRuntime kernel [Ptr, Ptr, I64, I64] [I64] [to, from, limbs, factor]
           bind [Typed carry I64]
+    -- The square of Integer arithmetic. The kernel writes the payload of
+    -- the result array and reads the payload of the source array.
+    ("aihcLimbsSquare#", [result, source, size]) -> do
+      resultLimbs <- byteArrayPayloadOf result
+      sourceLimbs <- byteArrayPayloadOf source
+      sizeOperand <- word size
+      _ <- callRuntime "aihc_limbs_square" [Ptr, Ptr, I64] [] [resultLimbs, sourceLimbs, sizeOperand]
+      bind []
     -- The schoolbook division of Integer arithmetic. The kernel reads and
     -- writes the payloads of the arrays, and the arguments say which limbs.
     ("aihcLimbsDivide#", [quotient, dividend, top, divisor, divisorSize, inverse, wantQuotient]) -> do
@@ -4311,6 +4439,12 @@ arrayLengthOffset, arrayElementsOffset, mutVarContentsOffset :: Integer
 arrayLengthOffset = 8
 arrayElementsOffset = 16
 mutVarContentsOffset = arrayElementsOffset
+
+-- | The largest object, in heap slots, that compiled code takes from the
+-- nursery itself when the size is not fixed. It is far below the size of a
+-- large object of the runtime, which gets regions of its own.
+inlineAllocationWords :: Integer
+inlineAllocationWords = 2048
 
 byteArraySizeOffset, byteArrayPayloadOffset :: Integer
 byteArraySizeOffset = 8

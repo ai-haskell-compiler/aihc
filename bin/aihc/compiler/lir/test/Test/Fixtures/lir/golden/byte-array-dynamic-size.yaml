@@ -1,0 +1,144 @@
+program: |
+  primitive newByteArray#%1 :: BoxedRep Unlifted/1
+  primitive shrinkMutableByteArray#%2 :: TupleRep []/2
+  primitive sizeofMutableByteArray#%3 :: IntRep/1
+  $entry (size :: IntRep) (used :: IntRep) -> IntRep =
+    (array%4 :: BoxedRep Unlifted) <- primitive-call @(BoxedRep Unlifted) newByteArray# (size :: IntRep)
+    () <- primitive-call @(TupleRep []) shrinkMutableByteArray# (array%4 :: BoxedRep Unlifted) (used :: IntRep)
+    primitive-call @IntRep sizeofMutableByteArray# (array%4 :: BoxedRep Unlifted)
+expected: |
+  extern func @aihc_byte_array_shrink(ptr, i64) -> i64 cc c
+
+  extern func @aihc_byte_array_words(i64, i64, i64) -> i64 cc c
+
+  extern func @aihc_heap_allocate(ptr, i64, i64, i64, ptr, ptr) -> ptr cc c
+
+  extern func @aihc_lir_continue_i(ptr, ptr, ptr, ptr, i64)
+
+  extern func @aihc_memory_set(ptr, i64, i64) cc c
+
+  extern data @aihc_byte_array_info
+
+  func @aihc_f_aihc_entry___sentry(%hp_0: ptr, %sp_1: ptr, %base_2: ptr, %size_3: i64, %used_4: i64, %$cps_return_5: ptr) {
+  entry:
+    %roots_6 = stack.alloc 8 align 8
+    %rounded_7 = add i64 %size_3, 23
+    %slots_8 = shr.u i64 %rounded_7, 3
+    %empty_9 = eq i64 %size_3, 0
+    %charge_10 = select i64 %empty_9, 3, %slots_8
+    %plain_11 = le.u i64 %size_3, 16384
+    br %plain_11, byte_array_charged_13(%charge_10), byte_array_checked_12
+
+  cold byte_array_checked_12:
+    %result_15 = call @aihc_byte_array_words(%size_3, 0, 8)
+    jump byte_array_charged_13(%result_15)
+
+  byte_array_charged_13(%words_14: i64):
+    %hp_limit_16 = load ptr [%base_2 + 24] align 1 word
+    %heap_word_17 = ptr.to_int %hp_0
+    %heap_end_word_18 = ptr.to_int %hp_limit_16
+    %heap_below_limit_19 = le.u i64 %heap_word_17, %heap_end_word_18
+    %heap_room_20 = sub i64 %heap_end_word_18, %heap_word_17
+    %heap_room_words_21 = shr.u i64 %heap_room_20, 3
+    %heap_enough_22 = ge.u i64 %heap_room_words_21, %words_14
+    %heap_small_23 = le.u i64 %words_14, 2048
+    %heap_nursery_24 = and i1 %heap_below_limit_19, %heap_enough_22
+    %heap_fits_25 = and i1 %heap_small_23, %heap_nursery_24
+    %heap_bytes_26 = shl i64 %words_14, 3
+    %hp_27 = ptr.add %hp_0, %heap_bytes_26
+    br %heap_fits_25, allocated_29(%hp_0, %$cps_return_5, %hp_27), allocate_runtime_28
+
+  cold allocate_runtime_28:
+    store ptr %$cps_return_5, [%roots_6] align 8
+    store ptr %hp_0, [%base_2 + 16] align 1 word
+    store ptr %sp_1, [%base_2 + 32] align 1 word
+    %result_33 = call @aihc_heap_allocate(%base_2, %words_14, 0, 1, %roots_6, null)
+    %$cps_return$gc_34 = load ptr [%roots_6] align 8
+    %hp_35 = load ptr [%base_2 + 16] align 1 word
+    jump allocated_29(%result_33, %$cps_return$gc_34, %hp_35)
+
+  allocated_29(%memory_30: ptr, %$cps_return$gc_31: ptr, %hp_32: ptr):
+    store ptr @aihc_byte_array_info, [%memory_30] align 8 region heap
+    store i64 %size_3, [%memory_30 + 8] align 8 region heap
+    %size_36 = load i64 [%memory_30 + 8] align 8 region heap
+    %same_37 = eq i64 %used_4, %size_36
+    br %same_37, shrink_done_41, shrink_smaller_38
+
+  shrink_smaller_38:
+    %grows_42 = gt.u i64 %used_4, %size_36
+    br %grows_42, shrink_invalid_39, shrink_valid_40
+
+  cold shrink_invalid_39:
+    %result_43 = call @aihc_byte_array_shrink(%memory_30, %used_4)
+    trap "invalid byte array shrink"
+
+  shrink_valid_40:
+    %old_empty_44 = eq i64 %size_36, 0
+    %old_extra_45 = zext i1 %old_empty_44 to i64
+    %old_payload_46 = add i64 %size_36, %old_extra_45
+    %old_unrounded_47 = add i64 %old_payload_46, 23
+    %old_bytes_48 = and i64 %old_unrounded_47, -8
+    %new_empty_49 = eq i64 %used_4, 0
+    %new_extra_50 = zext i1 %new_empty_49 to i64
+    %new_payload_51 = add i64 %used_4, %new_extra_50
+    %new_unrounded_52 = add i64 %new_payload_51, 23
+    %new_bytes_53 = and i64 %new_unrounded_52, -8
+    %freed_54 = sub i64 %old_bytes_48, %new_bytes_53
+    %freed_start_55 = ptr.add %memory_30, %new_bytes_53
+    %fill_small_63 = le.u i64 %freed_54, 128
+    br %fill_small_63, fill_loop_56, fill_call_57
+
+  cold fill_call_57:
+    call @aihc_memory_set(%freed_start_55, 0, %freed_54)
+    jump fill_done_62
+
+  fill_loop_56:
+    jump fill_word_58(0)
+
+  fill_word_58(%fill_index_64: i64):
+    %fill_next_65 = add i64 %fill_index_64, 8
+    %fill_fits_66 = le.u i64 %fill_next_65, %freed_54
+    br %fill_fits_66, fill_word_body_59, fill_byte_60(%fill_index_64)
+
+  fill_word_body_59:
+    %byte_address_67 = ptr.add %freed_start_55, %fill_index_64
+    store i64 0, [%byte_address_67] align 1 region heap
+    jump fill_word_58(%fill_next_65)
+
+  fill_byte_60(%fill_byte_index_68: i64):
+    %fill_more_69 = lt.u i64 %fill_byte_index_68, %freed_54
+    br %fill_more_69, fill_byte_body_61, fill_done_62
+
+  fill_byte_body_61:
+    %byte_address_70 = ptr.add %freed_start_55, %fill_byte_index_68
+    store i8 0, [%byte_address_70] align 1 region heap
+    %fill_next_byte_71 = add i64 %fill_byte_index_68, 1
+    jump fill_byte_60(%fill_next_byte_71)
+
+  fill_done_62:
+    store.atomic release i64 %used_4, [%memory_30 + 8] region heap
+    jump shrink_done_41
+
+  shrink_done_41:
+    %field_72 = load i64 [%memory_30 + 8] align 8 region heap
+    %header_word_73 = load i64 [%$cps_return$gc_31] align 8 region stack
+    %info_word_74 = and i64 %header_word_73, -4
+    %header_75 = ptr.from_int %info_word_74
+    %entry_76 = load.invariant code [%header_75 + 16] align 1 word
+    %forward_79 = eq code %entry_76, null
+    br %forward_79, continue_slow_77, continue_enter_78
+
+  cold continue_slow_77:
+    tailcall @aihc_lir_continue_i(%hp_32, %sp_1, %base_2, %$cps_return$gc_31, %field_72)
+
+  continue_enter_78:
+    tailcall.indirect %entry_76(%hp_32, %$cps_return$gc_31, %base_2, %$cps_return$gc_31, %field_72) : (ptr, ptr, ptr, ptr, i64)
+  }
+status: pass
+reason: >-
+  A byte array of a size that is not fixed starts at the heap pointer when
+  it is small and the nursery has room. The code computes the charge, takes
+  the words, and writes the header. It calls the runtime only for a size
+  that needs a check, for a large array, and for a full nursery. The shrink
+  is in the code too. It stores only the size when the size does not change,
+  and it clears the words that the array gives up.

@@ -28,6 +28,7 @@ uint64_t aihc_limbs_addmul_1(uint64_t *rp, const uint64_t *up, int64_t n,
                              uint64_t v);
 uint64_t aihc_limbs_submul_1(uint64_t *rp, const uint64_t *up, int64_t n,
                              uint64_t v);
+void aihc_limbs_square(uint64_t *rp, const uint64_t *up, int64_t n);
 void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
                        const uint64_t *dp, int64_t dn, uint64_t inverse,
                        int64_t want_quotient);
@@ -106,6 +107,7 @@ __asm__(".text\n" AIHC_LIMBS_ENTRY(
                          "  testq %r10, %r10\n"
                          "  jz 4f\n"
                          "  movq %r10, %r12\n"
+                         ".p2align 5\n"
                          "3:\n"
                          "  mulxq (%rsi), %r9, %r10\n"
                          "  addq %rax, %r9\n"
@@ -167,6 +169,7 @@ __asm__(".text\n" AIHC_LIMBS_ENTRY(
                          "  testq %r10, %r10\n"
                          "  jz 4f\n"
                          "  movq %r10, %r12\n"
+                         ".p2align 5\n"
                          "3:\n"
                          "  mulxq (%rsi), %r9, %r10\n"
                          "  addq %rax, %r9\n"
@@ -231,6 +234,7 @@ __asm__(".text\n" AIHC_LIMBS_ENTRY(
                       "  testq %r10, %r10\n"
                       "  jz 4f\n"
                       "  movq %r10, %r12\n"
+                      ".p2align 5\n"
                       "3:\n"
                       "  mulxq (%rsi), %r9, %r10\n"
                       "  addq %rax, %r9\n"
@@ -452,6 +456,50 @@ uint64_t aihc_limbs_submul_1(uint64_t *rp, const uint64_t *up, int64_t n,
 
 #endif
 
+/* Set the 2n limbs at rp to the square of the n limbs at up. The count n
+   is one or more, and the ranges must not overlap. A square computes each
+   product of two different limbs one time. Thus it does about half of the
+   limb products of a general product.
+
+   The rows add the products of two different limbs: row i adds the limbs
+   above i times limb i at the position 2i + 1. The first row writes its
+   limbs, thus the result needs no zero limbs before it. Then one pass
+   doubles that sum and adds the square of each limb. The sum of the cross
+   products is less than half of the square. Thus the shift and the final
+   carry do not go out of the result. */
+void aihc_limbs_square(uint64_t *rp, const uint64_t *up, int64_t n) {
+  rp[n] = aihc_limbs_mul_1(rp + 1, up + 1, n - 1, up[0]);
+  for (int64_t index = 1; index < n - 1; index++) {
+    rp[n + index] = aihc_limbs_addmul_1(rp + 2 * index + 1, up + index + 1,
+                                        n - 1 - index, up[index]);
+  }
+  /* The rows wrote the limbs 1 to 2n - 2. The limbs 0 and 2n - 1 of the
+     sum are zero. */
+  uint64_t shifted = 0;
+  uint64_t carry = 0;
+  for (int64_t index = 0; index < n; index++) {
+    uint64_t low = index == 0 ? 0 : rp[2 * index];
+    uint64_t high = index == n - 1 ? 0 : rp[2 * index + 1];
+    uint64_t doubled_low = (low << 1) | shifted;
+    uint64_t doubled_high = (high << 1) | (low >> 63);
+    shifted = high >> 63;
+    uint64_t square_high;
+    uint64_t square_low;
+    aihc_limbs_product(up[index], up[index], &square_high, &square_low);
+    uint64_t partial_low = doubled_low + square_low;
+    uint64_t carry_low = partial_low < doubled_low;
+    uint64_t result_low = partial_low + carry;
+    carry_low += result_low < partial_low;
+    uint64_t partial_high = doubled_high + square_high;
+    uint64_t carry_high = partial_high < doubled_high;
+    uint64_t result_high = partial_high + carry_low;
+    carry_high += result_high < partial_high;
+    rp[2 * index] = result_low;
+    rp[2 * index + 1] = result_high;
+    carry = carry_high;
+  }
+}
+
 /* Divide the three limbs (high, low, next) by the two limbs (top, second)
    with the reciprocal of the divisor (Moller and Granlund, "Improved
    division by invariant integers", 2011). The caller makes sure that
@@ -473,14 +521,18 @@ static inline uint64_t aihc_limbs_divide_three_by_two(
   uint64_t result_low = partial_low - term_low;
   uint64_t borrow1 = partial_low < term_low;
   uint64_t result_high = partial_high - top - borrow - (term_high + borrow1);
-  if (result_high < fraction) {
-    estimate++;
-  } else {
-    uint64_t restored_low = result_low + second;
-    result_high = result_high + top + (restored_low < result_low);
-    result_low = restored_low;
-  }
-  if (result_high > top || (result_high == top && result_low >= second)) {
+  /* The estimate is one too small or correct, with about equal chances. A
+     branch here is one that the processor cannot predict, thus a mask
+     selects the result. The mask has each bit set when the estimate stays
+     and the remainder gets the divisor back. */
+  uint64_t mask = (uint64_t)0 - (uint64_t)(result_high >= fraction);
+  estimate += (uint64_t)1 + mask;
+  uint64_t restored_low = result_low + (mask & second);
+  result_high = result_high + (mask & top) + (restored_low < result_low);
+  result_low = restored_low;
+  if (__builtin_expect(result_high > top ||
+                           (result_high == top && result_low >= second),
+                       0)) {
     uint64_t borrow2 = result_low < second;
     estimate++;
     result_high = result_high - top - borrow2;
@@ -502,18 +554,28 @@ void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
                        int64_t want_quotient) {
   uint64_t divisor_top = dp[dn - 1];
   uint64_t divisor_second = dp[dn - 2];
+  if (top < 0) {
+    return;
+  }
+  /* The two top limbs of the window. A step computes the limbs for the
+     next step, thus the next step does not load them from the limbs that
+     this step stored a moment before. */
+  uint64_t high = np[top + dn];
+  uint64_t low = np[top + dn - 1];
   for (int64_t offset = top; offset >= 0; offset--) {
     uint64_t *window = np + offset;
-    uint64_t high = window[dn];
-    uint64_t low = window[dn - 1];
     uint64_t quotient;
     uint64_t borrow;
-    if (high == divisor_top && low == divisor_second) {
+    uint64_t next_high;
+    uint64_t next_low;
+    if (__builtin_expect(high == divisor_top && low == divisor_second, 0)) {
       /* The quotient limb is the maximum limb. */
       quotient = ~(uint64_t)0;
       uint64_t carry = aihc_limbs_submul_1(window, dp, dn, quotient);
       window[dn] = high - carry;
       borrow = high < carry;
+      next_high = window[dn - 1];
+      next_low = window[dn - 2];
     } else {
       uint64_t remainder_high;
       uint64_t remainder_low;
@@ -522,12 +584,14 @@ void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
           &remainder_high, &remainder_low);
       uint64_t carry = aihc_limbs_submul_1(window, dp, dn - 2, quotient);
       uint64_t borrow_low = remainder_low < carry;
-      window[dn - 2] = remainder_low - carry;
+      next_low = remainder_low - carry;
       borrow = remainder_high < borrow_low;
-      window[dn - 1] = remainder_high - borrow_low;
+      next_high = remainder_high - borrow_low;
+      window[dn - 2] = next_low;
+      window[dn - 1] = next_high;
       window[dn] = (uint64_t)0 - borrow;
     }
-    if (borrow != 0) {
+    if (__builtin_expect(borrow != 0, 0)) {
       /* The estimate was one too large: add one divisor back. */
       uint64_t carry = 0;
       for (int64_t index = 0; index < dn; index++) {
@@ -538,7 +602,11 @@ void aihc_limbs_divide(uint64_t *qp, uint64_t *np, int64_t top,
       }
       window[dn] += carry;
       quotient--;
+      next_high = window[dn - 1];
+      next_low = window[dn - 2];
     }
+    high = next_high;
+    low = next_low;
     if (want_quotient != 0) {
       qp[offset] = quotient;
     }

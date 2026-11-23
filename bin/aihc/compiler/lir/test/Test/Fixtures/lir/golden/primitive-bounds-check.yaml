@@ -36,7 +36,7 @@ expected: |
     store ptr @aihc_byte_array_info, [%hp_0] align 8 region heap
     store i64 8, [%hp_0 + 8] align 8 region heap
     %size_11 = load i64 [%hp_0 + 8] align 8 region heap
-    %limit_12 = div.u i64 %size_11, 8
+    %limit_12 = shr.u i64 %size_11, 3
     %invalid_13 = ge.u i64 4, %limit_12
     br %invalid_13, out_of_bounds_14, inside_15
 
