@@ -38,6 +38,7 @@ tests =
       testCase "converts a data and a newtype declaration" dataDeclarationTest,
       testCase "converts a type synonym" typeSynonymTest,
       testCase "converts a data and a newtype family instance" dataInstanceTest,
+      testCase "converts a foreign import and a foreign export" foreignTest,
       testCase "converts a do expression, a comprehension, and an operator chain" statementsTest,
       testCase "names a construct that it does not support" unsupportedTest,
       testCase "decodes the requests of a splice" requestTest,
@@ -442,6 +443,28 @@ typeSynonymTest = do
     "a type synonym"
     (Right "type Pair a = (a, a)")
     (T.unwords . map render <$> declarationsFromTree tree)
+
+-- | A foreign import with a header and a C name in its entity, as the
+-- @genNative@ splice of @h-raylib@ gives it, and a foreign export.
+foreignTest :: IO ()
+foreignTest = do
+  let arrow argument result = TreeNode "AppT" [TreeNode "AppT" [TreeNode "ArrowT" [], argument], result]
+      io = TreeNode "AppT" [TreeNode "ConT" [name "IO"], TreeNode "TupleT" [TreeInteger 0]]
+      tree =
+        list
+          [ TreeNode "ForeignD" [TreeNode "ImportF" [TreeNode "CCall" [], TreeNode "Safe" [], TreeString "raylib.h InitWindow", name "c'initWindow", arrow (TreeNode "ConT" [name "CInt"]) io]],
+            TreeNode "ForeignD" [TreeNode "ImportF" [TreeNode "CApi" [], TreeNode "Unsafe" [], TreeString "&counter", name "counter", TreeNode "ConT" [name "Ptr"]]],
+            TreeNode "ForeignD" [TreeNode "ExportF" [TreeNode "CCall" [], TreeString "", name "callback", io]]
+          ]
+  assertEqual
+    "two foreign imports and a foreign export"
+    ( Right
+        [ "foreign import ccall safe \"raylib.h InitWindow\" c'initWindow :: CInt -> IO ()",
+          "foreign import capi unsafe \"&counter\" counter :: Ptr",
+          "foreign export ccall callback :: IO ()"
+        ]
+    )
+    (map render <$> declarationsFromTree tree)
 
 -- | A data family instance and a newtype family instance, at the top
 -- level and in an instance body, as the @derivingUnbox@ splice of
