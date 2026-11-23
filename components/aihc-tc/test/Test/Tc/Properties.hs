@@ -13,7 +13,7 @@ where
 
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
 import Aihc.Resolve (PackageId (PackageId))
-import Aihc.Resolve.Syntax (Type (TStar))
+import Aihc.Tc.Syntax.Pending (Type (TStar))
 import Aihc.Tc
   ( ClassInfo (..),
     DataFamilyInstanceInfo (..),

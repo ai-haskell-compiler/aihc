@@ -19,8 +19,9 @@ module Aihc.Tc.Deriving.Generate
 where
 
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
-import Aihc.Resolve.Syntax
-  ( Annotation,
+import Aihc.Tc.Syntax.Pending
+  ( TcInfo (..),
+    Annotation,
     ArrowKind (..),
     BuiltinCon (..),
     CaseAlt (..),
@@ -51,8 +52,8 @@ import Aihc.Resolve.Syntax
     TypePromotion (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotationSpan,
+    mkSpanAnnotation,
     mkUnqualifiedName,
     peelDeclAnn,
     qualifyName,
@@ -99,16 +100,17 @@ generateDerivedInstances selected origin modu = do
 declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> PackageId -> [(UnliftedFieldType, UnliftedFieldReferences)] -> (Text, Text) -> Decl -> TcM [Decl]
 declDerivedInstances selected references primPackage unlifted origin decl =
   case decl of
-    DeclAnn annotation inner -> do
+    DeclAnn _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
+    DeclTc info inner -> do
       own <-
-        case fromAnnotation @TcDerivingAnnotation annotation of
-          Just derivingAnnotation -> do
+        case info of
+          InfoDeriving derivingAnnotation -> do
             kinds <- getKinds
             catMaybes
               <$> mapM
                 (generatePlan kinds references primPackage unlifted origin (peelDeclAnn inner))
                 (filter selected (tcDerivingPlans derivingAnnotation))
-          Nothing -> pure []
+          _ -> pure []
       rest <- declDerivedInstances selected references primPackage unlifted origin inner
       pure (own <> rest)
     DeclError _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
@@ -158,8 +160,8 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
               pure $
                 items <&> \generated ->
                   markCoerced . markClause $
-                    DeclAnn (mkAnnotation TcDerivedInstance) $
-                      maybe id (DeclAnn . mkAnnotation) (genSpan gen) $
+                    DeclTc InfoDerivedInstance $
+                      maybe id (DeclAnn . mkSpanAnnotation) (genSpan gen) $
                         DeclInstance
                           InstanceDecl
                             { instanceDeclPragmas = [],
@@ -174,7 +176,7 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
     -- declaration, gets the liberal coverage condition.
     markClause declaration
       | tcDerivingStandalone plan = declaration
-      | otherwise = DeclAnn (mkAnnotation TcDerivingClauseInstance) declaration
+      | otherwise = DeclTc InfoDerivingClauseInstance declaration
     -- Both strategies that coerce another instance need the plan again when
     -- the generated header is checked, to prove the casts of its methods.
     markCoerced declaration =
@@ -183,7 +185,7 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
         TcDerivingVia {} -> tagged
         _ -> declaration
       where
-        tagged = DeclAnn (mkAnnotation (TcCoercedDeriving plan)) declaration
+        tagged = DeclTc (InfoCoercedDeriving plan) declaration
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
@@ -1931,37 +1933,38 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 -- and annotations of the generated code point at the clause.
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
-  maybe id (InstanceItemAnn . mkAnnotation) (genSpan gen) $
-    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing) matches)
+  maybe id (InstanceItemAnn . mkSpanAnnotation) (genSpan gen) $
+    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
   Match
     { matchAnns = genSpanAnns gen,
+      matchTc = [],
       matchHeadForm = MatchHeadPrefix,
       matchPats = patterns,
-      matchRhs = UnguardedRhs [] body Nothing
+      matchRhs = UnguardedRhs [] [] body Nothing
     }
 
 -- | Place a generated expression at the deriving clause, so every type
 -- annotation the checker attaches to it has a source position.
 at :: Gen -> Expr -> Expr
-at gen = maybe id (EAnn . mkAnnotation) (genSpan gen)
+at gen = maybe id (EAnn . mkSpanAnnotation) (genSpan gen)
 
 -- | The span annotation of generated syntax, or none when the deriving
 -- clause it came from had no span of its own.
 genSpanAnns :: Gen -> [Annotation]
-genSpanAnns = map mkAnnotation . maybeToList . genSpan
+genSpanAnns = map mkSpanAnnotation . maybeToList . genSpan
 
 atPattern :: Gen -> Pattern -> Pattern
-atPattern gen = maybe id (PAnn . mkAnnotation) (genSpan gen)
+atPattern gen = maybe id (PAnn . mkSpanAnnotation) (genSpan gen)
 
 caseOf :: Gen -> Expr -> [(Pattern, Expr)] -> Expr
 caseOf gen scrutinee alternatives =
   at gen $
     ECase
       scrutinee
-      [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] body Nothing}
+      [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] [] body Nothing}
       | (pat, body) <- alternatives
       ]
 
@@ -1988,6 +1991,7 @@ freshLocal gen text = do
         text
         (genSpanAnns gen)
         (Just (ResolutionOk (Resolved (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
+        []
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
@@ -2066,7 +2070,7 @@ intHashPattern gen value =
 -- | Place a generated literal at the deriving clause, because the checker
 -- attaches the literal type to the literal itself.
 atLiteral :: Gen -> Literal -> Literal
-atLiteral gen = maybe id (LitAnn . mkAnnotation) (genSpan gen)
+atLiteral gen = maybe id (LitAnn . mkSpanAnnotation) (genSpan gen)
 
 -- | The resolution of @Int#@ that a primitive literal carries, which is
 -- what the resolver leaves on one it read from source.
@@ -2084,8 +2088,9 @@ resolvedName sp packageId moduleName' nameType namespace text =
     (Just moduleName')
     nameType
     text
-    (map mkAnnotation (maybeToList sp))
+    (map mkSpanAnnotation (maybeToList sp))
     (Just (ResolutionOk (Resolved sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))))
+    []
 
 tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
 tyConNameSyntax sp tyCon =

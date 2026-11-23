@@ -12,8 +12,9 @@ module Aihc.Tc.Deriving
   )
 where
 
-import Aihc.Resolve.Syntax
-  ( Annotation,
+import Aihc.Tc.Syntax.Pending
+  ( TcInfo (..),
+    Annotation,
     BinderHead,
     Decl (..),
     DerivingClause (..),
@@ -27,9 +28,9 @@ import Aihc.Resolve.Syntax
     binderHeadName,
     binderHeadParams,
     binderResolved,
-    fromAnnotation,
+    annotationSpan,
     instanceHeadName,
-    mkAnnotation,
+    mkSpanAnnotation,
     nameText,
     tyVarBinderName,
     unqualifiedNameText,
@@ -67,7 +68,7 @@ annotateAttachedDerivingTc extensions targetFlavor targetHead clauses decl = do
 annotateDerivingPlans :: [TcDerivingPlan] -> Decl -> Decl
 annotateDerivingPlans [] decl = decl
 annotateDerivingPlans plans decl =
-  DeclAnn (mkAnnotation (TcDerivingAnnotation plans)) decl
+  DeclTc (InfoDeriving (TcDerivingAnnotation plans)) decl
 
 checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
 checkAttachedDerivingPlans _ _ targetHead [] = do
@@ -638,12 +639,12 @@ nameSourceSpan = sourceSpanFromAnns . nameAnns
 
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns annotations =
-  listToMaybe [sourceSpan | annotation <- annotations, Just sourceSpan <- [fromAnnotation @SourceSpan annotation]]
+  listToMaybe [sourceSpan | annotation <- annotations, Just sourceSpan <- [annotationSpan annotation]]
 
 typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
-    TAnn annotation inner -> fromAnnotation @SourceSpan annotation <|> typeSpan inner
+    TAnn annotation inner -> annotationSpan annotation <|> typeSpan inner
     TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner

@@ -34,11 +34,12 @@ module Aihc.Tc.Deriving.Context
 where
 
 import Aihc.Resolve (PackageId)
-import Aihc.Resolve.Syntax
-  ( Decl (..),
+import Aihc.Tc.Syntax.Pending
+  ( TcInfo (..),
+    Decl (..),
     Module (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotationSpan,
+    mkSpanAnnotation,
   )
 import Aihc.Tc.Annotations
   ( TcDerivingAnnotation (..),
@@ -835,8 +836,12 @@ moduleDerivingPlans = concatMap declDerivingPlans . moduleDecls
 declDerivingPlans :: Decl -> [TcDerivingPlan]
 declDerivingPlans decl =
   case decl of
-    DeclAnn annotation inner ->
-      maybe [] tcDerivingPlans (fromAnnotation @TcDerivingAnnotation annotation)
+    DeclAnn _ inner -> declDerivingPlans inner
+    DeclTc info inner ->
+      ( case info of
+          InfoDeriving derivingAnnotation -> tcDerivingPlans derivingAnnotation
+          _ -> []
+      )
         <> declDerivingPlans inner
     DeclError _ inner -> declDerivingPlans inner
     _ -> []
@@ -847,12 +852,12 @@ replaceModulePlans plans modu =
   where
     replaceDecl decl =
       case decl of
-        DeclAnn annotation inner
-          | Just derivingAnnotation <- fromAnnotation @TcDerivingAnnotation annotation ->
-              DeclAnn
-                (mkAnnotation (derivingAnnotation {tcDerivingPlans = map replacePlan (tcDerivingPlans derivingAnnotation)}))
-                (replaceDecl inner)
-          | otherwise -> DeclAnn annotation (replaceDecl inner)
+        DeclAnn annotation inner -> DeclAnn annotation (replaceDecl inner)
+        DeclTc (InfoDeriving derivingAnnotation) inner ->
+          DeclTc
+            (InfoDeriving (derivingAnnotation {tcDerivingPlans = map replacePlan (tcDerivingPlans derivingAnnotation)}))
+            (replaceDecl inner)
+        DeclTc info inner -> DeclTc info (replaceDecl inner)
         DeclError err inner -> DeclError err (replaceDecl inner)
         _ -> decl
     replacePlan original =

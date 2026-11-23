@@ -16,8 +16,17 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier)
-import Aihc.Resolve.Syntax
-  ( Annotation,
+import Aihc.Tc.Syntax.Pending
+  ( infoIsPending,
+    infoPending,
+    TcInfo (..),
+    annotateBranchCast,
+    annotateDoStmtCast,
+    annotateExprCast,
+    annotateFunCast,
+    annotateRhsCast,
+    annotateSigCast,
+    Annotation,
     ArithSeq (..),
     CaseAlt (..),
     CompStmt (..),
@@ -39,13 +48,13 @@ import Aihc.Resolve.Syntax
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotationSpan,
+    mkSpanAnnotation,
     peelExprAnn,
     qualifyName,
   )
-import Aihc.Resolve.Syntax.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), annotateBranchCast, annotateDoStmtCast, annotateExprCast, annotateFunCast, annotateRhsCast, annotateSigCast, pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Syntax.Pending.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecKnotOccurrence (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -199,8 +208,11 @@ inferExprAt ambient expr = case expr of
     (inner', innerTy, cs) <- inferExpr inner
     pure (ENegate inner', innerTy, cs)
   EAnn ann inner -> do
-    (inner', ty, cts) <- inferExprAt (fromAnnotation @SourceSpan ann <|> ambient) inner
+    (inner', ty, cts) <- inferExprAt (annotationSpan ann <|> ambient) inner
     pure (EAnn ann inner', ty, cts)
+  ETc ann inner -> do
+    (inner', ty, cts) <- inferExprAt ambient inner
+    pure (ETc ann inner', ty, cts)
   EResolved result inner -> do
     (inner', ty, cts) <- inferExprAt ambient inner
     pure (EResolved result inner', ty, cts)
@@ -564,17 +576,17 @@ isArithSeqResolution resolution =
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
-  EAnn (mkAnnotation ann)
+  ETc (InfoType ann)
 
 annotatePendingExprAt :: Maybe SourceSpan -> PendingTcAnnotation -> Expr -> Expr
 annotatePendingExprAt Nothing ann =
   annotatePendingExpr ann
 annotatePendingExprAt (Just sp) ann =
-  EAnn (mkAnnotation sp) . annotatePendingExpr ann
+  EAnn (mkSpanAnnotation sp) . annotatePendingExpr ann
 
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
-  name {nameAnns = nameAnns name <> [mkAnnotation ann]}
+  name {nameTc = nameTc name <> [InfoType ann]}
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -583,7 +595,7 @@ annotatePendingName ann name =
 -- section can have the result type @v@.
 annotateOperatorCast :: TcType -> EvVar -> Name -> Name
 annotateOperatorCast ty evidence name =
-  name {nameAnns = nameAnns name <> [mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight)]}
+  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight)]}
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
@@ -609,10 +621,11 @@ annotateLambdaPattern bindings argTy pat =
   let annotated = annotatePatternBindings bindings pat
    in if lambdaPatternCarriesBinderType annotated
         then annotated
-        else PAnn (mkAnnotation (pendingAnnotation argTy [] [] [])) annotated
+        else PTc (InfoType (pendingAnnotation argTy [] [] [])) annotated
 
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType (PTc _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType (PResolved _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType PVar {} = True
 lambdaPatternCarriesBinderType (PParen inner) = lambdaPatternCarriesBinderType inner
@@ -645,6 +658,9 @@ checkExpr expected expression = case expression of
   EAnn annotation inner | checksExpectedResult inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EAnn annotation inner', ty, constraints)
+  ETc annotation inner | checksExpectedResult inner -> do
+    (inner', ty, constraints) <- checkExpr expected inner
+    pure (ETc annotation inner', ty, constraints)
   EResolved result inner | checksExpectedResult inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EResolved result inner', ty, constraints)
@@ -688,8 +704,11 @@ checkExpr expected expression = case expression of
     -- 'inferExprAt' keeps them.
     checkApplicationAt ambient expr = case expr of
       EAnn annotation inner -> do
-        (inner', ty, constraints) <- checkApplicationAt (fromAnnotation @SourceSpan annotation <|> ambient) inner
+        (inner', ty, constraints) <- checkApplicationAt (annotationSpan annotation <|> ambient) inner
         pure (EAnn annotation inner', ty, constraints)
+      ETc annotation inner -> do
+        (inner', ty, constraints) <- checkApplicationAt ambient inner
+        pure (ETc annotation inner', ty, constraints)
       EResolved result inner -> do
         (inner', ty, constraints) <- checkApplicationAt ambient inner
         pure (EResolved result inner', ty, constraints)
@@ -702,6 +721,7 @@ checkExpr expected expression = case expression of
       _ -> checkApplicationSpine expected ambient expr
     isAnnotatedApplication expr = case expr of
       EAnn _ inner -> isAnnotatedApplication inner
+      ETc _ inner -> isAnnotatedApplication inner
       EResolved _ inner -> isAnnotatedApplication inner
       EParen inner -> isAnnotatedApplication inner
       EPragma _ inner -> isAnnotatedApplication inner
@@ -738,20 +758,20 @@ checkLambda expected sp patterns body = do
 
 checkRhs :: TcType -> Rhs Expr -> TcM (Rhs Expr, TcType, [Ct])
 checkRhs expected rhs = case rhs of
-  UnguardedRhs annotations expression Nothing -> do
+  UnguardedRhs annotations rhsInfos expression Nothing -> do
     (expression', ty, constraints) <- checkExpr expected expression
-    pure (UnguardedRhs annotations expression' Nothing, ty, constraints)
-  UnguardedRhs annotations expression (Just declarations) -> do
+    pure (UnguardedRhs annotations rhsInfos expression' Nothing, ty, constraints)
+  UnguardedRhs annotations rhsInfos expression (Just declarations) -> do
     (declarations', expression', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected expression)
-    pure (UnguardedRhs annotations expression' (Just declarations'), ty, constraints)
+    pure (UnguardedRhs annotations rhsInfos expression' (Just declarations'), ty, constraints)
   -- A guarded body gets the expected type, as an unguarded body does.
-  GuardedRhss annotations guardedRhss Nothing -> do
+  GuardedRhss annotations rhsInfos guardedRhss Nothing -> do
     (guardedRhss', ty, constraints) <- checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss
-    pure (GuardedRhss annotations guardedRhss' Nothing, ty, constraints)
-  GuardedRhss annotations guardedRhss (Just declarations) -> do
+    pure (GuardedRhss annotations rhsInfos guardedRhss' Nothing, ty, constraints)
+  GuardedRhss annotations rhsInfos guardedRhss (Just declarations) -> do
     (declarations', guardedRhss', ty, constraints) <-
       inferLocalDecls inferExpr declarations (checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss)
-    pure (GuardedRhss annotations guardedRhss' (Just declarations'), ty, constraints)
+    pure (GuardedRhss annotations rhsInfos guardedRhss' (Just declarations'), ty, constraints)
 
 -- | Whether 'checkExpr' gives the expected type to this expression.
 -- Keep this list of constructors the same as the list in 'checkExpr'.
@@ -763,6 +783,7 @@ checksExpectedResult expression = case expression of
         || isSyntaxTermResolution "fromList" resolution ->
         False
   EAnn _ inner -> checksExpectedResult inner
+  ETc _ inner -> checksExpectedResult inner
   EResolved _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
   EPragma _ inner -> checksExpectedResult inner
@@ -859,7 +880,7 @@ inferRecordUpdate sp record fields = do
               value : _ -> value
               [] -> EVar (qualifyName Nothing binder)
           body = foldl EApp (EVar conSyntax) (zipWith argument labels binders)
-      pure (CaseAlt [] (PCon conSyntax [] (map PVar binders)) (UnguardedRhs [] body Nothing))
+      pure (CaseAlt [] (PCon conSyntax [] (map PVar binders)) (UnguardedRhs [] [] body Nothing))
 
 -- | Whether a record label is a variable identifier, and not an operator.
 isVariableLabel :: Text -> Bool
@@ -933,7 +954,7 @@ inferLambdaCaseAlt sp argTys resTy alt = do
 
 sourceSpanFromAnns :: [Annotation] -> Maybe SourceSpan
 sourceSpanFromAnns anns =
-  listToMaybe (mapMaybe (fromAnnotation @SourceSpan) anns)
+  listToMaybe (mapMaybe (annotationSpan) anns)
 
 -- | An application spine is a head and the frames applied to it, from the
 -- head outwards. A source span, a parenthesis, or a pragma between the
@@ -960,7 +981,7 @@ collectSpine = go []
     go frames sp expr =
       case expr of
         EAnn ann inner
-          | Just nodeSpan <- fromAnnotation @SourceSpan ann ->
+          | Just nodeSpan <- annotationSpan ann ->
               go (SpineAnn ann : frames) (Just nodeSpan) inner
         EApp fun arg -> go (SpineValueArg sp arg : frames) sp fun
         ETypeApp fun tyArg -> go (SpineTypeArg sp tyArg : frames) sp fun
@@ -989,7 +1010,7 @@ isGuardedArgument expr =
     EParen inner -> isGuardedArgument inner
     EPragma _ inner -> isGuardedArgument inner
     EAnn ann inner
-      | Just _ <- fromAnnotation @SourceSpan ann -> isGuardedArgument inner
+      | Just _ <- annotationSpan ann -> isGuardedArgument inner
     _ -> False
 
 -- | A value argument after the quick look, before it is checked.
@@ -1118,6 +1139,7 @@ containsCheckedArgument expression
       EParen inner -> containsCheckedArgument inner
       EPragma _ inner -> containsCheckedArgument inner
       EAnn _ inner -> containsCheckedArgument inner
+      ETc _ inner -> containsCheckedArgument inner
       EResolved _ inner -> containsCheckedArgument inner
       _ -> False
 
@@ -1150,6 +1172,7 @@ isConstructorArgument expr =
     EParen inner -> isConstructorArgument inner
     EPragma _ inner -> isConstructorArgument inner
     EAnn _ inner -> isConstructorArgument inner
+    ETc _ inner -> isConstructorArgument inner
     EResolved _ inner -> isConstructorArgument inner
     _ -> False
 
@@ -1162,6 +1185,7 @@ isSectionArgument expr =
     EParen inner -> isSectionArgument inner
     EPragma _ inner -> isSectionArgument inner
     EAnn _ inner -> isSectionArgument inner
+    ETc _ inner -> isSectionArgument inner
     EResolved _ inner -> isSectionArgument inner
     _ -> False
 
@@ -1205,7 +1229,7 @@ uniqueKey (Unique key) = key
 
 nameTypeArgs :: Name -> [TcType]
 nameTypeArgs name =
-  case mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns name) of
+  case mapMaybe infoPending (nameTc name) of
     pending : _ -> pendingTcAnnTypeArgs pending
     [] -> []
 
@@ -1432,11 +1456,12 @@ prefixOperatorHead expr =
   case expr of
     EApp fun arg -> EApp (prefixOperatorHead fun) arg
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
+    ETc ann inner -> ETc ann (prefixOperatorHead inner)
     EResolved ann inner -> EResolved ann (prefixOperatorHead inner)
     EVar name ->
-      case mapMaybe (fromAnnotation @PendingTcAnnotation) (nameAnns name) of
+      case mapMaybe infoPending (nameTc name) of
         pending : _ ->
-          let plainName = name {nameAnns = filter (isNothing . fromAnnotation @PendingTcAnnotation) (nameAnns name)}
+          let plainName = name {nameTc = filter (not . infoIsPending) (nameTc name)}
            in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
         [] -> expr
     _ -> expr
@@ -1634,10 +1659,11 @@ predicateMetaVariables predicate =
 pendingTypeArgs :: Expr -> [TcType]
 pendingTypeArgs expr =
   case expr of
-    EAnn ann inner ->
-      case fromAnnotation @PendingTcAnnotation ann of
-        Just pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
-        Nothing -> pendingTypeArgs inner
+    EAnn _ inner -> pendingTypeArgs inner
+    ETc info inner ->
+      case info of
+        InfoType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
+        _ -> pendingTypeArgs inner
     EResolved _ inner -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
@@ -2006,6 +2032,9 @@ inferArithSeqNode sp arithSeq =
     ArithSeqAnn ann inner -> do
       (inner', resultTy, cts) <- inferArithSeqNode sp inner
       pure (ArithSeqAnn ann inner', resultTy, cts)
+    ArithSeqTc ann inner -> do
+      (inner', resultTy, cts) <- inferArithSeqNode sp inner
+      pure (ArithSeqTc ann inner', resultTy, cts)
     _ -> abortTc "arithmetic sequence is missing its resolved method"
 
 inferResolvedArithSeq :: Maybe SourceSpan -> ResolutionResult -> Resolved -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
@@ -2018,7 +2047,7 @@ inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
   let expectedMethodTy = foldr TcFunTy resultTy argumentTypes
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf methodName) sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-      annotated = ArithSeqAnn (mkAnnotation methodPending) (ArithSeqResolved resolutionAnn arithSeq')
+      annotated = ArithSeqTc (InfoType methodPending) (ArithSeqResolved resolutionAnn arithSeq')
   pure (annotated, resultTy, argumentCts <> methodCts <> [methodEquality])
 
 -- | Instantiate a resolved syntax method such as enumFrom or ifThenElse.
@@ -2040,6 +2069,9 @@ inferArithSeqForm arithSeq =
     ArithSeqAnn ann inner -> do
       (inner', types, cts) <- inferArithSeqForm inner
       pure (ArithSeqAnn ann inner', types, cts)
+    ArithSeqTc ann inner -> do
+      (inner', types, cts) <- inferArithSeqForm inner
+      pure (ArithSeqTc ann inner', types, cts)
     ArithSeqResolved result inner -> do
       (inner', types, cts) <- inferArithSeqForm inner
       pure (ArithSeqResolved result inner', types, cts)
@@ -2115,10 +2147,10 @@ inferListCompParallel sp body branches = do
       tupleTy <- recTupleType binderTys
       let branchBinders = zip keys binderTys
       (quals', _, _, cts) <- inferCompQuals listTyCon' sp quals (finishBranch tupleTy branchBinders)
-      let tupleAnn = mkAnnotation (pendingAnnotation tupleTy binderTys [] [])
+      let tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] [])
           annotated =
             case quals' of
-              first : rest -> CompAnn tupleAnn first : rest
+              first : rest -> CompTc tupleAnn first : rest
               [] -> []
       pure (annotated, branchBinders, cts)
     -- After the last statement of a branch, equate the type of each
@@ -2151,6 +2183,11 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
           (stmts', body', bodyTy, cts) <- go seen (compStmtSpan qual <|> ambient) (inner : rest)
           case stmts' of
             inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
+            [] -> pure ([], body', bodyTy, cts)
+        CompTc info inner -> do
+          (stmts', body', bodyTy, cts) <- go seen ambient (inner : rest)
+          case stmts' of
+            inner' : rest' -> pure (CompTc info inner' : rest', body', bodyTy, cts)
             [] -> pure ([], body', bodyTy, cts)
         CompGen pat src -> do
           elemTy <- freshMetaTv
@@ -2211,8 +2248,8 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
       (rest', body', bodyTy, bodyCts) <- rebind (go (qual : seen) ambient rest)
       let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
           keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
-          tupleAnn = mkAnnotation (pendingAnnotation tupleTy binderTys [] keyTys)
-          qual' = CompAnn tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+          tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] keyTys)
+          qual' = CompTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
       pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
 
     transformBinderType sp key = do
@@ -2284,6 +2321,11 @@ inferLastDoStmt expected ambient stmt =
       case stmts' of
         [inner'] -> pure ([DoAnn ann inner'], resultTy, cts)
         _ -> pure (stmts', resultTy, cts)
+    DoTc ann inner -> do
+      (stmts', resultTy, cts) <- inferLastDoStmt expected (doStmtSpan stmt <|> ambient) inner
+      case stmts' of
+        [inner'] -> pure ([DoTc ann inner'], resultTy, cts)
+        _ -> pure (stmts', resultTy, cts)
     DoResolved result inner -> inferLastWrapped (DoResolved result) inner
     DoRecKnot knot inner -> inferLastWrapped (DoRecKnot knot) inner
     DoExpr body -> do
@@ -2319,6 +2361,11 @@ inferDoStmt end expected ambient stmt rest =
       (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
       case stmts' of
         inner' : rest' -> pure (DoAnn ann inner' : rest', resultTy, cts)
+        [] -> pure ([], resultTy, cts)
+    DoTc ann inner -> do
+      (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
+      case stmts' of
+        inner' : rest' -> pure (DoTc ann inner' : rest', resultTy, cts)
         [] -> pure ([], resultTy, cts)
     DoResolved result inner -> inferWrapped (DoResolved result) inner
     DoRecKnot knot inner -> inferWrapped (DoRecKnot knot) inner
@@ -2462,12 +2509,12 @@ inferRecStmt end expected ambient parts rest = do
       inferDoStmtsEnd end (Just restExpected) ambient rest
   resultEquality <- wantedDoEq ambient restTy restExpected
   let tuplePending = pendingAnnotation tupleTy binderTys [] [innerTy]
-      methodAnns ty ev pending ann = annotateDoStmtCast ty ev . DoAnn (mkAnnotation pending) . DoResolved ann
+      methodAnns ty ev pending ann = annotateDoStmtCast ty ev . DoTc (InfoType pending) . DoResolved ann
       stmt' =
         methodAnns mfixTy mfixEv mfixPending mfixAnn $
           methodAnns knotTy returnEv returnPending returnAnn $
             methodAnns bindTy bindEv bindPending bindAnn $
-              DoAnn (mkAnnotation tuplePending) $
+              DoTc (InfoType tuplePending) $
                 foldr knotOccurrence (maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt stmts')) knotOccurrences
   pure
     ( stmt' : rest',
@@ -2477,7 +2524,7 @@ inferRecStmt end expected ambient parts rest = do
   where
     withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
     knotOccurrence (key, annotation) inner =
-      DoAnn (mkAnnotation (TcRecKnotOccurrence key)) (DoAnn annotation inner)
+      DoTc (InfoRecKnotOccurrence key) (DoTc (InfoType annotation) inner)
 
 -- | The type of the knot of a recursive group: the unit type for no
 -- variable, the type of the variable for one variable, and a tuple type for
@@ -2509,7 +2556,7 @@ finishRecGroup sp innerTy binders = do
         Just (TcIdBinder (ForAll [] [] boundTy) _) -> pure <$> wantedDoEq sp boundTy knotTy
         Just TcIdBinder {} -> do
           (pending, boundTy, cts) <- inferNameOccurrence sp (qualifyName Nothing name)
-          mapM_ (recordRecKnotOccurrence key . mkAnnotation) pending
+          mapM_ (recordRecKnotOccurrence key) pending
           equality <- wantedDoEq sp boundTy knotTy
           pure (cts <> [equality])
         Nothing -> abortTc ("rec group variable missing from type environment: " <> show key)
@@ -2532,7 +2579,7 @@ inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
       prepareScrutinee (actionCts <> methodCts)
       (rest', restTy, restCts) <- inferDoStmtsEnd end (Just restExpected) ambient rest
       resultEquality <- wantedDoEq ambient restTy restExpected
-      let stmt' = annotateDoStmtCast thenTy methodEv (DoAnn (mkAnnotation pending) (DoResolved resolutionAnn (DoExpr action')))
+      let stmt' = annotateDoStmtCast thenTy methodEv (DoTc (InfoType pending) (DoResolved resolutionAnn (DoExpr action')))
       pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
     _ -> do
       emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
@@ -2583,10 +2630,10 @@ inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat
       bindWithFailure =
         case failure of
           Just (failTy, failEv, failPending, failAnn, _) ->
-            annotateDoStmtCast failTy failEv (DoAnn (mkAnnotation failPending) (DoResolved failAnn bind))
+            annotateDoStmtCast failTy failEv (DoTc (InfoType failPending) (DoResolved failAnn bind))
           Nothing -> bind
       failCts = maybe [] (\(_, _, _, _, cts) -> cts) failure
-      stmt' = annotateDoStmtCast bindTy methodEv (DoAnn (mkAnnotation pending) (DoResolved resolutionAnn bindWithFailure))
+      stmt' = annotateDoStmtCast bindTy methodEv (DoTc (InfoType pending) (DoResolved resolutionAnn bindWithFailure))
   remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
   pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts <> failCts)
 
@@ -2631,26 +2678,27 @@ wantedMonad sp monadTy = do
 compStmtSpan :: CompStmt -> Maybe SourceSpan
 compStmtSpan compStmt =
   case compStmt of
-    CompAnn ann _ -> fromAnnotation @SourceSpan ann
+    CompAnn ann _ -> annotationSpan ann
     _ -> Nothing
 
 doStmtSpan :: DoStmt body -> Maybe SourceSpan
 doStmtSpan stmt =
   case stmt of
-    DoAnn ann _ -> fromAnnotation @SourceSpan ann
+    DoAnn ann _ -> annotationSpan ann
     _ -> Nothing
 
 rhsExprSpan :: Rhs Expr -> Maybe SourceSpan
 rhsExprSpan rhs =
   case rhs of
-    UnguardedRhs anns expr _ -> exprSpan expr <|> sourceSpanFromAnns anns
-    GuardedRhss anns _ _ -> sourceSpanFromAnns anns
+    UnguardedRhs anns _ expr _ -> exprSpan expr <|> sourceSpanFromAnns anns
+    GuardedRhss anns _ _ _ -> sourceSpanFromAnns anns
 
 exprSpan :: Expr -> Maybe SourceSpan
 exprSpan expr =
   case expr of
     EAnn ann inner ->
-      fromAnnotation @SourceSpan ann <|> exprSpan inner
+      annotationSpan ann <|> exprSpan inner
+    ETc _ inner -> exprSpan inner
     EResolved _ inner -> exprSpan inner
     _ -> Nothing
 

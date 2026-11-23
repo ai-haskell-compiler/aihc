@@ -24,8 +24,11 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), resolvedOf)
-import Aihc.Resolve.Syntax
-  ( Annotation,
+import Aihc.Tc.Syntax.Pending
+  ( infoHasType,
+    infoIsPending,
+    TcInfo (..),
+    Annotation,
     BuiltinCon (..),
     CompStmt (..),
     Decl (..),
@@ -44,8 +47,8 @@ import Aihc.Resolve.Syntax
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotationSpan,
+    mkSpanAnnotation,
     nameText,
     peelDeclAnn,
     peelLiteralAnn,
@@ -85,6 +88,7 @@ patternBinderNames :: Pattern -> [UnqualifiedName]
 patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
+    PTc _ inner -> patternBinderNames inner
     PResolved _ inner -> patternBinderNames inner
     PVar name -> [name]
     PTypeBinder _ -> []
@@ -119,6 +123,7 @@ recStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
+        DoTc _ inner -> stmtBinders inner
         DoResolved _ inner -> stmtBinders inner
         DoRecKnot _ inner -> stmtBinders inner
         DoBind pat _ -> patternBinderNames pat
@@ -142,6 +147,7 @@ compStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         CompAnn _ inner -> stmtBinders inner
+        CompTc _ inner -> stmtBinders inner
         CompGen pat _ -> patternBinderNames pat
         CompLetDecls decls -> concatMap declBinders decls
         _ -> []
@@ -210,6 +216,7 @@ functionArgumentName :: Pattern -> Text
 functionArgumentName pat =
   case pat of
     PAnn _ inner -> functionArgumentName inner
+    PTc _ inner -> functionArgumentName inner
     PResolved _ inner -> functionArgumentName inner
     PVar name -> unqualifiedNameText name
     PParen inner -> functionArgumentName inner
@@ -262,7 +269,7 @@ checkPattern sp pat scrutTy
       (body, typeArgs, predicates) <- instantiatePatternType scrutTy
       wanted <- mapM (predToCt sp "pattern") predicates
       check <- checkPattern sp pat body
-      let annotate = PAnn (mkAnnotation TcPatternInstantiation) . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
+      let annotate = PTc InfoPatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
       pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
   where
     isSigmaType ty = case ty of
@@ -291,6 +298,7 @@ instantiatePatternType = go []
 patternNeedsInstantiation :: Pattern -> Bool
 patternNeedsInstantiation pattern' = case pattern' of
   PAnn _ inner -> patternNeedsInstantiation inner
+  PTc _ inner -> patternNeedsInstantiation inner
   PResolved _ inner -> patternNeedsInstantiation inner
   PParen inner -> patternNeedsInstantiation inner
   PVar {} -> False
@@ -311,6 +319,9 @@ checkPatternWithoutResultType sp pat scrutTy =
         PAnn ann inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+        PTc ann inner -> do
+          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
+          pure innerCheck {pcPatterns = [PTc ann (checkedPattern innerCheck)]}
         PResolved result inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PResolved result (checkedPattern innerCheck)]}
@@ -333,13 +344,14 @@ checkedPatternType sp ty pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
 annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt Nothing pending = PAnn (mkAnnotation pending)
-annotatePendingPatternAt (Just sp) pending = PAnn (mkAnnotation sp) . PAnn (mkAnnotation pending)
+annotatePendingPatternAt Nothing pending = PTc (InfoType pending)
+annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (InfoType pending)
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
   case pat of
     PAnn _ inner -> patternUsesBinderAnnotation inner
+    PTc _ inner -> patternUsesBinderAnnotation inner
     PResolved _ inner -> patternUsesBinderAnnotation inner
     PParen inner -> patternUsesBinderAnnotation inner
     PVar {} -> True
@@ -353,6 +365,7 @@ patternNeedsCheckedType :: Pattern -> Bool
 patternNeedsCheckedType pat =
   case pat of
     PAnn _ inner -> patternNeedsCheckedType inner
+    PTc _ inner -> patternNeedsCheckedType inner
     PResolved _ inner -> patternNeedsCheckedType inner
     PParen inner -> patternNeedsCheckedType inner
     PLit {} -> False
@@ -366,7 +379,8 @@ patternNeedsCheckedType pat =
 patternHasPendingType :: Pattern -> Bool
 patternHasPendingType pat =
   case pat of
-    PAnn ann inner -> annotationHasType ann || patternHasPendingType inner
+    PAnn _ inner -> patternHasPendingType inner
+    PTc info inner -> infoHasType info || patternHasPendingType inner
     PResolved _ inner -> patternHasPendingType inner
     PParen inner -> patternHasPendingType inner
     PLit literal -> literalHasPendingType literal
@@ -378,29 +392,18 @@ patternHasPendingType pat =
 literalHasPendingType :: Literal -> Bool
 literalHasPendingType literal =
   case literal of
-    LitAnn ann inner -> annotationHasType ann || literalHasPendingType inner
+    LitAnn _ inner -> literalHasPendingType inner
+    LitTc info inner -> infoHasType info || literalHasPendingType inner
     _ -> False
 
-annotationIsPending :: Annotation -> Bool
-annotationIsPending ann =
-  case fromAnnotation ann :: Maybe PendingTcAnnotation of
-    Just _ -> True
-    Nothing -> False
-
-annotationHasType :: Annotation -> Bool
-annotationHasType ann =
-  annotationIsPending ann
-    || case fromAnnotation ann :: Maybe TcAnnotation of
-      Just _ -> True
-      Nothing -> False
-
 sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
-sourceSpanFromAnnotations = listToMaybe . mapMaybe (fromAnnotation @SourceSpan)
+sourceSpanFromAnnotations = listToMaybe . mapMaybe (annotationSpan)
 
 patternOwnSpan :: Pattern -> Maybe SourceSpan
 patternOwnSpan pat =
   case pat of
-    PAnn ann inner -> fromAnnotation @SourceSpan ann <|> patternOwnSpan inner
+    PAnn ann inner -> annotationSpan ann <|> patternOwnSpan inner
+    PTc _ inner -> patternOwnSpan inner
     PResolved _ inner -> patternOwnSpan inner
     PVar name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
     PParen inner -> patternOwnSpan inner
@@ -419,7 +422,8 @@ patternOwnSpan pat =
 viewExprSpan :: Expr -> Maybe SourceSpan
 viewExprSpan expr =
   case expr of
-    EAnn ann inner -> fromAnnotation @SourceSpan ann <|> viewExprSpan inner
+    EAnn ann inner -> annotationSpan ann <|> viewExprSpan inner
+    ETc _ inner -> viewExprSpan inner
     EResolved _ inner -> viewExprSpan inner
     EVar name -> sourceSpanFromAnnotations (nameAnns name)
     EParen inner -> viewExprSpan inner
@@ -435,6 +439,9 @@ checkPatternCore sp pat scrutTy =
     PAnn ann inner -> do
       innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+    PTc ann inner -> do
+      innerCheck <- checkPattern sp inner scrutTy
+      pure innerCheck {pcPatterns = [PTc ann (checkedPattern innerCheck)]}
     PResolved result inner -> do
       innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PResolved result (checkedPattern innerCheck)]}
@@ -454,7 +461,7 @@ checkPatternCore sp pat scrutTy =
             -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              let castPattern = PAnn (mkAnnotation (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit (checkedLiteral literalTy lit))
+              let castPattern = PTc (InfoCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit (checkedLiteral literalTy lit))
               pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
             Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
     PNegLit lit
@@ -616,7 +623,7 @@ checkTuplePattern sp flavor items scrutTy = do
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
   let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
-      castPattern = PAnn (mkAnnotation (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
+      castPattern = PTc (InfoCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
 
 -- | Whether a pattern contains a constructor pattern.
@@ -628,6 +635,7 @@ containsConstructorPattern pat =
     PInfix {} -> True
     PRecord {} -> True
     PAnn _ inner -> containsConstructorPattern inner
+    PTc _ inner -> containsConstructorPattern inner
     PResolved _ inner -> containsConstructorPattern inner
     PParen inner -> containsConstructorPattern inner
     PAs _ inner -> containsConstructorPattern inner
@@ -644,7 +652,7 @@ checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
 
 checkedLiteral :: TcType -> Literal -> Literal
-checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
+checkedLiteral ty = LitTc (InfoType (pendingAnnotation ty [] [] []))
 
 checkListPattern :: Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
 checkListPattern sp items scrutTy =
@@ -790,6 +798,7 @@ checkedLiteralPattern :: TcType -> Pattern -> Pattern
 checkedLiteralPattern ty pat =
   case pat of
     PAnn ann inner -> PAnn ann (checkedLiteralPattern ty inner)
+    PTc ann inner -> PTc ann (checkedLiteralPattern ty inner)
     PResolved ann inner -> PResolved ann (checkedLiteralPattern ty inner)
     PParen inner -> PParen (checkedLiteralPattern ty inner)
     PStrict inner -> PStrict (checkedLiteralPattern ty inner)
@@ -884,6 +893,7 @@ checkOverloadedListPattern sp pat items scrutTy = do
     replaceAnnotatedPattern new pattern' =
       case pattern' of
         PAnn ann inner -> PAnn ann (replaceAnnotatedPattern new inner)
+        PTc ann inner -> PTc ann (replaceAnnotatedPattern new inner)
         PResolved ann inner -> PResolved ann (replaceAnnotatedPattern new inner)
         _ -> new
 
@@ -989,6 +999,7 @@ patternResolutions :: Pattern -> [Resolved]
 patternResolutions pat =
   case pat of
     PAnn _ inner -> patternResolutions inner
+    PTc _ inner -> patternResolutions inner
     PResolved result inner -> maybeToList (resolvedOf result) <> patternResolutions inner
     PParen inner -> patternResolutions inner
     PStrict inner -> patternResolutions inner
@@ -1001,12 +1012,13 @@ attachPendingPatternAnnotation :: Text -> PendingTcAnnotation -> Pattern -> Patt
 attachPendingPatternAnnotation target pending pat =
   case pat of
     PAnn ann inner -> PAnn ann (attachPendingPatternAnnotation target pending inner)
+    PTc ann inner -> PTc ann (attachPendingPatternAnnotation target pending inner)
     PResolved result inner ->
       case result of
         ResolutionOk resolution
           | resolutionIdentifier resolution == IdentifierNamed target,
             resolutionNamespace resolution == ResolutionNamespaceTerm ->
-              PAnn (mkAnnotation pending) (PResolved result inner)
+              PTc (InfoType pending) (PResolved result inner)
         _ -> PResolved result (attachPendingPatternAnnotation target pending inner)
     PParen inner -> PParen (attachPendingPatternAnnotation target pending inner)
     PStrict inner -> PStrict (attachPendingPatternAnnotation target pending inner)
@@ -1030,8 +1042,8 @@ reannotatePatternBinders pendings = mapPatternBinderNames replaceBinderAnnotatio
         Nothing -> name
         Just pending ->
           name
-            { unqualifiedNameAnns =
-                [ann | ann <- unqualifiedNameAnns name, not (annotationIsPending ann)] <> [mkAnnotation pending]
+            { unqualifiedNameTc =
+                [item | item <- unqualifiedNameTc name, not (infoIsPending item)] <> [InfoType pending]
             }
 
 -- | Apply a function to every named binder of a pattern.
@@ -1042,6 +1054,7 @@ mapPatternBinderNames annotateBinder =
     go pat =
       case pat of
         PAnn ann inner -> PAnn ann (go inner)
+        PTc ann inner -> PTc ann (go inner)
         PResolved ann inner -> PResolved ann (go inner)
         PVar name -> PVar (annotateBinder name)
         PNPlusK name literal -> PNPlusK (annotateBinder name) literal
@@ -1069,8 +1082,8 @@ annotateBinderName bindings name =
   case lookup name bindings of
     Nothing -> name
     Just ty
-      | any annotationIsPending (unqualifiedNameAnns name) -> name
-      | otherwise -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
+      | any infoIsPending (unqualifiedNameTc name) -> name
+      | otherwise -> name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoType (pendingAnnotation ty [] [] [])]}
 
 checkConPattern :: Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern sp originalPat conSyntax subPats scrutTy = do
@@ -1113,7 +1126,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcTyVars = boundTyVars <> pcTyVars subCheck,
-            pcPatterns = [PAnn (mkAnnotation (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
+            pcPatterns = [PTc (InfoCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
@@ -1348,6 +1361,7 @@ patternCanFail :: Pattern -> TcM Bool
 patternCanFail pat =
   case pat of
     PAnn _ inner -> patternCanFail inner
+    PTc _ inner -> patternCanFail inner
     PResolved _ inner -> patternCanFail inner
     PParen inner -> patternCanFail inner
     PAs _ inner -> patternCanFail inner
@@ -1434,10 +1448,10 @@ splitMatchType ty matches =
           result <- freshMetaTv
           evidence <- freshEvVar
           let arrow = foldr TcFunTy result hidden
-              location = listToMaybe (mapMaybe (fromAnnotation @SourceSpan) (matchAnns first))
+              location = listToMaybe (mapMaybe (annotationSpan) (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
-              annotation = mkAnnotation (PendingTcMatchArityCast arrow evidence)
-          pure (shown <> hidden, result, first {matchAnns = annotation : matchAnns first} : rest, [wanted])
+              item = InfoMatchArityCast (PendingTcMatchArityCast arrow evidence)
+          pure (shown <> hidden, result, first {matchTc = item : matchTc first} : rest, [wanted])
     _ -> pure (shown, shownResult, matches, [])
   where
     arity =

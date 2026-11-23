@@ -1,10 +1,11 @@
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Type checker annotations for AST nodes.
+-- | The information that the type checker finds for the syntax tree.
 --
--- Following the pattern established by @aihc-resolve@, the type checker
--- attaches its results as 'Annotation' values on AST nodes using the
--- existing 'DeclAnn'/'EAnn'/'PAnn'/'TAnn' wrappers.
+-- The trees of "Aihc.Tc.Syntax.Pending" and "Aihc.Tc.Syntax" hold these
+-- types in explicit fields. The bridge to the parser tree puts each of them
+-- into an 'Aihc.Parser.Syntax.Annotation' for the phases after the type
+-- checker.
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
@@ -12,12 +13,6 @@ module Aihc.Tc.Annotations
     TcCastAnnotation (..),
     PendingTcCastAnnotation (..),
     CastDirection (..),
-    annotateRhsCast,
-    annotateExprCast,
-    annotateFunCast,
-    annotateSigCast,
-    annotateBranchCast,
-    annotateDoStmtCast,
     TcMatchArityCast (..),
     PendingTcMatchArityCast (..),
     TcForeignImportAnnotation (..),
@@ -52,7 +47,6 @@ module Aihc.Tc.Annotations
     -- * Pattern synonyms for extracting annotations
 
     -- * Helpers
-    annotateDecl,
     pendingAnnotation,
     pendingTypeLambdaAnnotation,
 
@@ -68,14 +62,7 @@ where
 
 import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
-import Aihc.Resolve.Syntax
-  ( Decl (..),
-    DoStmt (..),
-    Expr (..),
-    Rhs (..),
-    SourceSpan,
-    mkAnnotation,
-  )
+import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
@@ -109,55 +96,6 @@ data CastDirection
   | -- | The wanted is @target ~ source@: the cast is its @sym@.
     CastToLeft
   deriving (Eq, Show)
-
-annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
-annotateRhsCast ty evidence rhs =
-  let annotation = mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight)
-   in case rhs of
-        UnguardedRhs annotations body locals -> UnguardedRhs (annotation : annotations) body locals
-        GuardedRhss annotations bodies locals -> GuardedRhss (annotation : annotations) bodies locals
-
--- | Cast an expression onto the left type of its wanted equality. An
--- application argument is checked as @expected ~ actual@, so a given
--- equality that proves it runs backwards for the argument itself.
-annotateExprCast :: TcType -> EvVar -> Expr -> Expr
-annotateExprCast ty evidence =
-  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToLeft))
-
--- | Cast an expression onto the right type of its wanted equality. The
--- function of an application whose type is not syntactically an arrow is
--- equated as @actual ~ (argument -> result)@, so the proof runs forwards
--- for the function itself.
-annotateFunCast :: TcType -> EvVar -> Expr -> Expr
-annotateFunCast ty evidence =
-  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
-
--- | Cast an annotated expression onto its signature type. The expression
--- is equated as @actual ~ signature@, so the proof runs forwards. A given
--- equality can be what proves it: with the given @d ~ Maybe x@ the
--- expression @Proxy :: Proxy d@ has the type @Proxy (Maybe x)@ where it
--- stands, and FC needs the cast onto @Proxy d@.
-annotateSigCast :: TcType -> EvVar -> Expr -> Expr
-annotateSigCast ty evidence =
-  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
-
--- | Cast a part of an @if@ expression onto the type that the expression
--- needs there. The part is equated as @actual ~ needed@, so the proof
--- runs forwards. A given equality can prove it: with the given
--- @N t ~ n@, the branches of @if c then lower s else param s@ can have
--- the types @N t@ and @n@.
-annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
-annotateBranchCast ty evidence =
-  EAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
-
--- | Cast the sequencing method of a @do@ statement onto the type the
--- statement uses it at. The method is equated as
--- @method ~ (action -> continuation -> block)@, so the proof runs forwards
--- for the method. The desugarer applies the cast to the method occurrence,
--- because the statement has no expression node for it.
-annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
-annotateDoStmtCast ty evidence =
-  DoAnn (mkAnnotation (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Function equations that bind more arguments than the checked type
 -- shows. The annotation is on the first equation. The result of the
@@ -541,10 +479,6 @@ data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
     tcInstanceMethodType :: !TcType
   }
   deriving (Eq, Show)
-
--- | Wrap a declaration with a type annotation.
-annotateDecl :: TcAnnotation -> Decl -> Decl
-annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
 pendingAnnotation ty typeArgs evidenceVars =

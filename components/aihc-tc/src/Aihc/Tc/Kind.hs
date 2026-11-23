@@ -52,8 +52,9 @@ module Aihc.Tc.Kind
 where
 
 import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
-import Aihc.Resolve.Syntax
-  ( BuiltinCon (..),
+import Aihc.Tc.Syntax.Pending
+  ( TcInfo (..),
+    BuiltinCon (..),
     ForallTelescope (..),
     ForallVis (..),
     Name (..),
@@ -68,7 +69,7 @@ import Aihc.Resolve.Syntax
     TypePromotion (..),
     UnqualifiedName (..),
     forallTelescopeBinders,
-    fromAnnotation,
+    annotationSpan,
     instanceHeadName,
     nameText,
     peelTypeHead,
@@ -364,7 +365,7 @@ checkSurfaceType tvEnv ty expected = do
 surfaceTypeSpan :: Type -> Maybe SourceSpan
 surfaceTypeSpan ty =
   case ty of
-    TAnn ann inner -> fromAnnotation ann <|> surfaceTypeSpan inner
+    TAnn ann inner -> annotationSpan ann <|> surfaceTypeSpan inner
     TResolved _ inner -> surfaceTypeSpan inner
     TParen inner -> surfaceTypeSpan inner
     _ -> Nothing
@@ -1039,7 +1040,7 @@ typeVariableOperator name promotion
   | promotion == Unpromoted,
     isNothing (nameQualifier name),
     nameType name == NameVarId =
-      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name))
+      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name) (nameTc name))
   | otherwise = Nothing
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)

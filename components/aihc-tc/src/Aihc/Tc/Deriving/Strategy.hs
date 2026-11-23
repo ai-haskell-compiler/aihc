@@ -12,8 +12,9 @@ module Aihc.Tc.Deriving.Strategy
   )
 where
 
-import Aihc.Resolve.Syntax
-  ( DerivingStrategy (..),
+import Aihc.Tc.Syntax.Pending
+  ( TcInfo (..),
+    DerivingStrategy (..),
     Extension (..),
     SourceSpan,
   )
