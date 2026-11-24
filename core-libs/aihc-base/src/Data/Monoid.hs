@@ -74,6 +74,18 @@ instance (Ord a, Bounded a) => Monoid (Max a) where
 
 deriving newtype instance (Monoid m) => Monoid (WrappedMonoid m)
 
+deriving stock instance (Read a) => Read (Dual a)
+
+deriving stock instance (Show a) => Show (Dual a)
+
+deriving stock instance (Read a) => Read (Sum a)
+
+deriving stock instance (Show a) => Show (Sum a)
+
+deriving stock instance (Read a) => Read (Product a)
+
+deriving stock instance (Show a) => Show (Product a)
+
 deriving stock instance Read All
 
 deriving stock instance Show All
