@@ -45,6 +45,7 @@ library
     tasty-hedgehog,
     tasty-hunit,
     text,
+    transformers,
     yaml,
 
   ghc-options: -Wall

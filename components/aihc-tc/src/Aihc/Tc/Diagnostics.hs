@@ -1,17 +1,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
--- | Give type diagnostics to the modules of the final tree, and attach
--- them to their source nodes in the bridge to the parser tree.
+-- | Give type diagnostics to the modules of the final tree, and put them
+-- in the order of the syntax nodes that they belong to.
 module Aihc.Tc.Diagnostics
   ( annotateModuleDiagnostics,
     attachSccDiagnostics,
-    checkedParserModule,
     internalAbortDiagnostic,
+    moduleDiagnostics,
   )
 where
 
-import Aihc.Parser.Syntax qualified as P
-import Aihc.Resolve.Syntax
+import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Syntax
   ( Annotation,
     ArithSeq (..),
     ClassDeclItem (..),
@@ -30,18 +31,12 @@ import Aihc.Resolve.Syntax
     Pattern (..),
     SourceSpan,
     Type (..),
-    fromAnnotation,
-    mkAnnotation,
+    annotationSpan,
     sourceSpanSourceName,
   )
-import Aihc.Resolve.Syntax.ToParser (toParserModule)
-import Aihc.Resolve.Syntax.Traverse (Walk (..), idWalk, walk)
-import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.ToResolved (ToResolved (..))
-import Aihc.Tc.Syntax.Traverse (collectAnnotations)
+import Aihc.Tc.Syntax.Traverse (Walk (..), collectAnnotations, idWalk, walk)
 import Control.Applicative ((<|>))
-import Control.Monad.Trans.State.Strict (State, get, put, runState)
+import Control.Monad.Trans.State.Strict (State, execState, get, modify', put)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -55,7 +50,7 @@ import Data.Text (Text)
 -- located diagnostics is attached in one walk of the module, because a
 -- walk for each diagnostic makes a large module with many diagnostics
 -- quadratic.
-attachSccDiagnostics :: [TcDiagnostic] -> [Final.Module] -> [Final.Module]
+attachSccDiagnostics :: [TcDiagnostic] -> [Module] -> [Module]
 attachSccDiagnostics diagnostics modules =
   zipWith annotateInOrder [0 :: Int ..] modules
   where
@@ -65,7 +60,7 @@ attachSccDiagnostics diagnostics modules =
     -- included file. Thus a diagnostic that matches no module source name
     -- goes to the module that contains its exact span. The span sets are
     -- lazy, so they are made only for such a diagnostic.
-    moduleSpans = map (Set.fromList . collectAnnotations (fromAnnotation @SourceSpan)) modules
+    moduleSpans = map (Set.fromList . collectAnnotations annotationSpan) modules
     routed = concatMap route diagnostics
     route diagnostic =
       case diagLoc diagnostic of
@@ -88,28 +83,40 @@ diagnosticRuns :: [TcDiagnostic] -> [[TcDiagnostic]]
 diagnosticRuns =
   List.groupBy (\left right -> isJust (diagLoc left) && isJust (diagLoc right))
 
-moduleSourceNames :: Final.Module -> [Text]
+moduleSourceNames :: Module -> [Text]
 moduleSourceNames modu =
-  map sourceSpanSourceName (maybeToList (spanFromAnnotations (Final.moduleAnns modu)))
+  map sourceSpanSourceName (maybeToList (spanFromAnnotations (moduleAnns modu)))
 
--- | Give a module one group of diagnostics. The bridge to the parser tree
--- attaches the group in one walk.
-annotateModuleDiagnostics :: [TcDiagnostic] -> Final.Module -> Final.Module
+-- | Give a module one group of diagnostics.
+annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
 annotateModuleDiagnostics diagnostics m =
-  m {Final.moduleTcDiagnostics = Final.moduleTcDiagnostics m <> [diagnostics]}
+  m {moduleTcDiagnostics = moduleTcDiagnostics m <> [diagnostics]}
 
--- | The parser tree of a checked module. Each diagnostic of the module is
--- an annotation on the node of its exact span, or on the module when it
--- has no span.
-checkedParserModule :: Final.Module -> P.Module
-checkedParserModule m =
-  toParserModule (foldl (flip attachModuleDiagnostics) (toResolved m) (Final.moduleTcDiagnostics m))
+-- | The diagnostics of a module, in the order of the syntax nodes that
+-- they belong to.
+--
+-- A located diagnostic belongs to the innermost node that has its exact
+-- span. When a child and its parent have the same span, the child thus
+-- wins. A located diagnostic must never guess: if no node has its exact
+-- span, the type checker stops. An unlocated diagnostic belongs to the
+-- annotation list of the module, after the located diagnostics of that
+-- list.
+--
+-- The nodes come in source order, a parent before its children. The
+-- diagnostics of one node come in the order of their groups, and in their
+-- original order in each group.
+moduleDiagnostics :: Module -> [TcDiagnostic]
+moduleDiagnostics m =
+  map snd (List.sortOn fst (concatMap groupEntries (moduleTcDiagnostics m)))
+  where
+    groupEntries diagnostics =
+      let (located, unlocated) = partitionDiagnostics diagnostics
+       in locatedEntries m located <> map (moduleAnnotationsNode,) unlocated
 
-attachModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
-attachModuleDiagnostics diagnostics m =
-  let (located, unlocated) = partitionDiagnostics diagnostics
-      moduleWithLocated = attachLocatedDiagnostics m located
-   in moduleWithLocated {moduleAnns = moduleAnns moduleWithLocated <> map mkAnnotation unlocated}
+-- | The node number of the annotation list of a module. The walk visits
+-- that list first.
+moduleAnnotationsNode :: Int
+moduleAnnotationsNode = 0
 
 partitionDiagnostics :: [TcDiagnostic] -> ([(SourceSpan, TcDiagnostic)], [TcDiagnostic])
 partitionDiagnostics =
@@ -120,156 +127,171 @@ partitionDiagnostics =
         Just sp -> ((sp, diagnostic) : located, unlocated)
         Nothing -> (located, diagnostic : unlocated)
 
--- | Attach located diagnostics in one walk of the module. The diagnostics
--- of one span go to the same node, in their original order.
-attachLocatedDiagnostics :: Module -> [(SourceSpan, TcDiagnostic)] -> Module
-attachLocatedDiagnostics m [] = m
-attachLocatedDiagnostics m located =
-  case runState (attachDiagnosticsAt m) pending of
-    (m', remaining) ->
-      case List.find (`Map.member` remaining) (map fst located) of
-        Nothing -> m'
+-- | The state of the walk that finds the node of each located diagnostic.
+data Placement = Placement
+  { -- | The number of the next node, in source order.
+    placementNext :: !Int,
+    -- | The diagnostics that have no node yet, by their span.
+    placementPending :: !(Map SourceSpan [TcDiagnostic]),
+    -- | The node number of each placed diagnostic, last placement first.
+    placementPlaced :: ![(Int, TcDiagnostic)]
+  }
+
+-- | Find the node of each located diagnostic in one walk of the module.
+-- The diagnostics of one span go to the same node, in their original
+-- order.
+locatedEntries :: Module -> [(SourceSpan, TcDiagnostic)] -> [(Int, TcDiagnostic)]
+locatedEntries _ [] = []
+locatedEntries m located =
+  case execState (walk placementWalk m) (Placement 0 pending []) of
+    placement ->
+      case List.find (`Map.member` placementPending placement) (map fst located) of
+        Nothing -> reverse (placementPlaced placement)
         Just sp ->
           error ("type checker diagnostic has no matching syntax node for source span: " <> show sp)
   where
     pending = Map.fromListWith (flip (<>)) [(sp, [diagnostic]) | (sp, diagnostic) <- located]
 
--- Attach bottom-up so an exact child span wins over an exact parent span.
--- Located diagnostics must never guess: if no exact syntax span exists, abort.
-attachDiagnosticsAt :: Module -> State (Map SourceSpan [TcDiagnostic]) Module
-attachDiagnosticsAt =
-  walk
-    idWalk
-      { walkAnnotationList = attachAt spanFromAnnotations (<>),
-        walkExpr = attachWrapped peelExprAnnOnce EAnn,
-        walkPattern = attachWrapped peelPatternAnnOnce PAnn,
-        walkType = attachWrapped peelTypeAnnOnce TAnn,
-        walkDecl = attachWrapped peelDeclAnnOnce DeclAnn,
-        walkDataConDecl = attachWrapped peelDataConAnnOnce DataConAnn,
-        walkLiteral = attachWrapped peelLiteralAnnOnce LitAnn,
-        walkGuardQualifier = attachWrapped peelGuardAnnOnce GuardAnn,
-        walkDoStmt = attachWrapped peelDoAnnOnce DoAnn,
-        walkCompStmt = attachWrapped peelCompAnnOnce CompAnn,
-        walkArithSeq = attachWrapped peelArithSeqAnnOnce ArithSeqAnn,
-        walkClassDeclItem = attachWrapped peelClassItemAnnOnce ClassItemAnn,
-        walkInstanceDeclItem = attachWrapped peelInstanceItemAnnOnce InstanceItemAnn,
-        walkCmd = attachWrapped peelCmdAnnOnce CmdAnn,
-        walkExportSpec = attachWrapped peelExportAnnOnce ExportAnn,
-        walkImportItem = attachWrapped peelImportAnnOnce ImportAnn
-      }
+-- Give each node its number before the walk of its children. Place the
+-- diagnostics after the walk of the children, so an exact child span wins
+-- over an exact parent span.
+placementWalk :: Walk (State Placement)
+placementWalk =
+  idWalk
+    { walkAnnotationList = placeAt spanFromAnnotations,
+      walkExpr = placeAt (wrappedSpan peelExprOnce),
+      walkPattern = placeAt (wrappedSpan peelPatternOnce),
+      walkType = placeAt (wrappedSpan peelTypeOnce),
+      walkDecl = placeAt (wrappedSpan peelDeclOnce),
+      walkDataConDecl = placeAt (wrappedSpan peelDataConOnce),
+      walkLiteral = placeAt (wrappedSpan peelLiteralOnce),
+      walkGuardQualifier = placeAt (wrappedSpan peelGuardOnce),
+      walkDoStmt = placeAt (wrappedSpan peelDoOnce),
+      walkCompStmt = placeAt (wrappedSpan peelCompOnce),
+      walkArithSeq = placeAt (wrappedSpan peelArithSeqOnce),
+      walkClassDeclItem = placeAt (wrappedSpan peelClassItemOnce),
+      walkInstanceDeclItem = placeAt (wrappedSpan peelInstanceItemOnce),
+      walkCmd = placeAt (wrappedSpan peelCmdOnce),
+      walkExportSpec = placeAt (wrappedSpan peelExportOnce),
+      walkImportItem = placeAt (wrappedSpan peelImportOnce)
+    }
   where
-    -- A node that wraps its annotations one by one. The first diagnostic
-    -- becomes the outermost wrapper, as when each diagnostic is attached
-    -- in a walk of its own.
-    attachWrapped :: (node -> Maybe ([Annotation], node)) -> (Annotation -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
-    attachWrapped peel wrap = attachAt (wrappedSpan peel) (flip (foldr wrap))
-
-    -- Walk the children first, then attach the diagnostics of the exact
-    -- span of the node, if any are pending.
-    attachAt :: (node -> Maybe SourceSpan) -> ([Annotation] -> node -> node) -> (node -> State (Map SourceSpan [TcDiagnostic]) node) -> node -> State (Map SourceSpan [TcDiagnostic]) node
-    attachAt spanOf attach children node = do
+    placeAt :: (node -> Maybe SourceSpan) -> (node -> State Placement node) -> node -> State Placement node
+    placeAt spanOf children node = do
+      placement <- get
+      let index = placementNext placement
+      put placement {placementNext = index + 1}
       node' <- children node
-      pending <- get
-      if Map.null pending
-        then pure node'
-        else case spanOf node' >>= \sp -> (,) sp <$> Map.lookup sp pending of
-          Nothing -> pure node'
-          Just (sp, diagnostics) -> do
-            put (Map.delete sp pending)
-            pure (attach (map mkAnnotation diagnostics) node')
+      modify' (place index (spanOf node))
+      pure node'
 
--- | The span of the leading wrappers of a node. A resolution wrapper of
--- the resolved syntax tree has no annotation, and the peel goes through it.
+    place index span' placement
+      | Map.null (placementPending placement) = placement
+      | otherwise =
+          case span' >>= \sp -> (,) sp <$> Map.lookup sp (placementPending placement) of
+            Nothing -> placement
+            Just (sp, diagnostics) ->
+              placement
+                { placementPending = Map.delete sp (placementPending placement),
+                  placementPlaced = reverse (map (index,) diagnostics) <> placementPlaced placement
+                }
+
+-- | The span of the leading wrappers of a node. A wrapper that holds a
+-- resolution, an error, or type checker information has no span, and the
+-- peel goes through it.
 wrappedSpan :: (node -> Maybe ([Annotation], node)) -> node -> Maybe SourceSpan
 wrappedSpan peel =
-  spanFromAnnotations . fst . peelLeading peel
-
-peelLeading :: (node -> Maybe ([Annotation], node)) -> node -> ([Annotation], node)
-peelLeading peel =
-  go []
+  go
   where
-    go anns node =
+    go node =
       case peel node of
-        Just (nodeAnns, inner) -> go (reverse nodeAnns <> anns) inner
-        Nothing -> (reverse anns, node)
+        Just (anns, inner) -> spanFromAnnotations anns <|> go inner
+        Nothing -> Nothing
 
-peelExprAnnOnce :: Expr -> Maybe ([Annotation], Expr)
-peelExprAnnOnce (EAnn ann inner) = Just ([ann], inner)
-peelExprAnnOnce (EResolved _ inner) = Just ([], inner)
-peelExprAnnOnce _ = Nothing
+peelExprOnce :: Expr -> Maybe ([Annotation], Expr)
+peelExprOnce (EAnn ann inner) = Just ([ann], inner)
+peelExprOnce (ETc _ inner) = Just ([], inner)
+peelExprOnce (EResolved _ inner) = Just ([], inner)
+peelExprOnce _ = Nothing
 
-peelPatternAnnOnce :: Pattern -> Maybe ([Annotation], Pattern)
-peelPatternAnnOnce (PAnn ann inner) = Just ([ann], inner)
-peelPatternAnnOnce (PResolved _ inner) = Just ([], inner)
-peelPatternAnnOnce _ = Nothing
+peelPatternOnce :: Pattern -> Maybe ([Annotation], Pattern)
+peelPatternOnce (PAnn ann inner) = Just ([ann], inner)
+peelPatternOnce (PTc _ inner) = Just ([], inner)
+peelPatternOnce (PResolved _ inner) = Just ([], inner)
+peelPatternOnce _ = Nothing
 
-peelTypeAnnOnce :: Type -> Maybe ([Annotation], Type)
-peelTypeAnnOnce (TAnn ann inner) = Just ([ann], inner)
-peelTypeAnnOnce (TResolved _ inner) = Just ([], inner)
-peelTypeAnnOnce _ = Nothing
+peelTypeOnce :: Type -> Maybe ([Annotation], Type)
+peelTypeOnce (TAnn ann inner) = Just ([ann], inner)
+peelTypeOnce (TResolved _ inner) = Just ([], inner)
+peelTypeOnce _ = Nothing
 
-peelDeclAnnOnce :: Decl -> Maybe ([Annotation], Decl)
-peelDeclAnnOnce (DeclAnn ann inner) = Just ([ann], inner)
-peelDeclAnnOnce (DeclError _ inner) = Just ([], inner)
-peelDeclAnnOnce _ = Nothing
+peelDeclOnce :: Decl -> Maybe ([Annotation], Decl)
+peelDeclOnce (DeclAnn ann inner) = Just ([ann], inner)
+peelDeclOnce (DeclTc _ inner) = Just ([], inner)
+peelDeclOnce (DeclError _ inner) = Just ([], inner)
+peelDeclOnce _ = Nothing
 
-peelDataConAnnOnce :: DataConDecl -> Maybe ([Annotation], DataConDecl)
-peelDataConAnnOnce (DataConAnn ann inner) = Just ([ann], inner)
-peelDataConAnnOnce (DataConResolved _ inner) = Just ([], inner)
-peelDataConAnnOnce _ = Nothing
+peelDataConOnce :: DataConDecl -> Maybe ([Annotation], DataConDecl)
+peelDataConOnce (DataConAnn ann inner) = Just ([ann], inner)
+peelDataConOnce (DataConTc _ inner) = Just ([], inner)
+peelDataConOnce (DataConResolved _ inner) = Just ([], inner)
+peelDataConOnce _ = Nothing
 
-peelLiteralAnnOnce :: Literal -> Maybe ([Annotation], Literal)
-peelLiteralAnnOnce (LitAnn ann inner) = Just ([ann], inner)
-peelLiteralAnnOnce _ = Nothing
+peelLiteralOnce :: Literal -> Maybe ([Annotation], Literal)
+peelLiteralOnce (LitAnn ann inner) = Just ([ann], inner)
+peelLiteralOnce (LitTc _ inner) = Just ([], inner)
+peelLiteralOnce _ = Nothing
 
-peelGuardAnnOnce :: GuardQualifier -> Maybe ([Annotation], GuardQualifier)
-peelGuardAnnOnce (GuardAnn ann inner) = Just ([ann], inner)
-peelGuardAnnOnce _ = Nothing
+peelGuardOnce :: GuardQualifier -> Maybe ([Annotation], GuardQualifier)
+peelGuardOnce (GuardAnn ann inner) = Just ([ann], inner)
+peelGuardOnce _ = Nothing
 
-peelDoAnnOnce :: DoStmt body -> Maybe ([Annotation], DoStmt body)
-peelDoAnnOnce (DoAnn ann inner) = Just ([ann], inner)
-peelDoAnnOnce (DoResolved _ inner) = Just ([], inner)
-peelDoAnnOnce (DoRecKnot _ inner) = Just ([], inner)
-peelDoAnnOnce _ = Nothing
+peelDoOnce :: DoStmt body -> Maybe ([Annotation], DoStmt body)
+peelDoOnce (DoAnn ann inner) = Just ([ann], inner)
+peelDoOnce (DoTc _ inner) = Just ([], inner)
+peelDoOnce (DoResolved _ inner) = Just ([], inner)
+peelDoOnce (DoRecKnot _ inner) = Just ([], inner)
+peelDoOnce _ = Nothing
 
-peelCompAnnOnce :: CompStmt -> Maybe ([Annotation], CompStmt)
-peelCompAnnOnce (CompAnn ann inner) = Just ([ann], inner)
-peelCompAnnOnce _ = Nothing
+peelCompOnce :: CompStmt -> Maybe ([Annotation], CompStmt)
+peelCompOnce (CompAnn ann inner) = Just ([ann], inner)
+peelCompOnce (CompTc _ inner) = Just ([], inner)
+peelCompOnce _ = Nothing
 
-peelArithSeqAnnOnce :: ArithSeq -> Maybe ([Annotation], ArithSeq)
-peelArithSeqAnnOnce (ArithSeqAnn ann inner) = Just ([ann], inner)
-peelArithSeqAnnOnce (ArithSeqResolved _ inner) = Just ([], inner)
-peelArithSeqAnnOnce _ = Nothing
+peelArithSeqOnce :: ArithSeq -> Maybe ([Annotation], ArithSeq)
+peelArithSeqOnce (ArithSeqAnn ann inner) = Just ([ann], inner)
+peelArithSeqOnce (ArithSeqTc _ inner) = Just ([], inner)
+peelArithSeqOnce (ArithSeqResolved _ inner) = Just ([], inner)
+peelArithSeqOnce _ = Nothing
 
-peelClassItemAnnOnce :: ClassDeclItem -> Maybe ([Annotation], ClassDeclItem)
-peelClassItemAnnOnce (ClassItemAnn ann inner) = Just ([ann], inner)
-peelClassItemAnnOnce (ClassItemError _ inner) = Just ([], inner)
-peelClassItemAnnOnce _ = Nothing
+peelClassItemOnce :: ClassDeclItem -> Maybe ([Annotation], ClassDeclItem)
+peelClassItemOnce (ClassItemAnn ann inner) = Just ([ann], inner)
+peelClassItemOnce (ClassItemTc _ inner) = Just ([], inner)
+peelClassItemOnce (ClassItemError _ inner) = Just ([], inner)
+peelClassItemOnce _ = Nothing
 
-peelInstanceItemAnnOnce :: InstanceDeclItem -> Maybe ([Annotation], InstanceDeclItem)
-peelInstanceItemAnnOnce (InstanceItemAnn ann inner) = Just ([ann], inner)
-peelInstanceItemAnnOnce (InstanceItemError _ inner) = Just ([], inner)
-peelInstanceItemAnnOnce _ = Nothing
+peelInstanceItemOnce :: InstanceDeclItem -> Maybe ([Annotation], InstanceDeclItem)
+peelInstanceItemOnce (InstanceItemAnn ann inner) = Just ([ann], inner)
+peelInstanceItemOnce (InstanceItemTc _ inner) = Just ([], inner)
+peelInstanceItemOnce (InstanceItemError _ inner) = Just ([], inner)
+peelInstanceItemOnce _ = Nothing
 
-peelCmdAnnOnce :: Cmd -> Maybe ([Annotation], Cmd)
-peelCmdAnnOnce (CmdAnn ann inner) = Just ([ann], inner)
-peelCmdAnnOnce _ = Nothing
+peelCmdOnce :: Cmd -> Maybe ([Annotation], Cmd)
+peelCmdOnce (CmdAnn ann inner) = Just ([ann], inner)
+peelCmdOnce _ = Nothing
 
-peelExportAnnOnce :: ExportSpec -> Maybe ([Annotation], ExportSpec)
-peelExportAnnOnce (ExportAnn ann inner) = Just ([ann], inner)
-peelExportAnnOnce _ = Nothing
+peelExportOnce :: ExportSpec -> Maybe ([Annotation], ExportSpec)
+peelExportOnce (ExportAnn ann inner) = Just ([ann], inner)
+peelExportOnce _ = Nothing
 
-peelImportAnnOnce :: ImportItem -> Maybe ([Annotation], ImportItem)
-peelImportAnnOnce (ImportAnn ann inner) = Just ([ann], inner)
-peelImportAnnOnce (ImportItemError _ inner) = Just ([], inner)
-peelImportAnnOnce _ = Nothing
+peelImportOnce :: ImportItem -> Maybe ([Annotation], ImportItem)
+peelImportOnce (ImportAnn ann inner) = Just ([ann], inner)
+peelImportOnce (ImportItemError _ inner) = Just ([], inner)
+peelImportOnce _ = Nothing
 
 spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =
-  foldr ((<|>) . spanFromAnnotation) Nothing
-
-spanFromAnnotation :: Annotation -> Maybe SourceSpan
-spanFromAnnotation = fromAnnotation
+  foldr ((<|>) . annotationSpan) Nothing
 
 internalAbortDiagnostic :: String -> TcDiagnostic
 internalAbortDiagnostic msg =

@@ -14,23 +14,22 @@ module Aihc.Play.Types
   )
 where
 
-import Aihc.Parser.Syntax
+import Aihc.Play.Json (Json (..))
+import Aihc.Tc (TcBindingResult (..), TcType, TcWiring, renderTcTypeInModule, tcModuleBindings)
+import Aihc.Tc.Syntax
   ( Decl (..),
     Module (..),
     Pattern (..),
     SourceSpan,
     UnqualifiedName (..),
     ValueDecl (..),
-    fromAnnotation,
+    annotationSpan,
     moduleName,
     sourceSpanStartLine,
   )
-import Aihc.Play.Json (Json (..))
-import Aihc.Tc (TcBindingResult (..), TcType, TcWiring, checkedParserModule, renderTcTypeInModule, tcModuleBindings)
-import Aihc.Tc.Syntax qualified as TcSyntax
+import Aihc.Tc.Syntax.Traverse (Walk (..), collected, idWalk, runCollect, walk)
 import Control.Applicative ((<|>))
 import Data.Char (isAlphaNum, isUpper)
-import Data.Data (Data, cast, gmapQ)
 import Data.List (sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -47,8 +46,8 @@ data Signature = Signature
 
 -- | The signatures of the top-level bindings that have no signature in the
 -- source, in source order. The module is the output of the type checker.
-inferredSignatures :: TcWiring -> TcSyntax.Module -> [Signature]
-inferredSignatures wiring checked =
+inferredSignatures :: TcWiring -> Module -> [Signature]
+inferredSignatures wiring modu =
   sortOn
     signatureLine
     [ Signature line name (renderPlainType current ty)
@@ -58,11 +57,8 @@ inferredSignatures wiring checked =
       Just ty <- [Map.lookup name types]
     ]
   where
-    -- The parser tree of the checked module gives the source lines and
-    -- the signatures.
-    modu = checkedParserModule checked
     current = moduleName modu
-    types = Map.fromList [(tbDisplayName result, tbType result) | result <- tcModuleBindings wiring checked]
+    types = Map.fromList [(tbDisplayName result, tbType result) | result <- tcModuleBindings wiring modu]
     declared = Set.fromList (concatMap signatureNames (moduleDecls modu))
     bindings = concatMap binding (moduleDecls modu)
 
@@ -71,6 +67,8 @@ signatureNames :: Decl -> [Text]
 signatureNames decl =
   case decl of
     DeclAnn _ inner -> signatureNames inner
+    DeclTc _ inner -> signatureNames inner
+    DeclError _ inner -> signatureNames inner
     DeclTypeSig names _ -> map unqualifiedNameText names
     _ -> []
 
@@ -80,7 +78,9 @@ binding = go Nothing
   where
     go span' decl =
       case decl of
-        DeclAnn ann inner -> go (fromAnnotation ann <|> span') inner
+        DeclAnn ann inner -> go (annotationSpan ann <|> span') inner
+        DeclTc _ inner -> go span' inner
+        DeclError _ inner -> go span' inner
         DeclValue (FunctionBind name _) -> [(line span', [unqualifiedNameText name])]
         DeclValue (PatternBind _ pat _) -> [(line span', patternBinders pat)]
         _ -> []
@@ -89,12 +89,13 @@ binding = go Nothing
 
 -- | The variables a pattern binds, in source order.
 patternBinders :: Pattern -> [Text]
-patternBinders = walk
+patternBinders =
+  runCollect (walk idWalk {walkPattern = binders})
   where
-    walk :: forall a. (Data a) => a -> [Text]
-    walk value
-      | Just (PVar name) <- cast value = [unqualifiedNameText name]
-      | otherwise = concat (gmapQ walk value)
+    binders children pat =
+      case pat of
+        PVar name -> collected [unqualifiedNameText name] *> children pat
+        _ -> children pat
 
 -- | The source with a signature line above each binding.
 withSignatures :: Text -> [Signature] -> Text

@@ -12,14 +12,11 @@ module Aihc.Tc.Bindings
   )
 where
 
-import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve (PackageId (..))
-import Aihc.Resolve.Traverse (collectAnnotations)
 import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Context (typeTyVars)
-import Aihc.Tc.Diagnostics (checkedParserModule)
+import Aihc.Tc.Diagnostics (moduleDiagnostics)
 import Aihc.Tc.Env (DataConSourceForm (..))
-import Aihc.Tc.Error (TcDiagnostic)
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Types
@@ -29,14 +26,6 @@ import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
-
--- | The diagnostics of a module, in the order of the nodes that they are
--- attached to in the parser tree. A module without a diagnostic does not
--- make that tree.
-moduleDiagnostics :: Module -> [TcDiagnostic]
-moduleDiagnostics modu
-  | all null (moduleTcDiagnostics modu) = []
-  | otherwise = collectAnnotations P.fromAnnotation (checkedParserModule modu)
 
 -- | One data constructor that a declaration binds: a constructor the
 -- source names, or a built-in form such as @(,)@, @(# | _ #)@ or @[]@,

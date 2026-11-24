@@ -38,7 +38,6 @@ library
     Aihc.Tc.Syntax.FromResolved
     Aihc.Tc.Syntax.Pending
     Aihc.Tc.Syntax.Pending.Traverse
-    Aihc.Tc.Syntax.ToResolved
     Aihc.Tc.Syntax.Traverse
     Aihc.Tc.TypeLitFamily
     Aihc.Tc.TypeScheme
@@ -161,6 +160,7 @@ test-suite spec
     tasty-hedgehog,
     tasty-hunit,
     text,
+    transformers,
     yaml,
 
   ghc-options:

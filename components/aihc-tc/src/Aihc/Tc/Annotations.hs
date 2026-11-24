@@ -3,13 +3,10 @@
 -- | The information that the type checker finds for the syntax tree.
 --
 -- The trees of "Aihc.Tc.Syntax.Pending" and "Aihc.Tc.Syntax" hold these
--- types in explicit fields. The bridge to the parser tree puts each of them
--- into an 'Aihc.Parser.Syntax.Annotation' for the phases after the type
--- checker.
+-- types in explicit fields.
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
-    TcPatternInstantiation (..),
     TcCastAnnotation (..),
     PendingTcCastAnnotation (..),
     CastDirection (..),
@@ -33,14 +30,9 @@ module Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
-    TcDerivedInstance (..),
-    TcSelectorType (..),
-    TcDerivingClauseInstance (..),
     TcRecKnotOccurrence (..),
-    TcCoercedDeriving (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
-    TcPatSynAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
 
@@ -61,7 +53,6 @@ module Aihc.Tc.Annotations
 where
 
 import Aihc.Parser.Syntax (SourceSpan)
-import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
@@ -112,10 +103,6 @@ data TcMatchArityCast = TcMatchArityCast (Maybe Coercion) TcType
 -- | The solver must supply the proof before FC desugaring. The wanted is
 -- @arrow ~ result@.
 data PendingTcMatchArityCast = PendingTcMatchArityCast TcType EvVar
-  deriving (Eq, Show)
-
--- | The next type annotation describes an application of the scrutinee.
-data TcPatternInstantiation = TcPatternInstantiation
   deriving (Eq, Show)
 
 -- | Annotation attached to AST nodes by the type checker.
@@ -367,43 +354,6 @@ data TcDerivingPlan = TcDerivingPlan
 newtype TcDerivingAnnotation = TcDerivingAnnotation
   { tcDerivingPlans :: [TcDerivingPlan]
   }
-  deriving (Eq, Show)
-
--- | The checked matcher equation, builder equations, and record field
--- selector equations of a pattern synonym. The desugarer emits them as
--- ordinary functions. A selector pairs its field label with its equation.
---
--- The equations are parser syntax, because the desugarer reads parser
--- syntax and the bridge does not go into an annotation.
-data TcPatSynAnnotation = TcPatSynAnnotation
-  { tcPatSynMatcher :: !P.Match,
-    tcPatSynBuilder :: !(Maybe [P.Match]),
-    tcPatSynSelectors :: ![(Text, P.Match)]
-  }
-  deriving (Eq, Show)
-
--- | A generated instance retains its source derivation plan.
-newtype TcCoercedDeriving = TcCoercedDeriving TcDerivingPlan
-  deriving (Eq, Show)
-
--- | An instance that @deriving@ generated rather than the source. Such an
--- instance may leave methods to the desugarer without a warning.
-data TcDerivedInstance = TcDerivedInstance
-  deriving (Eq, Show)
-
--- | The checked type of the selector of a record field, on the field name
--- of the constructor declaration. 'Aihc.Tc.Generate.Decl.moduleBindings'
--- gives the System FC desugarer this type, so that the desugared selector
--- has the type that each use of the selector instantiates.
-newtype TcSelectorType = TcSelectorType TcType
-  deriving (Eq, Show)
-
--- | An instance that a @deriving@ clause of a data declaration generated.
--- A standalone @deriving instance@ does not have it. GHC checks the
--- functional dependencies of such an instance with the liberal coverage
--- condition, also without UndecidableInstances, because the user did not
--- write its context.
-data TcDerivingClauseInstance = TcDerivingClauseInstance
   deriving (Eq, Show)
 
 -- | A marker in a checked @rec@ statement: the next annotation is the
