@@ -30,7 +30,7 @@ library
     base >=4.17 && <5,
     containers,
     deepseq,
-    monoidmap >=0.1.3 && <0.2,
+    monoidmap >=0.2.0.0 && <0.3,
     text >=1.2,
 
   ghc-options: -Wall
