@@ -753,7 +753,16 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
             owners = ownersOf generalizable
          in if null generalizable || null owners || not (isClassPred predicate) || any (`Set.member` restrictedBinders) owners
               then (preds, outerCts ++ [ct], givens)
-              else (foldr (MonoidMap.adjust (<> [predicate])) preds owners, outerCts, givens ++ [ct])
+              else (foldr (MonoidMap.adjust (addPredicate predicate)) preds owners, outerCts, givens ++ [ct])
+      -- Each occurrence of a predicate gets evidence from the same given.
+      -- Thus a binder abstracts over one dictionary for each distinct
+      -- predicate, as a top-level binding does. Each use of the binder
+      -- gives one wanted constraint for each predicate of its scheme. If
+      -- equal predicates stay, the count increases at each level of a chain
+      -- of local bindings.
+      addPredicate predicate known
+        | predicate `elem` known = known
+        | otherwise = known <> [predicate]
       (localPreds, outer, givenCts) = foldl step (MonoidMap.empty, [], []) residualCts
   forM_ givenCts $ \ct ->
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
