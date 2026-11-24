@@ -6,7 +6,6 @@ module Aihc.Resolve
     resolveUnit,
     ResolvedUnit (..),
     ResolvedModule (..),
-    mkResolvedModule,
     ResolveFailure (..),
     ResolveError (..),
     ModuleUnit (..),
@@ -30,13 +29,6 @@ module Aihc.Resolve
     RecKnotVariables (..),
     Identifier (..),
     displayIdentifier,
-    resolutionOf,
-    nameResolution,
-    termResolution,
-    binderResolution,
-    binderEntity,
-    nameEntity,
-    nameOrigin,
 
     -- * Exports between units
     ModuleExports,
@@ -61,7 +53,6 @@ module Aihc.Resolve
     exportedLocalNames,
 
     -- * Record field selectors
-    recordSelectorNames,
     isFieldSelectorOf,
 
     -- * Builtins
@@ -71,7 +62,6 @@ module Aihc.Resolve
     -- * Names in the scope of a module
     moduleTopLevelName,
     resolveSpliceBodies,
-    toParserExpr,
   )
 where
 
@@ -83,7 +73,6 @@ import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.FromParser
-import Aihc.Resolve.Syntax.ToParser (toParserExpr)
 import Aihc.Resolve.Syntax.Traverse (Walkable, collectResolutions)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
@@ -132,7 +121,7 @@ resolveUnit (Builtins builtinScope) exports packageModules
     spliceErrors = concatMap fst spliceChecks
     spliceModules =
       zipWith
-        (\unit (_, modu) -> mkResolvedModule (moduleUnitPackage unit) (moduleUnitExtensions unit) modu [])
+        (\unit (_, modu) -> ResolvedModule (moduleUnitPackage unit) (moduleUnitExtensions unit) modu [])
         packageModules
         spliceChecks
     step currentNextLocal unit =
@@ -141,7 +130,7 @@ resolveUnit (Builtins builtinScope) exports packageModules
     errors = concatMap (\(moduleErrors, _, _) -> moduleErrors) resolved
     modules =
       zipWith
-        (\unit (_, visibleTerms, modu) -> mkResolvedModule (moduleUnitPackage unit) (moduleUnitExtensions unit) modu visibleTerms)
+        (\unit (_, visibleTerms, modu) -> ResolvedModule (moduleUnitPackage unit) (moduleUnitExtensions unit) modu visibleTerms)
         packageModules
         resolved
 
@@ -2951,34 +2940,6 @@ resolveScopedTypeVariableUse name = do
   case resolved of
     NotFound _ -> pure (fromParserUnqualifiedName name)
     _ -> resolveUnqualifiedNameTo sp ResolutionNamespaceType resolved name
-
--- | The selector name of each record field label of one declaration. A
--- duplicate record field has a selector with its own name, which the
--- resolver puts on the field binder. Any other label is its own selector
--- name.
---
--- The declarations are parser syntax with the resolutions in annotations,
--- as the type checker reads them.
-recordSelectorNames :: [DataConDecl] -> Map.Map Text Text
-recordSelectorNames constructors =
-  Map.fromList
-    [ (unqualifiedNameText name, selector)
-    | constructor <- constructors,
-      fields <- recordFields constructor,
-      field <- fields,
-      name <- fieldNames field,
-      let selector =
-            case binderEntity name of
-              Just (EntityGlobal global) -> globalNameText global
-              _ -> unqualifiedNameText name
-    ]
-  where
-    recordFields constructor =
-      case constructor of
-        DataConAnn _ inner -> recordFields inner
-        RecordCon _ _ _ fields -> [fields]
-        GadtCon _ _ _ (GadtRecordBody fields _) -> [fields]
-        _ -> []
 
 -- | Resolve the constructor names and the field selectors of a constructor
 -- declaration, after 'resolveDataConDecl' resolved its types.
