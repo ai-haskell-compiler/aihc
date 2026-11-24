@@ -32,7 +32,6 @@ class Functor (f :: Type -> Type) where
 
 infixl 4 <$
 
-{- HLINT ignore "Use const" -}
 class (Functor f) => Applicative (f :: Type -> Type) where
   pure :: a -> f a
   (<*>) :: f (a -> b) -> f a -> f b
@@ -45,7 +44,6 @@ class (Functor f) => Applicative (f :: Type -> Type) where
 
 infixl 4 <*>, *>, <*
 
-{- HLINT ignore "Use >>" -}
 class (Applicative m) => Monad (m :: Type -> Type) where
   (>>=) :: m a -> (a -> m b) -> m b
   (>>) :: m a -> m b -> m b

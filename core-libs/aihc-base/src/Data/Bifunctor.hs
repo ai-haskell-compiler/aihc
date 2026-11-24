@@ -9,9 +9,6 @@ import Control.Applicative (Const (..))
 import Data.Kind (Type)
 import Prelude (Either (..), id, (.))
 
-{- HLINT ignore "Use bimap" -}
-{- HLINT ignore "Use first" -}
-{- HLINT ignore "Use second" -}
 class Bifunctor (p :: Type -> Type -> Type) where
   bimap :: (a -> b) -> (c -> d) -> p a c -> p b d
   first :: (a -> b) -> p a c -> p b c

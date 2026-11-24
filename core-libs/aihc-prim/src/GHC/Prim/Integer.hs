@@ -4,7 +4,6 @@
 
 -- wordToInteger keeps its argument: the arity pass reads the arity from the
 -- body, and an eta-reduced alias is not inlined after phase 1.
-{-# HLINT ignore "Eta reduce" #-}
 
 module GHC.Prim.Integer
   ( Integer (..),

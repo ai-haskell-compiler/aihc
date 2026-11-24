@@ -1,13 +1,5 @@
 {-# LANGUAGE MagicHash #-}
 
--- The suggested replacements name values of the base library, which this
--- module must not use.
-{- HLINT ignore "Use camelCase" -}
-{- HLINT ignore "Avoid lambda" -}
-{- HLINT ignore "Use foldr" -}
-{- HLINT ignore "Use foldl" -}
-{- HLINT ignore "Use map" -}
-
 -- | The reader that a derived @Read@ instance is built from.
 --
 -- A derived instance is ordinary source code, so its body names library

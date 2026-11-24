@@ -1,8 +1,6 @@
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE MagicHash #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | Raw IO over runtime-owned IO resources. 'FD' wraps one runtime
 -- resource and gives it the device classes that the handle layer uses.
 module GHC.IO.FD

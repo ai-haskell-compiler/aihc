@@ -1,7 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | Handle operations.
 module GHC.IO.Handle
   ( Handle,

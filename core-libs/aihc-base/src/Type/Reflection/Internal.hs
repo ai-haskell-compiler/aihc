@@ -9,8 +9,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-{-# HLINT ignore "Use newtype instead of data" #-}
-
 module Type.Reflection.Internal
   ( Typeable (..),
     typeRep,

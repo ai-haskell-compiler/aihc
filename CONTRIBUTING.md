@@ -40,14 +40,14 @@ Obey these rules:
 
 The project uses `nix`, `cabal`, `gh`, and `just`.
 Enter the development environment with `nix develop`.
-The environment gives you GHC, Cabal, Ormolu, HLint, and the other tools.
+The environment gives you GHC, Cabal, Ormolu, and the other tools.
 
 | Command | Effect |
 | --- | --- |
 | `cabal build exe:aihc` | Build the compiler. |
 | `just fmt` | Format all Nix, Cabal, Haskell, and C files. |
 | `just test` | Run all tests and hide successful results. |
-| `just check` | Run the format check, HLint, and the full test suite. |
+| `just check` | Run the format check and the full test suite. |
 | `just replay "<seed>"` | Run one Hedgehog case again. |
 | `just hedgehog` | Run 10,000 Hedgehog tests in a continuous cycle until a test fails. |
 | `nix flake check` | Run the slow check in an isolated sandbox. |

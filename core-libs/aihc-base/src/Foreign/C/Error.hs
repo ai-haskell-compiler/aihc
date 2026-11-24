@@ -4,7 +4,6 @@
 
 -- Discarding a result would read better as void, but Data.Functor imports
 -- Prelude, which imports this module.
-{-# HLINT ignore "Use void" #-}
 
 -- | C error numbers and their IO error forms.
 --

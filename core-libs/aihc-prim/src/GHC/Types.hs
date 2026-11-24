@@ -8,8 +8,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-{-# HLINT ignore "Unused LANGUAGE pragma" #-}
-
 module GHC.Types
   ( List (..),
     Int (..),

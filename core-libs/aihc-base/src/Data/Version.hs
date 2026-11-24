@@ -1,6 +1,3 @@
-{-# HLINT ignore "Use foldl" #-}
-{-# HLINT ignore "Use foldr" #-}
-
 module Data.Version
   ( Version (..),
     showVersion,

@@ -11,9 +11,6 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Prelude
 
-{- HLINT ignore "Use (,)" -}
-{- HLINT ignore "Avoid NonEmpty.unzip" -}
-
 -- | Instances should satisfy the laws:
 --
 -- [Naturality] @'fmap' (f '***' g) ('mzip' ma mb) = 'mzip' ('fmap' f ma) ('fmap' g mb)@

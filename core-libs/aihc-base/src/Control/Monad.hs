@@ -73,15 +73,7 @@ import Prelude
 
 -- | These combinators bind and return, as GHC defines them: an instance
 -- defines @fmap = liftM@ and @(<*>) = ap@ in terms of them, so they must not
--- call 'fmap' or '(<*>)' themselves. HLint would turn the last bind of each
--- into @<$>@, which is a call of 'fmap'.
-
-{- HLINT ignore ap "Use <$>" -}
-{- HLINT ignore liftM "Use <$>" -}
-{- HLINT ignore liftM2 "Use <$>" -}
-{- HLINT ignore liftM3 "Use <$>" -}
-{- HLINT ignore liftM4 "Use <$>" -}
-{- HLINT ignore liftM5 "Use <$>" -}
+-- call 'fmap' or '(<*>)' themselves.
 ap :: (Monad m) => m (a -> b) -> m a -> m b
 ap function argument = do
   selected <- function
@@ -178,7 +170,6 @@ foldM combine initial values = foldr step return values initial
   where
     step value continue accumulator = combine accumulator value >>= continue
 
-{- HLINT ignore foldM_ "Use foldM_" -}
 foldM_ :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m ()
 foldM_ combine initial values = void (foldM combine initial values)
 
@@ -210,7 +201,6 @@ zipWithM combine (left : lefts) (right : rights) = do
   return (value : values)
 zipWithM _ _ _ = return []
 
-{- HLINT ignore zipWithM_ "Use zipWithM_" -}
 zipWithM_ :: (Monad m) => (a -> b -> m c) -> [a] -> [b] -> m ()
 zipWithM_ combine lefts rights = void (zipWithM combine lefts rights)
 

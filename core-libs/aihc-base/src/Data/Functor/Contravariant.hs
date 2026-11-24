@@ -50,8 +50,6 @@ class Contravariant (f :: Type -> Type) where
 
 infixl 4 >$, $<, >$<, >$$<
 
-{- HLINT ignore phantom "Use void" -}
-
 -- | If @f@ is both 'Functor' and 'Contravariant' then by the time you
 -- compose them, the result is phantom in its argument.
 phantom :: (Functor f, Contravariant f) => f a -> f b

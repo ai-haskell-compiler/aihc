@@ -1,9 +1,5 @@
 {-# LANGUAGE MagicHash #-}
 
--- The suggested replacement names a value of the base library, which this
--- module must not use.
-{- HLINT ignore "Use foldr" -}
-
 -- | The 'Show' class. GHC defines it in @GHC.Internal.Show@; aihc keeps it
 -- in the prim package because the type checker recognizes a stock class by
 -- its package, module and name, and it may name the prim package only.

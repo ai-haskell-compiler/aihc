@@ -3,7 +3,6 @@
 {-# LANGUAGE ViewPatterns #-}
 
 -- GHC declares ErrorCall with data, and its evaluation behavior must agree.
-{- HLINT ignore "Use newtype instead of data" -}
 
 module GHC.Exception
   ( Exception (..),

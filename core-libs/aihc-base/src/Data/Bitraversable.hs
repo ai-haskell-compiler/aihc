@@ -21,8 +21,6 @@ import Data.Monoid (Monoid (..))
 import Data.Semigroup (Arg (..))
 import Prelude
 
-{- HLINT ignore "Use (,)" -}
-
 -- | 'Bitraversable' identifies bifunctorial data structures whose elements
 -- can be traversed in order, performing 'Applicative' or 'Monad' actions at
 -- each element, and collecting a result structure with the same shape.

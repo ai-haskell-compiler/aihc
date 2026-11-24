@@ -1,9 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 -- The export list bundles the ErrorCall pattern with its type. The GHC
--- parser needs PatternSynonyms for that export form, but HLint does not
--- see it as a use.
-{-# HLINT ignore "Unused LANGUAGE pragma" #-}
+-- parser needs PatternSynonyms for that export form.
 
 module Control.Exception.Base
   ( Exception (..),

@@ -1,7 +1,5 @@
 {-# LANGUAGE CApiFFI #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | The POSIX layer the boot libraries are built on: the C types a POSIX
 -- call takes a pointer to, the marshalling of a 'FilePath' into the string a
 -- POSIX call wants, and the calls themselves.
