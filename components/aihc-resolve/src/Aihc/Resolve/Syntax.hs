@@ -74,6 +74,13 @@ module Aihc.Resolve.Syntax
     GuardedRhs (..),
     GuardQualifier (..),
     RecordField (..),
+    LiteralMatch (..),
+    OverloadedLiteralMatch (..),
+    NPlusKMatch (..),
+    ListMatch (..),
+    literalMatchNames,
+    nPlusKMatchNames,
+    listMatchNames,
     RoleAnnotation (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -142,6 +149,11 @@ module Aihc.Resolve.Syntax
     mkSpanAnnotation,
     fromAnnotation,
     peelLiteralAnn,
+
+    -- * Literals
+    primitiveLiteralTypeName,
+    primitiveFloatTypeName,
+    primitiveNumericTypeName,
     sourceSpanSourceName,
     pattern SourceSpan,
 
@@ -431,7 +443,6 @@ peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn pat =
   case pat of
     PAnn _ inner -> peelPatternAnn inner
-    PResolved _ inner -> peelPatternAnn inner
     _ -> pat
 
 -- | Remove the annotation and resolution wrappers of a type.
@@ -809,13 +820,75 @@ data RecordField a = RecordField
   }
   deriving (Eq, Show, Generic)
 
+-- | The names that the match of a literal pattern uses.
+data LiteralMatch
+  = -- | A literal of a fixed type, such as @'x'@, or a string literal
+    -- without @OverloadedStrings@. The match uses no name.
+    LiteralMatchFixed
+  | -- | A primitive literal, such as @1#@. The name is its primitive type.
+    LiteralMatchPrimitive Name
+  | -- | An overloaded literal, such as @1@ or @1.5@.
+    LiteralMatchOverloaded OverloadedLiteralMatch
+  deriving (Eq, Show, Generic)
+
+-- | The names that the match of an overloaded literal pattern uses.
+-- The pattern @-1@ matches @v@ when @v == negate (fromInteger 1)@.
+data OverloadedLiteralMatch = OverloadedLiteralMatch
+  { -- | The type of the literal before the conversion: @Integer@ for an
+    -- integer literal. 'Nothing' when the built-in scope has no such type.
+    overloadedLiteralType :: Maybe Name,
+    -- | @fromInteger@, @fromRational@, or @fromString@.
+    overloadedLiteralConversion :: Name,
+    -- | @negate@. Only a negated literal pattern has it.
+    overloadedLiteralNegate :: Maybe Name,
+    -- | @==@, which compares the converted literal with the scrutinee.
+    overloadedLiteralEquality :: Name
+  }
+  deriving (Eq, Show, Generic)
+
+-- | The names that the match of an n+k pattern uses.
+-- The Haskell 98 Report gives the match of @n+k@ against @v@ as the test
+-- @v >= fromInteger k@. Then @n@ binds to @v - fromInteger k@.
+data NPlusKMatch = NPlusKMatch
+  { -- | @Integer@. 'Nothing' when the built-in scope has no such type.
+    nPlusKType :: Maybe Name,
+    nPlusKFromInteger :: Name,
+    nPlusKGreaterEqual :: Name,
+    nPlusKMinus :: Name
+  }
+  deriving (Eq, Show, Generic)
+
+-- | The names of a list pattern under @OverloadedLists@.
+-- The match applies @toList@ to the scrutinee. A bidirectional pattern
+-- synonym builds its value with @fromListN@.
+data ListMatch = ListMatch
+  { listMatchToList :: Name,
+    listMatchFromListN :: Name
+  }
+  deriving (Eq, Show, Generic)
+
+-- | The names of the match of a literal pattern.
+literalMatchNames :: LiteralMatch -> [Name]
+literalMatchNames match =
+  case match of
+    LiteralMatchFixed -> []
+    LiteralMatchPrimitive typeName -> [typeName]
+    LiteralMatchOverloaded (OverloadedLiteralMatch literalType conversion negation equality) ->
+      maybe [] pure literalType <> [conversion] <> maybe [] pure negation <> [equality]
+
+-- | The names of the match of an n+k pattern.
+nPlusKMatchNames :: NPlusKMatch -> [Name]
+nPlusKMatchNames (NPlusKMatch literalType conversion comparison minus) =
+  maybe [] pure literalType <> [conversion, comparison, minus]
+
+-- | The names of the match of a list pattern under @OverloadedLists@.
+listMatchNames :: ListMatch -> [Name]
+listMatchNames (ListMatch toList fromListN) = [toList, fromListN]
+
 -- | A pattern.
 data Pattern
   = -- | Metadata for the whole pattern.
     PAnn Annotation Pattern
-  | -- | A syntax term or type that the match of the pattern uses, such as
-    -- @fromInteger@ and @==@ for a literal pattern, or a resolve error.
-    PResolved ResolutionResult Pattern
   | -- | @x@
     PVar UnqualifiedName
   | -- | @\@a@ in a required type argument pattern.
@@ -825,7 +898,7 @@ data Pattern
   | -- | @_@
     PWildcard
   | -- | @1@ or @'x'@
-    PLit Literal
+    PLit LiteralMatch Literal
   | -- | @[p| body |]@
     PQuasiQuote Text Text
   | -- | @(p1, p2)@ or @(# p1, p2 #)@
@@ -833,7 +906,7 @@ data Pattern
   | -- | @(# | p | #)@
     PUnboxedSum Int Int Pattern
   | -- | @[p1, p2]@
-    PList [Pattern]
+    PList (Maybe ListMatch) [Pattern]
   | -- | @Just x@ or @Proxy \@Type@
     PCon Name [Type] [Pattern]
   | -- | @(,) x y@ or @(#,#) x y@: a built-in constructor applied to
@@ -850,10 +923,10 @@ data Pattern
   | -- | @~pat@
     PIrrefutable Pattern
   | -- | @-1@
-    PNegLit Literal
+    PNegLit LiteralMatch Literal
   | -- | @n+1@, an n+k pattern.  It needs the @NPlusKPatterns@ extension.
     -- The literal is always a non-negative integer literal.
-    PNPlusK UnqualifiedName Literal
+    PNPlusK NPlusKMatch UnqualifiedName Literal
   | -- | @(pat)@
     PParen Pattern
   | -- | @T { x = p, y, .. }@
@@ -1498,6 +1571,14 @@ instance (NFData a) => NFData (RecordField a)
 
 instance NFData Pattern
 
+instance NFData LiteralMatch
+
+instance NFData OverloadedLiteralMatch
+
+instance NFData NPlusKMatch
+
+instance NFData ListMatch
+
 instance NFData ForallTelescope
 
 instance NFData ArrowKind
@@ -1565,3 +1646,37 @@ instance NFData Cmd
 instance NFData CompStmt
 
 instance NFData ArithSeq
+
+-- | The type name of a primitive literal, or 'Nothing' for a boxed literal.
+primitiveLiteralTypeName :: Literal -> Maybe Text
+primitiveLiteralTypeName literal =
+  case literal of
+    LitAnn _ inner -> primitiveLiteralTypeName inner
+    LitInt _ numericType _ -> primitiveNumericTypeName numericType
+    LitFloat _ floatType _ -> primitiveFloatTypeName floatType
+    LitChar {} -> Nothing
+    LitCharHash {} -> Just "Char#"
+    LitString {} -> Nothing
+    LitStringHash {} -> Just "Addr#"
+
+primitiveFloatTypeName :: FloatType -> Maybe Text
+primitiveFloatTypeName floatType =
+  case floatType of
+    TFractional -> Nothing
+    TFloatHash -> Just "Float#"
+    TDoubleHash -> Just "Double#"
+
+primitiveNumericTypeName :: NumericType -> Maybe Text
+primitiveNumericTypeName numericType =
+  case numericType of
+    TInteger -> Nothing
+    TIntHash -> Just "Int#"
+    TWordHash -> Just "Word#"
+    TInt8Hash -> Just "Int8#"
+    TInt16Hash -> Just "Int16#"
+    TInt32Hash -> Just "Int32#"
+    TInt64Hash -> Just "Int64#"
+    TWord8Hash -> Just "Word8#"
+    TWord16Hash -> Just "Word16#"
+    TWord32Hash -> Just "Word32#"
+    TWord64Hash -> Just "Word64#"

@@ -401,22 +401,43 @@ instance (FromPending a) => FromPending (Pending.RecordField a) where
     case node of
       Pending.RecordField x1 x2 x3 -> RecordField <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
 
+instance FromPending Pending.LiteralMatch where
+  type Final Pending.LiteralMatch = LiteralMatch
+  fromPending info node =
+    case node of
+      Pending.LiteralMatchFixed -> pure LiteralMatchFixed
+      Pending.LiteralMatchPrimitive x1 -> LiteralMatchPrimitive <$> fromPending info x1
+      Pending.LiteralMatchOverloaded x1 -> LiteralMatchOverloaded <$> fromPending info x1
+
+instance FromPending Pending.OverloadedLiteralMatch where
+  type Final Pending.OverloadedLiteralMatch = OverloadedLiteralMatch
+  fromPending info (Pending.OverloadedLiteralMatch x1 x2 x3 x4) =
+    OverloadedLiteralMatch <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+
+instance FromPending Pending.NPlusKMatch where
+  type Final Pending.NPlusKMatch = NPlusKMatch
+  fromPending info (Pending.NPlusKMatch x1 x2 x3 x4) =
+    NPlusKMatch <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+
+instance FromPending Pending.ListMatch where
+  type Final Pending.ListMatch = ListMatch
+  fromPending info (Pending.ListMatch x1 x2) = ListMatch <$> fromPending info x1 <*> fromPending info x2
+
 instance FromPending Pending.Pattern where
   type Final Pending.Pattern = Pattern
   fromPending info node =
     case node of
       Pending.PAnn x1 x2 -> PAnn <$> fromPending info x1 <*> fromPending info x2
       Pending.PTc x1 x2 -> wrapInfo PTc <$> info x1 <*> fromPending info x2
-      Pending.PResolved x1 x2 -> PResolved <$> fromPending info x1 <*> fromPending info x2
       Pending.PVar x1 -> PVar <$> fromPending info x1
       Pending.PTypeBinder x1 -> PTypeBinder <$> fromPending info x1
       Pending.PTypeSyntax x1 x2 -> PTypeSyntax <$> fromPending info x1 <*> fromPending info x2
       Pending.PWildcard -> pure PWildcard
-      Pending.PLit x1 -> PLit <$> fromPending info x1
+      Pending.PLit x1 x2 -> PLit <$> fromPending info x1 <*> fromPending info x2
       Pending.PQuasiQuote x1 x2 -> PQuasiQuote <$> fromPending info x1 <*> fromPending info x2
       Pending.PTuple x1 x2 -> PTuple <$> fromPending info x1 <*> fromPending info x2
       Pending.PUnboxedSum x1 x2 x3 -> PUnboxedSum <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PList x1 -> PList <$> fromPending info x1
+      Pending.PList x1 x2 -> PList <$> fromPending info x1 <*> fromPending info x2
       Pending.PCon x1 x2 x3 -> PCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.PBuiltinCon x1 x2 x3 -> PBuiltinCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.PInfix x1 x2 x3 -> PInfix <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
@@ -424,8 +445,8 @@ instance FromPending Pending.Pattern where
       Pending.PAs x1 x2 -> PAs <$> fromPending info x1 <*> fromPending info x2
       Pending.PStrict x1 -> PStrict <$> fromPending info x1
       Pending.PIrrefutable x1 -> PIrrefutable <$> fromPending info x1
-      Pending.PNegLit x1 -> PNegLit <$> fromPending info x1
-      Pending.PNPlusK x1 x2 -> PNPlusK <$> fromPending info x1 <*> fromPending info x2
+      Pending.PNegLit x1 x2 -> PNegLit <$> fromPending info x1 <*> fromPending info x2
+      Pending.PNPlusK x1 x2 x3 -> PNPlusK <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.PParen x1 -> PParen <$> fromPending info x1
       Pending.PRecord x1 x2 x3 -> PRecord <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.PTypeSig x1 x2 -> PTypeSig <$> fromPending info x1 <*> fromPending info x2

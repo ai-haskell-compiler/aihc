@@ -96,13 +96,16 @@ import Aihc.Tc.Syntax.Pending
     InstanceDecl (..),
     InstanceDeclItem (..),
     InstanceOverlapPragma (..),
+    ListMatch (..),
     Literal (..),
+    LiteralMatch (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
     Name (..),
     NameType (..),
     NewtypeDecl (..),
+    OverloadedLiteralMatch (..),
     PatSynArgs (..),
     PatSynDecl (..),
     PatSynDir (..),
@@ -3882,14 +3885,13 @@ patternVarBinder target = go
           | otherwise -> go inner
         PAnn _ inner -> go inner
         PTc _ inner -> go inner
-        PResolved _ inner -> go inner
         PParen inner -> go inner
         PStrict inner -> go inner
         PIrrefutable inner -> go inner
         PTypeSig inner _ -> go inner
         PView _ inner -> go inner
         PUnboxedSum _ _ inner -> go inner
-        PList items -> firstJust items
+        PList _ items -> firstJust items
         PTuple _ items -> firstJust items
         PCon _ _ items -> firstJust items
         PBuiltinCon _ _ items -> firstJust items
@@ -3969,13 +3971,12 @@ patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
     PTc info inner -> ETc info <$> patternToExpr inner
-    PResolved result inner
-      | isMatchOnlyResolution result -> patternToExpr inner
-      | otherwise -> EResolved result <$> patternToExpr inner
     PVar name -> Just (localVar name)
-    PLit literal -> Just (literalToExpr literal)
     PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
-    PList items -> EList <$> mapM patternToExpr items
+    -- Under OverloadedLists, the list expression gets @fromListN@. The
+    -- @toList@ of the match goes.
+    PList match items ->
+      maybe id EResolved (match >>= nameResolution . listMatchFromListN) . EList <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
     PBuiltinCon (BuiltinTuple flavor arity) _ items
       | length items == arity -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
@@ -3995,13 +3996,12 @@ patternToExpr pat =
 
 -- | An annotated literal pattern as an expression.
 --
--- The resolver annotates a literal pattern for a match: the type of the
--- unconverted literal, the conversion that an overloaded literal applies,
--- and the @==@ that compares the result to the scrutinee, with the
--- literal keeping its own span underneath. An expression instead wants
--- the type and the conversion wrapped directly around a bare literal, so
--- rebuild that stack rather than translating the annotations one by one:
--- the @==@ goes, and the annotations of the literal move outside.
+-- The resolver gives a literal pattern the names of its match: the type
+-- of the unconverted literal, the conversion that an overloaded literal
+-- applies, and the @==@ that compares the result to the scrutinee. An
+-- expression instead wants the type and the conversion wrapped directly
+-- around a bare literal, with the annotations of the literal outside. The
+-- @==@ goes.
 --
 -- The list of wrappers has the innermost wrapper first.
 literalPatternToExpr :: Pattern -> Maybe Expr
@@ -4011,62 +4011,47 @@ literalPatternToExpr = go []
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
         PTc info inner -> go (ETc info : wrappers) inner
-        PResolved result inner
-          | isMatchOnlyResolution result -> go wrappers inner
-          | otherwise -> go (EResolved result : wrappers) inner
-        PLit literal ->
+        PLit match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
-           in Just (wrapAll (wrappers <> literalWrappers) (literalToExpr bare))
+           in Just (wrapAll (literalMatchWrappers match <> wrappers <> literalWrappers) (literalToExpr bare))
         _ -> Nothing
 
 -- | An annotated negated literal pattern as an expression.
 --
--- A negated literal pattern carries the same annotations as a literal one,
--- and one more: the @negate@ it applies to the converted literal. An
--- expression wants that annotation around a negation of the converted
--- literal, as the resolver writes for @-1@, so the annotation moves from the
--- pattern to the 'ENegate' and the @==@ goes.
+-- A negated literal pattern has the same names as a literal one, and one
+-- more: the @negate@ it applies to the converted literal. An expression
+-- wants that resolution around a negation of the converted literal, as the
+-- resolver writes for @-1@. The @==@ goes.
 negatedLiteralPatternToExpr :: Pattern -> Maybe Expr
-negatedLiteralPatternToExpr = go [] Nothing
+negatedLiteralPatternToExpr = go []
   where
-    go wrappers negation pattern' =
+    go wrappers pattern' =
       case pattern' of
-        PAnn ann inner -> go (EAnn ann : wrappers) negation inner
-        PTc info inner -> go (ETc info : wrappers) negation inner
-        PResolved result inner
-          | isMatchOnlyResolution result -> go wrappers negation inner
-          | isNegateResolution result -> go wrappers (Just result) inner
-          | otherwise -> go (EResolved result : wrappers) negation inner
-        PNegLit literal ->
+        PAnn ann inner -> go (EAnn ann : wrappers) inner
+        PTc info inner -> go (ETc info : wrappers) inner
+        PNegLit match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
-              converted = wrapAll (wrappers <> literalWrappers) (literalToExpr bare)
+              converted = wrapAll (literalMatchWrappers match <> wrappers <> literalWrappers) (literalToExpr bare)
+              negation = case match of
+                LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded >>= nameResolution
+                _ -> Nothing
            in Just (maybe id EResolved negation (ENegate converted))
         _ -> Nothing
+
+-- | The resolutions that the expression of a literal pattern keeps, as
+-- wrappers with the innermost wrapper first: the conversion inside the
+-- type of the unconverted literal.
+literalMatchWrappers :: LiteralMatch -> [Expr -> Expr]
+literalMatchWrappers match =
+  map EResolved . reverse . mapMaybe nameResolution $
+    case match of
+      LiteralMatchFixed -> []
+      LiteralMatchPrimitive typeName -> [typeName]
+      LiteralMatchOverloaded overloaded -> maybeToList (overloadedLiteralType overloaded) <> [overloadedLiteralConversion overloaded]
 
 -- | Apply wrappers to an expression, the first wrapper innermost.
 wrapAll :: [Expr -> Expr] -> Expr -> Expr
 wrapAll wrappers expr = foldl (\inner wrap -> wrap inner) expr wrappers
-
--- | Whether a resolution names the @negate@ of a negated literal.
-isNegateResolution :: ResolutionResult -> Bool
-isNegateResolution result =
-  case result of
-    ResolutionOk resolution ->
-      resolutionNamespace resolution == ResolutionNamespaceTerm
-        && resolutionIdentifier resolution == IdentifierNamed "negate"
-    ResolutionError _ -> False
-
--- | Whether a resolution serves matching alone. A literal
--- pattern carries the @==@ that compares it to the scrutinee, and an
--- overloaded list pattern carries the @toList@ that converts the
--- scrutinee. A builder rebuilds the value instead of matching it.
-isMatchOnlyResolution :: ResolutionResult -> Bool
-isMatchOnlyResolution result =
-  case result of
-    ResolutionOk resolution ->
-      resolutionNamespace resolution == ResolutionNamespaceTerm
-        && resolutionIdentifier resolution `elem` [IdentifierNamed "==", IdentifierNamed "toList"]
-    ResolutionError _ -> False
 
 -- | The wrappers of a literal as expression wrappers, outermost last, and
 -- the literal itself.
@@ -6768,7 +6753,6 @@ patternBinderSyntaxName (PVar n) = Just n
 patternBinderSyntaxName (PParen inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName (PAnn _ inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName (PTc _ inner) = patternBinderSyntaxName inner
-patternBinderSyntaxName (PResolved _ inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName _ = Nothing
 
 patternBinderName :: Pattern -> Maybe (Text, Text)
@@ -6793,7 +6777,6 @@ patternSpan pat =
   case pat of
     PAnn ann inner -> annotationSpan ann <|> patternSpan inner
     PTc _ inner -> patternSpan inner
-    PResolved _ inner -> patternSpan inner
     PVar name -> sourceSpanFromAnns (unqualifiedNameAnns name)
     PParen inner -> patternSpan inner
     PAs name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)

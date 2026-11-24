@@ -305,16 +305,15 @@ patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
     PTc _ inner -> patternBinderNames inner
-    PResolved _ inner -> patternBinderNames inner
     PVar name -> [name]
     PTypeBinder _ -> []
     PTypeSyntax _ _ -> []
     PWildcard -> []
-    PLit _ -> []
+    PLit _ _ -> []
     PQuasiQuote _ _ -> []
     PTuple _ items -> concatMap patternBinderNames items
     PUnboxedSum _ _ inner -> patternBinderNames inner
-    PList items -> concatMap patternBinderNames items
+    PList _ items -> concatMap patternBinderNames items
     PCon _ _ pats -> concatMap patternBinderNames pats
     PBuiltinCon _ _ pats -> concatMap patternBinderNames pats
     PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
@@ -322,8 +321,8 @@ patternBinderNames pat =
     PAs name inner -> name : patternBinderNames inner
     PStrict inner -> patternBinderNames inner
     PIrrefutable inner -> patternBinderNames inner
-    PNegLit _ -> []
-    PNPlusK name _ -> [name]
+    PNegLit _ _ -> []
+    PNPlusK _ name _ -> [name]
     PParen inner -> patternBinderNames inner
     PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
     PTypeSig inner _ -> patternBinderNames inner
