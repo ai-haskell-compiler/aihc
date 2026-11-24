@@ -112,6 +112,53 @@ restoreKeepingOverflow saved =
 reductionDepthLimit :: Int
 reductionDepthLimit = 200
 
+-- | Do a search through the superclasses of a class only when a superclass
+-- of the class, at some depth, can be the class of the wanted. Otherwise
+-- the result is 'Nothing'.
+--
+-- The superclasses of a given are found again for each wanted, and each
+-- time their kinds are matched. The instances of @morpheus-graphql-server@
+-- have many givens and many wanteds, and this search made the type check
+-- of a module take more than 15 minutes. The classes of the superclasses do
+-- not depend on the arguments, so this check does no kind work.
+whenSuperClassCanGive :: TyCon -> Pred -> TcM (Maybe a) -> TcM (Maybe a)
+whenSuperClassCanGive source target search = do
+  possible <- superClassCanGive source target
+  if possible then search else pure Nothing
+
+-- | Whether a superclass of the class, at some depth, can be the class of
+-- the predicate. The answer is 'True' for a predicate that is not a class
+-- predicate, and for a class with a superclass that is not a class or a
+-- quantified class, such as @gql a@ with a variable @gql@ or a family
+-- application. A substitution can make such a superclass any class.
+superClassCanGive :: TyCon -> Pred -> TcM Bool
+superClassCanGive source target =
+  case target of
+    ClassPred targetClass _ -> do
+      kinds <- getKinds
+      search kinds targetClass [] [source]
+    _ -> pure True
+  where
+    search _ _ _ [] = pure False
+    search kinds targetClass seen (current : rest)
+      | current `elem` seen = search kinds targetClass seen rest
+      | otherwise = do
+          info <- lookupClass current
+          case info >>= traverse (superClassHeads kinds) . ciSuperClassTypes of
+            Nothing -> pure True
+            Just heads
+              | targetClass `elem` concat heads -> pure True
+              | otherwise -> search kinds targetClass (current : seen) (concat heads <> rest)
+    -- The classes that a declared superclass can give, or 'Nothing' when
+    -- they are not known.
+    superClassHeads kinds declared =
+      case constraintTypeToPred kinds declared of
+        Just (ClassPred superClass _) -> Just [superClass]
+        Just (QuantifiedPred _ _ (ClassPred superClass _)) -> Just [superClass]
+        Just EqPred {} -> Just []
+        Just IParamPred {} -> Just []
+        _ -> Nothing
+
 solveNormalizedDict :: [Pred] -> [Pred] -> Ct -> TcM DictResult
 solveNormalizedDict visited givens ct
   -- Each level of 'visited' is one step of instance or superclass
@@ -550,7 +597,7 @@ solveNormalizedDict visited givens ct
       case sourcePredicate of
         ClassPred sourceClass _
           | sourceClass `elem` classVisited -> pure Nothing
-          | otherwise -> do
+          | otherwise -> whenSuperClassCanGive sourceClass target $ do
               found <- normalizedSuperClasses sourcePredicate
               case found of
                 Just (origin, fieldTypes, normalized) ->
@@ -588,7 +635,7 @@ solveNormalizedDict visited givens ct
       case sourcePredicate of
         ClassPred sourceClass _
           | sourceClass `elem` classVisited -> pure Nothing
-          | otherwise -> do
+          | otherwise -> whenSuperClassCanGive sourceClass target $ do
               found <- normalizedSuperClasses sourcePredicate
               case found of
                 Nothing -> pure Nothing
@@ -962,7 +1009,7 @@ solveNormalizedDict visited givens ct
           case sourcePredicate of
             ClassPred sourceClass sourceArguments
               | sourceClass `elem` classVisited -> pure Nothing
-              | otherwise -> do
+              | otherwise -> whenSuperClassCanGive sourceClass target $ do
                   classInfo <- lookupClass sourceClass
                   case classInfo of
                     Nothing -> pure Nothing
