@@ -733,6 +733,38 @@ static void *aihc_visit_pointer(void *pointer, AihcRootVisitor visitor,
   return (void *)(uintptr_t)visitor((AihcSlot)(uintptr_t)pointer, context);
 }
 
+static AihcMachine aihc_machine;
+
+/* Whether the continuation of a waiter record is safe to visit. A record of
+   a wait names the frame that its thread suspended with. An asynchronous
+   exception cancels the wait by a change of the epoch of the thread, and the
+   record stays in the queue of its MVar, thunk, or target thread. The thread
+   then pops the frame. Later, the address can be in the middle of a frame,
+   also of a different stack that took the chunk. A collector that visits
+   that address reads a word that is not a header. Thus a stale frame is
+   deleted from the record here.
+
+   The frame of a wait that is not cancelled is the top of the stack of its
+   thread. The stack of the thread keeps the thread record, so the read of
+   the epoch is safe after the compare of the thread. Another capability
+   can release the stack of a stale frame, and a release holds the heap
+   lock, so this test holds it too. A continuation that is not a frame is an
+   ordinary value. */
+static int aihc_waiter_frame_current(const AihcThread *thread,
+                                     const AihcValue *continuation,
+                                     uint64_t epoch) {
+  if (continuation == NULL ||
+      aihc_region_kind(continuation) != AIHC_REGION_STACK) {
+    return 1;
+  }
+  aihc_heap_lock(&aihc_machine);
+  const AihcStack *stack = aihc_stack_of(continuation);
+  int current = stack != NULL && thread != NULL && stack->thread == thread &&
+                stack->top == continuation && thread->wait_epoch == epoch;
+  aihc_heap_unlock(&aihc_machine);
+  return current;
+}
+
 /* Trace native records through their C layouts on both target word sizes. */
 int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
                               void *context) {
@@ -776,6 +808,10 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
   case AIHC_OBJECT_BLACKHOLE_WAITER: {
     AihcBlackholeWaiter *waiter = (AihcBlackholeWaiter *)object;
+    if (!aihc_waiter_frame_current(waiter->thread, waiter->continuation,
+                                   waiter->epoch)) {
+      waiter->continuation = NULL;
+    }
     waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
     aihc_visit_value(&waiter->continuation, visitor, context);
     waiter->next = aihc_visit_pointer(waiter->next, visitor, context);
@@ -809,6 +845,10 @@ int aihc_visit_runtime_object(AihcValue *object, AihcRootVisitor visitor,
   }
   case AIHC_OBJECT_MVAR_WAITER: {
     AihcMVarWaiter *waiter = (AihcMVarWaiter *)object;
+    if (!aihc_waiter_frame_current(waiter->thread, waiter->continuation,
+                                   waiter->epoch)) {
+      waiter->continuation = NULL;
+    }
     waiter->thread = aihc_visit_pointer(waiter->thread, visitor, context);
     aihc_visit_value(&waiter->continuation, visitor, context);
     waiter->value = visitor(waiter->value, context);
@@ -870,7 +910,6 @@ _Static_assert(sizeof(AihcCallbackFrame) <= 64,
                "callback frame exceeds its LIR stack space");
 
 static AihcCallbackSlot *aihc_callback_slots;
-static AihcMachine aihc_machine;
 
 static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
                                                     AihcValue *closure,
