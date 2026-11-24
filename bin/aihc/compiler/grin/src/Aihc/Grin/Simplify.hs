@@ -116,8 +116,7 @@ simplifyGrinProgram program00 =
     program0 = distributeKnownCases (inlineLeafCalls program00)
     workers = boxWorkers program0
     -- The new workers join the program. A worker that no call names goes
-    -- in the sweep that follows. A program that an earlier run made can
-    -- have a worker already. See 'boxWorkers'.
+    -- in the sweep that follows.
     existing = Set.fromList (map grinFunctionName (grinFunctions program0))
     added = [function | worker <- Map.elems workers, let function = boxWorkerFunction worker, Set.notMember (grinFunctionName function) existing]
     program = program0 {grinFunctions = grinFunctions program0 <> added}
@@ -443,6 +442,13 @@ fieldTails env constructor var expression0 = fst <$> go (envKnown env) (0 :: Int
 -- @BS.index@ does, allocated the box only for the caller to fetch the
 -- byte. The function itself stays, because a thunk node names it and
 -- its update needs the box.
+--
+-- Each run makes its workers from the present bodies. A worker that an
+-- earlier run made is correct only for the calls that it has now. A later
+-- pass can change it for those calls. For example, the points-to analysis
+-- of GRIN removes an @eval@ of a parameter when each of these calls gives a
+-- value. A new call of the function can give a thunk. Thus a new worker
+-- gets a name that no function has.
 boxWorkers :: GrinProgram -> Map FunctionName BoxWorker
 boxWorkers program =
   Map.fromList
@@ -456,31 +462,20 @@ boxWorkers program =
                 boxWorkerFieldRep = fieldRep,
                 boxWorkerFunction =
                   function
-                    { grinFunctionName = workerName function fieldRep,
+                    { grinFunctionName = workerName function,
                       grinFunctionResultRep = ResultRep fieldRep,
                       grinFunctionBody = unboxTails constructor (maximumProgramVarUnique program + 1) (grinFunctionBody function)
                     }
               }
     ]
   where
-    functions = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
-    -- The first worker name that no function has, or that the worker of
-    -- the function from an earlier run has. That worker must have the
-    -- parameters of the function. A later pass can change the parameters
-    -- of a worker, because only direct calls name it. Then a call with the
-    -- arguments of the function must go to a new worker.
-    workerName function fieldRep = go (1 :: Int)
-      where
-        go index
-          | maybe True (isWorkerOf function fieldRep) (Map.lookup name functions) = name
-          | otherwise = go (index + 1)
-          where
-            suffix = if index == 1 then "" else Text.pack (show index)
-            name = FunctionName (unFunctionName (grinFunctionName function) <> "_unboxed" <> suffix)
-    isWorkerOf function fieldRep existing =
-      grinFunctionResultRep existing == ResultRep fieldRep
-        && map parameterKey (grinFunctionParameters existing) == map parameterKey (grinFunctionParameters function)
-    parameterKey var = (grinVarName var, grinVarUnique var, grinVarRuntimeRep var)
+    names = Set.fromList (map grinFunctionName (grinFunctions program))
+    -- A candidate name is the name of the function, then "_unboxed", and
+    -- then a number or nothing. Thus two workers do not get the same name.
+    workerName function =
+      let base = unFunctionName (grinFunctionName function) <> "_unboxed"
+          candidate i = FunctionName (if i == 1 then base else base <> Text.pack (show i))
+       in candidate (until (\i -> Set.notMember (candidate i) names) (+ 1) (1 :: Int))
     layouts = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program]
     diverging = divergingFunctions program
     -- The constructor and the field representation of the boxes the body
