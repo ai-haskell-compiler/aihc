@@ -1,0 +1,186 @@
+{
+ "schema": 1,
+ "name": "aihc-web-kit",
+ "version": "0.2.1-dev",
+ "build": "d49863085f92f20f",
+ "entry": "aihc.js",
+ "worker": "worker.js",
+ "compiler": {
+  "module": "aihc-play-component.js",
+  "bundle": "core.bundle.gz"
+ },
+ "linker": {
+  "tools": "tools/tools.js",
+  "runtime": "runtime.pack.gz"
+ },
+ "packs": [],
+ "files": [
+  {
+   "path": "LICENSE",
+   "bytes": 1211,
+   "sha256": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e",
+   "group": "doc"
+  },
+  {
+   "path": "README.md",
+   "bytes": 10618,
+   "sha256": "3735c745af8a70021b40cfa93b6730eb1181b670e23d348610050eb574ccdc31",
+   "group": "doc"
+  },
+  {
+   "path": "aihc-play-component.core.wasm.gz",
+   "bytes": 4159059,
+   "sha256": "6b844e000271d5664a0e75da3616b6547257cb63419d98ed963154894d5c85ef",
+   "group": "compiler",
+   "url": "https://assets.aihc.app/play/helper/d49863085f92f20f/aihc-play-component.core.wasm.gz"
+  },
+  {
+   "path": "aihc-play-component.core2.wasm.gz",
+   "bytes": 421,
+   "sha256": "09af0b2260ac15c680f9f97fbabfa4295f35c1e534adbee5c7df674c16bb7fcc",
+   "group": "compiler",
+   "url": "https://assets.aihc.app/play/helper/d49863085f92f20f/aihc-play-component.core2.wasm.gz"
+  },
+  {
+   "path": "aihc-play-component.core3.wasm.gz",
+   "bytes": 291,
+   "sha256": "9aa38af0e602407a882b99653afe8e6c9b9c27803dea28002ab5c7a99e21612c",
+   "group": "compiler",
+   "url": "https://assets.aihc.app/play/helper/d49863085f92f20f/aihc-play-component.core3.wasm.gz"
+  },
+  {
+   "path": "aihc-play-component.js",
+   "bytes": 1050312,
+   "sha256": "2435160421768862eb6e323f48e1d13623a7a58c17f21fe4bc5bfe0e86a74991",
+   "group": "compiler",
+   "module": true
+  },
+  {
+   "path": "aihc.js",
+   "bytes": 6702,
+   "sha256": "6684d648842262caf0ee5b4896a1aca967bce7fcf8bc28caf1bbfa6c42d11c41",
+   "group": "glue",
+   "module": true
+  },
+  {
+   "path": "core.bundle.gz",
+   "bytes": 961999,
+   "sha256": "b8a0c42a677c13f91c84e3391d3bc8ca734dc3cef6975d320117051c8788b804",
+   "group": "compiler",
+   "url": "https://assets.aihc.app/play/helper/d49863085f92f20f/core.bundle.gz"
+  },
+  {
+   "path": "host.js",
+   "bytes": 6697,
+   "sha256": "1e7e339030329fadb3d22eaad4bcc2cba031e56eed423774b30e712d36363ec2",
+   "group": "glue",
+   "module": true
+  },
+  {
+   "path": "manifest.js",
+   "bytes": 5633,
+   "sha256": "a77315fe74bdfaae0e5b15d05f9a164de854184706ceedcaf7c216380a34c6e2",
+   "group": "glue",
+   "module": true
+  },
+  {
+   "path": "runtime.pack.gz",
+   "bytes": 10119996,
+   "sha256": "57f47da10256f5a50aa387ee32b20641130ca4e212a41066b991ad06f2eeec25",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/helper/d49863085f92f20f/runtime.pack.gz"
+  },
+  {
+   "path": "tools/jco-LICENSE",
+   "bytes": 12243,
+   "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+   "group": "doc",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/jco-LICENSE"
+  },
+  {
+   "path": "tools/js-component-bindgen-component.core.wasm",
+   "bytes": 3540404,
+   "sha256": "1e91aa39427c7b3bfb645c5bca2b14272d0393c07473a8408266209215be1937",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/js-component-bindgen-component.core.wasm"
+  },
+  {
+   "path": "tools/js-component-bindgen-component.core2.wasm",
+   "bytes": 14120,
+   "sha256": "582798f3e640e161fbcb20587c76f33921bded5afaed1eb968abefd75a575ae6",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/js-component-bindgen-component.core2.wasm"
+  },
+  {
+   "path": "tools/llvm-resources.tar.gz",
+   "bytes": 4243123,
+   "sha256": "c6b85052b544c46c84c9e2dd08448f0cc12e4131799cd10f480f4d65008880a7",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/llvm-resources.tar.gz"
+  },
+  {
+   "path": "tools/llvm.core.wasm.gz",
+   "bytes": 22637145,
+   "sha256": "140bbb50c651e39b10d59e708ac3920f3bd09c48989176a9b1469253650da14f",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/llvm.core.wasm.gz"
+  },
+  {
+   "path": "tools/llvm.core2.wasm.gz",
+   "bytes": 13745,
+   "sha256": "f6d0966c4f3f66f0416e2cfbb89e3f4169ce8fd719c16cb1cedf057de2017d4d",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/llvm.core2.wasm.gz"
+  },
+  {
+   "path": "tools/llvm.core3.wasm.gz",
+   "bytes": 1590,
+   "sha256": "8b311d933e5015f021c015087d0c3a1fbb014ab8bffb887eb072729ed0dad98a",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/llvm.core3.wasm.gz"
+  },
+  {
+   "path": "tools/llvm.core4.wasm.gz",
+   "bytes": 467,
+   "sha256": "9038444135f172fa9d293d44d4a8b4d9ad5d7ff3ed2c2930fb9f2a6d142ea7db",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/llvm.core4.wasm.gz"
+  },
+  {
+   "path": "tools/shim-LICENSE",
+   "bytes": 12243,
+   "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5",
+   "group": "doc",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/shim-LICENSE"
+  },
+  {
+   "path": "tools/tools.js",
+   "bytes": 1212320,
+   "sha256": "50f2fb00057f9d50fa57596486d7e58fd8d08d6775f3630f44ab2d98d06effd6",
+   "group": "linker",
+   "module": true,
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/tools.js"
+  },
+  {
+   "path": "tools/wasm-tools.core.wasm",
+   "bytes": 2391809,
+   "sha256": "a0dd50fec12fe917ab5aeb89fa8280cd8b014428e55e3d11b13ce57c1c31cba6",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/wasm-tools.core.wasm"
+  },
+  {
+   "path": "tools/wasm-tools.core2.wasm",
+   "bytes": 14120,
+   "sha256": "582798f3e640e161fbcb20587c76f33921bded5afaed1eb968abefd75a575ae6",
+   "group": "linker",
+   "url": "https://assets.aihc.app/play/9ed5eec2932ecf1214f5e83fc011c5a9cfb8bfe6409756c4caab04d089deefed/wasm-tools.core2.wasm"
+  },
+  {
+   "path": "worker.js",
+   "bytes": 9630,
+   "sha256": "858527407fe006ba04ba0507c348dc92578ece2079b95ee7d4284a62c9aceb72",
+   "group": "glue",
+   "module": true
+  }
+ ]
+}
