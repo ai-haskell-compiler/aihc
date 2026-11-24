@@ -221,7 +221,10 @@ Each `AihcThread` has these fields:
   waiter, and a throwTo message keep the epoch of their wait. The thread
   names none of these records. A thread record is in gen2, so a pointer
   from it would keep a dead waiter, its frames, and its MVar alive until a
-  gen2 cycle.
+  gen2 cycle. The record of a cancelled wait stays in its queue and still
+  names the frame of the wait. The thread pops that frame, and a different
+  stack can take the chunk. Thus each visit of a record deletes a frame that
+  is not the top frame of the stack of a thread with the same epoch.
 - `pending_head` and `pending_tail`: the queue of throwTo messages. A
   message is an MVar waiter record: the sender, its continuation, and the
   exception.
