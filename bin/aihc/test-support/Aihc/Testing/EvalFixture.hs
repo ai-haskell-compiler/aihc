@@ -62,6 +62,7 @@ import Aihc.Resolve
     resolveUnit,
     unnamedPackage,
   )
+import Aihc.Resolve.Syntax qualified as R
 import Aihc.Tc (MergeCheck (..), TcBindingResult, TcConfig, TcErrorKind (..), TcInterface (..), TcKinds, TcWiring, diagKind, emptyTcInterface, mergeTcInterfaces, mkTcKinds, renderFunDepNames, renderPred, renderTcType, tcInterfaceTerms, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModuleSccWithInterface, typecheckModulesWithInterface)
 import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Testing.Extensions (fixtureExtensions)
@@ -529,7 +530,7 @@ typecheckCoreModules units =
     -- here: a cycle has no order in which each module follows its imports.
     otherComponents =
       [ modules
-      | component <- stronglyConnComp [(unit, moduleKey (resolvedAst unit), map importDeclModule (moduleImports (resolvedAst unit))) | unit <- otherModules],
+      | component <- stronglyConnComp [(unit, moduleKey (resolvedAst unit), map R.importDeclModule (R.moduleImports (resolvedAst unit))) | unit <- otherModules],
         let modules = case component of
               AcyclicSCC unit -> [unit]
               CyclicSCC cycleUnits -> sortOn (moduleKey . resolvedAst) cycleUnits
@@ -541,7 +542,7 @@ typecheckCoreModules units =
       | otherwise =
           let (checkedUnits, unitInterface) = typecheckModuleSccWithInterface evalTcConfig interface component
            in (checked <> checkedUnits, mergeTcInterfaces CheckMergedFacts [interface, unitInterface])
-    resolvedAst = moduleUnitAst . resolvedModuleUnit
+    resolvedAst = resolvedModuleSyntax
     isWired = (`elem` wiredTypeModules) . moduleKey
     moduleOrder unit =
       case moduleKey (resolvedAst unit) of
@@ -550,8 +551,8 @@ typecheckCoreModules units =
         "GHC.Tuple" -> (2, "GHC.Tuple")
         key -> (3, key)
 
-moduleKey :: Module -> Text
-moduleKey = fromMaybe "Main" . Surface.moduleName
+moduleKey :: R.Module -> Text
+moduleKey = fromMaybe "Main" . R.moduleName
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Prim", "GHC.Tuple", "GHC.Types"]

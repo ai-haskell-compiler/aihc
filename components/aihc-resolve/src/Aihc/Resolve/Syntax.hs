@@ -48,6 +48,8 @@ module Aihc.Resolve.Syntax
     resolvedNameEntity,
     resolvedBinderEntity,
     resolvedNameOrigin,
+    resolvedExactTerm,
+    resolvedExactType,
     recordSelectorNames,
 
     -- * Modules
@@ -231,6 +233,8 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve.Types
   ( Entity (..),
+    ExactTerm (..),
+    ExactType (..),
     GlobalName (..),
     PackageId,
     RecKnotVariables (..),
@@ -240,8 +244,11 @@ import Aihc.Resolve.Types
     Resolved (..),
     resolvedOf,
   )
+import Control.DeepSeq (NFData)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 type BinderName = UnqualifiedName
 
@@ -300,6 +307,16 @@ resolvedNameOrigin name =
   case resolvedNameEntity name of
     Just (EntityGlobal global) -> Just (globalNamePackage global, globalNameModule global)
     _ -> Nothing
+
+-- | The term that an exact mark on a name occurrence gives, if the name
+-- has a mark. A Template Haskell splice gives such marks.
+resolvedExactTerm :: Name -> Maybe GlobalName
+resolvedExactTerm name = listToMaybe [global | Just (ExactTerm global) <- map fromAnnotation (nameAnns name)]
+
+-- | The type that an exact mark on a name occurrence gives, if the name
+-- has a mark.
+resolvedExactType :: Name -> Maybe GlobalName
+resolvedExactType name = listToMaybe [global | Just (ExactType global) <- map fromAnnotation (nameAnns name)]
 
 -- | The selector name of each record field label of one declaration. A
 -- duplicate record field has a selector with its own name, which the
@@ -511,7 +528,7 @@ data Name = Name
     -- resolver does not resolve a name in this position.
     nameResolution :: Maybe ResolutionResult
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An unqualified identifier or operator.
 -- Examples: @map@, @Just@, @:+:@.
@@ -523,7 +540,7 @@ data UnqualifiedName = UnqualifiedName
     -- when the resolver does not resolve a name in this position.
     unqualifiedNameResolution :: Maybe ResolutionResult
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A whole Haskell module.
 -- Example: @module M (x) where import Data.List; x = 1@.
@@ -534,7 +551,7 @@ data Module = Module
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The optional @module ... where@ header.
 -- Example: @module M (x, type T) where@.
@@ -544,7 +561,7 @@ data ModuleHead = ModuleHead
     moduleHeadWarningPragma :: Maybe Pragma,
     moduleHeadExports :: Maybe [ExportSpec]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A member bundled with a parent import or export.
 -- Example: @Just@ in @Maybe(Just, Nothing)@.
@@ -552,7 +569,7 @@ data IEBundledMember = IEBundledMember
   { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
     ieBundledMemberName :: Name
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One item in a module export list.
 data ExportSpec
@@ -570,7 +587,7 @@ data ExportSpec
     ExportWithAll (Maybe Pragma) (Maybe IEEntityNamespace) Name Int [IEBundledMember]
   | -- | Metadata for the whole export item.
     ExportAnn Annotation ExportSpec
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A module import declaration.
 -- Example: @import qualified Data.Map as Map hiding (lookup)@.
@@ -588,7 +605,7 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An optional import list or hiding list.
 -- Examples: @(map, foldr)@ and @hiding (map)@.
@@ -597,7 +614,7 @@ data ImportSpec = ImportSpec
     importSpecHiding :: Bool,
     importSpecItems :: [ImportItem]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One item in an import list.
 data ImportItem
@@ -615,7 +632,7 @@ data ImportItem
     ImportAnn Annotation ImportItem
   | -- | The item names something that the module does not export.
     ImportItemError ResolveError ImportItem
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A top-level declaration.
 data Decl
@@ -671,7 +688,7 @@ data Decl
     DeclPragma Pragma
   | -- | @{-# RULES "map/map" forall f g xs. map f (map g xs) = map (f . g) xs #-}@
     DeclRules [RuleDecl]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One rewrite rule of a @RULES@ pragma.
 -- Example: @"map/map" [2] forall f g xs. map f (map g xs) = map (f . g) xs@.
@@ -694,7 +711,7 @@ data RuleDecl = RuleDecl
     -- | The right-hand side, put in place of a match.
     ruleRhs :: Expr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One pattern variable of a rule, bound by @forall@.
 -- Examples: @xs@ and @(g :: forall b. (a -> b -> b) -> b -> b)@.
@@ -703,7 +720,7 @@ data RuleBinder = RuleBinder
     ruleBinderName :: UnqualifiedName,
     ruleBinderType :: Maybe Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Multiplicity tag on a let/where pattern binding.
 -- Corresponds to @x = e@ (no tag), @%1 x = e@ (linear), @%m x = e@ (explicit).
@@ -714,7 +731,7 @@ data MultiplicityTag
     LinearMultiplicityTag
   | -- | @%m x = e@
     ExplicitMultiplicityTag Type
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A value binding.
 data ValueDecl
@@ -722,7 +739,7 @@ data ValueDecl
     FunctionBind BinderName [Match]
   | -- | @pat = body@ or @%1 pat = body@
     PatternBind MultiplicityTag Pattern (Rhs Expr)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One equation of a function or pattern synonym.
 -- Examples: @f x = x@ and @x :+: y = z@.
@@ -732,7 +749,7 @@ data Match = Match
     matchPats :: [Pattern],
     matchRhs :: Rhs Expr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Pattern synonym declaration direction.
 data PatSynDir
@@ -742,7 +759,7 @@ data PatSynDir
     PatSynBidirectional
   | -- | @pattern P x <- pat where P x = expr@
     PatSynExplicitBidirectional [Match]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Pattern synonym declaration.
 -- Example: @pattern JustOne x = Just [x]@.
@@ -752,7 +769,7 @@ data PatSynDecl = PatSynDecl
     patSynDeclPat :: Pattern,
     patSynDeclDir :: PatSynDir
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The right-hand side of a binding, case alternative, or lambda case.
 data Rhs body
@@ -760,7 +777,7 @@ data Rhs body
     UnguardedRhs [Annotation] body (Maybe [Decl])
   | -- | Guarded equations such as @| x > 0 = body@.
     GuardedRhss [Annotation] [GuardedRhs body] (Maybe [Decl])
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One guarded branch.
 -- Example: @| x > 0 = x@.
@@ -769,7 +786,7 @@ data GuardedRhs body = GuardedRhs
     guardedRhsGuards :: [GuardQualifier],
     guardedRhsBody :: body
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A single qualifier inside a guarded right-hand side.
 data GuardQualifier
@@ -781,7 +798,7 @@ data GuardQualifier
     GuardPat Pattern Expr
   | -- | @let y = f x@
     GuardLet [Decl]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One record field occurrence.
 -- Examples: @x = 1@ in @T { x = 1 }@ and @x@ in @T { x }@.
@@ -790,7 +807,7 @@ data RecordField a = RecordField
     recordFieldValue :: a,
     recordFieldPun :: Bool
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A pattern.
 data Pattern
@@ -846,7 +863,7 @@ data Pattern
   | -- | @$pat@ or @$(pat)@
     PSplice Expr
   -- \$pat or $(pat) (TH pattern splice)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The binders introduced by a @forall@.
 -- Example: @forall a b. a -> b -> a@.
@@ -854,7 +871,7 @@ data ForallTelescope = ForallTelescope
   { forallTelescopeVisibility :: ForallVis,
     forallTelescopeBinders :: [TyVarBinder]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The kind of a function arrow.
 -- @ArrowUnrestricted@ is the ordinary @->@.
@@ -864,7 +881,7 @@ data ArrowKind
   = ArrowUnrestricted
   | ArrowLinear
   | ArrowExplicit Type
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A type.
 data Type
@@ -914,7 +931,7 @@ data Type
   | -- \$typ or $(typ) (TH type splice)
     -- \_ (wildcard type, used in type family instance patterns)
     TWildcard
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One type-variable binder.
 -- Examples: @a@, @(a :: Type)@, @{a}@, and @@k@.
@@ -929,7 +946,7 @@ data TyVarBinder = TyVarBinder
     -- | Whether the binder was written visibly (@a@) or invisibly (@@a@).
     tyVarBinderVisibility :: TyVarBVisibility
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The head of a declaration that binds a type constructor or class.
 data BinderHead name
@@ -937,7 +954,7 @@ data BinderHead name
     PrefixBinderHead name [TyVarBinder]
   | -- | @a :+: b@
     InfixBinderHead TyVarBinder name TyVarBinder [TyVarBinder]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A @type role@ declaration.
 -- Example: @type role T nominal representational@.
@@ -945,7 +962,7 @@ data RoleAnnotation = RoleAnnotation
   { roleAnnotationName :: UnqualifiedName,
     roleAnnotationRoles :: [Role]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A @type@ synonym declaration.
 -- Example: @type Pair a = (a, a)@.
@@ -953,7 +970,7 @@ data TypeSynDecl = TypeSynDecl
   { typeSynHead :: BinderHead UnqualifiedName,
     typeSynBody :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Open or closed type synonym family declaration.
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
@@ -972,7 +989,7 @@ data TypeFamilyDecl = TypeFamilyDecl
     -- | @Nothing@ = open family; @Just eqs@ = closed family with equations
     typeFamilyDeclEquations :: Maybe [TypeFamilyEq]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | The result signature on a type family head.
 data TypeFamilyResultSig
@@ -982,7 +999,7 @@ data TypeFamilyResultSig
     TypeFamilyTyVarSig TyVarBinder
   | -- | @type family F a = r | r -> a@
     TypeFamilyInjectiveSig TyVarBinder TypeFamilyInjectivity
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One equation in a closed type family: @[forall binders.] LhsType = RhsType@
 -- Example: @forall a. F [a] = Maybe a@.
@@ -993,7 +1010,7 @@ data TypeFamilyEq = TypeFamilyEq
     typeFamilyEqLhs :: Type,
     typeFamilyEqRhs :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Data family declaration (standalone or associated in a class body).
 -- Example: @data family DF a :: Type@.
@@ -1002,7 +1019,7 @@ data DataFamilyDecl = DataFamilyDecl
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Type family instance: @type [instance] [forall binders.] LhsType = RhsType@
 -- Example: @type instance F Int = Bool@.
@@ -1012,7 +1029,7 @@ data TypeFamilyInst = TypeFamilyInst
     typeFamilyInstLhs :: Type,
     typeFamilyInstRhs :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Data or newtype family instance (standalone or in an instance body).
 -- Examples: @data instance DF Int = DFInt@ and
@@ -1028,7 +1045,7 @@ data DataFamilyInst = DataFamilyInst
     dataFamilyInstConstructors :: [DataConDecl],
     dataFamilyInstDeriving :: [DerivingClause]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A @data@ or @type data@ declaration body.
 -- Examples: @data Maybe a = Nothing | Just a@ and @type data Nat = Z | S Nat@.
@@ -1041,7 +1058,7 @@ data DataDecl = DataDecl
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A @newtype@ declaration.
 -- Example: @newtype Identity a = Identity a@.
@@ -1054,7 +1071,7 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A data constructor declaration.
 data DataConDecl
@@ -1078,7 +1095,7 @@ data DataConDecl
     UnboxedSumCon [TyVarBinder] [Type] Int Int BangType
   | -- | List constructor: @[]@
     ListCon [TyVarBinder] [Type]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
 -- Examples: @MkT :: a -> T a@ and @MkT :: { field :: a } -> T a@.
@@ -1088,7 +1105,7 @@ data GadtBody
     GadtPrefixBody [(BangType, ArrowKind)] Type
   | -- | Record body: @{ field :: Type } -> T a@
     GadtRecordBody [FieldDecl] Type
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A field or constructor argument type with strictness/laziness markers.
 -- Examples: @a@, @!a@, @~a@, and @{-# UNPACK #-} !Int@.
@@ -1099,7 +1116,7 @@ data BangType = BangType
     bangLazy :: Bool,
     bangType :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A record field declaration.
 -- Example: @x, y :: Int@ in @data T = MkT { x, y :: Int }@.
@@ -1110,7 +1127,7 @@ data FieldDecl = FieldDecl
     fieldMultiplicity :: Maybe Type,
     fieldType :: BangType
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One @deriving@ clause.
 -- Examples: @deriving Show@ and @deriving stock (Eq, Ord)@.
@@ -1118,7 +1135,7 @@ data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
     derivingClasses :: Either Name [Type]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An explicit deriving strategy.
 data DerivingStrategy
@@ -1130,7 +1147,7 @@ data DerivingStrategy
     DerivingAnyclass
   | -- | @deriving via Wrapper T@
     DerivingVia Type
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A standalone deriving declaration.
 -- Example: @deriving stock instance Show a => Show (T a)@.
@@ -1142,7 +1159,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingContext :: [Type],
     standaloneDerivingHead :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A class declaration.
 -- Example: @class (Eq a) => C a where f :: a -> Bool@.
@@ -1152,7 +1169,7 @@ data ClassDecl = ClassDecl
     classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An item inside a class body.
 data ClassDeclItem
@@ -1176,7 +1193,7 @@ data ClassDeclItem
     ClassItemDefaultTypeInst TypeFamilyInst
   | -- | A pragma inside the class body, such as @{-# MINIMAL f #-}@.
     ClassItemPragma Pragma
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An instance declaration.
 -- Example: @instance Show a => Show [a] where show = ...@.
@@ -1188,7 +1205,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclHead :: Type,
     instanceDeclItems :: [InstanceDeclItem]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An item inside an instance body.
 data InstanceDeclItem
@@ -1208,7 +1225,7 @@ data InstanceDeclItem
     InstanceItemDataFamilyInst DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
     InstanceItemPragma Pragma
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A foreign import or export declaration.
 -- Example: @foreign import ccall "puts" puts :: CString -> IO CInt@.
@@ -1220,7 +1237,7 @@ data ForeignDecl = ForeignDecl
     foreignName :: UnqualifiedName,
     foreignType :: Type
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An expression.
 data Expr
@@ -1335,7 +1352,7 @@ data Expr
     EProc Pattern Cmd
   | -- | @{-# SCC foo #-} expr@
     EPragma Pragma Expr
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One @case@ or @\case@ alternative.
 -- Example: @Just x -> x@.
@@ -1344,7 +1361,7 @@ data CaseAlt body = CaseAlt
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs body
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | One multi-argument @\cases@ alternative.
 -- Example: @Just x y -> x + y@.
@@ -1353,7 +1370,7 @@ data LambdaCaseAlt = LambdaCaseAlt
     lambdaCaseAltPats :: [Pattern],
     lambdaCaseAltRhs :: Rhs Expr
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A statement inside a @do@ block.
 data DoStmt body
@@ -1371,7 +1388,7 @@ data DoStmt body
     DoExpr body
   | -- | @rec { stmts }@
     DoRecStmt [DoStmt body] -- rec { stmts }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | Arrow command type (used inside 'proc' expressions).
 -- Commands mirror expressions but live in a separate namespace so the
@@ -1397,7 +1414,7 @@ data Cmd
     CmdApp Cmd Expr
   | -- | Parenthesised command: @(cmd)@
     CmdPar Cmd
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | A statement inside a list comprehension.
 data CompStmt
@@ -1417,7 +1434,7 @@ data CompStmt
     CompGroupUsing Expr
   | -- | @then group by e using f@ (TransformListComp)
     CompGroupByUsing Expr Expr
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | An arithmetic sequence expression.
 data ArithSeq
@@ -1433,4 +1450,118 @@ data ArithSeq
     ArithSeqFromTo Expr Expr
   | -- | @[start, thenExpr .. end]@
     ArithSeqFromThenTo Expr Expr Expr
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+-- Deep evaluation
+
+instance NFData Name
+
+instance NFData UnqualifiedName
+
+instance NFData Module
+
+instance NFData ModuleHead
+
+instance NFData IEBundledMember
+
+instance NFData ExportSpec
+
+instance NFData ImportDecl
+
+instance NFData ImportSpec
+
+instance NFData ImportItem
+
+instance NFData Decl
+
+instance NFData RuleDecl
+
+instance NFData RuleBinder
+
+instance NFData MultiplicityTag
+
+instance NFData ValueDecl
+
+instance NFData Match
+
+instance NFData PatSynDir
+
+instance NFData PatSynDecl
+
+instance (NFData body) => NFData (Rhs body)
+
+instance (NFData body) => NFData (GuardedRhs body)
+
+instance NFData GuardQualifier
+
+instance (NFData a) => NFData (RecordField a)
+
+instance NFData Pattern
+
+instance NFData ForallTelescope
+
+instance NFData ArrowKind
+
+instance NFData Type
+
+instance NFData TyVarBinder
+
+instance (NFData name) => NFData (BinderHead name)
+
+instance NFData RoleAnnotation
+
+instance NFData TypeSynDecl
+
+instance NFData TypeFamilyDecl
+
+instance NFData TypeFamilyResultSig
+
+instance NFData TypeFamilyEq
+
+instance NFData DataFamilyDecl
+
+instance NFData TypeFamilyInst
+
+instance NFData DataFamilyInst
+
+instance NFData DataDecl
+
+instance NFData NewtypeDecl
+
+instance NFData DataConDecl
+
+instance NFData GadtBody
+
+instance NFData BangType
+
+instance NFData FieldDecl
+
+instance NFData DerivingClause
+
+instance NFData DerivingStrategy
+
+instance NFData StandaloneDerivingDecl
+
+instance NFData ClassDecl
+
+instance NFData ClassDeclItem
+
+instance NFData InstanceDecl
+
+instance NFData InstanceDeclItem
+
+instance NFData ForeignDecl
+
+instance NFData Expr
+
+instance (NFData body) => NFData (CaseAlt body)
+
+instance NFData LambdaCaseAlt
+
+instance (NFData body) => NFData (DoStmt body)
+
+instance NFData Cmd
+
+instance NFData CompStmt
+
+instance NFData ArithSeq

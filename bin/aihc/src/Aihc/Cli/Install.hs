@@ -224,6 +224,8 @@ import Aihc.Resolve
     resolveUnit,
     toParserExpr,
   )
+import Aihc.Resolve.Syntax qualified as R
+import Aihc.Resolve.Syntax.Traverse qualified as RWalk
 import Aihc.Resolve.Types (exactTerm, exactType)
 import Aihc.Tc
   ( ClassInfo (..),
@@ -3163,7 +3165,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                     checked <- case known of
                       Just result -> pure result
                       Nothing -> do
-                        exactTyped <- unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage [sourceModuleName source] prefix)
+                        exactTyped <- unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage [sourceModuleName source] (parsedExactNames prefix))
                         let types = mergeTcInterfaces TrustMergedFacts (importedTypes : map (typedModuleInterface . snd) exactTyped)
                         result <- evaluate (checkPrefix types moduleUnit bound prefix)
                         modifyIORef' prefixFacts (Map.insert (length prefix) result)
@@ -3236,20 +3238,14 @@ expandUnitSplices context runtimes unit availableExports sources modules =
 -- of the own package that are in the list: the unit checks these modules
 -- itself. A different module of the own package is in the result, because
 -- a splice can name a module of its package that the unit does not import.
-exactModuleKeys :: (Data syntax) => Package -> [Text] -> syntax -> [ModuleKey]
-exactModuleKeys own checked syntax =
+exactModuleKeys :: Package -> [Text] -> [GlobalName] -> [ModuleKey]
+exactModuleKeys own checked globals =
   nub
     [ ModuleKey (packageOfId (globalNamePackage global)) (globalNameModule global)
-    | name <- names syntax,
-      Just global <- [exactTerm name, exactType name],
+    | global <- globals,
       globalNamePackage global /= packageId own || globalNameModule global `notElem` checked
     ]
   where
-    names :: forall value. (Data value) => value -> [Syntax.Name]
-    names value =
-      case eqT @value @Syntax.Name of
-        Just Refl -> [value]
-        Nothing -> concat (gmapQ names value)
     -- A package id is the name and the version of the package.
     packageOfId identity =
       case T.breakOnEnd "-" (packageIdText identity) of
@@ -3310,12 +3306,33 @@ exactTypedFacts provider keys =
         Just (_ :: SomeAsyncException) -> Nothing
         Nothing -> Just (failure :: SomeException)
 
--- | The modules of a type input.
-typeInputModules :: TypeInput -> [Syntax.Module]
-typeInputModules typeInput =
+-- | The names that the exact marks of a type input give, in source order.
+typeInputExactNames :: TypeInput -> [GlobalName]
+typeInputExactNames typeInput =
   case typeInput of
-    TypeInputResolved (ResolvedUnit modules) -> map (moduleUnitAst . resolvedModuleUnit) modules
-    TypeInputParsed modules -> map moduleUnitAst modules
+    TypeInputResolved (ResolvedUnit modules) -> concatMap (resolvedExactNames . resolvedModuleSyntax) modules
+    TypeInputParsed modules -> concatMap (parsedExactNames . moduleUnitAst) modules
+
+-- | The names that the exact marks of a parsed syntax tree give, in
+-- source order.
+parsedExactNames :: (Data syntax) => syntax -> [GlobalName]
+parsedExactNames syntax =
+  [global | name <- names syntax, Just global <- [exactTerm name, exactType name]]
+  where
+    names :: forall value. (Data value) => value -> [Syntax.Name]
+    names value =
+      case eqT @value @Syntax.Name of
+        Just Refl -> [value]
+        Nothing -> concat (gmapQ names value)
+
+-- | The names that the exact marks of a resolved module give, in source
+-- order.
+resolvedExactNames :: R.Module -> [GlobalName]
+resolvedExactNames =
+  RWalk.runCollect (RWalk.walk RWalk.idWalk {RWalk.walkName = exactNames})
+  where
+    exactNames children name =
+      RWalk.collected (catMaybes [R.resolvedExactTerm name, R.resolvedExactType name]) *> children name
 
 -- | The type facts that the modules of a unit import: the facts of the
 -- units below it and of the dependency packages.
@@ -3406,7 +3423,7 @@ runTypeUnit context runtimes runtime = do
   -- import, with its package. The check needs the facts of that module.
   exactTyped <-
     if any (isJust . sourceModuleSpliceRequest) sources
-      then unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage unitNames (typeInputModules typeInput))
+      then unitExactTypedFacts context runtimes (exactModuleKeys resolvePackage unitNames (typeInputExactNames typeInput))
       else pure []
   let dependencyExports = moduleExportsWithOrigins [(key, providerModuleOrigin (taskModuleProvider context) key) | (key, _) <- externalResolved] $ moduleExportsFromList [(key, resolvedModuleScope facts) | (key, facts) <- externalResolved]
       dependencyScopeHashes = byModuleFromList [(key, resolvedModuleScopeDigest facts) | (key, facts) <- externalResolved]

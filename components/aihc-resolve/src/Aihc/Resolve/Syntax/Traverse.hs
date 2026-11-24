@@ -48,6 +48,8 @@ data Walk f = Walk
     -- list, such as a name or a module. The argument walks the elements.
     walkAnnotationList :: ([Annotation] -> f [Annotation]) -> [Annotation] -> f [Annotation],
     walkName :: (Name -> f Name) -> Name -> f Name,
+    -- | Every unqualified name, such as a binder.
+    walkUnqualifiedName :: (UnqualifiedName -> f UnqualifiedName) -> UnqualifiedName -> f UnqualifiedName,
     walkExpr :: (Expr -> f Expr) -> Expr -> f Expr,
     walkPattern :: (Pattern -> f Pattern) -> Pattern -> f Pattern,
     walkType :: (Type -> f Type) -> Type -> f Type,
@@ -73,6 +75,7 @@ idWalk =
       walkResolution = pure,
       walkAnnotationList = id,
       walkName = id,
+      walkUnqualifiedName = id,
       walkExpr = id,
       walkPattern = id,
       walkType = id,
@@ -188,7 +191,7 @@ instance Walkable Name where
       <*> walkMaybeResolution w (nameResolution name)
 
 instance Walkable UnqualifiedName where
-  walk w name =
+  walk w = walkUnqualifiedName w $ \name ->
     (\anns resolution -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution})
       <$> walkAnns w (unqualifiedNameAnns name)
       <*> walkMaybeResolution w (unqualifiedNameResolution name)

@@ -204,14 +204,18 @@ data Resolved = Resolved
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !Entity
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData Resolved
 
 -- | The outcome of one resolution in the syntax tree that the resolver
 -- gives: the resolution, or the error that the resolver found.
 data ResolutionResult
   = ResolutionOk !Resolved
   | ResolutionError !ResolveError
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData ResolutionResult
 
 -- | The successful resolution of a result, if it is one.
 resolvedOf :: ResolutionResult -> Maybe Resolved
@@ -227,7 +231,9 @@ resolvedOf result =
 -- of GHC. A @rec@ statement without this annotation carries all of its
 -- variables in the knot, as an explicit @rec@ statement does in GHC.
 newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData RecKnotVariables
 
 -- | The first resolution of the given namespace among some annotations.
 resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe Resolved
@@ -270,7 +276,9 @@ data ResolveError = ResolveError
     resolveErrorNamespace :: !ResolutionNamespace,
     resolveErrorMessage :: !String
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData ResolveError
 
 -- | The error of one failed resolution.
 resolveErrorAt :: Maybe SourceSpan -> Identifier -> ResolutionNamespace -> String -> ResolveError

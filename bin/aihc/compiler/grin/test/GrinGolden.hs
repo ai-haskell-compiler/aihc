@@ -21,13 +21,13 @@ import Aihc.Parser.Syntax
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
-    moduleName,
     parseExtensionName,
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Prim.Wiring (primTcConfig, primTcWiring)
-import Aihc.Resolve (Builtins, ModuleExports, ModuleUnit (..), Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
+import Aihc.Resolve (Builtins, ModuleExports, Package (..), PackageId (..), ResolveFailure (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, modulesInPackage, resolveUnit)
+import Aihc.Resolve.Syntax qualified as R
 import Aihc.Tc
   ( MergeCheck (..),
     TcInterface,
@@ -206,8 +206,8 @@ preparePrimitiveSupport sources = do
       Left
         ( "typecheck error: "
             <> unlines
-              [ show (moduleName ast) <> ": " <> show diagnostic
-              | (ast, result) <- zip (map (moduleUnitAst . resolvedModuleUnit) primitiveAsts) primitiveTcResults,
+              [ show (R.moduleName ast) <> ": " <> show diagnostic
+              | (ast, result) <- zip (map resolvedModuleSyntax primitiveAsts) primitiveTcResults,
                 diagnostic <- tcModuleDiagnostics result
               ]
         )

@@ -353,15 +353,15 @@ typecheckModuleGraph config baseInterface units = do
   (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
   traverse (lookupCheckedModule checkedModules) [0 .. length units - 1]
   where
-    modules = map (moduleUnitAst . resolvedModuleUnit) units
+    modules = map resolvedModuleSyntax units
     moduleIndices =
       Map.fromList
         [ (name, index)
         | (index, modu) <- zip [0 ..] modules,
-          Just name <- [moduleName modu]
+          Just name <- [R.moduleName modu]
         ]
     nodes =
-      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports modu)
+      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . R.importDeclModule) (R.moduleImports modu)
          in (ModuleNode index unit dependencies, index, dependencies)
       | (index, unit, modu) <- zip3 [0 ..] units modules
       ]

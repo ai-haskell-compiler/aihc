@@ -24,9 +24,8 @@ import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
     LanguageEdition (Haskell2010Edition),
-    Module,
+    SourceSpan,
     fromAnnotation,
-    moduleName,
     parseExtensionName,
   )
 import Aihc.Resolve
@@ -38,6 +37,7 @@ import Aihc.Resolve
     Package (..),
     PackageId (..),
     ResolutionNamespace (..),
+    ResolutionResult (..),
     ResolveError (..),
     ResolveFailure (..),
     Resolved (..),
@@ -49,7 +49,9 @@ import Aihc.Resolve
     resolveUnit,
     unnamedPackage,
   )
-import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
+import qualified Aihc.Resolve.Syntax as R
+import qualified Aihc.Resolve.Syntax.Traverse as RWalk
+import Aihc.Testing.AnnotatedModule (renderLabeledSource)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Applicative ((<|>))
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -58,7 +60,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -252,9 +254,203 @@ renderAnnotatedResolveResult sources resolved =
     GT -> error "renderAnnotatedResolveResult: more source texts than modules"
     EQ ->
       let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
-       in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
+       in [renderLabeledSource source (moduleLabels modu) | (modu, source) <- moduleSources]
   where
-    modules = map (moduleUnitAst . resolvedModuleUnit) resolved
+    modules = map resolvedModuleSyntax resolved
+
+-- | The labels of a resolved module. A resolution goes at the span of the
+-- syntax that it resolves:
+--
+-- * A name or a binder: the span of its annotations.
+-- * A wrapper constructor, such as 'R.EResolved': the first span of the
+--   chain of wrappers around the same node.
+-- * An import declaration or a rule: the span of its annotations.
+moduleLabels :: R.Module -> [(SourceSpan, Doc ann)]
+moduleLabels modu =
+  concatMap importLabels (R.moduleImports modu) <> RWalk.runCollect (RWalk.walk labelWalk) modu
+  where
+    importLabels decl = errorLabels (R.importDeclAnns decl) (R.importDeclError decl)
+
+labelWalk :: RWalk.Walk (RWalk.Collect (SourceSpan, Doc ann))
+labelWalk =
+  RWalk.idWalk
+    { RWalk.walkAnnotationList = \_ anns -> RWalk.collected (labelsAt (spanFromAnnotations anns) (mapMaybe resolutionAnnotationDoc anns)),
+      RWalk.walkName = \children name ->
+        RWalk.collected (resultLabels (R.nameAnns name) (R.nameResolution name)) *> children name,
+      RWalk.walkUnqualifiedName = \children name ->
+        RWalk.collected (resultLabels (R.unqualifiedNameAnns name) (R.unqualifiedNameResolution name)) *> children name,
+      RWalk.walkExpr = wrapped peelExpr,
+      RWalk.walkPattern = wrapped peelPattern,
+      RWalk.walkType = wrapped peelType,
+      RWalk.walkDecl = \children decl -> wrapped peelDecl (\base -> ruleLabels base *> children base) decl,
+      RWalk.walkDataConDecl = wrapped peelDataCon,
+      RWalk.walkLiteral = wrapped peelLiteral,
+      RWalk.walkGuardQualifier = wrapped peelGuard,
+      RWalk.walkDoStmt = wrapped peelDoStmt,
+      RWalk.walkCompStmt = wrapped peelCompStmt,
+      RWalk.walkArithSeq = wrapped peelArithSeq,
+      RWalk.walkClassDeclItem = wrapped peelClassItem,
+      RWalk.walkInstanceDeclItem = wrapped peelInstanceItem,
+      RWalk.walkCmd = wrapped peelCmd,
+      RWalk.walkExportSpec = wrapped peelExport,
+      RWalk.walkImportItem = wrapped peelImportItem
+    }
+  where
+    resultLabels anns result = labelsAt (spanFromAnnotations anns) (map resultDoc (maybeToList result))
+    ruleLabels decl =
+      case decl of
+        R.DeclRules rules -> RWalk.collected (concat [errorLabels (R.ruleAnns rule) (R.ruleError rule) | rule <- rules])
+        _ -> pure decl
+
+-- | The labels of the error of an import declaration or a rule.
+errorLabels :: [Annotation] -> Maybe ResolveError -> [(SourceSpan, Doc ann)]
+errorLabels anns resolveError = labelsAt (spanFromAnnotations anns) (map (pretty . errorLabel) (maybeToList resolveError))
+
+-- | One wrapper of a node: an annotation, or a result of the resolver.
+data Wrapper
+  = WrapperAnnotation Annotation
+  | WrapperResult ResolutionResult
+  | WrapperError ResolveError
+  | WrapperOther
+
+-- | Label the chain of wrappers around a node at the first span of the
+-- chain. Then walk the children of the node below the chain.
+wrapped :: (node -> Maybe (Wrapper, node)) -> (node -> RWalk.Collect (SourceSpan, Doc ann) node) -> node -> RWalk.Collect (SourceSpan, Doc ann) node
+wrapped peel children node =
+  case peelAll [] node of
+    ([], _) -> children node
+    (wrappers, base) ->
+      let anns = [ann | WrapperAnnotation ann <- wrappers]
+          docs = concatMap wrapperDoc wrappers
+       in RWalk.collected (labelsAt (spanFromAnnotations anns) docs) *> (node <$ children base)
+  where
+    peelAll wrappers current =
+      case peel current of
+        Just (wrapper, inner) -> peelAll (wrapper : wrappers) inner
+        Nothing -> (reverse wrappers, current)
+    wrapperDoc wrapper =
+      case wrapper of
+        WrapperAnnotation ann -> maybeToList (resolutionAnnotationDoc ann)
+        WrapperResult result -> [resultDoc result]
+        WrapperError resolveError -> [pretty (errorLabel resolveError)]
+        WrapperOther -> []
+
+peelExpr :: R.Expr -> Maybe (Wrapper, R.Expr)
+peelExpr expr =
+  case expr of
+    R.EAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.EResolved result inner -> Just (WrapperResult result, inner)
+    _ -> Nothing
+
+peelPattern :: R.Pattern -> Maybe (Wrapper, R.Pattern)
+peelPattern pat =
+  case pat of
+    R.PAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.PResolved result inner -> Just (WrapperResult result, inner)
+    _ -> Nothing
+
+peelType :: R.Type -> Maybe (Wrapper, R.Type)
+peelType ty =
+  case ty of
+    R.TAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.TResolved result inner -> Just (WrapperResult result, inner)
+    _ -> Nothing
+
+peelDecl :: R.Decl -> Maybe (Wrapper, R.Decl)
+peelDecl decl =
+  case decl of
+    R.DeclAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.DeclError resolveError inner -> Just (WrapperError resolveError, inner)
+    _ -> Nothing
+
+peelDataCon :: R.DataConDecl -> Maybe (Wrapper, R.DataConDecl)
+peelDataCon decl =
+  case decl of
+    R.DataConAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.DataConResolved result inner -> Just (WrapperResult result, inner)
+    _ -> Nothing
+
+peelLiteral :: R.Literal -> Maybe (Wrapper, R.Literal)
+peelLiteral literal =
+  case literal of
+    R.LitAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    _ -> Nothing
+
+peelGuard :: R.GuardQualifier -> Maybe (Wrapper, R.GuardQualifier)
+peelGuard qualifier =
+  case qualifier of
+    R.GuardAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    _ -> Nothing
+
+peelDoStmt :: R.DoStmt body -> Maybe (Wrapper, R.DoStmt body)
+peelDoStmt stmt =
+  case stmt of
+    R.DoAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.DoResolved result inner -> Just (WrapperResult result, inner)
+    R.DoRecKnot _ inner -> Just (WrapperOther, inner)
+    _ -> Nothing
+
+peelCompStmt :: R.CompStmt -> Maybe (Wrapper, R.CompStmt)
+peelCompStmt stmt =
+  case stmt of
+    R.CompAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    _ -> Nothing
+
+peelArithSeq :: R.ArithSeq -> Maybe (Wrapper, R.ArithSeq)
+peelArithSeq arithSeq =
+  case arithSeq of
+    R.ArithSeqAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.ArithSeqResolved result inner -> Just (WrapperResult result, inner)
+    _ -> Nothing
+
+peelClassItem :: R.ClassDeclItem -> Maybe (Wrapper, R.ClassDeclItem)
+peelClassItem item =
+  case item of
+    R.ClassItemAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.ClassItemError resolveError inner -> Just (WrapperError resolveError, inner)
+    _ -> Nothing
+
+peelInstanceItem :: R.InstanceDeclItem -> Maybe (Wrapper, R.InstanceDeclItem)
+peelInstanceItem item =
+  case item of
+    R.InstanceItemAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.InstanceItemError resolveError inner -> Just (WrapperError resolveError, inner)
+    _ -> Nothing
+
+peelCmd :: R.Cmd -> Maybe (Wrapper, R.Cmd)
+peelCmd cmd =
+  case cmd of
+    R.CmdAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    _ -> Nothing
+
+peelExport :: R.ExportSpec -> Maybe (Wrapper, R.ExportSpec)
+peelExport spec =
+  case spec of
+    R.ExportAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    _ -> Nothing
+
+peelImportItem :: R.ImportItem -> Maybe (Wrapper, R.ImportItem)
+peelImportItem item =
+  case item of
+    R.ImportAnn ann inner -> Just (WrapperAnnotation ann, inner)
+    R.ImportItemError resolveError inner -> Just (WrapperError resolveError, inner)
+    _ -> Nothing
+
+-- | Put each label at a span. A label without a span is a fault of the
+-- resolver.
+labelsAt :: Maybe SourceSpan -> [Doc ann] -> [(SourceSpan, Doc ann)]
+labelsAt _ [] = []
+labelsAt (Just span') docs = map (span',) docs
+labelsAt Nothing docs = error ("renderAnnotatedResolveResult: a label has no source span: " <> show (map show docs))
+
+spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
+spanFromAnnotations = listToMaybe . mapMaybe fromAnnotation
+
+resultDoc :: ResolutionResult -> Doc ann
+resultDoc result =
+  case result of
+    ResolutionOk resolution -> pretty (annotationLabel resolution)
+    ResolutionError resolveError -> pretty (errorLabel resolveError)
 
 -- | The label of a resolution that succeeded, or of one that failed.
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
@@ -266,8 +462,8 @@ errorLabel :: ResolveError -> Text
 errorLabel resolveError =
   renderConciseNamespace (resolveErrorNamespace resolveError) <> " Error " <> T.pack (resolveErrorMessage resolveError)
 
-moduleDisplayName :: Module -> Text
-moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
+moduleDisplayName :: R.Module -> Text
+moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (R.moduleName modu)
 
 annotationLabel :: Resolved -> Text
 annotationLabel ann =

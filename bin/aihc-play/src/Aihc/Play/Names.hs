@@ -13,7 +13,7 @@ module Aihc.Play.Names
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Module, Name (..), SourceSpan, UnqualifiedName (..), fromAnnotation)
+import Aihc.Parser.Syntax (Annotation, SourceSpan, fromAnnotation)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Play.Json (Json (..))
 import Aihc.Resolve
@@ -24,10 +24,9 @@ import Aihc.Resolve
     ResolutionNamespace (..),
     ResolveError (..),
     Resolved (..),
-    binderResolution,
-    nameResolution,
   )
-import Data.Data (Data, cast, gmapQ)
+import Aihc.Resolve.Syntax (Module, Name (..), ResolutionResult (..), UnqualifiedName (..))
+import Aihc.Resolve.Syntax.Traverse (Collect, Walk (..), collected, idWalk, runCollect, walk)
 import Data.List (sortOn)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -56,32 +55,31 @@ data Occurrence = Occurrence
 
 -- | The occurrences of a resolved module, in source order.
 occurrences :: Module -> [Occurrence]
-occurrences = sortOn (\o -> (spanStart (occurrenceSpan o), occurrenceBinder o)) . walk
+occurrences = sortOn (\o -> (spanStart (occurrenceSpan o), occurrenceBinder o)) . runCollect (walk occurrenceWalk)
   where
     spanStart = fromAnnotationStart
 
 fromAnnotationStart :: SourceSpan -> (Int, Int)
 fromAnnotationStart span' = (Syntax.sourceSpanStartLine span', Syntax.sourceSpanStartCol span')
 
-walk :: forall a. (Data a) => a -> [Occurrence]
-walk value
-  | Just (name :: Name) <- cast value =
-      maybe [] pure (fromName name)
-  | Just (name :: UnqualifiedName) <- cast value =
-      maybe [] pure (fromBinder name)
-  | otherwise = concat (gmapQ walk value)
+occurrenceWalk :: Walk (Collect Occurrence)
+occurrenceWalk =
+  idWalk
+    { walkName = \children name -> collected (maybe [] pure (fromName name)) *> children name,
+      walkUnqualifiedName = \children name -> collected (maybe [] pure (fromBinder name)) *> children name
+    }
 
 fromName :: Name -> Maybe Occurrence
-fromName name =
-  case nameResolution name of
-    Just resolution -> resolved (nameAnns name) (nameText name) False resolution
-    Nothing -> unresolved (nameAnns name) (nameText name) False
+fromName name = resolutionOccurrence (nameAnns name) (nameText name) False =<< nameResolution name
 
 fromBinder :: UnqualifiedName -> Maybe Occurrence
-fromBinder name =
-  case binderResolution name of
-    Just resolution -> resolved (unqualifiedNameAnns name) (unqualifiedNameText name) True resolution
-    Nothing -> unresolved (unqualifiedNameAnns name) (unqualifiedNameText name) True
+fromBinder name = resolutionOccurrence (unqualifiedNameAnns name) (unqualifiedNameText name) True =<< unqualifiedNameResolution name
+
+resolutionOccurrence :: [Annotation] -> Text -> Bool -> ResolutionResult -> Maybe Occurrence
+resolutionOccurrence anns text binder result =
+  case result of
+    ResolutionOk resolution -> resolved anns text binder resolution
+    ResolutionError failure -> unresolved anns text binder failure
 
 resolved :: [Annotation] -> Text -> Bool -> Resolved -> Maybe Occurrence
 resolved anns text binder resolution = do
@@ -97,9 +95,8 @@ resolved anns text binder resolution = do
         occurrenceBinder = binder
       }
 
-unresolved :: [Annotation] -> Text -> Bool -> Maybe Occurrence
-unresolved anns text binder = do
-  failure <- listToMaybe (mapMaybe fromAnnotation anns)
+unresolved :: [Annotation] -> Text -> Bool -> ResolveError -> Maybe Occurrence
+unresolved anns text binder failure = do
   span' <- case resolveErrorSpan failure of
     Just span' -> Just span'
     Nothing -> ownSpan anns

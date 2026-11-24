@@ -68,7 +68,6 @@ import Aihc.Prim.Wiring (primTcConfig)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
-    ModuleUnit (..),
     Package (..),
     PackageId (..),
     ResolveError,
@@ -382,7 +381,7 @@ resolveUnits jobs resolvePackage dependencyExports units = do
           -- The resolver annotates lazily: the exports alone would leave
           -- the bodies to the type checker's clock.
           _ <- evaluate (force exports)
-          _ <- evaluate (rnf (map (moduleUnitAst . resolvedModuleUnit) (resolvedModules result)))
+          _ <- evaluate (rnf (map resolvedModuleSyntax (resolvedModules result)))
           _ <- evaluate (length errors)
           atomically (putTMVar (unitResult results unit) ResolvedSourceUnit {resolvedUnit = unit, resolvedUnitExports = exports, resolvedUnitResult = result, resolvedUnitErrors = errors})
   _ <- runTaskGraph jobs (map task units)
