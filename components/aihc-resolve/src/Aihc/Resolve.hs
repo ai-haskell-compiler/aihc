@@ -71,12 +71,14 @@ import Aihc.Resolve.Monad
 import Aihc.Resolve.Result
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
+import Aihc.Resolve.Syntax (primitiveFloatTypeName, primitiveLiteralTypeName, primitiveNumericTypeName)
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.FromParser
 import Aihc.Resolve.Syntax.Traverse (Walkable, collectResolutions)
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
+import Data.Char (isAlpha)
 import Data.Either (partitionEithers)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
@@ -1300,40 +1302,6 @@ primitiveLiteralTypeAnnotation sp name = do
   info <- currentModuleInfo
   resolution sp (IdentifierNamed name) ResolutionNamespaceType (lookupType name (moduleInfoBuiltinScope info))
 
--- | The type name of a primitive literal, or 'Nothing' for a boxed literal.
-primitiveLiteralTypeName :: Literal -> Maybe Text
-primitiveLiteralTypeName literal =
-  case literal of
-    LitAnn _ inner -> primitiveLiteralTypeName inner
-    LitInt _ numericType _ -> primitiveNumericTypeName numericType
-    LitFloat _ floatType _ -> primitiveFloatTypeName floatType
-    LitChar {} -> Nothing
-    LitCharHash {} -> Just "Char#"
-    LitString {} -> Nothing
-    LitStringHash {} -> Just "Addr#"
-
-primitiveFloatTypeName :: FloatType -> Maybe Text
-primitiveFloatTypeName floatType =
-  case floatType of
-    TFractional -> Nothing
-    TFloatHash -> Just "Float#"
-    TDoubleHash -> Just "Double#"
-
-primitiveNumericTypeName :: NumericType -> Maybe Text
-primitiveNumericTypeName numericType =
-  case numericType of
-    TInteger -> Nothing
-    TIntHash -> Just "Int#"
-    TWordHash -> Just "Word#"
-    TInt8Hash -> Just "Int8#"
-    TInt16Hash -> Just "Int16#"
-    TInt32Hash -> Just "Int32#"
-    TInt64Hash -> Just "Int64#"
-    TWord8Hash -> Just "Word8#"
-    TWord16Hash -> Just "Word16#"
-    TWord32Hash -> Just "Word32#"
-    TWord64Hash -> Just "Word64#"
-
 -- | RebindableSyntax gives an if expression the in-scope ifThenElse.
 -- An ordinary if expression uses the built-in Bool and gets no resolution.
 annotateRebindableIf :: R.Expr -> ResolveM R.Expr
@@ -1343,55 +1311,83 @@ annotateRebindableIf expr = do
     then annotateSyntaxTerm "ifThenElse" expr
     else pure expr
 
--- | Give a literal pattern the names that the type checker needs.
+-- | Resolve a literal pattern, or a negated literal pattern.
 --
 -- An overloaded integer pattern gets the syntax terms that compare it.
 -- A string pattern gets them only under OverloadedStrings.
 -- A primitive literal pattern gets the resolution of its primitive type.
-annotatePatternLiteral :: (Literal -> R.Pattern) -> Literal -> ResolveM R.Pattern
-annotatePatternLiteral mkPattern sourceLit = do
+resolvePatternLiteral :: Bool -> Literal -> ResolveM R.Pattern
+resolvePatternLiteral negated sourceLit = do
   lit <- numDecimalsLiteral sourceLit
-  let pat = mkPattern lit
-  sp <- (literalSpan lit <|>) <$> currentSpan
-  case primitiveLiteralTypeName lit of
-    Just typeName -> do
-      typeAnn <- primitiveLiteralTypeAnnotation sp typeName
-      pure (R.PResolved typeAnn pat)
-    Nothing ->
-      case peelLiteralAnn lit of
-        LitInt _ TInteger _ -> do
-          maybeIntegerAnn <- integerTypeAnnotation sp
-          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromInteger")
-          pure (foldr R.PResolved pat (maybe methodAnns (: methodAnns) maybeIntegerAnn))
-        LitFloat _ TFractional _ -> do
-          methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromRational")
-          pure (foldr R.PResolved pat methodAnns)
-        LitString _ _ -> do
-          info <- currentModuleInfo
-          if OverloadedStrings `elem` moduleInfoExtensions info
-            then do
-              methodAnns <- mapM (syntaxTermAnnotation sp) (overloadedPatternMethods "fromString")
-              pure (foldr R.PResolved pat methodAnns)
-            else pure pat
-        _ -> pure pat
+  patternSpan <- currentSpan
+  let sp = literalSpan lit <|> patternSpan
+      at = MatchSpan sp (patternSpan <|> sp)
+  match <-
+    case primitiveLiteralTypeName lit of
+      Just typeName ->
+        R.LiteralMatchPrimitive . matchName at NameConId typeName <$> primitiveLiteralTypeAnnotation sp typeName
+      Nothing ->
+        case peelLiteralAnn lit of
+          LitInt _ TInteger _ -> do
+            integerType <- integerTypeName at
+            overloaded at integerType "fromInteger"
+          LitFloat _ TFractional _ -> overloaded at Nothing "fromRational"
+          LitString _ _ -> do
+            info <- currentModuleInfo
+            if OverloadedStrings `elem` moduleInfoExtensions info
+              then overloaded at Nothing "fromString"
+              else pure R.LiteralMatchFixed
+          _ -> pure R.LiteralMatchFixed
+  pure ((if negated then R.PNegLit else R.PLit) match lit)
   where
     -- A negated literal pattern also negates the converted literal.
-    overloadedPatternMethods conversion =
-      case R.peelPatternAnn (mkPattern sourceLit) of
-        R.PNegLit {} -> [conversion, "negate", "=="]
-        _ -> [conversion, "=="]
+    overloaded at literalType conversion = do
+      conversion' <- syntaxTermName at conversion
+      negation <- if negated then Just <$> syntaxTermName at "negate" else pure Nothing
+      equality <- syntaxTermName at "=="
+      pure (R.LiteralMatchOverloaded (R.OverloadedLiteralMatch literalType conversion' negation equality))
 
--- | Give an n+k pattern the names that its match uses.
+-- | Resolve an n+k pattern with the names that its match uses.
 --
 -- The Haskell 98 Report gives the match of @n+k@ against @v@ as the test
 -- @v >= fromInteger k@, and then @n@ binds to @v - fromInteger k@.
-annotateNPlusKPattern :: R.UnqualifiedName -> Literal -> ResolveM R.Pattern
-annotateNPlusKPattern name sourceLit = do
+resolveNPlusKPattern :: R.UnqualifiedName -> Literal -> ResolveM R.Pattern
+resolveNPlusKPattern name sourceLit = do
   lit <- numDecimalsLiteral sourceLit
-  sp <- (literalSpan lit <|>) <$> currentSpan
-  maybeIntegerAnn <- integerTypeAnnotation sp
-  methodAnns <- mapM (syntaxTermAnnotation sp) ["fromInteger", ">=", "-"]
-  pure (foldr R.PResolved (R.PNPlusK name lit) (maybe methodAnns (: methodAnns) maybeIntegerAnn))
+  patternSpan <- currentSpan
+  let sp = literalSpan lit <|> patternSpan
+      at = MatchSpan sp (patternSpan <|> sp)
+  match <-
+    R.NPlusKMatch
+      <$> integerTypeName at
+      <*> syntaxTermName at "fromInteger"
+      <*> syntaxTermName at ">="
+      <*> syntaxTermName at "-"
+  pure (R.PNPlusK match name lit)
+
+-- | The spans of a name that the match of a pattern uses.
+data MatchSpan = MatchSpan
+  { -- | The span of the resolution: the literal, if it has a span.
+    matchResolutionSpan :: Maybe SourceSpan,
+    -- | The span of the name: the whole pattern, which uses the name.
+    matchNameSpan :: Maybe SourceSpan
+  }
+
+-- | The name of a syntax term that the match of a pattern uses.
+syntaxTermName :: MatchSpan -> Text -> ResolveM R.Name
+syntaxTermName at name =
+  matchName at kind name <$> syntaxTermAnnotation (matchResolutionSpan at) name
+  where
+    kind = if T.any isAlpha name then NameVarId else NameVarSym
+
+-- | The name of the built-in Integer type, when the built-in scope has it.
+integerTypeName :: MatchSpan -> ResolveM (Maybe R.Name)
+integerTypeName at = fmap (matchName at NameConId "Integer") <$> integerTypeAnnotation (matchResolutionSpan at)
+
+-- | A name that the resolver adds to a pattern for its match.
+matchName :: MatchSpan -> NameType -> Text -> ResolutionResult -> R.Name
+matchName at kind name result =
+  R.Name Nothing kind name (map mkAnnotation (maybeToList (matchNameSpan at))) (Just result)
 
 -- | The innermost source span a literal's annotations carry.
 literalSpan :: Literal -> Maybe SourceSpan
@@ -1830,15 +1826,16 @@ applicativeExpr actions result = do
 -- @toList@, as in GHC. The resolver only records the syntax terms: @toList@
 -- for a match, and @fromListN@ for the expression of a bidirectional
 -- pattern synonym. The type checker and the desugarer do the conversion.
-overloadedListPattern :: R.Pattern -> ResolveM R.Pattern
-overloadedListPattern pat = do
+overloadedListPattern :: [R.Pattern] -> ResolveM R.Pattern
+overloadedListPattern items = do
   info <- currentModuleInfo
   if OverloadedLists `elem` moduleInfoExtensions info
     then do
       sp <- currentSpan
-      methodAnns <- mapM (syntaxTermAnnotation sp) ["toList", "fromListN"]
-      pure (foldr R.PResolved pat methodAnns)
-    else pure pat
+      let at = MatchSpan sp sp
+      match <- R.ListMatch <$> syntaxTermName at "toList" <*> syntaxTermName at "fromListN"
+      pure (R.PList (Just match) items)
+    else pure (R.PList Nothing items)
 
 -- | Resolve the statements of an @mdo@ block.
 --
@@ -2026,7 +2023,6 @@ patternMayFail :: R.Pattern -> Bool
 patternMayFail pat =
   case pat of
     R.PAnn _ inner -> patternMayFail inner
-    R.PResolved _ inner -> patternMayFail inner
     R.PParen inner -> patternMayFail inner
     R.PAs _ inner -> patternMayFail inner
     R.PStrict inner -> patternMayFail inner
@@ -2137,7 +2133,7 @@ bindPattern pat =
       pure (emptyScope, R.PTypeSyntax form ty')
     PWildcard -> pure (emptyScope, R.PWildcard)
     PLit lit -> do
-      pat' <- annotatePatternLiteral R.PLit lit
+      pat' <- resolvePatternLiteral False lit
       pure (emptyScope, pat')
     PTuple flavor pats -> do
       (scope, pats') <- bindPatterns pats
@@ -2147,7 +2143,7 @@ bindPattern pat =
       pure (scope, R.PUnboxedSum alt arity inner')
     PList pats -> do
       (scope, pats') <- bindPatterns pats
-      pat' <- overloadedListPattern (R.PList pats')
+      pat' <- overloadedListPattern pats'
       pure (scope, pat')
     PCon name typeArgs pats -> do
       name' <- resolveTermUseAtName name
@@ -2221,21 +2217,21 @@ bindPattern pat =
       ty' <- resolveType ty
       pure (scope, R.PTypeSig inner' ty')
     PNegLit lit -> do
-      pat' <- annotatePatternLiteral R.PNegLit lit
+      pat' <- resolvePatternLiteral True lit
       pure (emptyScope, pat')
     PNPlusK name lit -> do
       sp <- currentSpan
       entity <- freshLocal
       let key = renderUnqualifiedName name
       name' <- resolveUnqualifiedNameTo sp ResolutionNamespaceTerm (Found entity) name
-      pat' <- annotateNPlusKPattern name' lit
+      pat' <- resolveNPlusKPattern name' lit
       pure (termScope key entity, pat')
     PSplice expr -> do
       expr' <- resolveExpr expr
       pure (emptyScope, R.PSplice expr')
     PQuasiQuote {} -> do
       err <- unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote"
-      pure (emptyScope, R.PResolved (ResolutionError err) (fromParserPattern pat))
+      pure (emptyScope, fromParserPattern pat)
 
 termScope :: Text -> Entity -> Scope
 termScope key entity =
@@ -2254,14 +2250,14 @@ resolvePatternDefinition termDefinition pat =
     PTypeSyntax form ty ->
       R.PTypeSyntax form <$> resolveType ty
     PWildcard -> pure R.PWildcard
-    PLit lit -> annotatePatternLiteral R.PLit lit
-    PQuasiQuote {} -> R.PResolved . ResolutionError <$> unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote" <*> pure (fromParserPattern pat)
+    PLit lit -> resolvePatternLiteral False lit
+    PQuasiQuote {} -> fromParserPattern pat <$ unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote"
     PTuple flavor pats ->
       R.PTuple flavor <$> mapM (resolvePatternDefinition termDefinition) pats
     PUnboxedSum alt arity inner ->
       R.PUnboxedSum alt arity <$> resolvePatternDefinition termDefinition inner
     PList pats ->
-      overloadedListPattern . R.PList =<< mapM (resolvePatternDefinition termDefinition) pats
+      overloadedListPattern =<< mapM (resolvePatternDefinition termDefinition) pats
     PCon name typeArgs pats ->
       R.PCon <$> resolveTermUseAtName name <*> mapM resolveType typeArgs <*> mapM (resolvePatternDefinition termDefinition) pats
     PBuiltinCon builtin typeArgs pats ->
@@ -2278,11 +2274,11 @@ resolvePatternDefinition termDefinition pat =
       R.PStrict <$> resolvePatternDefinition termDefinition inner
     PIrrefutable inner ->
       R.PIrrefutable <$> resolvePatternDefinition termDefinition inner
-    PNegLit lit -> annotatePatternLiteral R.PNegLit lit
+    PNegLit lit -> resolvePatternLiteral True lit
     PNPlusK name lit -> do
       sp <- currentSpan
       name' <- resolveTermDefinitionAt sp termDefinition name
-      annotateNPlusKPattern name' lit
+      resolveNPlusKPattern name' lit
     PParen inner ->
       R.PParen <$> resolvePatternDefinition termDefinition inner
     PRecord name fields wildcard -> do

@@ -671,11 +671,10 @@ quotedPattern :: R.Pattern -> Maybe Expr
 quotedPattern pattern' =
   case pattern' of
     R.PAnn _ inner -> quotedPattern inner
-    R.PResolved _ inner -> quotedPattern inner
     R.PParen inner -> quotedPattern inner
     R.PVar binder -> Just (call "varP" [dynamicName (R.unqualifiedNameText binder)])
     R.PWildcard -> Just (library "wildP")
-    R.PLit literal' -> patternLiteral literal'
+    R.PLit _ literal' -> patternLiteral literal'
     R.PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
     -- A constructor pattern with no type arguments.
     R.PCon name [] arguments

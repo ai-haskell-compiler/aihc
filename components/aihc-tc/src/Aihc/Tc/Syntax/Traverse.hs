@@ -377,20 +377,37 @@ instance (Walkable a) => Walkable (RecordField a) where
   walk w (RecordField name value pun) =
     RecordField <$> walk w name <*> walk w value <*> pure pun
 
+instance Walkable LiteralMatch where
+  walk w = \case
+    LiteralMatchFixed -> pure LiteralMatchFixed
+    LiteralMatchPrimitive name -> LiteralMatchPrimitive <$> walk w name
+    LiteralMatchOverloaded match -> LiteralMatchOverloaded <$> walk w match
+
+instance Walkable OverloadedLiteralMatch where
+  walk w (OverloadedLiteralMatch ty conversion negation equality) =
+    OverloadedLiteralMatch <$> walk w ty <*> walk w conversion <*> walk w negation <*> walk w equality
+
+instance Walkable NPlusKMatch where
+  walk w (NPlusKMatch ty fromInteger' greaterEqual minus) =
+    NPlusKMatch <$> walk w ty <*> walk w fromInteger' <*> walk w greaterEqual <*> walk w minus
+
+instance Walkable ListMatch where
+  walk w (ListMatch toList' fromListN') =
+    ListMatch <$> walk w toList' <*> walk w fromListN'
+
 instance Walkable Pattern where
   walk w = walkPattern w $ \case
     PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
     PTc info inner -> PTc <$> walkTcInfo w info <*> walk w inner
-    PResolved result inner -> PResolved <$> walkResolution w result <*> walk w inner
     PVar name -> PVar <$> walk w name
     PTypeBinder binder -> PTypeBinder <$> walk w binder
     PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
     PWildcard -> pure PWildcard
-    PLit literal -> PLit <$> walk w literal
+    PLit match literal -> PLit <$> walk w match <*> walk w literal
     PQuasiQuote quoter body -> pure (PQuasiQuote quoter body)
     PTuple flavor items -> PTuple flavor <$> walk w items
     PUnboxedSum position arity inner -> PUnboxedSum position arity <$> walk w inner
-    PList items -> PList <$> walk w items
+    PList match items -> PList <$> walk w match <*> walk w items
     PCon name types pats -> PCon <$> walk w name <*> walk w types <*> walk w pats
     PBuiltinCon builtin types pats -> PBuiltinCon builtin <$> walk w types <*> walk w pats
     PInfix lhs name rhs -> PInfix <$> walk w lhs <*> walk w name <*> walk w rhs
@@ -398,8 +415,8 @@ instance Walkable Pattern where
     PAs name inner -> PAs <$> walk w name <*> walk w inner
     PStrict inner -> PStrict <$> walk w inner
     PIrrefutable inner -> PIrrefutable <$> walk w inner
-    PNegLit literal -> PNegLit <$> walk w literal
-    PNPlusK name literal -> PNPlusK <$> walk w name <*> walk w literal
+    PNegLit match literal -> PNegLit <$> walk w match <*> walk w literal
+    PNPlusK match name literal -> PNPlusK <$> walk w match <*> walk w name <*> walk w literal
     PParen inner -> PParen <$> walk w inner
     PRecord name fields wildcard -> PRecord <$> walk w name <*> walk w fields <*> pure wildcard
     PTypeSig inner ty -> PTypeSig <$> walk w inner <*> walk w ty

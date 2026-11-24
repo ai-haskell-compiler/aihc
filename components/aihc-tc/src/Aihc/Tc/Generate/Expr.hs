@@ -625,7 +625,6 @@ annotateLambdaPattern bindings argTy pat =
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType (PTc _ inner) = lambdaPatternCarriesBinderType inner
-lambdaPatternCarriesBinderType (PResolved _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType PVar {} = True
 lambdaPatternCarriesBinderType (PParen inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType PAs {} = True

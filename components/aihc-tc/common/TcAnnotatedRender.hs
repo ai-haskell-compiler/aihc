@@ -36,14 +36,22 @@ import Aihc.Tc.Syntax
     GuardQualifier (..),
     ImportItem (..),
     InstanceDeclItem (..),
+    ListMatch (..),
     Literal (..),
+    LiteralMatch (..),
     Module (..),
+    NPlusKMatch (..),
+    Name (..),
+    OverloadedLiteralMatch (..),
     Pattern (..),
     SourceSpan,
     TcInfo (..),
     Type (..),
     annotationSpan,
+    listMatchNames,
+    literalMatchNames,
     moduleName,
+    nPlusKMatchNames,
   )
 import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Types
@@ -137,17 +145,43 @@ labelWalk =
 
     -- The parser gives no span to a literal in a nested pattern. The
     -- literal has the same source extent as its pattern, so it gets the
+    -- pattern span. The names of the match of a pattern also get the
     -- pattern span.
     patternLabels children node = do
       let (anns, infos, base) = peelLeading peelPattern node
           patternSpan = spanFromAnnotations anns
-      addInfoLabels patternSpan infos
-      case base of
-        PLit literal -> do
+          (matchInfos, base') = patternMatch base
+      addInfoLabels patternSpan (infos <> matchInfos)
+      case base' of
+        PLit _ literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
           addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
-        _ -> void (children base)
+        _ -> void (children base')
       pure node
+
+-- | The information of the names of the match of a pattern, and the
+-- pattern with no information in these names.
+patternMatch :: Pattern -> ([TcInfo], Pattern)
+patternMatch pat =
+  case pat of
+    PLit match literal -> (literalInfos match, PLit (literalWithout match) literal)
+    PNegLit match literal -> (literalInfos match, PNegLit (literalWithout match) literal)
+    PNPlusK match name literal ->
+      ( concatMap nameTc (nPlusKMatchNames match),
+        PNPlusK (NPlusKMatch (without <$> nPlusKType match) (without (nPlusKFromInteger match)) (without (nPlusKGreaterEqual match)) (without (nPlusKMinus match))) name literal
+      )
+    PList (Just match) items ->
+      (concatMap nameTc (listMatchNames match), PList (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
+    _ -> ([], pat)
+  where
+    without name = name {nameTc = []}
+    literalInfos = concatMap nameTc . literalMatchNames
+    literalWithout match =
+      case match of
+        LiteralMatchFixed -> LiteralMatchFixed
+        LiteralMatchPrimitive typeName -> LiteralMatchPrimitive (without typeName)
+        LiteralMatchOverloaded (OverloadedLiteralMatch literalType conversion negation equality) ->
+          LiteralMatchOverloaded (OverloadedLiteralMatch (without <$> literalType) (without conversion) (without <$> negation) (without equality))
 
 addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
 addInfoLabels span' infos = do
@@ -179,7 +213,6 @@ peelExpr _ = Nothing
 peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
 peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
 peelPattern (PTc info inner) = Just (Nothing, Just info, inner)
-peelPattern (PResolved _ inner) = Just (Nothing, Nothing, inner)
 peelPattern _ = Nothing
 
 peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)

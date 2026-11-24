@@ -59,7 +59,10 @@ import Aihc.Tc.Syntax.Pending
     annotateFunCast,
     annotateRhsCast,
     annotationSpan,
+    listMatchNames,
+    literalMatchNames,
     mkSpanAnnotation,
+    nPlusKMatchNames,
     nameResolved,
     peelDeclAnn,
     unqualifiedNameText,
@@ -800,7 +803,6 @@ restrictedBinderKeys groups = do
       case pat of
         PAnn _ inner -> isVariablePattern inner
         PTc _ inner -> isVariablePattern inner
-        PResolved _ inner -> isVariablePattern inner
         PParen inner -> isVariablePattern inner
         PVar {} -> True
         _ -> False
@@ -921,7 +923,6 @@ strictBinderSignature sigs pat =
       case pattern' of
         PAnn _ inner -> strictPatternBinderName inner
         PTc _ inner -> strictPatternBinderName inner
-        PResolved _ inner -> strictPatternBinderName inner
         PParen inner -> strictPatternBinderName inner
         PStrict inner -> patternBinderName inner
         _ -> Nothing
@@ -1180,7 +1181,6 @@ isStrictPatternBind decl =
       case pat of
         PAnn _ inner -> patternIsStrict inner
         PTc _ inner -> patternIsStrict inner
-        PResolved _ inner -> patternIsStrict inner
         PParen inner -> patternIsStrict inner
         PStrict _ -> True
         _ -> False
@@ -1281,7 +1281,6 @@ patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName (PTc _ inner) = patternBinderName inner
-patternBinderName (PResolved _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set Entity)
@@ -1326,15 +1325,17 @@ freeVarsPattern pat =
   case pat of
     PAnn _ inner -> freeVarsPattern inner
     PTc _ inner -> freeVarsPattern inner
-    PResolved result inner -> do
-      innerVars <- freeVarsPattern inner
-      insertSyntaxTermKey result innerVars
     PParen inner -> freeVarsPattern inner
     PAs _ inner -> freeVarsPattern inner
     PStrict inner -> freeVarsPattern inner
     PIrrefutable inner -> freeVarsPattern inner
     PTypeSig inner _ -> freeVarsPattern inner
-    PList items -> Set.unions <$> mapM freeVarsPattern items
+    PList match items -> do
+      itemVars <- Set.unions <$> mapM freeVarsPattern items
+      foldM (flip insertSyntaxTermKey) itemVars (mapMaybe nameResolution (foldMap listMatchNames match))
+    PLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNegLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNPlusK match _ _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (nPlusKMatchNames match))
     PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
     PUnboxedSum _ _ inner -> freeVarsPattern inner
     PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)

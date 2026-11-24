@@ -43,6 +43,7 @@ import Aihc.Tc.Syntax.Pending
     InstanceDecl (..),
     InstanceDeclItem (..),
     Literal (..),
+    LiteralMatch (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -2059,8 +2060,10 @@ intHashLiteral gen value = at gen (EResolved (primitiveIntTypeAnnotation gen) (E
 intHashPattern :: Gen -> Integer -> Pattern
 intHashPattern gen value =
   atPattern gen $
-    PResolved (primitiveIntTypeAnnotation gen) $
-      PLit (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
+    PLit (LiteralMatchPrimitive intHashName) (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
+  where
+    intHashName =
+      Name Nothing NameConId "Int#" (map mkSpanAnnotation (maybeToList (genSpan gen))) (Just (primitiveIntTypeAnnotation gen)) []
 
 -- | Place a generated literal at the deriving clause, because the checker
 -- attaches the literal type to the literal itself.
