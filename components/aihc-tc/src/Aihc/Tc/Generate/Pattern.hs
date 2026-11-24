@@ -23,7 +23,7 @@ module Aihc.Tc.Generate.Pattern
   )
 where
 
-import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), resolvedOf)
+import Aihc.Resolve (Resolved (..), resolvedOf)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
@@ -54,7 +54,6 @@ import Aihc.Tc.Syntax.Pending
     OverloadedLiteralMatch (..),
     Pattern (..),
     RecordField (..),
-    ResolutionResult (..),
     SourceSpan,
     TcInfo (..),
     TupleFlavor (..),
@@ -79,7 +78,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
