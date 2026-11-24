@@ -2230,7 +2230,7 @@ bindPattern pat =
       expr' <- resolveExpr expr
       pure (emptyScope, R.PSplice expr')
     PQuasiQuote {} -> do
-      err <- unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote"
+      _ <- unhandledSyntax ResolutionNamespaceTerm "PQuasiQuote"
       pure (emptyScope, fromParserPattern pat)
 
 termScope :: Text -> Entity -> Scope
