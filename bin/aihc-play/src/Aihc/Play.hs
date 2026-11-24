@@ -19,7 +19,7 @@ import Aihc.Play.Names (occurrenceJson, occurrences)
 import Aihc.Play.Session
 import Aihc.Play.Tree (abridgedTree, treeJson)
 import Aihc.Play.Types (inferredSignatures, signatureJson, withSignatures)
-import Aihc.Resolve (ModuleUnit (..), ResolvedModule (..))
+import Aihc.Resolve (ResolvedModule (..))
 import Data.Text (Text)
 
 data Command
@@ -55,7 +55,7 @@ runCommand session command source =
             then result [("names", JArray [])] parseProblems
             else
               let (problems, resolved) = resolveUserModule session modu extensions
-                  names = concatMap (occurrences . moduleUnitAst . resolvedModuleUnit) resolved
+                  names = concatMap (occurrences . resolvedModuleSyntax) resolved
                in result [("names", JArray (map occurrenceJson names))] problems
     CommandTypes ->
       let (parseProblems, modu, extensions) = parseUserModule source

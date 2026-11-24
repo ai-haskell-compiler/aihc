@@ -8,9 +8,10 @@ module Test.Resolver.Suite
 where
 
 import Aihc.Parser (defaultConfig, parseModule)
-import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition), fromAnnotation, pattern SourceSpan)
+import Aihc.Parser.Syntax (LanguageEdition (Haskell2010Edition), pattern SourceSpan)
 import Aihc.Resolve (Identifier (..), ModuleUnit (..), ResolveFailure (..), Resolved (..), ResolvedModule (..), ResolvedUnit (..), builtins, collectModuleExportsWithDeps, resolveUnit, unnamedPackage)
-import Aihc.Resolve.Traverse (collectAnnotations)
+import Aihc.Resolve.Syntax.Traverse (collectResolutions)
+import Aihc.Resolve.Types (resolvedOf)
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Monad (when)
 import Data.Text (Text)
@@ -55,7 +56,7 @@ testInfixOperatorSpans =
           resolved = either failureModules resolvedModules (resolveUnit (builtins unnamedPackage exports []) exports [unit])
           uses =
             [ (line, col, endCol)
-            | ann <- concatMap (collectAnnotations fromAnnotation . moduleUnitAst . resolvedModuleUnit) resolved,
+            | ann <- concatMap (collectResolutions resolvedOf . resolvedModuleSyntax) resolved,
               resolutionIdentifier ann `elem` [IdentifierNamed "k", IdentifierNamed "<+>"],
               Just (SourceSpan _ line col _ endCol _ _) <- [resolutionSpan ann],
               line >= 4
