@@ -1,0 +1,73 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test (loop, double) where
+
+  import GHC.Prim ((+#), (-#))
+  import GHC.Types (Int (..))
+
+  add :: Int -> Int -> Int
+  add x y = case x of
+    I# a -> case y of
+      I# b -> I# (a +# b)
+
+  loop :: Int -> Int -> Int
+  loop n acc = case n of
+    I# i -> case i of
+      0# -> acc
+      _ -> loop (I# (i -# 1#)) (add acc n)
+
+  double :: Int -> Int
+  double n = add (add n n) n
+passes:
+- demand: loop-arguments
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    +# = 2.v+# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#);
+    -# = 2.v-# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  val 1.vadd :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (a : tInt#) = x;
+      let! cI# (b : tInt#) = y;
+      cI# (prim +# a b)
+
+  pub val 1.vloop :: tInt → tInt → tInt
+    = λ(x : tInt) (y : tInt).
+      let! cI# (i : tInt#) = x;
+      case i of {
+        0#cIntRep →
+          y;
+        _ →
+          let! _ as (argument : tInt) = vadd y x;
+          vloop (cI# (prim -# i lit (1#cIntRep) :: tInt#)) argument
+      }
+
+  pub val 1.vdouble :: tInt → tInt
+    = λ(x : tInt).
+      vadd (vadd x x) x
+status: pass
+reason: This fixture selects strict lets and loop arguments. The recursive call of 'loop' evaluates 'add acc n' before the call, so the accumulator makes no chain of thunks. The call 'add (add n n) n' in 'double' is not a loop step, so its strict argument stays lazy.

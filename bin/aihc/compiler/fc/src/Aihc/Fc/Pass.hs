@@ -177,6 +177,7 @@ passName pass =
     PassCse -> "cse"
     PassDemand StrictLetsOnly -> "demand"
     PassDemand StrictLetsAndArguments -> "demand arguments"
+    PassDemand StrictLetsAndLoopArguments -> "demand loop arguments"
     PassWorkerWrapper SplitAllFunctions -> "worker/wrapper"
     PassWorkerWrapper SplitLateFunctions -> "worker/wrapper late"
     PassSuperSpecialise -> "super-specialise"
