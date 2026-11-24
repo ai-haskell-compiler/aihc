@@ -321,9 +321,6 @@ solveWithLock request inputs config localDirectories
         case lock of
           Nothing -> pure Nothing
           Just (Left (LockInvalid problem)) -> ioError (userError ("Invalid lock file " <> lockPath <> ": " <> problem))
-          Just (Left LockOldFormat) -> do
-            requestVerbose request ("Ignoring " <> lockPath <> ": it is in the JSON format of an earlier aihc")
-            pure Nothing
           Just (Right file)
             | lockCompiler file /= compilerName -> do
                 requestVerbose request ("Ignoring " <> lockPath <> ": it was written for " <> lockCompiler file <> ", this compiler is " <> compilerName)

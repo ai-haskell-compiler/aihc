@@ -72,6 +72,7 @@ main =
       testCase "applies version and flag constraints" test_appliesConstraints,
       testCase "only searches flags that guard build-depends" test_searchableFlags,
       testCase "round-trips the lock file" test_lockRoundTrip,
+      testCase "reads the flags of a lock in the JSON format 1" test_readsJsonLock,
       testCase "verifies a lock against the roots" test_verifiesLock,
       testCase "parses constraint arguments" test_parsesConstraints,
       testCase "plans local packages and honours a lock" test_plansLocalPackages,
@@ -775,6 +776,33 @@ test_lockRoundTrip = do
       assertEqual "the unix entry" (Just unixEntry) (lookup (mkPackageName "unix") [(lockName entry, entry) | entry <- lockPlatforms parsed Map.! platformKey Linux X86_64])
   assertBool "an unsupported format is rejected" $
     case parseLockFile (BLC.pack "format = 99\ncompiler = \"ghc-9.12.4\"\n[platforms]\n") of
+      Left (LockInvalid problem) -> "unsupported lock format" `isInfixOf` problem
+      _ -> False
+
+-- A format 1 lock pins a flag that the solver default turns on. When aihc
+-- ignored the file, the solver turned the flag on again.
+test_readsJsonLock :: Assertion
+test_readsJsonLock = do
+  let json =
+        BLC.pack . unlines $
+          [ "{",
+            "  \"format\": 1,",
+            "  \"compiler\": \"ghc-9.12.4\",",
+            "  \"platforms\": {",
+            "    \"linux-x86_64\": [",
+            "      {\"name\": \"haskeline\", \"version\": \"0.8.5.0\", \"source\": \"hackage\", \"revision\": 0, \"flags\": {\"terminfo\":false}}",
+            "    ]",
+            "  }",
+            "}"
+          ]
+      expected = LockEntry (mkPackageName "haskeline") (version "0.8.5.0") LockHackage (Just 0) (mkFlagAssignment [(mkFlagName "terminfo", False)])
+  case parseLockFile json of
+    Left problem -> assertFailure ("failed to parse a format 1 lock: " <> show problem)
+    Right parsed -> do
+      assertEqual "compiler" "ghc-9.12.4" (lockCompiler parsed)
+      assertEqual "the entries" (Map.fromList [(platformKey Linux X86_64, [expected])]) (lockPlatforms parsed)
+  assertBool "a JSON lock of format 2 is rejected" $
+    case parseLockFile (BLC.pack "{\"format\": 2, \"compiler\": \"ghc-9.12.4\", \"platforms\": {}}") of
       Left (LockInvalid problem) -> "unsupported lock format" `isInfixOf` problem
       _ -> False
 

@@ -5,7 +5,9 @@
 -- A lock file records a solved plan so that later builds reuse it instead
 -- of solving, and so that the plan survives changes on Hackage. It is TOML
 -- with the packages sorted by name, one package per line, so that a diff
--- touches only the packages that changed.
+-- touches only the packages that changed. The format 1 of an earlier aihc
+-- was JSON with the same content. aihc still reads it, because a lock that
+-- pins a flag must keep the flag for each compiler release.
 --
 -- The file holds one assignment per target platform, because conditions on
 -- @os@ and @arch@ can change a package's dependencies, and names the
@@ -87,13 +89,10 @@ platformKey :: OS -> Arch -> String
 platformKey os arch = osName os <> "-" <> archName arch
 
 -- | Why a lock file gives no plan.
-data LockProblem
+newtype LockProblem
   = -- | The file does not parse. This is reported rather than ignored,
     -- since a hand edit that broke it should not silently drop every pin.
     LockInvalid String
-  | -- | The file is JSON, the format 1 of an earlier aihc. It is ignored and
-    -- written again, as a lock for another compiler release is.
-    LockOldFormat
   deriving (Eq, Show)
 
 -- | The lock beside a package, if there is one.
@@ -161,18 +160,20 @@ sourceText source =
     LockLocal -> "local"
 
 parseLockFile :: BL.ByteString -> Either LockProblem LockFile
-parseLockFile bytes
-  | BL.take 1 (BL.dropWhile (isSpace . toEnum . fromIntegral) bytes) == "{" = Left LockOldFormat
-  | otherwise = either (Left . LockInvalid) Right $ do
-      text <- either (Left . show) Right (TE.decodeUtf8' (BL.toStrict bytes))
-      root <- Toml.parseToml lockFileName text
-      format <- required "format" asInt root
-      unless (format == lockFormatVersion) $
-        Left ("unsupported lock format " <> show format <> "; this compiler writes format " <> show lockFormatVersion)
-      LockFile
-        <$> required "compiler" asString root
-        <*> optional "index-state" asString root
-        <*> (required "platforms" asTable root >>= traverse (asArray >=> traverse lockEntry) . Map.mapKeys T.unpack)
+parseLockFile bytes = either (Left . LockInvalid) Right $ do
+  text <- either (Left . show) Right (TE.decodeUtf8' (BL.toStrict bytes))
+  -- A JSON file starts with an object. A TOML file cannot start with a brace.
+  (root, expected) <-
+    if T.take 1 (T.dropWhile isSpace text) == "{"
+      then (,1) <$> (Toml.parseJson lockFileName text >>= asTable)
+      else (,lockFormatVersion) <$> Toml.parseToml lockFileName text
+  format <- required "format" asInt root
+  unless (format == expected) $
+    Left ("unsupported lock format " <> show format <> "; this compiler reads format 1 in JSON and format " <> show lockFormatVersion <> " in TOML")
+  LockFile
+    <$> required "compiler" asString root
+    <*> optional "index-state" asString root
+    <*> (required "platforms" asTable root >>= traverse (asArray >=> traverse lockEntry) . Map.mapKeys T.unpack)
   where
     lockEntry content = do
       table <- asTable content
