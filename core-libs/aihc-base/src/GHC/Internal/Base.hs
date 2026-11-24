@@ -1,7 +1,5 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
-{-# HLINT ignore foldr "Eta reduce" #-}
-{-# HLINT ignore mapFB "Eta reduce" #-}
 {-# LANGUAGE RankNTypes #-}
 
 module GHC.Internal.Base

@@ -5,19 +5,14 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-{-# HLINT ignore "Use sequence_" #-}
-
 -- The fusion rules for concat keep the lambda of GHC: a rule matches the
 -- shape of its template, and a flip is another shape.
-{-# HLINT ignore "Avoid lambda" #-}
 
 -- A foldl in reverseOnto would copy the loop of listFoldl with a closure
 -- for flip (:).
-{-# HLINT ignore reverseOnto "Use foldl" #-}
 
 -- The list traversal keeps its arguments: the arity pass reads the arity
 -- from the body.
-{-# HLINT ignore listTraverse "Eta reduce" #-}
 
 module Prelude
   ( Applicative (..),

@@ -2,7 +2,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
 -- Keep the data constructor and its evaluation behavior compatible with GHC.
-{-# HLINT ignore "Use newtype instead of data" #-}
 
 module GHC.Internal.Exception.Context
   ( ExceptionContext (..),

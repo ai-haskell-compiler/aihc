@@ -570,11 +570,6 @@
       path = mkSourceCheck "${name}-${pkgs.lib.replaceStrings ["/"] ["-"] scope}" src inputs script;
     }) (sources.haskellCheckSources pkgs));
 
-  haskellLint = mkHaskellSourceCheck "aihc-haskell-lint" [pkgs.hlint pkgs.findutils] ''
-    find . -type f -name '*.hs' -print0 \
-      | xargs -0 -r hlint
-  '';
-
   haskellFormat = mkHaskellSourceCheck "aihc-haskell-format" [pkgs.ormolu pkgs.findutils] ''
     find . -type f -name '*.hs' -print0 \
       | xargs -0 -r ormolu --mode check
@@ -1344,7 +1339,6 @@ in {
     unicode-generated = unicodeGenerated;
     nix-lint = nixLint;
     nix-format = nixFormat;
-    haskell-lint = haskellLint;
     haskell-format = haskellFormat;
     c-lint = cLint;
     c-format = cFormat;

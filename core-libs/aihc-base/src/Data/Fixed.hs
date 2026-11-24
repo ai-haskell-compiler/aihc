@@ -2,9 +2,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 
-{-# HLINT ignore "Use foldl" #-}
-{-# HLINT ignore "Use map" #-}
-
 module Data.Fixed
   ( Fixed (..),
     HasResolution (..),

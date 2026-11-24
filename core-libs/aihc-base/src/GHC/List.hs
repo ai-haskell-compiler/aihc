@@ -1,9 +1,6 @@
 -- foldl' and length keep their arguments: the arity pass reads the arity
 -- from the body, and an eta-reduced alias is not inlined.
-{-# HLINT ignore foldl' "Eta reduce" #-}
-{-# HLINT ignore length "Eta reduce" #-}
 -- The fusion rules for concat keep the lambda of GHC, as in "Prelude".
-{-# HLINT ignore "Avoid lambda" #-}
 module GHC.List
   ( build,
     map,

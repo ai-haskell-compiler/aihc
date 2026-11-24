@@ -1,7 +1,6 @@
 -- Each mk function keeps its argument: the arity pass reads the arity from
 -- the body, and an eta-reduced alias is not inlined. Thus the default
 -- failure mode can select the name with no suffix.
-{-# HLINT ignore "Eta reduce" #-}
 
 -- | The UTF-8 encodings. All text goes through UTF-8, so an encoding is
 -- only its name.

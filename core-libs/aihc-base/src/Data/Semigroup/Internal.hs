@@ -50,7 +50,6 @@ sconcatList :: (Semigroup a) => a -> [a] -> a
 sconcatList value [] = value
 sconcatList value (next : rest) = value <> sconcatList next rest
 
-{- HLINT ignore foldMonoid "Use foldr" -}
 foldMonoid :: (Monoid a) => [a] -> a
 foldMonoid [] = mempty
 foldMonoid (value : values) = value <> foldMonoid values
@@ -92,7 +91,6 @@ stimesIdempotentMonoid count value =
 instance Semigroup [a] where
   (<>) = appendList
 
-{- HLINT ignore appendList "Use foldr" -}
 appendList :: [a] -> [a] -> [a]
 appendList [] right = right
 appendList (value : values) right = value : appendList values right

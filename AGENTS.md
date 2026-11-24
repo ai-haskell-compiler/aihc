@@ -92,7 +92,7 @@ Use these commands:
 - `just replay "<seed>"` runs one Hedgehog case again.
   Example: `just replay "3:b2 Seed 10332913068362713902 1302058653756691475"`.
 - `just hedgehog` runs 10,000 Hedgehog tests in a continuous cycle until a test fails.
-- `just check` runs the Ormolu format check, HLint, and the full test suite.
+- `just check` runs the Ormolu format check and the full test suite.
 
 ## Branch Policy
 

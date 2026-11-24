@@ -1,7 +1,6 @@
 -- Each mk function keeps its argument: the arity pass reads the arity from
 -- the body, and an eta-reduced alias is not inlined. Thus the default
 -- failure mode can select the name with no suffix.
-{-# HLINT ignore "Eta reduce" #-}
 
 -- | The single-byte encodings, named as in 'GHC.IO.Encoding.UTF8'.
 module GHC.IO.Encoding.Latin1

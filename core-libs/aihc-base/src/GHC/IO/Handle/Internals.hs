@@ -1,7 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | The handle operations that the public handle modules share: the
 -- locking wrappers, the buffer flushes, the handle constructors, and the
 -- IO errors of the handle layer.

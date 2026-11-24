@@ -1,8 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MagicHash #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | The GHC.Base API.
 --
 -- "GHC.Internal.Base" holds most definitions.

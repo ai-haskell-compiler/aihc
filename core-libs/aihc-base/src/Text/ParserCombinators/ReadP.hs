@@ -1,5 +1,3 @@
-{-# HLINT ignore "Use camelCase" #-}
-
 -- | Backtracking parsers over a 'String'.
 --
 -- The parser is a list of results, so a combinator that offers a choice

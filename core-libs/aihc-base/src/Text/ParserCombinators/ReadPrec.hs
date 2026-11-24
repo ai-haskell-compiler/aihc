@@ -1,5 +1,3 @@
-{- HLINT ignore "Use camelCase" -}
-
 -- | Precedence parsers. 'Prelude' builds its 'Read' class on this module.
 --
 -- The parser itself lives in "GHC.Prim.Read", so that a derived 'Read'

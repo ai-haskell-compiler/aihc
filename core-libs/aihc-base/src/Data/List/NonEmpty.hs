@@ -1,7 +1,3 @@
-{-# HLINT ignore "Eta reduce" #-}
-{-# HLINT ignore "Use foldl" #-}
-{-# HLINT ignore "Use foldr" #-}
-
 module Data.List.NonEmpty
   ( NonEmpty (..),
     map,

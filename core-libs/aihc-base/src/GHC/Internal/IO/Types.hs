@@ -1,7 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
-{- HLINT ignore "Use camelCase" -}
-
 -- | The device classes, the handle types, and the IO exception type.
 --
 -- GHC defines these in "GHC.IO.Device", "GHC.IO.BufferedIO",

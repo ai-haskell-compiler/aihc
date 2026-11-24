@@ -4,12 +4,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-{-# HLINT ignore "Use guards" #-}
-{-# HLINT ignore "Use ==" #-}
-{-# HLINT ignore "Use /=" #-}
-{-# HLINT ignore "Use max" #-}
-{-# HLINT ignore "Use min" #-}
-
 module GHC.Classes
   ( CTuple0,
     CTuple2,

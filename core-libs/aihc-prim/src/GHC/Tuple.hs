@@ -76,7 +76,6 @@ where
 
 data Unit = ()
 
-{- HLINT ignore Solo "Use newtype instead of data" -}
 data Solo a = MkSolo a
 
 -- | The old name of the 'MkSolo' constructor, kept as a pattern synonym so

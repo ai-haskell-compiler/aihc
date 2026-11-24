@@ -5,7 +5,6 @@
 -- The list methods keep their arguments: the arity pass reads the arity
 -- from the body, and an eta-reduced alias is not inlined. The bang
 -- pattern of listFoldl' also makes its eta reduction incorrect.
-{-# HLINT ignore "Eta reduce" #-}
 
 -- | The Foldable class and its instances for the core types. This module
 -- does not import Prelude, so Prelude can export the class methods.

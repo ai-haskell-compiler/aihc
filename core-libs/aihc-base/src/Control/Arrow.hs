@@ -2,8 +2,6 @@
 
 -- Control.Monad imports this module, so the Kleisli composition cannot
 -- use its Kleisli operators.
-{-# HLINT ignore "Use <=<" #-}
-{-# HLINT ignore "Use >=>" #-}
 
 module Control.Arrow
   ( Arrow (..),

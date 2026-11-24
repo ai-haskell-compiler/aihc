@@ -302,7 +302,7 @@ in rec {
         type == "directory" || pkgs.lib.hasSuffix ".nix" baseName;
     };
 
-  # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components, tooling, and bin.
+  # Filtered source for Haskell formatting - .hs files and .cabal files in components, tooling, and bin.
   # (.cabal files needed for ormolu to detect language settings like GHC2021)
   haskellSrc = pkgs:
     pkgs.lib.cleanSourceWith {
@@ -313,7 +313,6 @@ in rec {
         relPath = pkgs.lib.removePrefix ((toString root) + "/") pathStr;
         isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
         isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
-        isHlintConfig = baseName == ".hlint.yaml";
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
         prefixes = [
           "components/"
@@ -326,10 +325,10 @@ in rec {
       in
         if type == "directory"
         then keepsDirectory pkgs prefixes relPath && !isFixture
-        else isHlintConfig || (inSubset && (isCabal || (isHaskell && !isFixture)));
+        else inSubset && (isCabal || (isHaskell && !isFixture));
     };
 
-  # Each package has a separate cache entry for format and lint checks.
+  # Each package has a separate cache entry for format checks.
   haskellCheckSources = pkgs: let
     packageRoots = pkgs.lib.concatMap (parent:
       map (name: "${parent}/${name}/")
@@ -348,7 +347,7 @@ in rec {
             then !builtins.any (entry: inPackage entry relPath) packageRoots
             else inPackage prefix relPath;
         in
-          type == "directory" || baseNameOf path == ".hlint.yaml" || selected;
+          type == "directory" || selected;
       };
   in
     pkgs.lib.genAttrs (packageRoots ++ ["other"]) select;
