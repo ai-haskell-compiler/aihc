@@ -30,7 +30,7 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), TypeableKind
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (bindKindMeta, kindMentionsMeta, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
-import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstancesForArguments, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupTyConByIdentity, recordReductionOverflow, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
+import Aihc.Tc.Monad (TcM, TcState (..), abortTc, bindEvidence, clearFailedDicts, emitError, forgetReductionOverflow, freshEvVar, freshMetaTvOfKind, freshSkolemTv, getClassInstancesForArguments, getGivenPredicates, getKinds, getRecursiveDictionaries, getWiring, implicitParamType, isFailedDict, isTermVisible, lookupClass, lookupClassByName, lookupDataType, lookupEvidence, lookupSolvedDict, lookupTyConByIdentity, recordFailedDict, recordReductionOverflow, recordSolvedDict, reductionOverflowed, undeterminedTypeOfKind, wiredTyCon, wiredTyConIdentity, withErrorTracking, withGivenPredicates, withRecursiveDictionary)
 import Aihc.Tc.Solve.Coercible (isCoercibleClass, solveCoercible, solveCoercibleFromGivens)
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, proveGivenEquality, rewriteApplicationPrefix, stuckGivenConstraints)
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
@@ -47,7 +47,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_, guard, when, zipWithM, zipWithM_, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..), runMaybeT)
-import Control.Monad.Trans.State.Strict (get, modify')
+import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.List (elemIndex, partition, sortOn)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -83,9 +83,13 @@ solveDictWithGivens givens ct = do
   -- from the scope (see 'Aihc.Tc.Kind.refineGivenKind'). Thus, the givens
   -- of the branch must be in scope too, and not only in the list.
   let branchGivens = givens <> map ctPred (ctBranchGivens ct)
+  -- The failed wanteds are for one top-level solve only. Another solve can
+  -- start after a unification that changes the result.
+  clearFailedDicts
   result <-
     withGivenPredicates branchGivens $
       solveDictWithGivensVisited [] (branchGivens <> outerGivens) ct
+  clearFailedDicts
   -- A wanted that an instance candidate overflowed and another candidate
   -- solved keeps no record of the overflow.
   case result of
@@ -102,10 +106,12 @@ solveDictWithGivensVisited visited givens ct0 = do
   solveNormalizedDict visited givens' ct0 {ctPred = predicate}
 
 -- | Restore the state from before a failed attempt, but keep a recorded
--- reduction overflow, so that the report of the wanted can name it.
+-- reduction overflow, so that the report of the wanted can name it. Keep
+-- the failed wanteds too: a failure does not depend on the state of the
+-- failed attempt.
 restoreKeepingOverflow :: TcState -> TcM ()
 restoreKeepingOverflow saved =
-  lift (modify' (\state -> saved {tcsReductionOverflow = tcsReductionOverflow state}))
+  lift (modify' (\state -> saved {tcsReductionOverflow = tcsReductionOverflow state, tcsFailedDicts = tcsFailedDicts state}))
 
 -- | The maximum number of nested reduction steps of one wanted, as the
 -- default of GHC's @-freduction-depth@.
@@ -186,50 +192,8 @@ solveNormalizedDict visited givens ct
       case ctPred ct of
         ClassPred className args -> do
           args' <- mapM (reduceTypeFamilies <=< zonkType) args
-          coercibleClass <- isCoercibleClass className
-          withDictClass <- (className ==) <$> wiredTyConIdentity tcWiringWithDictTyCon
           givens' <- mapM zonkGivenPred givens
-          givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
-          case givenEvidence of
-            Just evidence -> do
-              bindEvidence (ctEvVar ct) evidence
-              pure DictSolved
-            Nothing ->
-              case (tyConName className, args') of
-                (_, [constraintType, methodType]) | withDictClass -> tryWithDict className constraintType methodType
-                (_, [left, right]) | coercibleClass -> do
-                  info <- lookupClass className
-                  solved <- case info of
-                    Just classInfo
-                      | null (ciMethods classInfo),
-                        null (ciSuperClassTypes classInfo) -> do
-                          -- A Coercible superclass of a given is a given
-                          -- too: @class Coercible a (Old a) => Newtype a@
-                          -- gives @Coercible (Old a) a@ by symmetry.
-                          closure <- superClassClosure givens'
-                          direct <- solveCoercible className closure (nestedCoercible className givens') left right
-                          if direct
-                            then pure True
-                            else solveCoercibleFromGivens className closure left right
-                    _ -> pure False
-                  if solved
-                    then do
-                      bindEvidence (ctEvVar ct) (EvCoercible className left right)
-                      pure DictSolved
-                    else pure (DictStuck ct)
-                ("Typeable", [ty]) -> do
-                  result <- solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
-                  case result of
-                    DictSolved -> pure DictSolved
-                    DictStuck _ -> tryTypeable className ty
-                ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
-                ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
-                ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
-                ("HasField", _)
-                  | isHasFieldClass className -> do
-                      solved <- solveHasField ct className args'
-                      if solved then pure DictSolved else solveFromInstances className args' givens'
-                _ -> solveFromInstances className args' givens'
+          solveClassCached className args' givens'
         IrredPred constraint -> do
           -- A stuck constraint says nothing until its families reduce. Once
           -- they do it is an ordinary constraint -- a class, an equality, or
@@ -317,6 +281,107 @@ solveNormalizedDict visited givens ct
                 else pure (DictStuck ct)
             _ -> pure (DictStuck ct)
   where
+    -- The solver keeps two caches of class wanteds, by their givens and
+    -- their zonked predicate.
+    --
+    -- A solved wanted with no meta variables, in the givens and in the
+    -- predicate, has the same evidence each time that the solver meets it.
+    -- The solver keeps this evidence for the declaration, as GHC does. A
+    -- wanted with a meta variable is not in this cache, because its
+    -- solution can unify the meta variable.
+    --
+    -- A failed wanted stays failed for the rest of one top-level solve.
+    -- The given equalities can rewrite a wanted in many orders to the same
+    -- wanted. In @morpheus-graphql-server@, two givens @UseNamedResolver
+    -- n r g v ~ ctx@ with different variables give 16 forms of one stuck
+    -- wanted, and the search met them hundreds of thousands of times. A
+    -- failure that a reduction overflow caused is not kept, because a
+    -- shorter path can solve the wanted. A success clears the failures,
+    -- because a failure can depend on a loop through a wanted that is now
+    -- solved.
+    solveClassCached className args' givens' = do
+      let predicate = ClassPred className args'
+          cacheable = not (any mentionsAnyMeta (predicate : givens'))
+      cached <- if cacheable then lookupSolvedDict givens' predicate else pure Nothing
+      knownFailure <- isFailedDict givens' predicate
+      case cached of
+        Just evidence -> do
+          bindEvidence (ctEvVar ct) evidence
+          pure DictSolved
+        Nothing
+          | knownFailure -> pure (DictStuck ct)
+          | otherwise -> do
+              overflowBefore <- lift (gets tcsReductionOverflow)
+              (result, failed) <- withErrorTracking (solveClass className args' givens')
+              case result of
+                DictSolved -> do
+                  clearFailedDicts
+                  when (cacheable && not failed) $ do
+                    evidence <- lookupEvidence (ctEvVar ct)
+                    recursive <- getRecursiveDictionaries
+                    case evidence of
+                      -- Evidence that names a recursive dictionary is
+                      -- correct only in the body of that dictionary.
+                      -- Evidence that names an evidence variable depends
+                      -- on other wanteds.
+                      Just term
+                        | not (mentionsEvidenceVariable term),
+                          not (any (`mentionsGiven` term) recursive) ->
+                            recordSolvedDict givens' predicate term
+                      _ -> pure ()
+                DictStuck _ -> do
+                  overflowAfter <- lift (gets tcsReductionOverflow)
+                  when (overflowAfter == overflowBefore) (recordFailedDict givens' predicate)
+              pure result
+
+    -- The kinds of type variables count too, as in 'kindMentionsMeta'.
+    mentionsAnyMeta predicate = kindMentionsMeta (TcQualTy [predicate] TcArrowTy)
+
+    solveClass className args' givens' = do
+      coercibleClass <- isCoercibleClass className
+      withDictClass <- (className ==) <$> wiredTyConIdentity tcWiringWithDictTyCon
+      givenEvidence <- givenDict (ctPred ct : visited) givens' className args'
+      case givenEvidence of
+        Just evidence -> do
+          bindEvidence (ctEvVar ct) evidence
+          pure DictSolved
+        Nothing ->
+          case (tyConName className, args') of
+            (_, [constraintType, methodType]) | withDictClass -> tryWithDict className constraintType methodType
+            (_, [left, right]) | coercibleClass -> do
+              info <- lookupClass className
+              solved <- case info of
+                Just classInfo
+                  | null (ciMethods classInfo),
+                    null (ciSuperClassTypes classInfo) -> do
+                      -- A Coercible superclass of a given is a given
+                      -- too: @class Coercible a (Old a) => Newtype a@
+                      -- gives @Coercible (Old a) a@ by symmetry.
+                      closure <- superClassClosure givens'
+                      direct <- solveCoercible className closure (nestedCoercible className givens') left right
+                      if direct
+                        then pure True
+                        else solveCoercibleFromGivens className closure left right
+                _ -> pure False
+              if solved
+                then do
+                  bindEvidence (ctEvVar ct) (EvCoercible className left right)
+                  pure DictSolved
+                else pure (DictStuck ct)
+            ("Typeable", [ty]) -> do
+              result <- solveThroughGivenEqualities (ctPred ct : visited) givens' className args'
+              case result of
+                DictSolved -> pure DictSolved
+                DictStuck _ -> tryTypeable className ty
+            ("KnownNat", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownNat" isNatLiteral ty
+            ("KnownSymbol", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownSymbol" isSymbolLiteral ty
+            ("KnownChar", [ty]) -> tryTypeLitOrGivens (ctPred ct : visited) givens' className args' "KnownChar" isCharLiteral ty
+            ("HasField", _)
+              | isHasFieldClass className -> do
+                  solved <- solveHasField ct className args'
+                  if solved then pure DictSolved else solveFromInstances className args' givens'
+            _ -> solveFromInstances className args' givens'
+
     -- A stuck given can be equal to the stuck wanted only through a chain
     -- of given equalities and reductions. With the givens @s ~ 'R r@, @'R
     -- (x ': r) ~ E x ('R r)@ and @U (Map f (E x s)) ~ U (E x s)@, the
@@ -1129,6 +1194,33 @@ mentionsGiven predicate evidence =
     EvCallStackPush _ _ _ parent -> mentionsGiven predicate parent
     EvRecursive inner _ body -> inner /= predicate && mentionsGiven predicate body
     EvVarTerm {} -> False
+    EvEqualityDict {} -> False
+    EvCoercible {} -> False
+    EvCoercion {} -> False
+    EvTypeLit {} -> False
+    EvHasField {} -> False
+    EvWithDict {} -> False
+    EvCallStackEmpty {} -> False
+    EvExceptionContextEmpty {} -> False
+
+-- | Whether evidence names an evidence variable.
+mentionsEvidenceVariable :: EvTerm -> Bool
+mentionsEvidenceVariable evidence =
+  case evidence of
+    EvVarTerm {} -> True
+    EvGiven {} -> False
+    EvDict _ _ _ arguments -> any mentionsEvidenceVariable arguments
+    EvSuperClass inner _ _ _ _ -> mentionsEvidenceVariable inner
+    EvCast inner _ -> mentionsEvidenceVariable inner
+    EvTypeable _ _ _ kindArguments arguments -> any (mentionsEvidenceVariable . snd) kindArguments || any mentionsEvidenceVariable arguments
+    EvTypeableLiteral _ _ _ inner -> mentionsEvidenceVariable inner
+    EvTypeableApp _ _ _ functionEvidence argumentEvidence -> mentionsEvidenceVariable functionEvidence || mentionsEvidenceVariable argumentEvidence
+    EvTypeLam _ body -> mentionsEvidenceVariable body
+    EvDictLam _ _ body -> mentionsEvidenceVariable body
+    EvTypeApp function _ -> mentionsEvidenceVariable function
+    EvDictApp function argument -> mentionsEvidenceVariable function || mentionsEvidenceVariable argument
+    EvCallStackPush _ _ _ parent -> mentionsEvidenceVariable parent
+    EvRecursive _ _ body -> mentionsEvidenceVariable body
     EvEqualityDict {} -> False
     EvCoercible {} -> False
     EvCoercion {} -> False
