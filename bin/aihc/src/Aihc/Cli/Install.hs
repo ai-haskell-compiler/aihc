@@ -266,11 +266,11 @@ import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest 
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, withMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, bracket_, evaluate, finally, throwIO, try, tryJust)
+import Control.Exception (SomeAsyncException, SomeException, bracket_, evaluate, finally, fromException, throwIO, try, tryJust)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -684,7 +684,10 @@ data PackageTaskContext = PackageTaskContext
     -- imports from here.
     taskModuleProvider :: !ModuleProvider,
     taskCapiStubOptions :: !CapiStubOptions,
-    taskBackendPhaseTimings :: !(IORef BackendPhaseTimings)
+    taskBackendPhaseTimings :: !(IORef BackendPhaseTimings),
+    -- | The splices of one module of the graph run while the task holds
+    -- this lock. See 'sharedSpliceLock'.
+    taskSpliceLock :: !(MVar ())
   }
 
 -- | Install a package with the progress on stderr, and name the store
@@ -978,7 +981,13 @@ data InstallShared = InstallShared
     -- the providers decode each artifact only once.
     sharedProviderCache :: !ProviderCache,
     -- | Held while the splices of one module run. Each run builds packages
-    -- and starts an engine, so the modules take turns.
+    -- and starts an engine, so the modules take turns. The first run builds
+    -- the packages of the engine image for @wasm32-wasip3@ and the next
+    -- runs find them in the store. Without the lock, the modules with
+    -- splices of one package compile the same packages at the same time:
+    -- the modules of @morpheus-graphql-server@ did not finish in 900
+    -- seconds. A nested build of a splice has a lock of its own, so it does
+    -- not wait for the run that started it.
     sharedSpliceLock :: !(MVar ())
   }
 
@@ -2189,7 +2198,8 @@ partitionModules graph shared build sourceSlots = do
             taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
             taskCapiStubOptions = moduleBuildCapiOptions build,
-            taskBackendPhaseTimings = sharedBackendPhaseTimings shared
+            taskBackendPhaseTimings = sharedBackendPhaseTimings shared,
+            taskSpliceLock = sharedSpliceLock shared
           }
       localRuntimes unit = map (lookupRuntime runtimeMap) (sourceUnitDependencies unit)
       -- The units of the dependencies that hold the modules the unit
@@ -3197,7 +3207,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                               | isDeclaration = position + resultLength result
                               | otherwise = boundary
                         loop runSplice (index + 1) boundary' (replaceFirstSplice result modu)
-          expanded <- run request (\runSplice -> loop runSplice (0 :: Int) 0 bound)
+          expanded <- withMVar (taskSpliceLock context) (\() -> run request (\runSplice -> loop runSplice (0 :: Int) 0 bound))
           pure moduleUnit {moduleUnitAst = expanded}
     resultLength result =
       case result of
@@ -3287,10 +3297,19 @@ unitExactTypedFacts context runtimes keys = do
 exactTypedFacts :: ModuleProvider -> [ModuleKey] -> IO [(ModuleKey, TypedModuleFacts)]
 exactTypedFacts provider keys =
   fmap catMaybes . forM keys $ \key -> do
-    result <- try (providerTyped provider key)
+    result <- tryJust synchronous (providerTyped provider key)
     pure $ case result of
       Right facts -> Just (key, facts)
-      Left (_ :: SomeException) -> Nothing
+      Left _ -> Nothing
+  where
+    -- The provider can wait for a unit of the graph. If the graph stops
+    -- this thread, the asynchronous exception must stop it. A thread that
+    -- caught it continued its task, then waited for a task that never came,
+    -- and its graph waited for the thread forever.
+    synchronous failure =
+      case fromException failure of
+        Just (_ :: SomeAsyncException) -> Nothing
+        Nothing -> Just (failure :: SomeException)
 
 -- | The modules of a type input.
 typeInputModules :: TypeInput -> [Syntax.Module]
