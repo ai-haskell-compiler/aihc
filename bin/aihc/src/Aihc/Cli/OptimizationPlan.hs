@@ -39,8 +39,10 @@ data OptimizationPlan = OptimizationPlan
 
 -- | The plan of a level, under the @--lto@ flag.
 --
--- @-O0@ runs nothing. @-Os@ runs the shrinking inliner. @-O1@ and @-O2@
--- share their initial shrinking passes with @-Os@.
+-- @-O0@ runs nothing. @-Os@ runs the shrinking inliner, the
+-- specialization of top-level values, and the demand pass for loop
+-- arguments. @-O1@ and @-O2@ share their initial shrinking passes with
+-- @-Os@.
 -- The growing inliner exposes calls before specialization in phase 2.
 -- Eta expansion runs before the inliner, so
 -- that a value it turns into a function is a saturated call for the
@@ -91,7 +93,7 @@ optimizationPlan lto level =
     O0 -> plan {planWholeProgram = lto, planPasses = []}
     O1 -> plan {planWholeProgram = lto, planPasses = shrink <> specialise <> split <> grow}
     O2 -> plan {planWholeProgram = True, planPasses = superSpecialisation (shrink <> specialise <> split <> grow), planGrinPointsTo = True}
-    Os -> plan {planWholeProgram = True, planPasses = shrink <> finish, planGrinPointsTo = True}
+    Os -> plan {planWholeProgram = True, planPasses = shrink <> specialiseSmall <> finish, planGrinPointsTo = True}
   where
     plan = OptimizationPlan {planWholeProgram = False, planPasses = [], planGrinPointsTo = False, planModuleInterfaces = False}
     -- The interfaces serve the plans that optimize each module on its
@@ -131,7 +133,19 @@ optimizationPlan lto level =
     -- that the copy of a loop gives a constructor, within the site limit
     -- of the growing policy.
     grow = [Fc.PassFloatRootLets, Fc.PassSpecialise, Fc.PassInline Fc.growPolicy rounds 1, Fc.PassEtaExpand, Fc.PassWorkerWrapper Fc.SplitLateFunctions, Fc.PassInline Fc.growPolicy 1 0, Fc.PassDemand Fc.StrictLetsAndArguments, Fc.PassUnroll, Fc.PassSimplify 0, Fc.PassCallPatterns 0 (Fc.policySiteLimit Fc.growPolicy), Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
-    finish = [Fc.PassEtaExpand, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
+    -- The specialization of -Os. A specialized copy replaces the calls
+    -- that give a known dictionary, and the shrinking inliner then
+    -- removes the dictionary selections in it. On the -Os benchmarks this
+    -- made the executables smaller, because the general value and the
+    -- dictionaries that the calls made often go away.
+    specialiseSmall = [Fc.PassTopSpecialise, Fc.PassInline Fc.shrinkPolicy rounds 2]
+    -- The shrinking inliner runs again in phases 1 and 0, so that a value
+    -- whose INLINE pragma names a later phase, such as 'unsafeIndex' of
+    -- 'vector', is a candidate. The demand pass evaluates the strict
+    -- arguments of loop steps only. An accumulator that a loop step gives
+    -- lazily makes a chain of thunks. The evaluation of all strict
+    -- arguments made the -Os executables approximately 9% larger.
+    finish = [Fc.PassInline Fc.shrinkPolicy rounds 1, Fc.PassInline Fc.shrinkPolicy rounds 0, Fc.PassEtaExpand, Fc.PassDemand Fc.StrictLetsAndLoopArguments, Fc.PassSimplify 0, Fc.PassStateTokens, Fc.PassCse, Fc.PassFullLaziness, Fc.PassLiftConstants]
     rounds = 4
 
 -- | The super-specialisation of @-O2@. It runs after the first shrinking

@@ -131,7 +131,7 @@ The plans are:
 | `-O0` | none |
 | `-O1` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, inline `growPolicy` [2], specialise top, inline `shrinkPolicy` [2], demand, worker/wrapper, simplify [1], specialise, inline `growPolicy` [1], eta expand, late worker/wrapper, inline `growPolicy` [0] for one round, demand, unroll, simplify [0], call patterns [0], state tokens, cse, full laziness, lift constants |
 | `-O2` | the same as `-O1`, on the whole program |
-| `-Os` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, eta expand, simplify [0], state tokens, cse, full laziness, lift constants |
+| `-Os` | list producers, eta expand, specialise, inline `shrinkPolicy` [2], demand, specialise top, inline `shrinkPolicy` [2], inline `shrinkPolicy` [1], inline `shrinkPolicy` [0], eta expand, demand loop arguments, simplify [0], state tokens, cse, full laziness, lift constants |
 
 `-O2` and `-Os` also run the heap points-to analysis of GRIN on the lowered
 whole program. See "Heap points-to analysis" below.
@@ -470,12 +470,31 @@ evaluates strict arguments only when they reference a local value.
 Strict argument evaluation can also increase continuation frame costs.
 The native backend puts these frames on thread stacks.
 
+The `-Os` plan uses `StrictLetsAndLoopArguments` in its late demand pass.
+This mode evaluates a strict argument before the call only when the call
+is a loop step. A loop step is a call of the top-level value that contains
+the call, or of a binder of an enclosing `rec`. An accumulator that a loop
+step gives lazily makes a chain of thunks. In the `pixelFold` loop of
+JuicyPixels, the chain had one thunk for each pixel. The chain made the
+program use 64 MB of memory, and the collector took 29% of the time. The
+evaluation of all strict arguments made the `-Os` executables
+approximately 9% larger. The evaluation of loop arguments only changed
+their size by less than 1%.
+
+The `-Os` plan also runs the specialization of top-level values and the
+shrinking inliner in phases 1 and 0. A value whose `INLINE` pragma names
+phase 1, such as `unsafeIndex` of `vector`, is then a candidate. The
+specialized copy replaces the calls that give a known dictionary. On the
+`-Os` benchmarks, the text of the executables became 3% to 10% smaller, because the
+general values and the dictionaries that the calls made often go away.
+
 The report gives the number of top-level values with a strict parameter,
 the number of lets that became cases, and the number of arguments that
 are evaluated before their call. The fixtures are the
 `demand-*.yaml` files under `compiler/fc/test/Test/Fixtures/golden`; a
-`demand` entry in `passes:` runs both rewrites and `demand: lets` the
-strict lets alone.
+`demand` entry in `passes:` runs both rewrites, `demand: lets` the
+strict lets alone, and `demand: loop-arguments` the strict lets and the
+arguments of loop steps.
 
 A strict parameter gets the `StrictProduct` demand when the body takes
 it apart, and its type has one constructor that a worker can take apart
