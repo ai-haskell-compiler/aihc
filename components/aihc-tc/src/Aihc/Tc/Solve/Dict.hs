@@ -399,6 +399,30 @@ solveNormalizedDict visited givens ct
             Nothing -> firstCongruent rest
         firstCongruent (_ : rest) = firstCongruent rest
 
+    -- A class given can be equal to the wanted only through equalities
+    -- that no given states as written. In @withReactive@ of @apecs@, the
+    -- givens are @Has w (Elem r)@, @Storage (Elem r) ~ Reactive r s@ and
+    -- the superclass @Elem (Storage (Elem r)) ~ Elem r@. The wanted is
+    -- @Has w (Elem s)@. The rewrite of the superclass with the second
+    -- given reduces to @Elem s ~ Elem r@. The congruence closure finds
+    -- this chain, and the given dictionary is cast along it.
+    congruentClassGiven allGivens className args =
+      firstCongruent [(given, givenArgs) | given@(ClassPred givenClass givenArgs) <- allGivens, givenClass == className, length givenArgs == length args]
+      where
+        firstCongruent [] = pure Nothing
+        firstCongruent ((given, givenArgs) : rest) = do
+          proofs <- proveAll givenArgs args
+          case proofs of
+            Just coercions -> pure (Just (EvCast (EvGiven given) (TyConAppCo className givenArgs coercions [])))
+            Nothing -> firstCongruent rest
+        proveAll [] [] = pure (Just [])
+        proveAll (givenArg : givenRest) (wantedArg : wantedRest) = do
+          proof <- proveGivenEquality allGivens givenArg wantedArg
+          case proof of
+            Nothing -> pure Nothing
+            Just coercion -> fmap (coercion :) <$> proveAll givenRest wantedRest
+        proveAll _ _ = pure Nothing
+
     -- A @WithDict cls meth@ wanted is solved when @cls@ is a class with one
     -- method and no superclasses, and @meth@ equals the type of that method.
     tryWithDict adapter constraintType methodType = do
@@ -469,7 +493,13 @@ solveNormalizedDict visited givens ct
         Just evidence -> do
           bindEvidence (ctEvVar ct) evidence
           pure DictSolved
-        Nothing -> pure (DictStuck ct)
+        Nothing -> do
+          congruent <- congruentClassGiven allGivens className args
+          case congruent of
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) evidence
+              pure DictSolved
+            Nothing -> pure (DictStuck ct)
     tryRuleSets visited' zonkedGivens allGivens className args (rules : rest) = do
       let (rewrittenArgs, coercions) = unzip (map (rewriteWithRules rules) args)
       -- The rules rewrite the givens as well as the wanted: with the

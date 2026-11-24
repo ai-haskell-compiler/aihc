@@ -1,0 +1,72 @@
+extensions:
+  - TypeFamilies
+  - PolyKinds
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, PolyKinds, StandaloneDeriving, DerivingStrategies, GeneralizedNewtypeDeriving, KindSignatures #-}
+    module Test where
+    import GHC.Types (Type)
+    data Unit = Unit
+    data family Color cs e :: Type
+    data XYZ i
+    newtype instance Color (XYZ i) e = XYZ e
+    class Same a where
+      same :: a -> a -> Unit
+    instance Same Unit where
+      same _ _ = Unit
+    deriving newtype instance Same e => Same (Color (XYZ i) e)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: tUnit
+  }
+
+  pub type 1.tColor (cs : sType) (e : sType) :: sType @N @N {}
+
+  pub type 1.tXYZ (k0 : sType) (i : k0) :: sType {}
+
+  type 1.t$R$Color$XYZ (k0 : sType) (i : k0) (e : sType) :: sType {}
+
+  axiom 1.$ax$R$Color$XYZ (k0 : sType) (i : k0) (e : sType) : t$R$Color$XYZ k0 i e ~R e
+
+  axiom 1.$ax$Color$XYZ (k0 : sType) (i : k0) (e : sType) : tColor (tXYZ k0 i) e ~R t$R$Color$XYZ k0 i e
+
+  pub type 1.t$Dict$Same (a : sType) :: sType {
+    pub 1.c$Dict$Same :: ∀(a : sType). (a → a → tUnit) → t$Dict$Same a
+  }
+
+  pub val 1.vsame :: ∀(a : sType). t$Dict$Same a → a → a → tUnit
+    = Λ(a : sType). λ($dSame : t$Dict$Same a).
+      let! c$Dict$Same ($csame : a → a → tUnit) = $dSame;
+      $csame
+
+  pub val 1.v$fSameUnit :: t$Dict$Same tUnit
+    = c$Dict$Same @tUnit v$fSameUnit$csame
+
+  val 1.v$fSameUnit$csame :: tUnit → tUnit → tUnit
+    = λ(unused x : tUnit) (unused y : tUnit).
+      cUnit
+
+  pub val 1.v$fSameColorXYZie :: ∀(e : sType) (k0 : sType) (i : k0). t$Dict$Same e → t$Dict$Same (tColor (tXYZ k0 i) e)
+    = Λ(e : sType) (k0 : sType) (i : k0). λ($dSame : t$Dict$Same e).
+      $dSame ▷ tycon-co t$Dict$Same (sym (trans (axiom-co $ax$Color$XYZ @k0 @i @e) (axiom-co $ax$R$Color$XYZ @k0 @i @e)))
+status: pass
+reason: A derived newtype instance on a poly-kinded newtype family instance
+  applies the axioms to the kind variable first, as a match on the constructor
+  does. Before, the derived cast left out the kind argument and the FC lint
+  failed. This is the XYZ instance of Color.

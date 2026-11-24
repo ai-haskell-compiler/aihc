@@ -36,7 +36,7 @@ import Aihc.Tc.Solve.Worklist
 import Aihc.Tc.Types (Pred (..), TcKinds, TcType (..), TyVarId, Unique, sameType, typeMentionsMeta)
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 
@@ -366,6 +366,14 @@ solveImplication impl = do
     improveImplicationWanteds givenPredicates dictionaryWanteds
     superClassEqualities dictionaryWanteds
   deferredEqualities <- solveImplicationEqualities skolems givenPredicates entailed givenEqs equalityWanteds
+  -- The equalities of the branch can solve a determining parameter of a
+  -- dictionary wanted. Thus the improvement runs again after them. In
+  -- @servant@, the match on @Z (I rHead)@ gives the wanted @AddHeader t0
+  -- h v x t1@, and an equality of the branch solves @t1 := new@. Only then
+  -- does the dependency @new -> mods@ of the given @AddHeader mods h v old
+  -- new@ solve @t0@.
+  unless (null equalityWanteds) $
+    withGivenPredicates givenPredicates (improveImplicationWanteds givenPredicates dictionaryWanteds)
   deferredDictionaries <- concat <$> mapM (solveWantedWithGivens skolems givenPredicates givenEqs) dictionaryWanteds
   pure (deferredEqualities <> deferredDictionaries)
 

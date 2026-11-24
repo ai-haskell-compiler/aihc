@@ -1,0 +1,49 @@
+annotated:
+- |-
+  {-# LANGUAGE PolyKinds, DataKinds, TypeOperators, FlexibleInstances, FlexibleContexts, UndecidableInstances, KindSignatures, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  data (path :: k) :> (a :: Type)
+                   └─ type: k → Type → Type
+  data N = Z | S N
+       │   │   └─ type: N → N
+       │   └─ type: N
+       └─ type: Type
+  class Rep (n :: N)
+  └─ class methods:
+  type Arity (ty :: k) = Arity' k
+       └─ type: k → N
+  type family Arity' (ty :: k) :: N where
+              └─ type: k → N
+    Arity' (_ -> ty) = 'S (Arity' ty)
+    Arity' _ = 'Z
+  class HasLink endpoint where
+  └─ class methods: toLink ∷ ∀ endpoint. (HasLink endpoint) ⇒ endpoint → endpoint
+    toLink :: endpoint -> endpoint
+  instance Rep (Arity arr) => HasLink ((arr :: a -> b) :> sub) where
+  └─ $fHasLink:>arrsub ∷ ∀ a b sub arr. (Rep (Arity' (a → b))) ⇒ HasLink (:> arr sub)
+    toLink x = x
+    │      └─ type: :> arr sub
+    └─ toLink ∷ :> arr sub → :> arr sub
+extensions: []
+modules:
+- |
+  {-# LANGUAGE PolyKinds, DataKinds, TypeOperators, FlexibleInstances, FlexibleContexts, UndecidableInstances, KindSignatures, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type)
+  data (path :: k) :> (a :: Type)
+  data N = Z | S N
+  class Rep (n :: N)
+  type Arity (ty :: k) = Arity' k
+  type family Arity' (ty :: k) :: N where
+    Arity' (_ -> ty) = 'S (Arity' ty)
+    Arity' _ = 'Z
+  class HasLink endpoint where
+    toLink :: endpoint -> endpoint
+  instance Rep (Arity arr) => HasLink ((arr :: a -> b) :> sub) where
+    toLink x = x
+status: pass
+reason: A synonym in an instance context puts its kind variable in a type
+  position, as the synonym Arity does with Arity' k. The instance context is
+  zonked, so the solved kind meta becomes a -> b. Before, the type checker aborted
+  with an unzonked meta-variable in the instance annotation. This is Servant.Links.

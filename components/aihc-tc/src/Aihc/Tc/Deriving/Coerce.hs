@@ -197,16 +197,29 @@ newtypeUnwrapping ty =
 familyNewtypeUnwrapping :: TcType -> TcM (Maybe (TcType, Coercion))
 familyNewtypeUnwrapping target = do
   instances <- getDataFamilyInstances
-  pure $ case [ (normalize (applySubst substitution (dcfiType field)), mkTrans (AxiomInstCo (dataFamilyAxiomKey familyInstance) arguments) (AxiomInstCo (representationAxiomKey familyInstance) arguments))
-              | familyInstance <- instances,
-                dfiiIsNewtype familyInstance,
-                [con] <- [dfiiConstructors familyInstance],
-                null (dciExTyVars con),
-                null (dciTheta con),
-                [field] <- [dciFields con],
-                Just substitution <- [matchTypes [normalize (dfiiFamilyType familyInstance)] [target]],
-                let arguments = map (applySubst substitution . TcTyVar) (dfiiTyVars familyInstance)
-              ] of
+  candidates <-
+    sequence
+      [ do
+          -- The axioms bind the kind variables of the instance variables
+          -- first, as for a newtype declaration. In @newtype instance Color
+          -- (XYZ i) e@ with @PolyKinds@, the axioms take @k@, @i@ and @e@.
+          argumentKinds <- mapM tcTypeKind arguments
+          let tyVars = dfiiTyVars familyInstance
+              kindSubstitution = fromMaybe Map.empty (matchTypes (map tvKind tyVars) argumentKinds)
+              kindVariables = filter (`notElem` tyVars) (nub (concatMap (typeTyVars . tvKind) tyVars))
+              kindArguments = map (applySubst (substitution `Map.union` kindSubstitution) . TcTyVar) kindVariables
+              axiomArguments = kindArguments <> arguments
+          pure (normalize (applySubst substitution (dcfiType field)), mkTrans (AxiomInstCo (dataFamilyAxiomKey familyInstance) axiomArguments) (AxiomInstCo (representationAxiomKey familyInstance) axiomArguments))
+      | familyInstance <- instances,
+        dfiiIsNewtype familyInstance,
+        [con] <- [dfiiConstructors familyInstance],
+        null (dciExTyVars con),
+        null (dciTheta con),
+        [field] <- [dciFields con],
+        Just substitution <- [matchTypes [normalize (dfiiFamilyType familyInstance)] [target]],
+        let arguments = map (applySubst substitution . TcTyVar) (dfiiTyVars familyInstance)
+      ]
+  pure $ case candidates of
     [unwrapping] -> Just unwrapping
     _ -> Nothing
   where

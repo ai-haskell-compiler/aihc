@@ -1,6 +1,5 @@
 module Control.Monad
   ( Functor (..),
-    Applicative (..),
     Monad (..),
     MonadFail (..),
     MonadPlus (..),

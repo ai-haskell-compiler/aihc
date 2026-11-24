@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, FlexibleContexts, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  type family Elem s
+              └─ type: Type → Type
+  type family Storage c
+              └─ type: Type → Type
+  class (Elem (Storage c) ~ c) => Component c
+  └─ class methods:
+  newtype Sys w a = Sys a
+          │         └─ type: ∀ w a. a → Sys w a
+          └─ type: Type → Type → Type
+  class Component c => Has w c where
+  └─ class methods: getStore ∷ ∀ w c. (Has w c) ⇒ Sys w (Storage c)
+    getStore :: Sys w (Storage c)
+  data Reactive r s = Reactive r s
+       │              └─ type: ∀ r s. r → s → Reactive r s
+       └─ type: Type → Type → Type
+  type instance Elem (Reactive r s) = Elem s
+  withReactive :: forall w r s. (Component (Elem r), Has w (Elem r), Storage (Elem r) ~ Reactive r s) => r
+  withReactive = case getStore :: Sys w (Reactive r s) of
+  │              │    └─ type: Sys w (Storage (Elem s)); type-args: w, Elem s; evidence: cast(given Has w Elem r, Has refl w trans (sym (super[0](given Component Elem r))) (Elem given Storage (Elem r) ~ Reactive r s))
+  │              └─ type: r
+  └─ type: ∀ w r s. (Component (Elem r), Has w (Elem r), (Storage (Elem r)) ~ (Reactive r s)) ⇒ r
+    Sys (Reactive r _) -> r
+    │    │        │ └─ type: s
+    │    │        └─ type: r
+    │    └─ type: Reactive r s
+    └─ type: Sys w (Reactive r s)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, FlexibleContexts, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances, ScopedTypeVariables, RankNTypes #-}
+  module Test where
+  type family Elem s
+  type family Storage c
+  class (Elem (Storage c) ~ c) => Component c
+  newtype Sys w a = Sys a
+  class Component c => Has w c where
+    getStore :: Sys w (Storage c)
+  data Reactive r s = Reactive r s
+  type instance Elem (Reactive r s) = Elem s
+  withReactive :: forall w r s. (Component (Elem r), Has w (Elem r), Storage (Elem r) ~ Reactive r s) => r
+  withReactive = case getStore :: Sys w (Reactive r s) of
+    Sys (Reactive r _) -> r
+status: pass
+reason: A class wanted is equal to a class given through a derived equality, as
+  in GHC. The superclass Elem (Storage (Elem r)) ~ Elem r, rewritten with the given
+  Storage (Elem r) ~ Reactive r s, reduces to Elem s ~ Elem r. Thus the given
+  Has w (Elem r) solves the wanted Has w (Elem s). This is withReactive of apecs.

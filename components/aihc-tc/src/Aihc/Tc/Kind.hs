@@ -858,7 +858,13 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
           expandedKind <- tcTypeKind expandedBody
           applyRemainingArguments (expandedBody, expandedKind) remainingArguments
   where
-    checkArgument param argument = checkSurfaceType tvEnv argument (tvKind param)
+    checkArgument param argument = do
+      partial <- unsaturatedSynonymArgument tvEnv argument
+      case partial of
+        Just (partialType, partialKind) -> do
+          unifyKindsAt (surfaceTypeSpan argument) (tvKind param) partialKind
+          pure partialType
+        Nothing -> checkSurfaceType tvEnv argument (tvKind param)
 
     applyRemainingArguments result [] = pure result
     applyRemainingArguments (functionType, functionKind) (argument : rest) = do
@@ -876,6 +882,41 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
           unifyKindsAt (surfaceTypeSpan argument) functionKind (KFun argumentKind resultKind)
           zonkedResultKind <- zonkKind resultKind
           applyRemainingArguments (mkAppTy functionType argumentType, zonkedResultKind) rest
+
+-- | A synonym argument of a synonym can be an unsaturated synonym, as
+-- @LiberalTypeSynonyms@ permits. In @hpack@, @Traversal Config@ gives the
+-- synonym @Config@ of four parameters to the synonym @Traversal@, whose body
+-- applies it to four variables. The argument is the partial application of
+-- the synonym. The expansion of the outer synonym saturates it, and
+-- 'expandTcTypeSynonyms' then expands it.
+unsaturatedSynonymArgument :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
+unsaturatedSynonymArgument tvEnv argument =
+  case synonymApplicationSpine argument of
+    Just (name, arguments) -> do
+      maybeInfo <- lookupResolvedTyCon name
+      case maybeInfo of
+        Just info
+          | Just synonym <- tciTypeSynonym info,
+            Just {} <- tsiBody synonym,
+            length arguments < length (tsiParams synonym) -> do
+              let ForAll variables _ _ = tciKindScheme info
+              instantiation <- instantiateWithArgs (tciKindScheme info)
+              mapM_ trackKindMeta [meta | TcMetaTv meta <- instTypeArgs instantiation]
+              let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
+              parameterKinds <- mapM (fmap (applySubst substitution) . zonkKind . tvKind) (tsiParams synonym)
+              checked <- zipWithM (checkSurfaceType tvEnv) arguments parameterKinds
+              resultKind <- dropArrows (length arguments) (instType instantiation)
+              pure (Just (TcTyConApp (tciTyCon info) (instTypeArgs instantiation) checked, resultKind))
+        _ -> pure Nothing
+    Nothing -> pure Nothing
+  where
+    dropArrows count kind
+      | count <= 0 = pure kind
+      | otherwise = do
+          zonked <- zonkKind kind
+          case zonked of
+            KFun _ result -> dropArrows (count - 1) result
+            _ -> pure zonked
 
 -- | Apply a substitution without capture. A binder of the type that has
 -- the unique of a variable in a substituted type gets a fresh unique.

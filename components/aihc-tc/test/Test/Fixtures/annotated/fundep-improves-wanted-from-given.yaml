@@ -1,0 +1,62 @@
+annotated:
+- |-
+  {-# LANGUAGE FunctionalDependencies, AllowAmbiguousTypes, KindSignatures, DataKinds, FlexibleInstances, UndecidableInstances, PolyKinds, GADTs, TypeOperators, FlexibleContexts, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type, Symbol)
+  data ResponseHeader (sym :: Symbol) a = Header a
+       │                                  └─ type: ∀ sym a. a → ResponseHeader sym a
+       └─ type: GHC.Types.Symbol → Type → Type
+  newtype I a = I a
+          │     └─ type: ∀ a. a → I a
+          └─ type: Type → Type
+  data NS (f :: k -> Type) (xs :: [k]) where
+       └─ type: (k → Type) → [k] → Type
+    Z :: f x -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ f x → NS f xs
+    S :: NS f xs -> NS f (x ': xs)
+    └─ type: ∀ k f xs xs x. (xs ~ ('GHC.Types.: x xs)) ⇒ NS f xs → NS f xs
+  type Union = NS I
+       └─ type: [Type] → Type
+  class AddHeader (mods :: [Type]) h v orig new | mods h v orig -> new, new -> mods, new -> h, new -> v, new -> orig where
+  └─ class methods: add ∷ ∀ mods h v orig new. (AddHeader mods h v orig new) ⇒ ResponseHeader h v → orig → new; fundeps: mods h v orig → new, new → mods, new → h, new → v, new → orig
+    add :: ResponseHeader h v -> orig -> new
+  instance (AddHeader mods h v old new, AddHeader mods h v (Union oldrest) (Union newrest), oldrest ~ (a ': as), newrest ~ (b ': bs)) => AddHeader mods h v (Union (old ': (a ': as))) (Union (new ': (b ': bs))) where
+  └─ $fAddHeadermodshvNSI:old:aasNSI:new:bbs ∷ ∀ mods h v old new oldrest newrest a as b bs. (AddHeader mods h v old new, AddHeader mods h v (NS I oldrest) (NS I newrest), oldrest ~ (': a as), newrest ~ (': b bs)) ⇒ AddHeader mods h v (NS I (': old (': a as))) (NS I (': new (': b bs)))
+    add hdr resp = case resp of
+    │   │   │      └─ type: NS I ('GHC.Types.: new ('GHC.Types.: b bs))
+    │   │   └─ type: NS I ('GHC.Types.: old ('GHC.Types.: a as))
+    │   └─ type: ResponseHeader h v
+    └─ add ∷ ResponseHeader h v → NS I (': old (': a as)) → NS I (': new (': b bs))
+      Z (I rHead) -> Z (I (add hdr rHead))
+      │  │ └─ type: x│  │  └─ type: ResponseHeader h v → x → new; type-args: mods, h, v, x, new; evidence: cast(given AddHeader mods h v old new, AddHeader refl mods refl h refl v nth[1](given ': old (': a as) ~ ': x xs) refl new)
+      │  └─ type: I x│  └─ type: new → I new; type-args: new
+      │              └─ type: I new → NS I ('GHC.Types.: new ('GHC.Types.: b bs)); type-args: Type, I, ': new (': b bs), ': b bs, new; evidence: refl ': new (': b bs)
+      └─ type: I x → NS I ('GHC.Types.: old ('GHC.Types.: a as)); type-args: Type, I, ': old (': a as), xs, x; evidence: given ': old (': a as) ~ ': x xs
+      S rOthers -> S (add hdr rOthers)
+      │ │          │  └─ type: ResponseHeader h v → NS I xs → NS I ('GHC.Types.: b bs); type-args: mods, h, v, NS I xs, NS I (': b bs); evidence: cast(cast(given AddHeader mods h v NS I oldrest NS I newrest, AddHeader refl mods refl h refl v NS refl I given oldrest ~ ': a as NS refl I given newrest ~ ': b bs), sym (AddHeader refl mods refl h refl v NS refl I sym (nth[0](given ': old (': a as) ~ ': x xs)) refl NS I (': b bs)))
+      │ │          └─ type: NS I ('GHC.Types.: b bs) → NS I ('GHC.Types.: new ('GHC.Types.: b bs)); type-args: Type, I, ': new (': b bs), ': b bs, new; evidence: refl ': new (': b bs)
+      │ └─ type: NS I xs
+      └─ type: NS I xs → NS I ('GHC.Types.: old ('GHC.Types.: a as)); type-args: Type, I, ': old (': a as), xs, x; evidence: given ': old (': a as) ~ ': x xs
+extensions: []
+modules:
+- |
+  {-# LANGUAGE FunctionalDependencies, AllowAmbiguousTypes, KindSignatures, DataKinds, FlexibleInstances, UndecidableInstances, PolyKinds, GADTs, TypeOperators, FlexibleContexts, TypeFamilies #-}
+  module Test where
+  import GHC.Types (Type, Symbol)
+  data ResponseHeader (sym :: Symbol) a = Header a
+  newtype I a = I a
+  data NS (f :: k -> Type) (xs :: [k]) where
+    Z :: f x -> NS f (x ': xs)
+    S :: NS f xs -> NS f (x ': xs)
+  type Union = NS I
+  class AddHeader (mods :: [Type]) h v orig new | mods h v orig -> new, new -> mods, new -> h, new -> v, new -> orig where
+    add :: ResponseHeader h v -> orig -> new
+  instance (AddHeader mods h v old new, AddHeader mods h v (Union oldrest) (Union newrest), oldrest ~ (a ': as), newrest ~ (b ': bs)) => AddHeader mods h v (Union (old ': (a ': as))) (Union (new ': (b ': bs))) where
+    add hdr resp = case resp of
+      Z (I rHead) -> Z (I (add hdr rHead))
+      S rOthers -> S (add hdr rOthers)
+status: pass
+reason: In a branch, a functional dependency improves a wanted from a given
+  after the equalities of the branch solve its determining parameter. In the Z
+  branch, an equality gives new to the wanted, and new -> mods then gives mods
+  from the given. This is the Union instance of AddHeader in servant.
