@@ -69,7 +69,6 @@ test-suite spec
     base >=4.16 && <5,
     bytestring,
     hedgehog,
-    prettyprinter,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
