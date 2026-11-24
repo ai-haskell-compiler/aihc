@@ -1,0 +1,63 @@
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, DefaultSignatures, DeriveAnyClass, ScopedTypeVariables, FlexibleContexts #-}
+  module Test where
+  type family F a
+              └─ type: Type → Type
+  data Wrap d m
+       └─ type: Type → Type → Type
+  class Named d where
+  └─ class methods: name ∷ ∀ d m. (Named d) ⇒ Wrap d m → ()
+    name :: Wrap d m -> ()
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → ()
+    c :: a -> ()
+    default c :: forall d m. (F a ~ Wrap d m, Named d) => a -> ()
+    c _ = name (undefinedWrap :: Wrap d m)
+    │ │   │     └─ type: Wrap d m; type-args: d, m
+    │ │   └─ type: Wrap d m → (); type-args: d, m; evidence: given Named d
+    │ └─ type: a
+    └─ c ∷ ∀ a d m. (C a, (F a) ~ (Wrap d m), Named d) ⇒ a → ()
+  undefinedWrap :: Wrap d m
+  undefinedWrap = undefinedWrap
+  │               └─ type: Wrap d m; type-args: d, m
+  └─ type: ∀ d m. Wrap d m
+  data Tag = Tag
+       │     └─ type: Tag
+       └─ type: Type
+  instance Named Tag where
+  └─ $fNamedTag ∷ () ⇒ Named Tag
+    name _ = ()
+    │    │   └─ type: ()
+    │    └─ type: Wrap Tag m
+    └─ name ∷ ∀ m. Wrap Tag m → ()
+  data T = T deriving C
+  │    │   └─ type: T └─ $fCT ∷ () ⇒ C T
+  │    └─ type: Type
+  └─ deriving plans: anyclass C T [context: ()] [methods: c]
+  type instance F T = Wrap Tag ()
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, DefaultSignatures, DeriveAnyClass, ScopedTypeVariables, FlexibleContexts #-}
+  module Test where
+  type family F a
+  data Wrap d m
+  class Named d where
+    name :: Wrap d m -> ()
+  class C a where
+    c :: a -> ()
+    default c :: forall d m. (F a ~ Wrap d m, Named d) => a -> ()
+    c _ = name (undefinedWrap :: Wrap d m)
+  undefinedWrap :: Wrap d m
+  undefinedWrap = undefinedWrap
+  data Tag = Tag
+  instance Named Tag where
+    name _ = ()
+  data T = T deriving C
+  type instance F T = Wrap Tag ()
+status: pass
+reason: An anyclass context determines the variables that a default signature
+  quantifies and the class head does not bind, as GHC does. The equality F T ~
+  Wrap d m gives d = Tag and m = (), and Named Tag needs no context. This is
+  the FromValue default signature with Rep a ~ D1 d m in hpack.

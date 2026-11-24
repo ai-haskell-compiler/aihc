@@ -59,6 +59,7 @@ import Aihc.Tc.Syntax.Pending
     TcInfo (..),
   )
 import Aihc.Tc.Types
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
@@ -469,7 +470,9 @@ forwardPredFamilies equations predicate =
 -- simplifier cannot solve such an obligation, the full solver tries it. If
 -- the full solver solves it, the obligation adds nothing to the context.
 simplifyObligations :: TcKinds -> DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM (Either Pred [Pred])
-simplifyObligations kinds environment owner = foldM step (Right [])
+simplifyObligations kinds environment owner obligations = do
+  determined <- determineSignatureVariables environment owner obligations
+  foldM step (Right []) determined
   where
     step (Left blocked) _ = pure (Left blocked)
     step (Right context) predicate = do
@@ -479,6 +482,47 @@ simplifyObligations kinds environment owner = foldM step (Right [])
           solved <- solvesWithoutResidue predicate
           pure (if solved then Right context else Left predicate)
         _ -> pure ((context <>) <$> result)
+
+-- | A default signature can quantify variables that the class head does
+-- not bind. GHC instantiates them with unification variables, and an
+-- equality of the signature determines them. In @hpack@, the default
+-- signature @forall d m. (Generic a, Rep a ~ D1 d m, Datatype d) => ...@
+-- gives @Rep T ~ D1 d m@. The representation of @T@ determines @d@ and
+-- @m@, and @Datatype d@ then names the metadata of @T@. Only the variables
+-- that are not variables of the plan are determined. An equality that
+-- determines all of its variables is removed.
+determineSignatureVariables :: DerivingEnv -> TcDerivingPlan -> [Pred] -> TcM [Pred]
+determineSignatureVariables environment owner = go
+  where
+    planVariables = map tvUnique (tcDerivingTyVars owner)
+    go predicates = do
+      step <- firstDetermined [] predicates
+      case step of
+        Nothing -> pure predicates
+        Just (substitution, rest) -> go (map (applySubstPred substitution) rest)
+    firstDetermined _ [] = pure Nothing
+    firstDetermined before (predicate : after) =
+      case predicate of
+        EqPred {} | not (null (signatureVariables predicate)) -> do
+          reduced <- reducePredFamilies (forwardPredFamilies (derivingEnvForwarded environment) predicate)
+          case reduced of
+            EqPred left right
+              | Just substitution <- determining left right <|> determining right left ->
+                  pure (Just (substitution, reverse before <> after))
+            _ -> firstDetermined (predicate : before) after
+        _ -> firstDetermined (predicate : before) after
+    signatureVariables predicate = [tyVar | tyVar <- predTyVars predicate, tvUnique tyVar `notElem` planVariables]
+    determining patternType target = do
+      matched <- matchTypes [patternType] [target]
+      -- A plan variable can match itself: @Wrap a d ~ Wrap a Int@ only
+      -- determines @d@.
+      let substitution = Map.filterWithKey (\unique ty -> not (isVariable unique ty)) matched
+          isVariable unique ty = case ty of
+            TcTyVar tyVar -> tvUnique tyVar == unique
+            _ -> False
+      if all (`notElem` planVariables) (Map.keys substitution) && not (Map.null substitution)
+        then Just substitution
+        else Nothing
 
 -- | Whether the full solver solves a predicate completely. The check
 -- restores the type checker state, so it binds no evidence and reports no
