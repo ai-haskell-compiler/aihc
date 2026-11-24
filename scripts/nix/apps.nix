@@ -101,11 +101,21 @@
     pkgs.lz4
     pkgs.llvmPackages.bintools
     pkgs.llvmPackages.clang
+    pkgs.llvmPackages.clang-unwrapped
+    pkgs.wasm-component-ld
+    wasmLd
     pkgs.haskellPackages.hsc2hs
     pkgs.haskellPackages.happy
     pkgs.haskellPackages.alex
     pkgs.haskellPackages.c2hs
   ];
+
+  # aihc runs Template Haskell splices in a wasm32-wasip3 sandbox. Thus a
+  # package with splices needs the WASI sysroot and the unwrapped clang.
+  wasmEnvironment = ''
+    export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+    export AIHC_WASM_SYSROOT=${wasmSysroot}
+  '';
 
   selfCompileEnvironment = ''
     set -euo pipefail
@@ -116,6 +126,7 @@
     export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfCompileCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
     export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfCompileCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+    ${wasmEnvironment}
   '';
 
   # The Linux release executable is a static musl executable. It has no
@@ -167,6 +178,7 @@
       export CPATH="${muslStatic.zlib.dev}/include"
       export LIBRARY_PATH="${muslStatic.zlib}/lib"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      ${wasmEnvironment}
     ''
     else selfCompileEnvironment;
 
