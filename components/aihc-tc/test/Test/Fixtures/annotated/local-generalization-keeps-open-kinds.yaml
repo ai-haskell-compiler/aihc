@@ -17,7 +17,7 @@ annotated:
   └─ type: GHC.Prim.Word# → GHC.Prim.Addr# → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
   writeDigits :: forall a. (Mantissa a) => Addr# -> a -> State# RealWorld -> State# RealWorld
   writeDigits ptr = go ptr
-  │           │     └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a, given Mantissa a, given Mantissa a
+  │           │     └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a
   │           └─ type: GHC.Prim.Addr#
   └─ type: ∀ a. (Mantissa a) ⇒ GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
     where
@@ -25,7 +25,7 @@ annotated:
       │  │ │        └─ type: GHC.Prim.State# GHC.Prim.RealWorld
       │  │ └─ type: a
       │  └─ type: GHC.Prim.Addr#
-      └─ type: ∀ a. (Mantissa a, Mantissa a, Mantissa a) ⇒ GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
+      └─ type: ∀ a. (Mantissa a) ⇒ GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld
         | ten mantissa =
           └─ type: a → GHC.Types.Bool; type-args: a; evidence: given Mantissa a
             let !(m', c) = quotRem100 mantissa
@@ -40,7 +40,7 @@ annotated:
                 └─ type: GHC.Prim.State# GHC.Prim.RealWorld
              in go (p `plusAddr#` (-2#)) m' s2
                 │                  └─ type: GHC.Prim.Int#
-                └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a, given Mantissa a, given Mantissa a
+                └─ type: GHC.Prim.Addr# → a → GHC.Prim.State# GHC.Prim.RealWorld → GHC.Prim.State# GHC.Prim.RealWorld; type-args: a; evidence: given Mantissa a
         | True = s1
 extensions:
 - MagicHash
