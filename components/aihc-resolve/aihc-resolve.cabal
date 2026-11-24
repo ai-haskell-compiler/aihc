@@ -15,7 +15,6 @@ library
     Aihc.Resolve.Syntax
     Aihc.Resolve.Syntax.FromParser
     Aihc.Resolve.Syntax.Traverse
-    Aihc.Resolve.Traverse
     Aihc.Resolve.Types
 
   other-modules:

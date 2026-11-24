@@ -159,7 +159,7 @@ addInfoLabels span' infos = do
 
 placedAt :: String -> Maybe SourceSpan -> SourceSpan
 placedAt label =
-  fromMaybe (error ("renderAnnotatedModule: renderable annotation has no source span: " <> show label))
+  fromMaybe (error ("renderAnnotatedTcResults: a label has no source span: " <> show label))
 
 peelLeading :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> node -> ([Annotation], [TcInfo], node)
 peelLeading peel =
