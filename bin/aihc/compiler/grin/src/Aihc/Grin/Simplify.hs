@@ -117,7 +117,9 @@ simplifyGrinProgram program00 =
     workers = boxWorkers program0
     -- The new workers join the program. A worker that no call names goes
     -- in the sweep that follows.
-    program = program0 {grinFunctions = grinFunctions program0 <> map boxWorkerFunction (Map.elems workers)}
+    existing = Set.fromList (map grinFunctionName (grinFunctions program0))
+    added = [function | worker <- Map.elems workers, let function = boxWorkerFunction worker, Set.notMember (grinFunctionName function) existing]
+    program = program0 {grinFunctions = grinFunctions program0 <> added}
     env =
       Env
         { envFunctions =
