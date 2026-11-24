@@ -51,8 +51,8 @@ import Data.Type.Equality (TestEquality (..), (:~:) (..), (:~~:) (..))
 import GHC.Classes qualified
 import GHC.Internal.Base (List (..), Maybe (..), String, foldr, unpackCString#, (++), (.))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
+import GHC.Internal.Num qualified
 import GHC.Magic.Dict (withDict)
-import GHC.Num qualified
 import GHC.Prim (Addr#, Int#, eqAddr#, indexWord8OffAddr#, ord#, seq, word2Int#, word8ToWord#, (+#), (/=#), (==#))
 import GHC.Prim.Show (Show (..), ShowS)
 import GHC.Prim.String (eqString)
@@ -274,7 +274,7 @@ mapKinds _ [] = []
 mapKinds kinds (x : xs) = kindRep kinds x : mapKinds kinds xs
 
 indexKind :: [SomeTypeRep] -> GHC.Types.Int -> SomeTypeRep
-indexKind (x : xs) index = if index GHC.Classes.== 0 then x else indexKind xs (index GHC.Num.- 1)
+indexKind (x : xs) index = if index GHC.Classes.== 0 then x else indexKind xs (index GHC.Internal.Num.- 1)
 
 -- | The type constructor of a function type. The compiler makes it, thus it
 -- has the same package name as the 'TypeRep' of each other function type.
@@ -361,7 +361,7 @@ splitKindArguments count values =
     then ([], values)
     else case values of
       [] -> ([], [])
-      x : xs -> case splitKindArguments (count GHC.Num.- 1) xs of
+      x : xs -> case splitKindArguments (count GHC.Internal.Num.- 1) xs of
         (prefix, suffix) -> (x : prefix, suffix)
 
 representationNode :: forall k (a :: k). TypeRep a -> [SomeTypeRep] -> SomeTypeRep

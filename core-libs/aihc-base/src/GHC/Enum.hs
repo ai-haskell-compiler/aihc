@@ -19,7 +19,7 @@ import GHC.Internal.Base (build, maxInt, (++))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Int#,
     chr#,

@@ -92,3 +92,4 @@ fence
 fence seq_cst
 load.invariant
 %v = load i64 [%frame + 8] align 8 region stack
+%r = fma f64 %a, %b, %c

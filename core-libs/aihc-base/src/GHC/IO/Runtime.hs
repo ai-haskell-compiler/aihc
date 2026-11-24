@@ -35,7 +35,7 @@ where
 import Aihc.Prim.IO (IOHandle#, IORequest#, awaitIO#)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim (Addr#, Int#, RealWorld, State#)
 
 data IOHandle = IOHandle IOHandle#

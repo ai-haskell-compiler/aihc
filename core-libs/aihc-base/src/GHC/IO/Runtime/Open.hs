@@ -17,7 +17,7 @@ import GHC.IO.Runtime (IOHandle, awaitIO, openResultError, submitOpen, takeOpenR
 import GHC.Int (Int (..))
 import GHC.Internal.Base (List (..), Monad (..), String, ord, ($))
 import GHC.Internal.Classes (Eq (..), Ord (..))
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Real (fromIntegral)
 

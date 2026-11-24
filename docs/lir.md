@@ -526,6 +526,7 @@ This algorithm removes the previous 64-step loop.
 | `fneg fN %a` | `fN` | Negation. |
 | `fabs fN %a` | `fN` | Absolute value. |
 | `fsqrt fN %a` | `fN` | Square root. |
+| `fma fN %a, %b, %c` | `fN` | Fused multiply-add: `%a * %b + %c` with one rounding. |
 
 ### Conversion
 
@@ -1276,6 +1277,7 @@ rather than as a change of some object bytes. Run the suite with
   architecture has no scalar bit deposit or extract. A deposit walks the
   mask from its lowest set bit; an extract walks it from its highest set
   bit, which `clz` finds.
+- `fma` is `fmadd`.
 - The atomic operations use the LSE instructions of ARMv8.1, which every
   Apple ARM64 processor has. `cas`, `xchg`, `atomic.add`, and `atomic.or`
   are `cas`, `swp`, `ldadd`, and `ldset`. The order selects the `a` and `l`
@@ -1344,8 +1346,9 @@ design of the AArch64 backend:
   This instruction avoids a copy and preserves the flags.
 - `clz`, `ctz`, and `popcount` are `lzcnt`, `tzcnt`, and `popcnt`, and
   `pdep` and `pext` are the BMI2 instructions of the same name. This backend
-  targets modern hardware and assumes SSE4.2, LZCNT, BMI1, and BMI2; a host
+  targets modern hardware and assumes SSE4.2, LZCNT, BMI1, BMI2, and FMA3; a host
   without them uses the LLVM backend.
+- `fma` is `vfmadd213sd` or `vfmadd213ss`.
 - A trap writes its message and a newline to the standard error stream and
   exits with status one.
 
@@ -1370,6 +1373,7 @@ design of the AArch64 backend:
   one.
 - `pdep` and `pext` call internal functions of the module that loop over
   the set bits of the mask, since LLVM has no portable intrinsic for them.
+- `fma` is the `llvm.fma` intrinsic.
 - The atomic operations are `load atomic`, `store atomic`, `cmpxchg`,
   `atomicrmw`, and `fence`. A relaxed order is `monotonic`. LLVM gives no
   order for an address dependency, so `load.dependent` is an acquire load.
@@ -1390,6 +1394,8 @@ Clang assembles:
 - `pdep` and `pext` call helper functions that the backend adds to the
   module, as Lir loops over the set bits of the mask, since WebAssembly has
   no bit deposit or extract.
+- `fma` calls `fma` or `fmaf` of the C library, since WebAssembly has no
+  fused multiply-add.
 - A function with a reducible control-flow graph becomes nested `block`,
   `loop`, and `if` constructs that follow its dominator tree, as in "Beyond
   Relooper" (Ramsey, ICFP 2022). A loop header is in a `loop`. A merge node

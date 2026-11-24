@@ -142,7 +142,9 @@ preamble externSymbols =
       ( [ "declare float @llvm.fabs.f32(float)",
           "declare double @llvm.fabs.f64(double)",
           "declare float @llvm.sqrt.f32(float)",
-          "declare double @llvm.sqrt.f64(double)"
+          "declare double @llvm.sqrt.f64(double)",
+          "declare float @llvm.fma.f32(float, float, float)",
+          "declare double @llvm.fma.f64(double, double, double)"
         ]
           <> concat
             [ [ "declare {" <> ty <> ", i1} @llvm.uadd.with.overflow." <> ty <> "(" <> ty <> ", " <> ty <> ")",
@@ -854,6 +856,8 @@ compileInstruction ctx (Instruction results operation) =
         FNeg -> single ("fneg " <> typed ty value)
         FAbs -> single ("call " <> renderType ty <> " @llvm.fabs." <> floatSuffix ty <> "(" <> typed ty value <> ")")
         FSqrt -> single ("call " <> renderType ty <> " @llvm.sqrt." <> floatSuffix ty <> "(" <> typed ty value <> ")")
+    FloatMulAdd ty left right addend ->
+      single ("call " <> renderType ty <> " @llvm.fma." <> floatSuffix ty <> "(" <> typed ty left <> ", " <> typed ty right <> ", " <> typed ty addend <> ")")
     Convert op from value to ->
       case op of
         SExt -> single ("sext " <> typed from value <> " to " <> renderType to)

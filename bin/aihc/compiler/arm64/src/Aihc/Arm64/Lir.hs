@@ -290,6 +290,7 @@ arm64Backend =
       nbFloatBinary = \op ty dst a b -> [toFloat ty 16 a, toFloat ty 17 b, arm64Instruction (ArmFloat (floatOp op) (ty == F64) 16 16 17), fromFloat ty dst 16],
       nbFloatUnary = \op ty dst a -> [toFloat ty 16 a, arm64Instruction (ArmFloat (floatUnaryOp op) (ty == F64) 16 16 16), fromFloat ty dst 16],
       nbConvert = convert,
+      nbFloatMulAdd = arm64FloatMulAdd,
       nbSelect = arm64Select,
       nbLoad = arm64Load,
       nbStore = arm64Store,
@@ -452,6 +453,7 @@ instructionEffect instruction =
     ArmFcvtzu _ destination _ -> writes [destination]
     ArmFmovToFloat {} -> Writes []
     ArmFloat {} -> Writes []
+    ArmFmadd {} -> Writes []
     ArmFcvt {} -> Writes []
     ArmScvtf {} -> Writes []
     ArmUcvtf {} -> Writes []
@@ -1048,6 +1050,24 @@ floatToInteger signed from to dst a = do
            ]
         <> narrowRegister to dst
     )
+
+-- | A fused multiply-add. The three operands go to the float registers
+-- 16, 17, and 18 before the destination is written, thus the destination
+-- can be the same register as an operand.
+arm64FloatMulAdd :: Ctx Arm64Register -> Type -> Arm64Register -> Operand -> Operand -> Operand -> [Arm64Statement]
+arm64FloatMulAdd ctx ty dst left right addend =
+  let (loads, a) = operandIn' ctx 0 ty scratchLeft left
+      (loads', b) = operandIn' ctx 0 ty scratchRight right
+      (loads'', c) = operandIn' ctx 0 ty scratchExtra addend
+   in loads
+        <> loads'
+        <> loads''
+        <> [ toFloat ty 16 a,
+             toFloat ty 17 b,
+             toFloat ty 18 c,
+             arm64Instruction (ArmFmadd (ty == F64) 16 16 17 18),
+             fromFloat ty dst 16
+           ]
 
 arm64Select :: Ctx Arm64Register -> Type -> Arm64Register -> Operand -> Operand -> Operand -> [Arm64Statement]
 arm64Select ctx ty dst condition left right =

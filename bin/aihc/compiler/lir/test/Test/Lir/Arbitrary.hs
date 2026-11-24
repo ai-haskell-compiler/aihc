@@ -83,6 +83,7 @@ genOperation =
       Compare <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
       FloatBinary <$> Gen.enumBounded <*> genType <*> genOperand <*> genOperand,
       FloatUnary <$> Gen.enumBounded <*> genType <*> genOperand,
+      FloatMulAdd <$> genType <*> genOperand <*> genOperand <*> genOperand,
       Convert <$> Gen.enumBounded <*> genType <*> genOperand <*> genType,
       PtrToInt <$> genOperand,
       PtrFromInt <$> genOperand,

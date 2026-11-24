@@ -1,0 +1,60 @@
+extensions: [MagicHash, UnboxedSums, UnboxedTuples]
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    {-# LANGUAGE UnboxedSums #-}
+    {-# LANGUAGE UnboxedTuples #-}
+    module Test where
+
+    import GHC.Exts (Int (I#), Word (W#), int2Word#, quotRemInt#)
+    import GHC.Float (expt, isDoubleFinite, isFloatFinite)
+    import GHC.Num (integerFromWord#, naturalFromWord)
+    import GHC.Num.Integer (integerIsPowerOf2#)
+    import GHC.Stack (ccsToStrings, getCurrentCCS)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    -- text-show gets integerFromWord# from GHC.Num.
+    fromWord :: Bool
+    fromWord = integerFromWord# (int2Word# 42#) == 42 && toInteger (naturalFromWord 7) == 7
+
+    -- fp-ieee gets isDoubleFinite and expt from GHC.Float.
+    -- The isDoubleFinite result is 1 or 0.
+    finite :: Bool
+    finite =
+      [isDoubleFinite 1.5, isDoubleFinite (1 / 0), isDoubleFinite (0 / 0), isFloatFinite 2.5]
+        == [1, 0, 0, 1]
+        && expt 2 10 == 1024
+
+    -- fp-ieee gets integerIsPowerOf2# from GHC.Num.Integer. The result is
+    -- the base-2 logarithm of a positive power of two.
+    powerOf2 :: Integer -> Maybe Word
+    powerOf2 value =
+      case integerIsPowerOf2# value of
+        (# _ | #) -> Nothing
+        (# | exponent #) -> Just (W# exponent)
+
+    powers :: Bool
+    powers =
+      map powerOf2 [1, 2, 3, 1024, 2 ^ 100, 2 ^ 100 + 1, 0, -4]
+        == [Just 0, Just 1, Nothing, Just 10, Just 100, Nothing, Nothing, Nothing]
+
+    -- fp-ieee gets quotRemInt# from GHC.Exts. The division rounds toward zero.
+    quotRem' :: Int -> Int -> (Int, Int)
+    quotRem' (I# a) (I# b) = case quotRemInt# a b of (# q, r #) -> (I# q, I# r)
+
+    divisions :: Bool
+    divisions = [quotRem' 7 2, quotRem' (-7) 2, quotRem' 7 (-2)] == [(3, 1), (-3, -1), (-3, 1)]
+
+    -- reflex gets the cost-centre API from GHC.Stack. Without profiling, the
+    -- current stack is empty.
+    noProfiling :: Bool
+    noProfiling = null (unsafePerformIO (getCurrentCCS () >>= ccsToStrings))
+
+    answer :: Bool
+    answer = fromWord && finite && powers && divisions && noProfiling
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: GHC.Exts, GHC.Num, GHC.Num.Integer, GHC.Float and GHC.Stack export the GHC names that text-show, fp-ieee and reflex use

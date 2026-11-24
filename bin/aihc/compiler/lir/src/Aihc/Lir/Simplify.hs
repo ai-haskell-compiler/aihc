@@ -101,6 +101,7 @@ eliminateDeadInstructions uses0 function
       Compare {} -> True
       FloatBinary {} -> True
       FloatUnary {} -> True
+      FloatMulAdd {} -> True
       Convert op _ _ _ -> op `elem` [SExt, ZExt, Trunc, Bitcast, FpExt, FpTrunc]
       PtrToInt {} -> True
       PtrFromInt {} -> True
@@ -597,6 +598,7 @@ eliminateCommonSubexpressions function
         Compare {} -> True
         FloatBinary {} -> True
         FloatUnary {} -> True
+        FloatMulAdd {} -> True
         Convert {} -> True
         PtrToInt {} -> True
         PtrFromInt {} -> True

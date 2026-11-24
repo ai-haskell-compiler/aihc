@@ -58,6 +58,7 @@ module GHC.Num.Integer
     integerRecipMod#,
     integerPowMod#,
     integerLog2#,
+    integerIsPowerOf2#,
     integerLogBase#,
     integerShiftL#,
     integerShiftR#,
@@ -135,6 +136,18 @@ integerFromWordNeg# :: Word# -> Integer
 integerFromWordNeg# word = negate (integerFromWord# word)
 
 -- | Shift an 'Integer' to the left by a number of bits.
+-- | The base-2 logarithm of a positive power of two. The result is empty
+-- for a value that is not a positive power of two.
+integerIsPowerOf2# :: Integer -> (# (# #) | Word# #)
+integerIsPowerOf2# value =
+  if value > 0
+    then case integerLog2# value of
+      exponent ->
+        if integerShiftL# 1 exponent == value
+          then (# | exponent #)
+          else (# (# #) | #)
+    else (# (# #) | #)
+
 integerShiftL# :: Integer -> Word# -> Integer
 integerShiftL# value count = Internal.integerShiftL# value (word2Int# count)
 

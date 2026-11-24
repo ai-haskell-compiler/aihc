@@ -3845,6 +3845,16 @@ compilePrimitive ctx env vars runtimeRep name arguments =
           value <- emitValue "value" ty (Load ty (byteAddress target 0) (byteAlignment 1))
           result <- if ty == I64 then pure value else emitValue "value" I64 (Convert extend ty (typedOperand value) I64)
           bind [result]
+    (_, [left, right, addend])
+      | Just (ty, negateProduct, negateAddend) <- lookup name floatMulAddPrimitives -> do
+          let negated True operand = typedOperand <$> emitValue "negated" ty (FloatUnary FNeg ty operand)
+              negated False operand = pure operand
+          leftOperand <- floatOperand ty left >>= negated negateProduct
+          rightOperand <- floatOperand ty right
+          addendOperand <- floatOperand ty addend >>= negated negateAddend
+          result <- emitValue "result" ty (FloatMulAdd ty leftOperand rightOperand addendOperand)
+          bits <- floatBits ty result
+          bind [bits]
     (_, [address, index, value])
       | Just (ty, scale) <- lookup name addressStorePrimitives -> do
           target <- addressElement address index scale
@@ -4837,6 +4847,21 @@ floatBinaryPrimitives =
     ("*##", (FMul, F64)),
     ("divideFloat#", (FDiv, F32)),
     ("/##", (FDiv, F64))
+  ]
+
+-- | The fused multiply-add primitives: the type, whether the product is
+-- negated, and whether the addend is negated. A negation is exact, thus
+-- each primitive is one rounding of the exact result, as in GHC.
+floatMulAddPrimitives :: [(Text, (Type, Bool, Bool))]
+floatMulAddPrimitives =
+  [ ("fmaddFloat#", (F32, False, False)),
+    ("fmsubFloat#", (F32, False, True)),
+    ("fnmaddFloat#", (F32, True, False)),
+    ("fnmsubFloat#", (F32, True, True)),
+    ("fmaddDouble#", (F64, False, False)),
+    ("fmsubDouble#", (F64, False, True)),
+    ("fnmaddDouble#", (F64, True, False)),
+    ("fnmsubDouble#", (F64, True, True))
   ]
 
 floatUnaryPrimitives :: [(Text, (FloatUnaryOp, Type))]

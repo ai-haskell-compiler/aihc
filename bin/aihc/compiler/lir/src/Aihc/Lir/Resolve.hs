@@ -227,6 +227,7 @@ resolveConstants wordBytes (Module items) = Module [resolveItem item | item <- i
         Compare op ty left right -> Compare op ty (operand left) (operand right)
         FloatBinary op ty left right -> FloatBinary op ty (operand left) (operand right)
         FloatUnary op ty value -> FloatUnary op ty (operand value)
+        FloatMulAdd ty left right addend -> FloatMulAdd ty (operand left) (operand right) (operand addend)
         Convert op from value to -> Convert op from (operand value) to
         PtrToInt value -> PtrToInt (operand value)
         PtrFromInt value -> PtrFromInt (operand value)

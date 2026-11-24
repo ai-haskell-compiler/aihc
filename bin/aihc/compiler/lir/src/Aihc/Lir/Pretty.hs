@@ -193,6 +193,7 @@ prettyOperation operation =
     Compare op ty left right -> pretty (compareOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     FloatBinary op ty left right -> pretty (floatBinaryOpName op) <+> prettyType ty <+> prettyOperands [left, right]
     FloatUnary op ty operand -> pretty (floatUnaryOpName op) <+> prettyType ty <+> prettyOperand operand
+    FloatMulAdd ty left right addend -> "fma" <+> prettyType ty <+> prettyOperands [left, right, addend]
     Convert op from operand to -> pretty (convertOpName op) <+> prettyType from <+> prettyOperand operand <+> "to" <+> prettyType to
     PtrToInt operand -> "ptr.to_int" <+> prettyOperand operand
     PtrFromInt operand -> "ptr.from_int" <+> prettyOperand operand
@@ -379,7 +380,7 @@ reservedWords =
     <> ["jump", "br", "switch", "return", "tailcall", "tailcall.indirect", "trap"]
     <> map binaryOpName [minBound .. maxBound]
     <> map wideOpName [minBound .. maxBound]
-    <> ["quotrem.wide.u"]
+    <> ["quotrem.wide.u", "fma"]
     <> map compareOpName [minBound .. maxBound]
     <> map floatBinaryOpName [minBound .. maxBound]
     <> map floatUnaryOpName [minBound .. maxBound]

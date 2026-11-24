@@ -1,0 +1,49 @@
+extensions: [MagicHash]
+modules:
+  - |
+    {-# LANGUAGE MagicHash #-}
+    module Test where
+
+    import GHC.Exts
+
+    -- 134217729 is 2^27 + 1. Its exact square is one more than the
+    -- rounded square, so only one rounding gives 1 or -1. 4097 is 2^12 + 1
+    -- and shows the same for Float.
+    x :: Double
+    x = 134217729
+
+    rounded :: Double
+    rounded = 18014398777917440
+
+    xf :: Float
+    xf = 4097
+
+    roundedf :: Float
+    roundedf = 16785408
+
+    double :: (Double# -> Double# -> Double# -> Double#) -> Double -> Double -> Double -> Double
+    double op (D# a) (D# b) (D# c) = D# (op a b c)
+
+    float :: (Float# -> Float# -> Float# -> Float#) -> Float -> Float -> Float -> Float
+    float op (F# a) (F# b) (F# c) = F# (op a b c)
+
+    answer :: Bool
+    answer =
+      [ double fmaddDouble# x x (negate rounded),
+        double fmsubDouble# x x rounded,
+        double fnmaddDouble# x x rounded,
+        double fnmsubDouble# x x (negate rounded)
+      ]
+        == [1, 1, -1, -1]
+        && [ float fmaddFloat# xf xf (negate roundedf),
+             float fmsubFloat# xf xf roundedf,
+             float fnmaddFloat# xf xf roundedf,
+             float fnmsubFloat# xf xf (negate roundedf)
+           ]
+          == [1, 1, -1, -1]
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: GHC.Exts gives the fused multiply-add primops with one rounding, as fp-ieee uses them

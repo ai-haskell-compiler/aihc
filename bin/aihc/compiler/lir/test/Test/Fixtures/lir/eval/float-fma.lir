@@ -1,0 +1,20 @@
+; expect: 1.0, 1.0, 7.0, 7.0
+
+; fma rounds one time. 134217729 is 2^27 + 1, thus its exact square is
+; 2^54 + 2^28 + 1. A double holds only 2^54 + 2^28, thus the fused result
+; is 1.0, and a multiplication followed by an addition gives 0.0. 4097 is
+; 2^12 + 1 and shows the same for f32. The last two results use variables
+; as operands, and the result goes to the same variable as an operand.
+
+func @main() -> (f64, f32, f64, f32) {
+entry:
+  %wide = fma f64 134217729.0, 134217729.0, -18014398777917440.0
+  %narrow = fma f32 4097.0, 4097.0, -16785408.0
+  %two = fadd f64 1.0, 1.0
+  %three = fadd f64 %two, 1.0
+  %seven = fma f64 %two, %two, %three
+  %twof = fadd f32 1.0, 1.0
+  %threef = fadd f32 %twof, 1.0
+  %sevenf = fma f32 %twof, %twof, %threef
+  return %wide, %narrow, %seven, %sevenf
+}

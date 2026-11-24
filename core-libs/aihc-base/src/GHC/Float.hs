@@ -13,9 +13,20 @@ module GHC.Float
     double2Float,
     double2Int,
     float2Double,
+    expt,
     float2Int,
     int2Double,
     int2Float,
+    isDoubleDenormalized,
+    isDoubleFinite,
+    isDoubleInfinite,
+    isDoubleNaN,
+    isDoubleNegativeZero,
+    isFloatDenormalized,
+    isFloatFinite,
+    isFloatInfinite,
+    isFloatNaN,
+    isFloatNegativeZero,
     rationalToDouble,
     rationalToFloat,
     floatToDigits,
@@ -34,7 +45,7 @@ import GHC.Internal.Base (Maybe (..), String, (++), (.))
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Prim
   ( Double#,
     Float#,
@@ -727,6 +738,7 @@ generateDigits base acc r s mUp mDown =
             (True, True) -> if remainder * 2 < s then digit : acc else digit + 1 : acc
             (False, False) -> generateDigits base (digit : acc) remainder s mUp' mDown'
 
+-- | @expt base power@ is @base ^ power@.
 expt :: Integer -> Int -> Integer
 expt base power = base ^ power
 
@@ -762,3 +774,47 @@ splitAtList count list
 null :: [a] -> Bool
 null [] = True
 null _ = False
+
+-- | 1 if the value is not NaN and not infinite, else 0.
+isDoubleFinite :: Double -> Int
+isDoubleFinite value = boolToInt (not (isNaN value || isInfinite value))
+
+-- | 1 if the value is NaN, else 0.
+isDoubleNaN :: Double -> Int
+isDoubleNaN value = boolToInt (isNaN value)
+
+-- | 1 if the value is positive or negative infinity, else 0.
+isDoubleInfinite :: Double -> Int
+isDoubleInfinite value = boolToInt (isInfinite value)
+
+-- | 1 if the value is denormalized, else 0.
+isDoubleDenormalized :: Double -> Int
+isDoubleDenormalized value = boolToInt (isDenormalized value)
+
+-- | 1 if the value is negative zero, else 0.
+isDoubleNegativeZero :: Double -> Int
+isDoubleNegativeZero value = boolToInt (isNegativeZero value)
+
+-- | 1 if the value is not NaN and not infinite, else 0.
+isFloatFinite :: Float -> Int
+isFloatFinite value = boolToInt (not (isNaN value || isInfinite value))
+
+-- | 1 if the value is NaN, else 0.
+isFloatNaN :: Float -> Int
+isFloatNaN value = boolToInt (isNaN value)
+
+-- | 1 if the value is positive or negative infinity, else 0.
+isFloatInfinite :: Float -> Int
+isFloatInfinite value = boolToInt (isInfinite value)
+
+-- | 1 if the value is denormalized, else 0.
+isFloatDenormalized :: Float -> Int
+isFloatDenormalized value = boolToInt (isDenormalized value)
+
+-- | 1 if the value is negative zero, else 0.
+isFloatNegativeZero :: Float -> Int
+isFloatNegativeZero value = boolToInt (isNegativeZero value)
+
+boolToInt :: Bool -> Int
+boolToInt True = 1
+boolToInt False = 0

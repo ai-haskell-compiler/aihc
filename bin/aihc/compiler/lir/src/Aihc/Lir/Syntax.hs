@@ -260,6 +260,8 @@ data Operation
   | Compare !CompareOp !Type !Operand !Operand
   | FloatBinary !FloatBinaryOp !Type !Operand !Operand
   | FloatUnary !FloatUnaryOp !Type !Operand
+  | -- | @fma type a, b, c@ is @a * b + c@ with one rounding.
+    FloatMulAdd !Type !Operand !Operand !Operand
   | -- | @Convert op from operand to@.
     Convert !ConvertOp !Type !Operand !Type
   | PtrToInt !Operand
@@ -521,6 +523,7 @@ forOperationOperands act operation =
     Compare _ _ left right -> act left *> act right
     FloatBinary _ _ left right -> act left *> act right
     FloatUnary _ _ value -> act value
+    FloatMulAdd _ left right addend -> act left *> act right *> act addend
     Convert _ _ value _ -> act value
     PtrToInt value -> act value
     PtrFromInt value -> act value
@@ -570,6 +573,7 @@ mapOperation operand operation =
     Compare op ty left right -> Compare op ty (operand left) (operand right)
     FloatBinary op ty left right -> FloatBinary op ty (operand left) (operand right)
     FloatUnary op ty value -> FloatUnary op ty (operand value)
+    FloatMulAdd ty left right addend -> FloatMulAdd ty (operand left) (operand right) (operand addend)
     Convert op from value to -> Convert op from (operand value) to
     PtrToInt value -> PtrToInt (operand value)
     PtrFromInt value -> PtrFromInt (operand value)

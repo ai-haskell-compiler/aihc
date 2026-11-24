@@ -113,6 +113,8 @@ instruction code =
     AmdMovqFromXmm destination source -> "movq " <> reg destination <> ", " <> xmm source
     AmdMovdToXmm destination source -> "movd " <> xmm destination <> ", " <> reg source
     AmdMovdFromXmm destination source -> "movd " <> reg destination <> ", " <> xmm source
+    AmdFma wide destination source addend ->
+      (if wide then "vfmadd213sd " else "vfmadd213ss ") <> xmm destination <> ", " <> xmm source <> ", " <> xmm addend
     AmdSse operation wide destination source ->
       sseName operation wide <> " " <> xmm destination <> ", " <> xmm source
     AmdAtomic op width destination source ->

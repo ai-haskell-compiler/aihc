@@ -19,7 +19,7 @@ import GHC.Internal.Base (Monad (..))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.IO.Types (Handle__ (..))
 import GHC.Internal.IO.Types qualified as Buffered (fillReadBuffer)
-import GHC.Num (Num (..))
+import GHC.Internal.Num (Num (..))
 import GHC.Real (fromIntegral)
 import GHC.Types (Char)
 
