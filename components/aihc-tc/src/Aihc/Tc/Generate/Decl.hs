@@ -4904,7 +4904,7 @@ registerInstanceDecl origin instanceDecl =
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
-      context <- mapM zonkPred =<< surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
+      context <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
