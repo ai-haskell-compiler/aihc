@@ -312,16 +312,16 @@ in rec {
             sha256 = "07h6l6q9bww86n2lrcniydlfaxfzrwd9dc826g9jfxdhkvz884iy";
           } {});
           # The pinned package set has monoidmap 0.0.x.
-          # Remove these overrides once the package set has monoidmap >= 0.1.3.
+          # Remove these overrides once the package set has monoidmap >= 0.2.0.0.
           monoidmap = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "monoidmap";
-            ver = "0.1.3.1";
-            sha256 = "1sig1q1wxsyjd32v21dls2nvdpg8wjqqsx029ikv33w14a1cd6r3";
+            ver = "0.2.0.0";
+            sha256 = "04a9ps4qnpmijja5fmsza9fv13washy6ngyx6cj7s5hnsljgrm70";
           } {});
           monoidmap-internal = mkHackageLibrary hsLib (final.callHackageDirect {
             pkg = "monoidmap-internal";
-            ver = "0.5.1.0";
-            sha256 = "0js87sr84qgz7lpzn8qr4jkzfmmlyp4vbsq0a43h16mgm3lk7gmh";
+            ver = "0.5.2.0";
+            sha256 = "12s6dgcrpwplm12jjvxk4dxq1j206iyfs5jsx5wl64j08ly5yirv";
           } {});
           # The pinned package set has http-client-tls 0.3.x.
           # Remove this override once the package set has http-client-tls >= 0.4.
