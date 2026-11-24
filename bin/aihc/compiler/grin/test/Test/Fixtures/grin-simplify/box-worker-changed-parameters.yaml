@@ -1,0 +1,54 @@
+program: |
+  constructor Box [IntRep]
+  constructor Pair [IntRep, IntRep]
+
+  primitive +# :: IntRep/2
+
+  $box (pair :: BoxedRep Lifted) -> BoxedRep Lifted =
+    left :: IntRep, right :: IntRep <-
+      fetch (CPair) (pair :: BoxedRep Lifted)
+    sum :: IntRep <-
+      primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+    store (CBox (sum :: IntRep))
+
+  $box_unboxed (pair_field :: IntRep) (pair_field%1 :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (pair_field :: IntRep) (pair_field%1 :: IntRep)
+
+  $old (left :: IntRep) (right :: IntRep) -> IntRep =
+    call @IntRep $box_unboxed (left :: IntRep) (right :: IntRep)
+
+  $entry (pair :: BoxedRep Lifted) -> IntRep =
+    boxed :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $box (pair :: BoxedRep Lifted)
+    value :: IntRep <-
+      fetch (CBox) (boxed :: BoxedRep Lifted)
+    constant (value :: IntRep)
+expected: |-
+  constructor Box [IntRep]
+
+  constructor Pair [IntRep, IntRep]
+
+  primitive +# :: IntRep/2
+
+  $box (pair :: BoxedRep Lifted) -> BoxedRep Lifted =
+    left :: IntRep, right :: IntRep <-
+      fetch (CPair) (pair :: BoxedRep Lifted)
+    sum :: IntRep <-
+      primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+    store (CBox (sum :: IntRep))
+
+  $box_unboxed (pair_field :: IntRep) (pair_field%1 :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (pair_field :: IntRep) (pair_field%1 :: IntRep)
+
+  $old (left :: IntRep) (right :: IntRep) -> IntRep =
+    primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+
+  $entry (pair :: BoxedRep Lifted) -> IntRep =
+    call @IntRep $box_unboxed2 (pair :: BoxedRep Lifted)
+
+  $box_unboxed2 (pair :: BoxedRep Lifted) -> IntRep =
+    left :: IntRep, right :: IntRep <-
+      fetch (CPair) (pair :: BoxedRep Lifted)
+    primitive-call @IntRep +# (left :: IntRep) (right :: IntRep)
+status: pass
+reason: an earlier run made the worker of a function, and an argument rewrite then changed the parameters of that worker, so a new direct call of the function must not call that worker with the arguments of the function
