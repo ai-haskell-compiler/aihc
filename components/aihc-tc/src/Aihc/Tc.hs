@@ -8,8 +8,7 @@
 -- extensions and the pragmas into the extension set of each module.
 --
 -- The type checker reads the resolved syntax tree of "Aihc.Resolve.Syntax".
--- It gives the annotated modules as parser syntax trees, because the phases
--- after it read that tree. "Aihc.Resolve.Syntax.ToParser" makes them.
+-- It gives the checked modules as the syntax tree of "Aihc.Tc.Syntax".
 --
 -- The implementation follows the OutsideIn(X) algorithm:
 --

@@ -14,7 +14,6 @@ library
     Aihc.Resolve
     Aihc.Resolve.Syntax
     Aihc.Resolve.Syntax.FromParser
-    Aihc.Resolve.Syntax.ToParser
     Aihc.Resolve.Syntax.Traverse
     Aihc.Resolve.Traverse
     Aihc.Resolve.Types

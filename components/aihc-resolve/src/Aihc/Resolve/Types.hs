@@ -23,31 +23,21 @@ module Aihc.Resolve.Types
     RecKnotVariables (..),
     ResolutionResult (..),
     resolvedOf,
-    resolutionOf,
-    nameResolution,
-    termResolution,
-    binderResolution,
-    binderEntity,
-    nameEntity,
-    nameOrigin,
     ResolveError (..),
     resolveErrorAt,
   )
 where
 
 import Aihc.Parser.Syntax
-  ( Annotation,
-    Extension,
+  ( Extension,
     Module (..),
     Name (..),
     SourceSpan,
     TupleFlavor (..),
-    UnqualifiedName (..),
     fromAnnotation,
   )
 import Control.DeepSeq (NFData)
-import Data.List (find)
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.String (IsString (..))
 import Data.Text (Text)
@@ -234,38 +224,6 @@ newtype RecKnotVariables = RecKnotVariables (Set.Set Entity)
   deriving (Eq, Show, Generic)
 
 instance NFData RecKnotVariables
-
--- | The first resolution of the given namespace among some annotations.
-resolutionOf :: (ResolutionNamespace -> Bool) -> [Annotation] -> Maybe Resolved
-resolutionOf wanted = find (wanted . resolutionNamespace) . mapMaybe fromAnnotation
-
--- | The first resolution of a name occurrence, in any namespace.
-nameResolution :: Name -> Maybe Resolved
-nameResolution = listToMaybe . mapMaybe fromAnnotation . nameAnns
-
--- | The term resolution of a name occurrence.
-termResolution :: Name -> Maybe Resolved
-termResolution = resolutionOf (== ResolutionNamespaceTerm) . nameAnns
-
--- | The resolution of a binder, whatever namespace it binds in.
-binderResolution :: UnqualifiedName -> Maybe Resolved
-binderResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
-
--- | The entity that a binder defines.
-binderEntity :: UnqualifiedName -> Maybe Entity
-binderEntity = fmap resolutionTarget . binderResolution
-
--- | The entity that a name occurrence stands for, in any namespace.
-nameEntity :: Name -> Maybe Entity
-nameEntity = fmap resolutionTarget . nameResolution
-
--- | The package and the module that define the top-level entity a name
--- occurrence stands for. A local binder or built-in syntax gives 'Nothing'.
-nameOrigin :: Name -> Maybe (PackageId, Text)
-nameOrigin name =
-  case nameEntity name of
-    Just (EntityGlobal global) -> Just (globalNamePackage global, globalNameModule global)
-    _ -> Nothing
 
 -- | One failed resolution. The resolver records it in the unit's
 -- 'ResolveFailure' and attaches it to the syntax in place of a
