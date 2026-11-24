@@ -115,6 +115,11 @@ module Aihc.Tc.Monad
     getUndecidableInstances,
     useFunDepFuel,
     resetFunDepFuel,
+    lookupSolvedDict,
+    recordSolvedDict,
+    isFailedDict,
+    recordFailedDict,
+    clearFailedDicts,
     recordReductionOverflow,
     forgetReductionOverflow,
     reductionOverflowed,
@@ -192,6 +197,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -533,6 +539,13 @@ data TcState = TcState
     -- candidate restores the state, but keeps this field. A wanted that the
     -- solver then solves loses its record.
     tcsReductionOverflow :: ![Pred],
+    -- | The solved class wanteds of the current declaration, by their
+    -- givens and their predicate. Each key has no meta variables. See
+    -- 'lookupSolvedDict'.
+    tcsSolvedDicts :: !(Map ([Pred], Pred) EvTerm),
+    -- | The failed class wanteds of the current top-level solve, by their
+    -- givens and their predicate. See 'isFailedDict'.
+    tcsFailedDicts :: !(Set ([Pred], Pred)),
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(IntMap TcType),
     -- | Meta-variables that can default to 'Type' at a kind boundary.
@@ -616,6 +629,8 @@ initTcState =
     { tcsNextUnique = 0,
       tcsFunDepFuel = funDepFuel,
       tcsReductionOverflow = [],
+      tcsSolvedDicts = Map.empty,
+      tcsFailedDicts = Set.empty,
       tcsMetaSolutions = IntMap.empty,
       tcsTrackedKindMetas = IntSet.empty,
       tcsMetaKinds = IntMap.empty,
@@ -735,10 +750,36 @@ reductionOverflowed :: Pred -> TcM Bool
 reductionOverflowed predicate = lift $ gets ((predicate `elem`) . tcsReductionOverflow)
 
 -- | Give the next declaration the full fuel of functional dependency
--- improvements, and forget a reduction overflow of an earlier
--- declaration.
+-- improvements, and forget a reduction overflow and the solved
+-- dictionaries of an earlier declaration.
 resetFunDepFuel :: TcM ()
-resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel, tcsReductionOverflow = []})
+resetFunDepFuel = lift $ modify' (\s -> s {tcsFunDepFuel = funDepFuel, tcsReductionOverflow = [], tcsSolvedDicts = Map.empty})
+
+-- | The evidence of a class wanted that the solver solved before with the
+-- same givens, as in the solved-dictionary cache of GHC. The cache is part
+-- of the state. Thus, a failed candidate that restores the state also
+-- removes the entries that it added.
+lookupSolvedDict :: [Pred] -> Pred -> TcM (Maybe EvTerm)
+lookupSolvedDict givens predicate = lift $ gets (Map.lookup (givens, predicate) . tcsSolvedDicts)
+
+-- | Whether the solver did not solve a class wanted with the same givens
+-- before, in the current top-level solve.
+isFailedDict :: [Pred] -> Pred -> TcM Bool
+isFailedDict givens predicate = lift $ gets (Set.member (givens, predicate) . tcsFailedDicts)
+
+-- | Record a failed class wanted for 'isFailedDict'.
+recordFailedDict :: [Pred] -> Pred -> TcM ()
+recordFailedDict givens predicate =
+  lift $ modify' (\s -> s {tcsFailedDicts = Set.insert (givens, predicate) (tcsFailedDicts s)})
+
+-- | Forget all failed class wanteds.
+clearFailedDicts :: TcM ()
+clearFailedDicts = lift $ modify' (\s -> if Set.null (tcsFailedDicts s) then s else s {tcsFailedDicts = Set.empty})
+
+-- | Record the evidence of a solved class wanted for 'lookupSolvedDict'.
+recordSolvedDict :: [Pred] -> Pred -> EvTerm -> TcM ()
+recordSolvedDict givens predicate evidence =
+  lift $ modify' (\s -> s {tcsSolvedDicts = Map.insert (givens, predicate) evidence (tcsSolvedDicts s)})
 
 -- | Look up the current solution for a meta-variable.
 readMetaTv :: Unique -> TcM (Maybe TcType)
