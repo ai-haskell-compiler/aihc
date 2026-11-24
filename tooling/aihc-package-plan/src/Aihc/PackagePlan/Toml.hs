@@ -15,17 +15,21 @@
 -- The reader rejects the other parts of TOML with an error: multi-line
 -- strings, floats, dates and times, integers that are not decimal, and
 -- arrays of tables (@[[table]]@).
+--
+-- The lock file of format 1 was JSON. 'parseJson' reads JSON into the same
+-- 'Value' type, so that one decoder reads the two formats.
 module Aihc.PackagePlan.Toml
   ( Value (..),
     Table,
     parseToml,
+    parseJson,
     renderKey,
     renderValue,
     renderInlineTable,
   )
 where
 
-import Control.Monad (foldM, void, when)
+import Control.Monad (foldM, unless, void, when)
 import Data.Char (chr, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, ord)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
@@ -255,6 +259,74 @@ isSpaceChar c = c == ' ' || c == '\t'
 
 isControl :: Char -> Bool
 isControl c = c < ' ' || c == '\DEL'
+
+-- | Read a JSON document into a 'Value'. An object becomes a table. The
+-- reader rejects @null@ and numbers that are not integers, because 'Value'
+-- has no form for them. The file path is only for the error messages.
+parseJson :: FilePath -> Text -> Either String Value
+parseJson path = either (Left . errorBundlePretty) Right . parse (jsonSpace *> jsonValue <* eof) path
+  where
+    jsonValue :: Parser Value
+    jsonValue =
+      choice
+        [ String <$> jsonString,
+          Bool True <$ string "true",
+          Bool False <$ string "false",
+          Array <$> between (char '[' *> jsonSpace) (char ']') (sepBy (jsonValue <* jsonSpace) (char ',' *> jsonSpace)),
+          Table <$> jsonObject,
+          Integer <$> jsonInteger
+        ]
+        <* jsonSpace
+        <?> "a JSON value"
+    jsonObject = do
+      _ <- char '{' *> jsonSpace
+      pairs <- sepBy ((,) <$> (jsonString <* jsonSpace <* char ':' <* jsonSpace) <*> jsonValue) (char ',' *> jsonSpace)
+      _ <- char '}' <?> "the end of the object"
+      let table = Map.fromList pairs
+      when (Map.size table /= length pairs) (fail "an object has the same key two times")
+      pure table
+    jsonInteger = do
+      sign <- optional (char '-')
+      digits <- (pure <$> char '0') <|> ((:) <$> satisfy (\c -> isDigit c && c /= '0') <*> many (satisfy isDigit))
+      notFollowedBy (satisfy (`elem` (".eE" :: String))) <?> "the end of the integer, as only integers are supported"
+      let magnitude = read digits
+      pure (if sign == Just '-' then negate magnitude else magnitude)
+    jsonString = do
+      _ <- char '"'
+      content <- many (jsonEscape <|> satisfy (\c -> c /= '"' && c /= '\\' && c >= ' '))
+      _ <- char '"' <?> "the end of the string"
+      pure (T.pack content)
+    jsonEscape = do
+      _ <- char '\\'
+      choice
+        [ '\b' <$ char 'b',
+          '\t' <$ char 't',
+          '\n' <$ char 'n',
+          '\f' <$ char 'f',
+          '\r' <$ char 'r',
+          '"' <$ char '"',
+          '\\' <$ char '\\',
+          '/' <$ char '/',
+          char 'u' *> unicodeEscape
+        ]
+        <?> "an escape sequence"
+    -- A code point outside the Basic Multilingual Plane is a surrogate pair.
+    unicodeEscape = do
+      high <- hexUnit
+      if high >= 0xD800 && high <= 0xDBFF
+        then do
+          low <- string "\\u" *> hexUnit
+          unless (low >= 0xDC00 && low <= 0xDFFF) (fail "a high surrogate without a low surrogate")
+          pure (chr (0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)))
+        else do
+          when (high >= 0xDC00 && high <= 0xDFFF) (fail "a low surrogate without a high surrogate")
+          pure (chr high)
+    hexUnit = do
+      hex <- count 4 (satisfy isHexDigit)
+      case readHex hex of
+        [(unit, "")] -> pure unit
+        _ -> fail ("the escape " <> hex <> " is not hexadecimal")
+    jsonSpace = void (takeWhileP Nothing (`elem` (" \t\r\n" :: String)))
 
 -- | A key, bare if it can be, as a basic string if not.
 renderKey :: Text -> Text
