@@ -1,0 +1,33 @@
+annotated:
+- |-
+  {-# LANGUAGE LiberalTypeSynonyms, RankNTypes #-}
+  module Test where
+  data Pair a b = Pair a b
+       │          └─ type: ∀ a b. a → b → Pair a b
+       └─ type: Type → Type → Type
+  type Swapped a b = Pair b a
+       └─ type: Type → Type → Type
+  type Map t = forall a b. (a -> b) -> t a a -> t b b
+       └─ type: (Type → Type → Type) → Type
+  mapSwapped :: Map Swapped
+  mapSwapped f (Pair x y) = Pair (f x) (f y)
+  │          │  │    │ │    └─ type: b → b → Pair b b; type-args: b, b
+  │          │  │    │ └─ type: a
+  │          │  │    └─ type: a
+  │          │  └─ type: Pair a a
+  │          └─ type: a → b
+  └─ type: ∀ a b. (a → b) → Pair a a → Pair b b
+extensions: []
+modules:
+- |
+  {-# LANGUAGE LiberalTypeSynonyms, RankNTypes #-}
+  module Test where
+  data Pair a b = Pair a b
+  type Swapped a b = Pair b a
+  type Map t = forall a b. (a -> b) -> t a a -> t b b
+  mapSwapped :: Map Swapped
+  mapSwapped f (Pair x y) = Pair (f x) (f y)
+status: pass
+reason: An unsaturated synonym is an argument of another synonym, as
+  LiberalTypeSynonyms permits. The expansion of Map saturates Swapped, which then
+  expands. This is Traversal Config in hpack.
