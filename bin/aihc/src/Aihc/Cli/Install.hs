@@ -222,7 +222,6 @@ import Aihc.Resolve
     modulesInPackage,
     resolveSpliceBodies,
     resolveUnit,
-    toParserExpr,
   )
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.Traverse qualified as RWalk
@@ -2143,7 +2142,7 @@ resolveUnitQuotes builtinScope exports modules =
   case resolveUnit builtinScope exports modules of
     Right (ResolvedUnit resolved)
       | any (hasQuoteImports . moduleUnitAst) modules ->
-          resolveUnit builtinScope exports [parsed {moduleUnitAst = desugarModuleQuotes (moduleUnitAst parsed) (moduleUnitAst (resolvedModuleUnit modu))} | (parsed, modu) <- zip modules resolved]
+          resolveUnit builtinScope exports [parsed {moduleUnitAst = desugarModuleQuotes (moduleUnitAst parsed) (resolvedModuleSyntax modu)} | (parsed, modu) <- zip modules resolved]
     result -> result
   where
     hasQuoteImports modu = any ((`elem` map importDeclModule quoteImports) . importDeclModule) (Syntax.moduleImports modu) && moduleHasQuote modu
@@ -3139,7 +3138,7 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                   DeclarationSplice _ -> DeclarationSplice body
                   TypeSplice _ -> TypeSplice body
                   PatternSplice _ -> PatternSplice body
-              resolvedBodies = map toParserExpr (resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices))
+              resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
               desugaredSplices =
                 zipWith
                   (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))

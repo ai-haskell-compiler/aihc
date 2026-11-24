@@ -44,7 +44,9 @@ where
 
 import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Syntax
-import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), ResolutionNamespace (..), binderEntity, nameEntity)
+import Aihc.Resolve.Syntax qualified as R
+import Aihc.Resolve.Syntax.Traverse qualified as RWalk
+import Aihc.Resolve.Types (Entity (..), GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc.Syntax qualified as Tc
 import Aihc.Tc.Syntax.Traverse qualified as TcWalk
 import Control.Monad.Trans.Class (lift)
@@ -56,7 +58,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Typeable (Typeable, eqT, (:~:) (Refl))
+import Data.Typeable (eqT, (:~:) (Refl))
 
 -- | Whether a module has an expression quote or a name quote.
 moduleHasQuote :: Module -> Bool
@@ -101,11 +103,22 @@ data Quote
   | -- | @[|| e ||]@, with its body.
     TypedQuote Expr
 
+-- | A quote of the resolved form of a syntax tree, as 'Quote' is for the
+-- parsed form.
+data ResolvedQuote
+  = ResolvedExpressionQuote R.Expr
+  | ResolvedNameQuote R.Expr
+  | ResolvedTypeNameQuote R.Type
+  | ResolvedTypeQuote R.Type
+  | ResolvedDeclarationQuote [R.Decl]
+  | ResolvedPatternQuote R.Pattern
+  | ResolvedTypedQuote R.Expr
+
 -- | Change each quote of a module that is in the subset. The first module
 -- is the parsed form, and the second module is the resolved form of the
 -- same module. The result is the parsed form with the new expressions. A
 -- quote in an expression quote stays, with the quote that contains it.
-desugarModuleQuotes :: Module -> Module -> Module
+desugarModuleQuotes :: Module -> R.Module -> Module
 desugarModuleQuotes = desugarQuotes Set.empty Set.empty
 
 -- | Change each quote of a splice body that is in the subset. The second
@@ -118,7 +131,7 @@ desugarModuleQuotes = desugarQuotes Set.empty Set.empty
 -- set of names, which a local binder of the module binds, becomes a name
 -- with no module. The result of the splice then resolves that name at the
 -- splice, where a binder around the splice can bind it.
-desugarSpliceBody :: Set Text -> Expr -> Expr -> Expr
+desugarSpliceBody :: Set Text -> Expr -> R.Expr -> Expr
 desugarSpliceBody dynamic = desugarQuotes dynamic Set.empty
 
 -- | The names that a local binder of a module binds: a variable of a
@@ -227,30 +240,30 @@ quotedModuleNames package home modu
 -- contain the syntax tree. A quote in the body of a splice of a quote can
 -- use a variable that the outer quote binds. Such a variable becomes a
 -- name with no module, as in the outer quote.
-desugarQuotes :: (Data syntax) => Set Text -> Set Entity -> syntax -> syntax -> syntax
+desugarQuotes :: (Data parsed, RWalk.Walkable resolved) => Set Text -> Set Entity -> parsed -> resolved -> parsed
 desugarQuotes dynamic outerBinders parsed resolved
   | length parsedQuotes == length resolvedQuotes = evalState (traverseQuotes replace parsed) replacements
   | otherwise = parsed
   where
     parsedQuotes = moduleQuotes parsed
-    resolvedQuotes = moduleQuotes resolved
+    resolvedQuotes = resolvedModuleQuotes resolved
     replacements = zipWith replacement parsedQuotes resolvedQuotes
     replacement parsedQuote resolvedQuote =
       addExprParens
         <$> case (parsedQuote, resolvedQuote) of
-          (ExpressionQuote parsedBody, ExpressionQuote resolvedBody) ->
+          (ExpressionQuote parsedBody, ResolvedExpressionQuote resolvedBody) ->
             evalStateT (quoted dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
-          (_, NameQuote expr) -> quotedName dynamic expr
-          (_, TypeNameQuote ty) -> quotedTypeName ty
-          (TypeQuote parsedBody, TypeQuote resolvedBody) ->
+          (_, ResolvedNameQuote expr) -> quotedName dynamic expr
+          (_, ResolvedTypeNameQuote ty) -> quotedTypeName ty
+          (TypeQuote parsedBody, ResolvedTypeQuote resolvedBody) ->
             evalStateT (quotedType dynamic outerBinders resolvedBody) (quoteSplices parsedBody)
-          (_, PatternQuote resolvedBody) -> quotedPattern resolvedBody
-          (DeclarationQuote parsedBody, DeclarationQuote resolvedBody) ->
+          (_, ResolvedPatternQuote resolvedBody) -> quotedPattern resolvedBody
+          (DeclarationQuote parsedBody, ResolvedDeclarationQuote resolvedBody) ->
             evalStateT (quotedDeclarations dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           -- GHC gives @[|| e ||]@ the type @Code m t@, with @t@ the type of
           -- @e@. The compiler does not check the body against @t@: a
           -- splice of the result checks the syntax tree at the splice.
-          (TypedQuote parsedBody, TypedQuote resolvedBody) ->
+          (TypedQuote parsedBody, ResolvedTypedQuote resolvedBody) ->
             (\body -> call "unsafeCodeCoerce" [body])
               <$> evalStateT (quoted dynamic (outerBinders <> localBinders resolvedBody) resolvedBody) (quoteSplices parsedBody)
           _ -> Nothing
@@ -313,10 +326,10 @@ bindSpliceNameQuotes dynamic lookupName = runIdentity . outside
         TCon name _ -> addExprParens . call "mkNameG_tc" . globalNameParts <$> lookupName ResolutionNamespaceType name
         _ -> addExprParens <$> builtinTypeName ty
 
--- | Each quote of a syntax tree that is not in an expression quote. The
--- parsed form and the resolved form of a module give the quotes in the
--- same order: the resolver changes the structure of infix expressions
--- only, and it keeps their operands in source order.
+-- | Each quote of a parsed syntax tree that is not in an expression quote.
+-- 'resolvedModuleQuotes' gives the quotes of the resolved form in the same
+-- order: the resolver changes the structure of infix expressions only, and
+-- it keeps their operands in source order.
 moduleQuotes :: (Data syntax) => syntax -> [Quote]
 moduleQuotes modu = reverse (execState (traverseQuotes collectQuote modu) [])
   where
@@ -346,34 +359,52 @@ traverseQuotes onQuote = go
         ETHTypedQuote body -> onQuote expr (TypedQuote body)
         _ -> gmapM go expr
 
+-- | Each quote of a resolved syntax tree that is not in an expression
+-- quote, in the order of 'moduleQuotes'.
+resolvedModuleQuotes :: (RWalk.Walkable syntax) => syntax -> [ResolvedQuote]
+resolvedModuleQuotes = RWalk.runCollect (RWalk.walk RWalk.idWalk {RWalk.walkExpr = visit})
+  where
+    visit children expr =
+      case expr of
+        R.ETHExpQuote body -> RWalk.collected [ResolvedExpressionQuote body]
+        R.ETHNameQuote name -> RWalk.collected [ResolvedNameQuote name]
+        R.ETHTypeNameQuote name -> RWalk.collected [ResolvedTypeNameQuote name]
+        R.ETHTypeQuote body -> RWalk.collected [ResolvedTypeQuote body]
+        R.ETHDeclQuote body -> RWalk.collected [ResolvedDeclarationQuote body]
+        R.ETHPatQuote body -> RWalk.collected [ResolvedPatternQuote body]
+        R.ETHTypedQuote body -> RWalk.collected [ResolvedTypedQuote body]
+        _ -> children expr
+
 -- | The Template Haskell name of the term of a name quote. A top-level
 -- term gives a name that is bound to its package and module. A local
 -- variable gives a name with no module.
-quotedName :: Set Text -> Expr -> Maybe Expr
+quotedName :: Set Text -> R.Expr -> Maybe Expr
 quotedName dynamic expr =
   case expr of
-    EAnn _ inner -> quotedName dynamic inner
-    EParen inner -> quotedName dynamic inner
-    EVar name ->
-      case nameEntity name of
+    R.EAnn _ inner -> quotedName dynamic inner
+    R.EResolved _ inner -> quotedName dynamic inner
+    R.EParen inner -> quotedName dynamic inner
+    R.EVar name ->
+      case R.resolvedNameEntity name of
         Just (EntityGlobal global)
-          | isDynamicName dynamic name -> Just (dynamicName (nameText name))
-          | otherwise -> Just (globalName name global)
-        Just (EntityLocal _) -> Just (dynamicName (nameText name))
+          | isDynamicResolvedName dynamic name -> Just (dynamicName (R.nameText name))
+          | otherwise -> Just (resolvedGlobalName name global)
+        Just (EntityLocal _) -> Just (dynamicName (R.nameText name))
         _ -> Nothing
     _ -> Nothing
 
 -- | The Template Haskell name of the type or class of a type name quote.
-quotedTypeName :: Type -> Maybe Expr
+quotedTypeName :: R.Type -> Maybe Expr
 quotedTypeName ty =
   case ty of
-    TAnn _ inner -> quotedTypeName inner
-    TParen inner -> quotedTypeName inner
-    TCon name _ ->
-      case nameEntity name of
+    R.TAnn _ inner -> quotedTypeName inner
+    R.TResolved _ inner -> quotedTypeName inner
+    R.TParen inner -> quotedTypeName inner
+    R.TCon name _ ->
+      case R.resolvedNameEntity name of
         Just (EntityGlobal global) -> Just (call "mkNameG_tc" (globalNameParts global))
         _ -> Nothing
-    _ -> builtinTypeName ty
+    _ -> resolvedBuiltinTypeName ty
 
 -- | The Template Haskell name of a built-in type constructor: a boxed
 -- tuple type, such as @()@ or @(,)@, or the list type @[]@. The resolver
@@ -394,6 +425,16 @@ builtinTypeName ty =
     arity size = call "tupleTypeName" [integer size]
     list = call "mkNameG_tc" (map stringLiteral ["ghc-prim", "GHC.Types", "[]"])
 
+-- | The Template Haskell name of a built-in type constructor of a resolved
+-- type, as 'builtinTypeName' gives it.
+resolvedBuiltinTypeName :: R.Type -> Maybe Expr
+resolvedBuiltinTypeName ty =
+  case ty of
+    R.TTuple Boxed Unpromoted [] -> builtinTypeName (TTuple Boxed Unpromoted [])
+    R.TBuiltinCon builtin Unpromoted -> builtinTypeName (TBuiltinCon builtin Unpromoted)
+    R.TList Unpromoted [] -> builtinTypeName (TList Unpromoted [])
+    _ -> Nothing
+
 -- | The expression that builds the syntax tree of a resolved type quote
 -- body. A type constructor becomes a name that is bound to its package and
 -- its module, and a data constructor becomes a promoted name. A type
@@ -405,40 +446,41 @@ builtinTypeName ty =
 -- form of the result.
 --
 -- The sets and the state are the same as for 'quoted'.
-quotedType :: Set Text -> Set Entity -> Type -> StateT [Expr] Maybe Expr
+quotedType :: Set Text -> Set Entity -> R.Type -> StateT [Expr] Maybe Expr
 quotedType dynamic binders = go
   where
     go ty =
       case ty of
-        TAnn _ inner -> go inner
-        TParen inner -> go inner
+        R.TAnn _ inner -> go inner
+        R.TResolved _ inner -> go inner
+        R.TParen inner -> go inner
         -- The namespace of the resolution decides the form, not the tick: with
         -- DataKinds, a data constructor with no tick is also promoted.
-        TCon name _ ->
-          case nameEntity name of
+        R.TCon name _ ->
+          case R.resolvedNameEntity name of
             Just (EntityGlobal global)
               | globalNameNamespace global == ResolutionNamespaceTerm -> pure (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
               | globalNameNamespace global == ResolutionNamespaceType -> pure (call "conT" [call "mkNameG_tc" (globalNameParts global)])
             _ -> lift Nothing
-        TVar name -> pure (call "varT" [dynamicName (unqualifiedNameText name)])
-        TApp function argument -> applied <$> go function <*> go argument
+        R.TVar name -> pure (call "varT" [dynamicName (R.unqualifiedNameText name)])
+        R.TApp function argument -> applied <$> go function <*> go argument
         -- GHC gives an application of the operator, not an infix type.
-        TInfix left operator promotion right -> do
-          operator' <- go (TCon operator promotion)
+        R.TInfix left operator promotion right -> do
+          operator' <- go (R.TCon operator promotion)
           left' <- go left
           right' <- go right
           pure (applied (applied operator' left') right')
-        TFun ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
-        TList Unpromoted [element] -> applied (library "listT") <$> go element
-        TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
-        TTypeLit (TypeLitInteger number _) -> pure (call "litT" [call "numTyLit" [integer number]])
-        TTypeLit (TypeLitSymbol string _) -> pure (call "litT" [call "strTyLit" [stringLiteral string]])
-        TContext constraints inner -> quantified [] constraints inner
-        TForall (ForallTelescope ForallInvisible binders') inner ->
+        R.TFun R.ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
+        R.TList Unpromoted [element] -> applied (library "listT") <$> go element
+        R.TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
+        R.TTypeLit (TypeLitInteger number _) -> pure (call "litT" [call "numTyLit" [integer number]])
+        R.TTypeLit (TypeLitSymbol string _) -> pure (call "litT" [call "strTyLit" [stringLiteral string]])
+        R.TContext constraints inner -> quantified [] constraints inner
+        R.TForall (R.ForallTelescope ForallInvisible binders') inner ->
           case withoutTypeAnnotations inner of
-            TContext constraints body -> quantified binders' constraints body
+            R.TContext constraints body -> quantified binders' constraints body
             body -> quantified binders' [] body
-        TSplice resolvedBody -> spliced dynamic binders resolvedBody
+        R.TSplice resolvedBody -> spliced dynamic binders resolvedBody
         _ -> lift Nothing
     applied function argument = call "appT" [function, argument]
     quantified tyVarBinders constraints body = do
@@ -447,8 +489,8 @@ quotedType dynamic binders = go
       body' <- go body
       pure (call "forallT" [EList binders', call "cxt" [EList constraints'], body'])
     binder tyVarBinder =
-      case tyVarBinderKind tyVarBinder of
-        Nothing -> Just (foldl EApp (libraryConstructor "PlainTV") [dynamicName (tyVarBinderName tyVarBinder), libraryConstructor (specificity (tyVarBinderSpecificity tyVarBinder))])
+      case R.tyVarBinderKind tyVarBinder of
+        Nothing -> Just (foldl EApp (libraryConstructor "PlainTV") [dynamicName (R.tyVarBinderName tyVarBinder), libraryConstructor (specificity (R.tyVarBinderSpecificity tyVarBinder))])
         Just _ -> Nothing
     specificity flag =
       case flag of
@@ -456,7 +498,8 @@ quotedType dynamic binders = go
         TyVarBSpecified -> "SpecifiedSpec"
     withoutTypeAnnotations ty =
       case ty of
-        TAnn _ inner -> withoutTypeAnnotations inner
+        R.TAnn _ inner -> withoutTypeAnnotations inner
+        R.TResolved _ inner -> withoutTypeAnnotations inner
         _ -> ty
 
 -- | The body of each expression splice, typed expression splice, and type
@@ -485,155 +528,159 @@ quoteSplices = go
 -- The state has the parsed splice bodies, and the first one is the body of
 -- this splice. A quote in the body also changes, with the binders of the
 -- quote that contains the splice.
-spliced :: Set Text -> Set Entity -> Expr -> StateT [Expr] Maybe Expr
+spliced :: Set Text -> Set Entity -> R.Expr -> StateT [Expr] Maybe Expr
 spliced dynamic binders resolvedBody =
   StateT $ \case
     body : rest -> Just (EParen (desugarQuotes dynamic binders body resolvedBody), rest)
     [] -> Nothing
 
--- | The local binders of a syntax tree.
-localBinders :: (Data syntax) => syntax -> Set Entity
-localBinders = Set.fromList . collect local
+-- | The local binders of a resolved syntax tree.
+localBinders :: (RWalk.Walkable syntax) => syntax -> Set Entity
+localBinders = Set.fromList . RWalk.runCollect (RWalk.walk RWalk.idWalk {RWalk.walkUnqualifiedName = visit})
   where
-    local binder =
-      case binderEntity binder of
-        Just entity@(EntityLocal _) -> Just entity
-        _ -> Nothing
+    visit children binder =
+      case R.resolvedBinderEntity binder of
+        Just entity@(EntityLocal _) -> RWalk.collected [entity] *> children binder
+        _ -> children binder
 
 -- | The expression that builds the syntax tree of a resolved quote body.
 -- The set has the binders of the quote. The state has the splice bodies of
 -- the parsed form of the quote: the new expression takes each splice body
 -- from there, so it has no annotation of the resolver.
-quoted :: Set Text -> Set Entity -> Expr -> StateT [Expr] Maybe Expr
+quoted :: Set Text -> Set Entity -> R.Expr -> StateT [Expr] Maybe Expr
 quoted dynamic binders = go
   where
     go expr =
       case expr of
-        EAnn _ inner -> go inner
-        EParen inner -> go inner
-        EVar name -> lift (variable name)
-        EInt number TInteger _ -> pure (literal "integerL" (integer number))
-        ENegate inner
-          | EInt number TInteger _ <- withoutAnnotations inner -> pure (literal "integerL" (integer (negate number)))
-        EChar char source -> pure (literal "charL" (EChar char source))
-        EString string _ -> pure (literal "stringL" (stringLiteral string))
-        EApp function argument -> call "appE" <$> mapM go [function, argument]
-        EInfix left operator right -> do
+        R.EAnn _ inner -> go inner
+        R.EResolved _ inner -> go inner
+        R.EParen inner -> go inner
+        R.EVar name -> lift (variable name)
+        R.EInt number TInteger _ -> pure (literal "integerL" (integer number))
+        R.ENegate inner
+          | R.EInt number TInteger _ <- withoutAnnotations inner -> pure (literal "integerL" (integer (negate number)))
+        R.EChar char source -> pure (literal "charL" (EChar char source))
+        R.EString string _ -> pure (literal "stringL" (stringLiteral string))
+        R.EApp function argument -> call "appE" <$> mapM go [function, argument]
+        R.EInfix left operator right -> do
           left' <- go left
           operator' <- lift (variable operator)
           right' <- go right
           pure (call "infixApp" [left', operator', right'])
-        ELambdaPats patterns body -> do
+        R.ELambdaPats patterns body -> do
           patterns' <- lift (mapM quotedPattern patterns)
           body' <- go body
           pure (call "lamE" [EList patterns', body'])
-        ETuple Boxed fields -> do
+        R.ETuple Boxed fields -> do
           fields' <- mapM (maybe (lift Nothing) go) fields
           pure (call "tupE" [EList fields'])
-        EList elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
-        EIf condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
-        ECase scrutinee alternatives -> do
+        R.EList elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
+        R.EIf condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
+        R.ECase scrutinee alternatives -> do
           scrutinee' <- go scrutinee
           alternatives' <- mapM alternative alternatives
           pure (call "caseE" [scrutinee', EList alternatives'])
         -- The resolver gives the selector of each field of a record
         -- update.
-        ERecordUpd record fields -> do
+        R.ERecordUpd record fields -> do
           record' <- go record
           fields' <- mapM (recordField updateFieldName) fields
           pure (call "recUpdE" [record', EList fields'])
         -- The resolver gives only the constructor of a record construction.
         -- A field selector is in the module of its constructor.
-        ERecordCon name fields False
-          | Just (EntityGlobal global) <- nameEntity name -> do
+        R.ERecordCon name fields False
+          | Just (EntityGlobal global) <- R.resolvedNameEntity name -> do
               fields' <- mapM (recordField (constructionFieldName global)) fields
-              pure (call "recConE" [globalName name global, EList fields'])
+              pure (call "recConE" [resolvedGlobalName name global, EList fields'])
         -- A type signature. The type can have splices too.
-        ETypeSig inner signature -> do
+        R.ETypeSig inner signature -> do
           inner' <- go inner
           signature' <- quotedType dynamic binders signature
           pure (call "sigE" [inner', signature'])
         -- A left section and a right section. GHC gives an infix
         -- application with one operand.
-        ESectionL left operator -> do
+        R.ESectionL left operator -> do
           left' <- go left
           operator' <- lift (variable operator)
           pure (call "sectionL" [left', operator'])
-        ESectionR operator right -> do
+        R.ESectionR operator right -> do
           operator' <- lift (variable operator)
           right' <- go right
           pure (call "sectionR" [operator', right'])
-        ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
-        ELetDecls decls body -> do
+        R.ETHSplice resolvedBody -> spliced dynamic binders resolvedBody
+        R.ELetDecls decls body -> do
           decls' <- quotedDeclarationList dynamic binders decls
           body' <- go body
           pure (call "letE" [EList decls', body'])
-        EDo statements DoPlain -> (\statements' -> call "doE" [EList statements']) <$> mapM statement statements
+        R.EDo statements DoPlain -> (\statements' -> call "doE" [EList statements']) <$> mapM statement statements
         -- The body of @$$e@ has the type @Code m t@. The syntax tree of
         -- the splice is the syntax tree of that code.
-        ETHTypedSplice resolvedBody -> (\body -> call "unTypeCode" [body]) <$> spliced dynamic binders resolvedBody
+        R.ETHTypedSplice resolvedBody -> (\body -> call "unTypeCode" [body]) <$> spliced dynamic binders resolvedBody
         _ -> lift Nothing
     -- A statement of a do expression. A rec statement is outside the
     -- subset.
     statement stmt =
       case stmt of
-        DoAnn _ inner -> statement inner
-        DoBind pattern' body -> do
+        R.DoAnn _ inner -> statement inner
+        R.DoResolved _ inner -> statement inner
+        R.DoRecKnot _ inner -> statement inner
+        R.DoBind pattern' body -> do
           pattern'' <- lift (quotedPattern pattern')
           body' <- go body
           pure (call "bindS" [pattern'', body'])
-        DoLetDecls decls -> (\decls' -> call "letS" [EList decls']) <$> quotedDeclarationList dynamic binders decls
-        DoExpr body -> (\body' -> call "noBindS" [body']) <$> go body
+        R.DoLetDecls decls -> (\decls' -> call "letS" [EList decls']) <$> quotedDeclarationList dynamic binders decls
+        R.DoExpr body -> (\body' -> call "noBindS" [body']) <$> go body
         _ -> lift Nothing
     recordField fieldName field = do
-      name <- lift (fieldName (recordFieldName field))
-      value <- go (recordFieldValue field)
+      name <- lift (fieldName (R.recordFieldName field))
+      value <- go (R.recordFieldValue field)
       pure (call "fieldExp" [name, value])
     updateFieldName name =
-      case nameEntity name of
+      case R.resolvedNameEntity name of
         Just (EntityGlobal global) -> Just (call "mkNameG_v" (globalNameParts global))
         _ -> Nothing
     constructionFieldName constructor name =
-      Just (call "mkNameG_v" (map stringLiteral [packageIdText (globalNamePackage constructor), globalNameModule constructor, nameText name]))
+      Just (call "mkNameG_v" (map stringLiteral [packageIdText (globalNamePackage constructor), globalNameModule constructor, R.nameText name]))
     -- An alternative with no guard and no where clause.
-    alternative (CaseAlt _ pattern' rhs) =
+    alternative (R.CaseAlt _ pattern' rhs) =
       case rhs of
-        UnguardedRhs _ body Nothing -> do
+        R.UnguardedRhs _ body Nothing -> do
           pattern'' <- lift (quotedPattern pattern')
           body' <- go body
           pure (call "match" [pattern'', call "normalB" [body'], EList []])
         _ -> lift Nothing
     variable name =
-      case nameEntity name of
+      case R.resolvedNameEntity name of
         Just (EntityGlobal global)
-          | isDynamicName dynamic name -> Just (call "varE" [dynamicName (nameText name)])
-          | otherwise -> Just (call (builder name) [globalName name global])
+          | isDynamicResolvedName dynamic name -> Just (call "varE" [dynamicName (R.nameText name)])
+          | otherwise -> Just (call (builder (R.nameType name)) [resolvedGlobalName name global])
         Just entity@(EntityLocal _)
-          | entity `Set.member` binders -> Just (call "varE" [dynamicName (nameText name)])
-          | otherwise -> Just (call "lift" [EVar (mkName (nameQualifier name) (nameType name) (nameText name))])
+          | entity `Set.member` binders -> Just (call "varE" [dynamicName (R.nameText name)])
+          | otherwise -> Just (call "lift" [EVar (mkName (R.nameQualifier name) (R.nameType name) (R.nameText name))])
         -- The resolver accepts a variable or a constructor that is not in
         -- scope in a quote. As in GHC, the name becomes an unbound variable
         -- of the syntax tree.
         Nothing
-          | isNothing (nameQualifier name) ->
-              Just (call "unboundVarE" [dynamicName (nameText name)])
+          | isNothing (R.nameQualifier name) ->
+              Just (call "unboundVarE" [dynamicName (R.nameText name)])
         _ -> Nothing
 
 -- | The expression that builds the syntax tree of a resolved pattern in a
 -- quote. A variable of the pattern becomes a name with no module.
-quotedPattern :: Pattern -> Maybe Expr
+quotedPattern :: R.Pattern -> Maybe Expr
 quotedPattern pattern' =
   case pattern' of
-    PAnn _ inner -> quotedPattern inner
-    PParen inner -> quotedPattern inner
-    PVar binder -> Just (call "varP" [dynamicName (unqualifiedNameText binder)])
-    PWildcard -> Just (library "wildP")
-    PLit literal' -> patternLiteral literal'
-    PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
+    R.PAnn _ inner -> quotedPattern inner
+    R.PResolved _ inner -> quotedPattern inner
+    R.PParen inner -> quotedPattern inner
+    R.PVar binder -> Just (call "varP" [dynamicName (R.unqualifiedNameText binder)])
+    R.PWildcard -> Just (library "wildP")
+    R.PLit literal' -> patternLiteral literal'
+    R.PTuple Boxed fields -> (\fields' -> call "tupP" [EList fields']) <$> mapM quotedPattern fields
     -- A constructor pattern with no type arguments.
-    PCon name [] arguments
-      | Just (EntityGlobal global) <- nameEntity name ->
-          (\arguments' -> call "conP" [globalName name global, EList arguments']) <$> mapM quotedPattern arguments
+    R.PCon name [] arguments
+      | Just (EntityGlobal global) <- R.resolvedNameEntity name ->
+          (\arguments' -> call "conP" [resolvedGlobalName name global, EList arguments']) <$> mapM quotedPattern arguments
     _ -> Nothing
 
 -- | The expression that builds the syntax trees of a resolved declaration
@@ -643,33 +690,35 @@ quotedPattern pattern' =
 -- of the result bind the names as they are written in the quote.
 --
 -- The sets and the state are the same as for 'quoted'.
-quotedDeclarations :: Set Text -> Set Entity -> [Decl] -> StateT [Expr] Maybe Expr
+quotedDeclarations :: Set Text -> Set Entity -> [R.Decl] -> StateT [Expr] Maybe Expr
 quotedDeclarations dynamic binders decls = (\decls' -> call "sequenceQ" [EList decls']) <$> quotedDeclarationList dynamic binders decls
 
 -- | The expressions that build the syntax tree of each declaration, as
 -- 'quotedDeclarations' does.
-quotedDeclarationList :: Set Text -> Set Entity -> [Decl] -> StateT [Expr] Maybe [Expr]
+quotedDeclarationList :: Set Text -> Set Entity -> [R.Decl] -> StateT [Expr] Maybe [Expr]
 quotedDeclarationList dynamic binders = fmap concat . mapM declaration
   where
     declaration decl =
       case decl of
-        DeclAnn _ inner -> declaration inner
-        DeclValue valueDecl -> pure <$> valueDeclaration valueDecl
-        DeclTypeSig names ty -> signatures names ty
-        DeclInstance instanceDecl
-          | null (instanceDeclPragmas instanceDecl),
-            isNothing (instanceDeclWarning instanceDecl),
-            null (instanceDeclForall instanceDecl) -> do
-              context <- mapM (quotedType dynamic binders) (instanceDeclContext instanceDecl)
-              instanceHead <- quotedType dynamic binders (instanceDeclHead instanceDecl)
-              items <- concat <$> mapM instanceItem (instanceDeclItems instanceDecl)
+        R.DeclAnn _ inner -> declaration inner
+        R.DeclError _ inner -> declaration inner
+        R.DeclValue valueDecl -> pure <$> valueDeclaration valueDecl
+        R.DeclTypeSig names ty -> signatures names ty
+        R.DeclInstance instanceDecl
+          | null (R.instanceDeclPragmas instanceDecl),
+            isNothing (R.instanceDeclWarning instanceDecl),
+            null (R.instanceDeclForall instanceDecl) -> do
+              context <- mapM (quotedType dynamic binders) (R.instanceDeclContext instanceDecl)
+              instanceHead <- quotedType dynamic binders (R.instanceDeclHead instanceDecl)
+              items <- concat <$> mapM instanceItem (R.instanceDeclItems instanceDecl)
               pure [call "instanceD" [call "cxt" [EList context], instanceHead, EList items]]
         _ -> lift Nothing
     instanceItem item =
       case item of
-        InstanceItemAnn _ inner -> instanceItem inner
-        InstanceItemBind valueDecl -> pure <$> valueDeclaration valueDecl
-        InstanceItemTypeSig names ty -> signatures names ty
+        R.InstanceItemAnn _ inner -> instanceItem inner
+        R.InstanceItemError _ inner -> instanceItem inner
+        R.InstanceItemBind valueDecl -> pure <$> valueDeclaration valueDecl
+        R.InstanceItemTypeSig names ty -> signatures names ty
         _ -> lift Nothing
     -- One signature for each name, with the same type.
     signatures names ty = do
@@ -678,18 +727,18 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
     valueDeclaration valueDecl =
       case valueDecl of
         -- A binding with no arguments is a value, as in GHC.
-        FunctionBind name [Match _ _ [] rhs] -> do
+        R.FunctionBind name [R.Match _ _ [] rhs] -> do
           (body, locals) <- rightSide rhs
           pure (call "valD" [call "varP" [binderName name], body, EList locals])
-        FunctionBind name matches -> do
+        R.FunctionBind name matches -> do
           clauses <- mapM clause matches
           pure (call "funD" [binderName name, EList clauses])
-        PatternBind NoMultiplicityTag pattern' rhs -> do
+        R.PatternBind R.NoMultiplicityTag pattern' rhs -> do
           pattern'' <- lift (quotedPattern pattern')
           (body, locals) <- rightSide rhs
           pure (call "valD" [pattern'', body, EList locals])
         _ -> lift Nothing
-    clause (Match _ _ patterns rhs) = do
+    clause (R.Match _ _ patterns rhs) = do
       patterns' <- lift (mapM quotedPattern patterns)
       (body, locals) <- rightSide rhs
       pure (call "clause" [EList patterns', body, EList locals])
@@ -697,26 +746,26 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
     -- outside the subset.
     rightSide rhs =
       case rhs of
-        UnguardedRhs _ body locals -> do
+        R.UnguardedRhs _ body locals -> do
           body' <- quoted dynamic binders body
           locals' <- whereDeclarations locals
           pure (call "normalB" [body'], locals')
-        GuardedRhss _ alternatives locals -> do
+        R.GuardedRhss _ alternatives locals -> do
           alternatives' <- mapM guarded alternatives
           locals' <- whereDeclarations locals
           pure (call "guardedB" [EList alternatives'], locals')
-    guarded (GuardedRhs _ guards body) =
+    guarded (R.GuardedRhs _ guards body) =
       case map withoutGuardAnnotations guards of
-        [GuardExpr condition] -> do
+        [R.GuardExpr condition] -> do
           condition' <- quoted dynamic binders condition
           body' <- quoted dynamic binders body
           pure (call "normalGE" [condition', body'])
         _ -> lift Nothing
     whereDeclarations = maybe (pure []) (quotedDeclarationList dynamic binders)
-    binderName name = dynamicName (unqualifiedNameText name)
+    binderName name = dynamicName (R.unqualifiedNameText name)
     withoutGuardAnnotations guard =
       case guard of
-        GuardAnn _ inner -> withoutGuardAnnotations inner
+        R.GuardAnn _ inner -> withoutGuardAnnotations inner
         _ -> guard
 
 -- | The syntax tree of a literal pattern. A literal with an unboxed type
@@ -734,8 +783,15 @@ patternLiteral literal' =
 
 -- | The Template Haskell name of a top-level term.
 globalName :: Name -> GlobalName -> Expr
-globalName name global =
-  call (if isConstructor name then "mkNameG_d" else "mkNameG_v") (globalNameParts global)
+globalName name = globalNameOfType (nameType name)
+
+-- | The Template Haskell name of a top-level term of a resolved name.
+resolvedGlobalName :: R.Name -> GlobalName -> Expr
+resolvedGlobalName name = globalNameOfType (R.nameType name)
+
+globalNameOfType :: NameType -> GlobalName -> Expr
+globalNameOfType nameType' global =
+  call (if isConstructorType nameType' then "mkNameG_d" else "mkNameG_v") (globalNameParts global)
 
 -- | The package, the module, and the text of a top-level name, as the
 -- arguments of the functions that make a bound Template Haskell name.
@@ -747,19 +803,25 @@ globalNameParts global =
 -- binder around a splice can bind such a variable.
 isDynamicName :: Set Text -> Name -> Bool
 isDynamicName dynamic name =
-  isNothing (nameQualifier name) && not (isConstructor name) && nameText name `Set.member` dynamic
+  isNothing (nameQualifier name) && not (isConstructorType (nameType name)) && nameText name `Set.member` dynamic
+
+-- | Whether a resolved name is a variable with no qualifier in the set of
+-- names, as 'isDynamicName' tells for a parsed name.
+isDynamicResolvedName :: Set Text -> R.Name -> Bool
+isDynamicResolvedName dynamic name =
+  isNothing (R.nameQualifier name) && not (isConstructorType (R.nameType name)) && R.nameText name `Set.member` dynamic
 
 -- | The Template Haskell name of a variable that the quote binds.
 dynamicName :: Text -> Expr
 dynamicName text = call "mkName" [stringLiteral text]
 
-builder :: Name -> Text
-builder name
-  | isConstructor name = "conE"
+builder :: NameType -> Text
+builder nameType'
+  | isConstructorType nameType' = "conE"
   | otherwise = "varE"
 
-isConstructor :: Name -> Bool
-isConstructor name = nameType name `elem` [NameConId, NameConSym]
+isConstructorType :: NameType -> Bool
+isConstructorType nameType' = nameType' `elem` [NameConId, NameConSym]
 
 literal :: Text -> Expr -> Expr
 literal constructor value = call "litE" [call constructor [value]]
@@ -783,18 +845,9 @@ library function = EVar (mkName (Just quoteAlias) NameVarId function)
 libraryConstructor :: Text -> Expr
 libraryConstructor name = EVar (mkName (Just quoteAlias) NameConId name)
 
-withoutAnnotations :: Expr -> Expr
+withoutAnnotations :: R.Expr -> R.Expr
 withoutAnnotations expr =
   case expr of
-    EAnn _ inner -> withoutAnnotations inner
+    R.EAnn _ inner -> withoutAnnotations inner
+    R.EResolved _ inner -> withoutAnnotations inner
     _ -> expr
-
--- | Each value that the function gives for a node of a syntax tree.
-collect :: forall syntax node result. (Data syntax, Typeable node) => (node -> Maybe result) -> syntax -> [result]
-collect select = go
-  where
-    go :: forall value. (Data value) => value -> [result]
-    go value =
-      case eqT @value @node of
-        Just Refl -> maybe id (:) (select value) (concat (gmapQ go value))
-        Nothing -> concat (gmapQ go value)
