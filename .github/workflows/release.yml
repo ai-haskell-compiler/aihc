@@ -5,9 +5,10 @@ name: Release
 # the core-libs sources in the executable. The job fails when stage 1 and
 # stage 2 are not byte-for-byte identical, and ships stage 2.
 #
-# The web job builds the web kit with the stage 2 executable for Linux. The
-# kit is aihc for the browser: see web-kit/README.md. A smoke test loads the
-# packed kit in a headless browser, and compiles and runs a program there.
+# The Linux build job also builds the web kit with its stage 2 executable.
+# The kit is aihc for the browser: see web-kit/README.md. A smoke test loads
+# the packed kit in a headless browser, and compiles and runs a program there.
+# The web kit does not wait for the macOS build, which takes more time.
 #
 # A pushed tag v<version> makes a draft release with the archives, their
 # SHA-256 sums, and a build provenance attestation. The tag must match the
@@ -257,52 +258,20 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Upload the logs
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-logs-${{ env.TARGET }}
-          path: |
-            ${{ env.WORK_DIR }}/logs
-            ${{ env.STAGE2_WORK_DIR }}/logs
-          retention-days: 14
-          if-no-files-found: ignore
-
-  web:
-    name: Build web
-    needs:
-      - version
-      - build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Nix CI
-        uses: ./.github/actions/setup-nix-ci
-        with:
-          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
-          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
-
-      - name: Download the Linux archive
-        uses: actions/download-artifact@v8
-        with:
-          name: aihc-${{ env.VERSION }}-linux-amd64
-          path: ${{ runner.temp }}/native
+      # The stage 2 work and cache directories are not necessary after this
+      # step. Remove them to make disk space for the web kit.
+      - name: Remove the stage 2 directories
+        if: runner.os == 'Linux'
+        run: rm -rf "$STAGE2_WORK_DIR" "${RUNNER_TEMP:?}/$STAGE2_CACHE_NAME"
 
       # The stage 2 executable compiles the helper and the core libraries.
       # aihc-dev from the Nix build writes the bundle and the linker inputs
       # from the store of that executable. Both come from this commit.
       - name: Build the web kit
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          tar -C "$RUNNER_TEMP/native" -xzf "$RUNNER_TEMP/native/aihc-$VERSION-linux-amd64.tar.gz"
-          AIHC="$RUNNER_TEMP/native/aihc-$VERSION-linux-amd64/aihc" nix run .#build-web-kit -- \
+          AIHC="$RUNNER_TEMP/stages/aihc-stage2" nix run .#build-web-kit -- \
             --output "$RUNNER_TEMP/kit" \
             --version "$VERSION" \
             --archive "$RUNNER_TEMP/aihc-$VERSION-web.tar.gz"
@@ -316,10 +285,12 @@ jobs:
 
       # The test reads the archive and not the build directory. Thus it
       # tests the files that the release ships.
-      - name: Run the smoke test
+      - name: Run the web kit smoke test
+        if: runner.os == 'Linux'
         run: nix run .#web-kit-smoke-test -- --archive "$RUNNER_TEMP/aihc-$VERSION-web.tar.gz"
 
-      - name: Upload the archive
+      - name: Upload the web archive
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
           name: aihc-${{ env.VERSION }}-web
@@ -327,12 +298,22 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Upload the logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-logs-${{ env.TARGET }}
+          path: |
+            ${{ env.WORK_DIR }}/logs
+            ${{ env.STAGE2_WORK_DIR }}/logs
+          retention-days: 14
+          if-no-files-found: ignore
+
   release:
     name: Make the draft release
     needs:
       - version
       - build
-      - web
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
