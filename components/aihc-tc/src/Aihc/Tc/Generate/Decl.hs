@@ -2202,7 +2202,11 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       rawContext <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       tvIds <- resolveInstanceTyVars origin rawTvIds rawHeadTys
       headTys <- mapM defaultTypeKinds rawHeadTys
-      context <- mapM defaultPredKinds rawContext
+      -- A synonym in the context can put a kind meta in a type position:
+      -- @type Arity (ty :: k) = Arity' k@ in servant. The meta is solved,
+      -- but the kind defaults do not zonk a type, thus the context is
+      -- zonked first.
+      context <- mapM (defaultPredKinds <=< zonkPred) rawContext
       kinds <- getKinds
       classInfo <- lookupClassNamed className
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
@@ -4727,7 +4731,12 @@ registerInstanceAssociatedTypes :: (Text, Text) -> ClassInfo -> Text -> [TyVarId
 registerInstanceAssociatedTypes origin classInfo dictName instanceTyVars headTys instanceDecl = do
   let explicit = instanceDeclTypeFamilyInsts instanceDecl
       explicitNames = mapMaybe typeFamilyInstName explicit
-  mapM_ (registerTypeFamilyInstance origin) explicit
+  -- The variables of an explicit equation that the instance head names
+  -- are the head variables, with their kinds. In @instance Render (R (ct
+  -- :: Type) a)@, the equation @type Body (R ct a) = Bytes@ has @ct ::
+  -- Type@. Without the head kind, the equation quantifies a kind variable
+  -- and also matches @R '() a@ of another instance.
+  mapM_ (\familyInst -> registerTypeFamilyEquationIn instanceTyVars origin False (typeFamilyInstForall familyInst) (typeFamilyInstEquation familyInst)) explicit
   mapM_
     (\(info, defaultEquation) -> instantiateAssociatedDefault origin dictName instanceTyVars headTys info defaultEquation >>= addTypeFamilyInstance)
     [ (info, defaultEquation)
@@ -4895,7 +4904,7 @@ registerInstanceDecl origin instanceDecl =
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes className tvEnv headArgs
       dictName <- allocateInstanceDictName origin classNameText headTys
-      context <- surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
+      context <- mapM zonkPred =<< surfaceContextToPreds tvEnv (instanceDeclContext instanceDecl)
       -- The head check fixed the kinds; the same order as the annotation
       -- pass keeps the dictionary's type arguments aligned with its
       -- type lambdas.
@@ -5488,8 +5497,14 @@ typeFamilyInstEquation familyInst =
     }
 
 registerTypeFamilyEquation :: (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
-registerTypeFamilyEquation origin isClosed extraBinders equation =
-  checkTypeFamilyEquation origin isClosed extraBinders equation >>= mapM_ (mapM_ addTypeFamilyInstance <=< distinctAxiomName)
+registerTypeFamilyEquation = registerTypeFamilyEquationIn []
+
+-- | Register an equation whose variables can have kinds from an enclosing
+-- scope, as the variables of an associated equation from the head of its
+-- instance.
+registerTypeFamilyEquationIn :: [TyVarId] -> (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
+registerTypeFamilyEquationIn scopeKinds origin isClosed extraBinders equation =
+  checkTypeFamilyEquationIn scopeKinds origin isClosed extraBinders equation >>= mapM_ (mapM_ addTypeFamilyInstance <=< distinctAxiomName)
   where
     -- Open family instances can differ only in an invisible kind
     -- argument: @type instance MEmpty = 'EQ@ and @type instance MEmpty =
@@ -5529,19 +5544,32 @@ registerTypeFamilyEquation origin isClosed extraBinders equation =
 -- | Check one type family equation. The result is @Nothing@ when the
 -- equation head does not name a type family.
 checkTypeFamilyEquation :: (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM (Maybe TypeFamilyInstanceInfo)
-checkTypeFamilyEquation (packageName, moduleName') isClosed extraBinders equation = do
+checkTypeFamilyEquation = checkTypeFamilyEquationIn []
+
+-- | Check an equation whose variables can be variables of an enclosing
+-- scope, as the variables of an associated equation are the variables of
+-- its instance head. A variable of the equation gets the kind of the
+-- scope variable of the same name when that kind names no variable and
+-- the equation leaves its own kind open. A kind with a kind variable
+-- stays open, because the kind variables of the instance are not
+-- variables of the equation.
+checkTypeFamilyEquationIn :: [TyVarId] -> (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM (Maybe TypeFamilyInstanceInfo)
+checkTypeFamilyEquationIn scopeTyVars (packageName, moduleName') isClosed extraBinders equation = do
   paramInfos <- typeFamilyEquationParams extraBinders equation
+  forM_ scopeTyVars $ \scopeTyVar ->
+    forM_ [param | param <- paramInfos, paramName param == tvName scopeTyVar] $ \param -> do
+      scopeKind <- zonkKind (tvKind scopeTyVar)
+      ownKind <- zonkKind (paramKind param)
+      let open = case ownKind of
+            TcMetaTv {} -> True
+            _ -> False
+      when (open && null (typeTyVars scopeKind) && null (collectMetaVars scopeKind)) $
+        unifyKinds scopeKind ownKind
   let tvEnv =
         Map.fromList
           [ (paramName param, (paramTyVar param, paramKind param))
           | param <- paramInfos
           ]
-  -- The equation is checked at the family's own result kind, which is not
-  -- always 'Type': @Assert :: Bool -> Constraint -> Constraint@ has equations
-  -- whose sides are constraints, and @Rep a :: Type -> Type@ has both sides
-  -- at a higher kind. Converting the applied head without an expectation
-  -- gives that kind, and reading the right-hand side against it keeps a
-  -- poly-kinded family open as well.
   (rawLhs, lhsKind) <- convertSurfaceTypeWithKinds tvEnv (typeFamilyEqLhs equation)
   -- A family kind that still has metas is a kind that its equations
   -- infer. Read it before the right side can solve these metas.

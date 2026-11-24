@@ -1,0 +1,87 @@
+extensions:
+  - TypeFamilies
+  - PolyKinds
+  - DataKinds
+modules:
+  - |
+    {-# LANGUAGE PolyKinds, TypeFamilies, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    data Unit = Unit
+    data Bytes = Bytes
+    data R ct (a :: Type)
+    class Render a where
+      type Body a :: Type
+      render :: a -> Body a -> Unit
+    instance Render (R (ct :: Type) a) where
+      type Body (R ct a) = Bytes
+      render _ _ = Unit
+    instance Render (R '() a) where
+      type Body (R '() a) = Unit
+      render _ body = body
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    constructors [2.c()] 2.tUnit :: sType;
+    2.c() :: 2.tUnit;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  pub type 1.tUnit :: sType {
+    pub 1.cUnit :: 1.tUnit
+  }
+
+  pub type 1.tBytes :: sType {
+    pub 1.cBytes :: tBytes
+  }
+
+  pub type 1.tR (k0 : sType) (ct : k0) (a : sType) :: sType {}
+
+  pub type 1.t$Dict$Render (a : sType) :: sType {
+    pub 1.c$Dict$Render :: ∀(a : sType). (a → tBody a → 1.tUnit) → t$Dict$Render a
+  }
+
+  pub type 1.tBody (a : sType) :: sType @N {}
+
+  axiom 1.$ax$Body$R$ct$a (ct : sType) (a : sType) : tBody (tR sType ct a) ~N tBytes
+
+  axiom 1.$ax$Body$R$()$a (a : sType) : tBody (tR 2.tUnit c() a) ~N 1.tUnit
+
+  pub val 1.vrender :: ∀(a : sType). t$Dict$Render a → a → tBody a → 1.tUnit
+    = Λ(a : sType). λ($dRender : t$Dict$Render a).
+      let! c$Dict$Render ($crender : a → tBody a → 1.tUnit) = $dRender;
+      $crender
+
+  pub val 1.v$fRenderRcta :: ∀(ct : sType) (a : sType). t$Dict$Render (tR sType ct a)
+    = Λ(ct : sType) (a : sType).
+      c$Dict$Render @(tR sType ct a) (v$fRenderRcta$crender @ct @a)
+
+  val 1.v$fRenderRcta$crender :: ∀(ct : sType) (a : sType). tR sType ct a → tBody (tR sType ct a) → 1.tUnit
+    = Λ(ct : sType) (a : sType). λ(unused x : tR sType ct a) (unused y : tBody (tR sType ct a)).
+      cUnit
+
+  pub val 1.v$fRenderR()a :: ∀(a : sType). t$Dict$Render (tR 2.tUnit c() a)
+    = Λ(a : sType).
+      c$Dict$Render @(tR 2.tUnit c() a) (v$fRenderR()a$crender @a)
+
+  val 1.v$fRenderR()a$crender :: ∀(a : sType). tR 2.tUnit c() a → tBody (tR 2.tUnit c() a) → 1.tUnit
+    = Λ(a : sType). λ(unused x : tR 2.tUnit c() a) (y : tBody (tR 2.tUnit c() a)).
+      y
+status: pass
+reason: An associated equation takes the kinds of the instance head variables.
+  The first equation has ct of kind Type, thus its axiom does not match R '() a
+  of the second instance. Before, the axiom quantified a kind variable, the FC
+  lint reduced Body (R '() a) with it, and the lint failed. This is the
+  RespondAs instances of servant-server and servant-client-core.
