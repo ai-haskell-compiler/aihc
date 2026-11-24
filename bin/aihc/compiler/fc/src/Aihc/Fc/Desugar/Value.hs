@@ -687,7 +687,22 @@ patternAnnotation pattern' =
     Syn.PIrrefutable inner -> patternAnnotation inner
     Syn.PAs _ inner -> patternAnnotation inner
     Syn.PTypeSig inner _ -> patternAnnotation inner
+    Syn.PLit match _ -> literalMatchAnnotation match
+    Syn.PNegLit match _ -> literalMatchAnnotation match
+    Syn.PNPlusK match _ _ -> nameAnnotation (Syn.nPlusKFromInteger match)
     _ -> Nothing
+
+-- | The checked type of an overloaded literal pattern. The type checker
+-- gives the conversion of the literal the scrutinee type as its type.
+literalMatchAnnotation :: Syn.LiteralMatch -> Maybe TcAnnotation
+literalMatchAnnotation match =
+  case match of
+    Syn.LiteralMatchOverloaded overloaded -> nameAnnotation (Syn.overloadedLiteralConversion overloaded)
+    _ -> Nothing
+
+-- | The first checked type of a name.
+nameAnnotation :: Syn.Name -> Maybe TcAnnotation
+nameAnnotation name = listToMaybe [checked | Syn.InfoType checked <- Syn.nameTc name]
 
 firstPatternPatSyn :: Syn.Match -> ValueM (Maybe (PatSynInfo, TcAnnotation))
 firstPatternPatSyn match =
@@ -3502,8 +3517,8 @@ patternType pattern' =
     Syn.PVar name -> nameTcType name
     Syn.PTc info inner -> (tcAnnType <$> infoType info) <|> patternType inner
     Syn.PAnn _ inner -> patternType inner
-    Syn.PLit _ literal -> literalType literal
-    Syn.PNegLit _ literal -> literalType literal
+    Syn.PLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
+    Syn.PNegLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
     Syn.PNPlusK _ name _ -> nameTcType name
     Syn.PParen inner -> patternType inner
     Syn.PStrict inner -> patternType inner
