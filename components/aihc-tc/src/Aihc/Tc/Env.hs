@@ -72,6 +72,7 @@ where
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
 import Control.DeepSeq (NFData)
+import Data.Char (digitToInt, isDigit)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -80,7 +81,6 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
-import Text.Read (readMaybe)
 
 -- | Information about a type constructor.
 data TyConFlavor
@@ -732,5 +732,10 @@ typeFamilyAxiomName familyName index =
 -- Do not sort them by the name text: @$ax$F$10@ comes before @$ax$F$9@.
 -- A name without an index, as an open-family axiom has, gives 0.
 typeFamilyAxiomIndex :: Text -> Int
-typeFamilyAxiomIndex axiomName =
-  fromMaybe 0 (readMaybe (T.unpack (T.takeWhileEnd (/= '$') axiomName)))
+typeFamilyAxiomIndex axiomName
+  | not (T.null digits) && T.all isDigit digits = T.foldl' (\index digit -> index * 10 + digitToInt digit) 0 digits
+  | otherwise = 0
+  where
+    -- Family reduction sorts the equations by this index on each call.
+    -- Thus the function does not use 'read', which is slow.
+    digits = T.takeWhileEnd (/= '$') axiomName

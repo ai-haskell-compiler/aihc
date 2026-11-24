@@ -1398,15 +1398,30 @@ kindsCanAgree left right =
 -- @k ~ Type@ and @rep ~ LiftedRep@, as in the instances of
 -- @Control.Monad.Codensity@.
 refineGivenKind :: TcType -> TcM TcType
-refineGivenKind kind = do
-  predicates <- getGivenPredicates
-  case [(left, right) | EqPred left right <- predicates] of
-    [] -> pure kind
-    givenEqualities -> do
-      equalities <- mapM zonkEquality givenEqualities
-      kindEqualities <- concat <$> mapM givenKindEqualities givenEqualities
-      pure (rewrite (acyclicRewrites (equalities <> kindEqualities)) Set.empty kind)
+refineGivenKind kind
+  -- The rewrite replaces only a type variable. A kind without a variable
+  -- in a position that the walk visits, such as @Type -> Type@, stays as
+  -- it is. Thus the function does not prepare the equalities for it. The
+  -- instances of @morpheus-graphql-server@ asked for millions of such
+  -- kinds, and each preparation zonked each given again.
+  | not (rewritable kind) = pure kind
+  | otherwise = do
+      predicates <- getGivenPredicates
+      case [(left, right) | EqPred left right <- predicates] of
+        [] -> pure kind
+        givenEqualities -> do
+          equalities <- mapM zonkEquality givenEqualities
+          kindEqualities <- concat <$> mapM givenKindEqualities givenEqualities
+          pure (rewrite (acyclicRewrites (equalities <> kindEqualities)) Set.empty kind)
   where
+    -- The positions that 'rewrite' visits.
+    rewritable ty = case ty of
+      TcTyVar {} -> True
+      TcKindedTyCon {} -> False
+      TcTyConApp _ kindArguments arguments -> any rewritable kindArguments || any rewritable arguments
+      TcFunTy argument result -> rewritable argument || rewritable result
+      TcAppTy function argument -> rewritable function || rewritable argument
+      _ -> False
     zonkEquality (left, right) = (,) <$> zonkKind left <*> zonkKind right
     rewrite equalities visited ty
       | ty `Set.member` visited = ty

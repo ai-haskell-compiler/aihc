@@ -15,11 +15,12 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (tcTypeKind, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
-import Aihc.Tc.Solve.Family (isTypeFamilyApplication, reduceTypeFamilies)
+import Aihc.Tc.Solve.Family (isTypeFamilyApplication, isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.Solve.KindMatch (matchInstanceKinds)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
+import Control.Monad (filterM)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -150,18 +151,62 @@ proveFromEqualitiesDirect equalities left right
 -- The second given rewrites it to @Map f ('R (x ': r))@, which reduces.
 -- Thus a stuck rewrite is rewritten again, up to 'rewriteDepth' rewrites.
 -- The proof composes the proofs of the rewrites in turn.
+--
+-- The search is exponential in the number of equalities. The givens @a ~
+-- a2, ..., a ~ a9@ of a tuple instance in @lens@ make it too slow. Thus
+-- the function does the search only when a rewrite can find a new
+-- reduction:
+--
+-- * A rewrite puts only the sides of the equalities into the type. If
+--   the type and the sides mention no type family, no rewrite can reduce.
+--
+-- * A rewrite that changes no argument of a family application, and that
+--   puts no family into the type, leaves each family application as it
+--   is. The rewrite then reduces to the same rewrite of the reduced type.
+--   Congruence proves these types equal from the given. Thus the search
+--   uses only the other rewrites. One rewrite of any rule still links the
+--   type to a reduced form.
 reduceRewritten :: [(TcType, TcType, Coercion)] -> TcType -> TcM [(TcType, TcType, Coercion)]
-reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
+reduceRewritten equalities ty = do
+  family <- isTypeFamilyTyCon
+  if not (any (mentionsFamily family) (ty : sides))
+    then pure []
+    else do
+      first <- firstReduction rules
+      searchRules <- filterM (notIntoStuckFamily family) rules
+      rest <- go (relevantRules family searchRules) rewriteDepth [ty] [(ty, Nothing)]
+      pure (first <> rest)
   where
+    sides = concat [[a, b] | (a, b, _) <- equalities]
+    -- A rule from a side without a family to a stuck family application
+    -- cannot help a reduction. A family equation does not match a family
+    -- application, and the rule in the other direction makes the two sides
+    -- the same. The search does not use such a rule. The givens @i ~ Index
+    -- (m a)@ and @a ~ IxValue (m a)@ of @lu@ in @linear@ give such rules.
+    notIntoStuckFamily family (from, to, _)
+      | mentionsFamily family from || not (mentionsFamily family to) = pure True
+      | otherwise = not . mentionsFamily family <$> reduceTypeFamilies to
+    -- The rules that can change a family application in the type.
+    relevantRules family candidates current =
+      [ rule
+      | rule@(from, to, _) <- candidates,
+        mentionsFamily family from || mentionsFamily family to || occursInFamilyArgument family from current
+      ]
+    firstReduction [] = pure []
+    firstReduction (rule : rest) = do
+      step <- reduceOne ty Nothing rule
+      case step of
+        Just (_, Just reduced, proof) -> pure [(ty, reduced, proof)]
+        _ -> firstReduction rest
     rules = equalities <> [(b, a, Sym proof) | (a, b, proof) <- equalities]
-    go :: Int -> [TcType] -> [(TcType, Maybe Coercion)] -> TcM [(TcType, TcType, Coercion)]
-    go depth seen frontier
+    go :: (TcType -> [(TcType, TcType, Coercion)]) -> Int -> [TcType] -> [(TcType, Maybe Coercion)] -> TcM [(TcType, TcType, Coercion)]
+    go rulesFor depth seen frontier
       | depth <= 0 || null frontier = pure []
       | otherwise = do
-          steps <- concat <$> traverse (\(current, before) -> traverse (reduceOne current before) rules) frontier
+          steps <- concat <$> traverse (\(current, before) -> traverse (reduceOne current before) (rulesFor current)) frontier
           let found = [(ty, reduced, proof) | Just (_, Just reduced, proof) <- steps]
               stuck = unique seen [(rewritten, Just proof) | Just (rewritten, Nothing, proof) <- steps]
-          rest <- go (depth - 1) (seen <> map fst stuck) stuck
+          rest <- go rulesFor (depth - 1) (seen <> map fst stuck) stuck
           pure (found <> rest)
     unique _ [] = []
     unique seen ((candidate, proof) : rest)
@@ -206,6 +251,43 @@ reduceRewritten equalities ty = go rewriteDepth [ty] [(ty, Nothing)]
                   then (current, Refl current)
                   else (mkAppTy function' argument', AppCo functionProof argumentProof)
           _ -> (current, Refl current)
+
+-- | Whether a type mentions a type family constructor in a position that
+-- family reduction examines. A qualified type can hold a family in a
+-- predicate, so it counts as a mention.
+mentionsFamily :: (TyCon -> Bool) -> TcType -> Bool
+mentionsFamily family = go
+  where
+    go ty = case ty of
+      TcTyConApp tyCon _ arguments -> family tyCon || any go arguments
+      TcFunTy argument result -> go argument || go result
+      TcAppTy function argument -> go function || go argument
+      TcForAllTy _ body -> go body
+      TcQualTy {} -> True
+      _ -> False
+
+-- | Whether a type occurs in an argument of a type family application in
+-- another type. A qualified type counts as such an occurrence.
+occursInFamilyArgument :: (TyCon -> Bool) -> TcType -> TcType -> Bool
+occursInFamilyArgument family needle = outside
+  where
+    outside ty = case ty of
+      TcTyConApp tyCon _ arguments
+        | family tyCon -> any inside arguments
+        | otherwise -> any outside arguments
+      TcFunTy argument result -> outside argument || outside result
+      TcAppTy function argument -> outside function || outside argument
+      TcForAllTy _ body -> outside body
+      TcQualTy {} -> True
+      _ -> False
+    inside ty =
+      sameType needle ty || case ty of
+        TcTyConApp _ _ arguments -> any inside arguments
+        TcFunTy argument result -> inside argument || inside result
+        TcAppTy function argument -> inside function || inside argument
+        TcForAllTy _ body -> inside body
+        TcQualTy {} -> True
+        _ -> False
 
 -- | A rule whose left side is a proper prefix of an application. The
 -- family @V@ has arity one, and @V t Int@ is the application of @V t@ to
