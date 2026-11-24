@@ -89,23 +89,39 @@
   # The tools that a build with an aihc compiler needs: a C toolchain, the
   # preprocessors of the Hackage packages, and lz4 for the embedded core
   # libraries of a release.
-  selfCompileInputs = [
-    pkgs.bash
-    pkgs.cacert
-    pkgs.coreutils
-    pkgs.findutils
-    pkgs.gnutar
-    pkgs.gzip
-    pkgs.gawk
-    pkgs.gnused
-    pkgs.lz4
-    pkgs.llvmPackages.bintools
-    pkgs.llvmPackages.clang
-    pkgs.haskellPackages.hsc2hs
-    pkgs.haskellPackages.happy
-    pkgs.haskellPackages.alex
-    pkgs.haskellPackages.c2hs
+  selfCompileInputs =
+    [
+      pkgs.bash
+      pkgs.cacert
+      pkgs.coreutils
+      pkgs.findutils
+      pkgs.gnutar
+      pkgs.gzip
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.lz4
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang
+      pkgs.haskellPackages.hsc2hs
+      pkgs.haskellPackages.happy
+      pkgs.haskellPackages.alex
+      pkgs.haskellPackages.c2hs
+    ]
+    ++ wasmSpliceInputs;
+
+  # Template Haskell splices and quasi-quotes run as wasm32-wasip3 code. To
+  # compile them, aihc needs an unwrapped clang, the WASI sysroot, and the
+  # wasm linkers. The Nix checks of the Hackage packages use the same tools.
+  wasmSpliceInputs = [
+    pkgs.llvmPackages.clang-unwrapped
+    pkgs.wasm-tools
+    pkgs.wasm-component-ld
+    wasmLd
   ];
+  wasmSpliceEnvironment = ''
+    export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+    export AIHC_WASM_SYSROOT=${wasmSysroot}
+  '';
 
   selfCompileEnvironment = ''
     set -euo pipefail
@@ -116,6 +132,7 @@
     export CPATH="${pkgs.lib.makeSearchPathOutput "dev" "include" (selfCompileCLibraries ++ [staticZlib])}''${CPATH:+:$CPATH}"
     export LIBRARY_PATH="${staticZlib.static}/lib:${pkgs.lib.makeLibraryPath selfCompileCLibraries}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
     export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+    ${wasmSpliceEnvironment}
   '';
 
   # The Linux release executable is a static musl executable. It has no
@@ -167,6 +184,7 @@
       export CPATH="${muslStatic.zlib.dev}/include"
       export LIBRARY_PATH="${muslStatic.zlib}/lib"
       export SSL_CERT_FILE="''${SSL_CERT_FILE:-${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt}"
+      ${wasmSpliceEnvironment}
     ''
     else selfCompileEnvironment;
 
