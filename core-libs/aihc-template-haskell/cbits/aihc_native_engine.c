@@ -173,16 +173,13 @@ int64_t aihc_native_engine_next(void) {
 
 /* A splice sends a message to the compiler. */
 void aihc_engine_send(const unsigned char *message, int64_t length) {
-  size_t size = (size_t)length;
-  char *text = engine_realloc(NULL, 2 * size + 2);
-  text[0] = ' ';
   static const char digits[] = "0123456789abcdef";
+  size_t size = length < 0 ? 0 : (size_t)length;
+  append_message(" ", 1);
   for (size_t index = 0; index < size; index++) {
-    text[1 + 2 * index] = digits[message[index] >> 4];
-    text[2 + 2 * index] = digits[message[index] & 15];
+    char pair[2] = {digits[message[index] >> 4], digits[message[index] & 15]};
+    append_message(pair, 2);
   }
-  append_message(text, 2 * size + 1);
-  free(text);
 }
 
 /* A splice sends a request to the compiler and waits for the reply. The
@@ -222,8 +219,9 @@ void aihc_engine_reply(unsigned char *target) {
 
 /* The splice raised an exception. */
 void aihc_native_engine_fail(const char *message, int64_t length) {
+  size_t size = length < 0 ? 0 : (size_t)length;
   free(failure);
-  failure = engine_realloc(NULL, (size_t)length + 1);
-  memcpy(failure, message, (size_t)length);
-  failure[length] = '\0';
+  failure = engine_realloc(NULL, size + 1);
+  memcpy(failure, message, size);
+  failure[size] = '\0';
 }
