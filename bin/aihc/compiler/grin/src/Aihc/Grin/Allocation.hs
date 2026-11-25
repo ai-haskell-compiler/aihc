@@ -149,9 +149,10 @@ storeArguments program
           ]
     rewriteFunction function = do
       body <- rewriteCalls (grinFunctionBody function)
-      case Map.lookup (grinFunctionName function) positions of
-        Nothing -> pure function {grinFunctionBody = body}
-        Just moved -> do
+      let moved = Map.findWithDefault Map.empty (grinFunctionName function) positions
+      if Map.null moved
+        then pure function {grinFunctionBody = body}
+        else do
           (parameters, stores) <- fmap unzip . traverse (parameter moved) $ zip [0 ..] (grinFunctionParameters function)
           pure
             function
@@ -173,7 +174,8 @@ storeArguments program
           Set.fromList
             [ var
             | (callee, arguments) <- rawCalls (grinFunctionBody function),
-              Just moved <- [Map.lookup callee positions],
+              let moved = Map.findWithDefault Map.empty callee positions,
+              not (Map.null moved),
               (index, GrinVarValue var) <- zip [0 ..] arguments,
               Map.member index moved
             ]
@@ -186,7 +188,8 @@ storeArguments program
             GrinCase value binder alternatives ->
               GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> rewriteCalls (grinAltRhs alternative)) alternatives
             GrinCall rep callee arguments
-              | Just moved <- Map.lookup callee positions ->
+              | let moved = Map.findWithDefault Map.empty callee positions,
+                not (Map.null moved) ->
                   pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
             _ -> pure expression
         expand moved index argument =
