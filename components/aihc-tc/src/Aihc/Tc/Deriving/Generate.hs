@@ -44,6 +44,7 @@ import Aihc.Tc.Syntax.Pending
     InstanceDeclItem (..),
     Literal (..),
     LiteralMatch (..),
+    LiteralSyntax (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -775,7 +776,7 @@ readItems gen constructors = do
 -- | A string as an explicit list of characters, so the generated code needs
 -- no literal desugaring.
 stringExpr :: Gen -> Text -> Expr
-stringExpr gen text = at gen (EList [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
+stringExpr gen text = at gen (listExpr gen [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
 
 -- * Bounded
 
@@ -941,11 +942,11 @@ ixItems gen constructors
                       caseOf
                         gen
                         (less (intHashLiteral gen index) (localExpr gen upperIndex))
-                        [ (intHashPattern gen 0, at gen (EList [])),
+                        [ (intHashPattern gen 0, at gen (listExpr gen [])),
                           (atPattern gen PWildcard, applyN gen (localExpr gen walk) [constructorExpr gen next])
                         ]
                     ]
-                Nothing -> at gen (EList [constructorExpr gen constructor])
+                Nothing -> at gen (listExpr gen [constructorExpr gen constructor])
           rangeBody =
             bindIndex lowerIndex rangeLower $
               bindIndex upperIndex rangeUpper $
@@ -958,7 +959,7 @@ ixItems gen constructors
                           [DeclValue (FunctionBind walk (zipWith walkMatch indexed (map Just (drop 1 constructors) <> [Nothing])))]
                           (applyN gen (localExpr gen walk) [localExpr gen rangeLower])
                     ),
-                    (atPattern gen PWildcard, at gen (EList []))
+                    (atPattern gen PWildcard, at gen (listExpr gen []))
                   ]
           indexBody =
             applyN
@@ -1246,7 +1247,7 @@ dataItems gen dataType = do
         gen
         (dataReference dataMkDataType)
         [ stringExpr gen (tyConModuleName (dtiTyCon dataType) <> "." <> dtiName dataType),
-          at gen (EList (map (describeConstructor dataTypeBinder) constructors))
+          at gen (listExpr gen (map (describeConstructor dataTypeBinder) constructors))
         ]
     describeConstructor dataTypeBinder constructor =
       applyN
@@ -1254,7 +1255,7 @@ dataItems gen dataType = do
         (dataReference dataMkConstr)
         [ localExpr gen dataTypeBinder,
           stringExpr gen (dciName constructor),
-          at gen (EList [stringExpr gen label | Just label <- map dcfiLabel (dciFields constructor)]),
+          at gen (listExpr gen [stringExpr gen label | Just label <- map dcfiLabel (dciFields constructor)]),
           dataReference (if isSymbolic (dciName constructor) then dataInfix else dataPrefix)
         ]
     -- GHC gives the casts only to a type constructor whose parameters and
@@ -1442,7 +1443,7 @@ tuplePattern gen components = atPattern gen (PTuple Boxed (map (atPattern gen . 
 
 -- | A boxed tuple expression.
 tupleExpr :: Gen -> [Expr] -> Expr
-tupleExpr gen components = at gen (ETuple Boxed (map Just components))
+tupleExpr gen components = at gen (ETuple (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that
@@ -2053,17 +2054,29 @@ intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashL
 
 -- | An unboxed @Int#@ literal.
 intHashLiteral :: Gen -> Integer -> Expr
-intHashLiteral gen value = at gen (EResolved (primitiveIntTypeAnnotation gen) (EInt value TIntHash (T.pack (show value) <> "#")))
+intHashLiteral gen value = at gen (EInt (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
+
+-- | An ordinary list expression.
+listExpr :: Gen -> [Expr] -> Expr
+listExpr gen = EList (syntaxName gen "[]") Nothing
+
+-- | The name of built-in list or tuple syntax. The type checker does not
+-- read its resolution, so the name has none.
+syntaxName :: Gen -> Text -> Name
+syntaxName gen text =
+  Name Nothing NameConSym text (map mkSpanAnnotation (maybeToList (genSpan gen))) Nothing []
+
+-- | The name of the type @Int#@ of a primitive literal.
+intHashName :: Gen -> Name
+intHashName gen =
+  Name Nothing NameConId "Int#" (map mkSpanAnnotation (maybeToList (genSpan gen))) (Just (primitiveIntTypeAnnotation gen)) []
 
 -- | An unboxed @Int#@ literal pattern, which matches a tag without the
 -- @Eq@ and @Num@ instances an overloaded literal pattern would ask for.
 intHashPattern :: Gen -> Integer -> Pattern
 intHashPattern gen value =
   atPattern gen $
-    PLit (LiteralMatchPrimitive intHashName) (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
-  where
-    intHashName =
-      Name Nothing NameConId "Int#" (map mkSpanAnnotation (maybeToList (genSpan gen))) (Just (primitiveIntTypeAnnotation gen)) []
+    PLit (LiteralMatchPrimitive (intHashName gen)) (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
 
 -- | Place a generated literal at the deriving clause, because the checker
 -- attaches the literal type to the literal itself.

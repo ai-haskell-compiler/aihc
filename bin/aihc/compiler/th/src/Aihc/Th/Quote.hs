@@ -225,13 +225,12 @@ quotedModuleNames package home modu
         _ -> Nothing
     stringValue expr =
       case bare expr of
-        Tc.EString value _ -> Just value
+        Tc.EString _ value _ -> Just value
         _ -> Nothing
     bare expr =
       case expr of
         Tc.EAnn _ inner -> bare inner
         Tc.ETc _ inner -> bare inner
-        Tc.EResolved _ inner -> bare inner
         Tc.EParen inner -> bare inner
         _ -> expr
 
@@ -382,7 +381,6 @@ quotedName :: Set Text -> R.Expr -> Maybe Expr
 quotedName dynamic expr =
   case expr of
     R.EAnn _ inner -> quotedName dynamic inner
-    R.EResolved _ inner -> quotedName dynamic inner
     R.EParen inner -> quotedName dynamic inner
     R.EVar name ->
       case R.resolvedNameEntity name of
@@ -553,14 +551,13 @@ quoted dynamic binders = go
     go expr =
       case expr of
         R.EAnn _ inner -> go inner
-        R.EResolved _ inner -> go inner
         R.EParen inner -> go inner
         R.EVar name -> lift (variable name)
-        R.EInt number TInteger _ -> pure (literal "integerL" (integer number))
-        R.ENegate inner
-          | R.EInt number TInteger _ <- withoutAnnotations inner -> pure (literal "integerL" (integer (negate number)))
+        R.EInt _ number TInteger _ -> pure (literal "integerL" (integer number))
+        R.ENegate _ inner
+          | R.EInt _ number TInteger _ <- withoutAnnotations inner -> pure (literal "integerL" (integer (negate number)))
         R.EChar char source -> pure (literal "charL" (EChar char source))
-        R.EString string _ -> pure (literal "stringL" (stringLiteral string))
+        R.EString _ string _ -> pure (literal "stringL" (stringLiteral string))
         R.EApp function argument -> call "appE" <$> mapM go [function, argument]
         R.EInfix left operator right -> do
           left' <- go left
@@ -571,11 +568,11 @@ quoted dynamic binders = go
           patterns' <- lift (mapM quotedPattern patterns)
           body' <- go body
           pure (call "lamE" [EList patterns', body'])
-        R.ETuple Boxed fields -> do
+        R.ETuple _ Boxed fields -> do
           fields' <- mapM (maybe (lift Nothing) go) fields
           pure (call "tupE" [EList fields'])
-        R.EList elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
-        R.EIf condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
+        R.EList _ _ elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
+        R.EIf _ condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
         R.ECase scrutinee alternatives -> do
           scrutinee' <- go scrutinee
           alternatives' <- mapM alternative alternatives
@@ -848,5 +845,4 @@ withoutAnnotations :: R.Expr -> R.Expr
 withoutAnnotations expr =
   case expr of
     R.EAnn _ inner -> withoutAnnotations inner
-    R.EResolved _ inner -> withoutAnnotations inner
     _ -> expr

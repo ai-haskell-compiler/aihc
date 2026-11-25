@@ -417,7 +417,6 @@ viewExprSpan expr =
   case expr of
     EAnn ann inner -> annotationSpan ann <|> viewExprSpan inner
     ETc _ inner -> viewExprSpan inner
-    EResolved _ inner -> viewExprSpan inner
     EVar name -> sourceSpanFromAnnotations (nameAnns name)
     EParen inner -> viewExprSpan inner
     EPragma _ inner -> viewExprSpan inner

@@ -43,7 +43,7 @@ data Walk f = Walk
   { -- | Every annotation, where it is attached.
     walkAnnotation :: Annotation -> f Annotation,
     -- | Every resolution result, where it is attached: on a name, on a
-    -- binder, or in a wrapper constructor such as 'EResolved'.
+    -- binder, or in a wrapper constructor such as 'DoResolved'.
     walkResolution :: ResolutionResult -> f ResolutionResult,
     -- | Every item of type checker information, where it is attached.
     walkTcInfo :: TcInfo -> f TcInfo,
@@ -402,6 +402,12 @@ instance Walkable ListMatch where
   walk w (ListMatch toList' fromListN') =
     ListMatch <$> walk w toList' <*> walk w fromListN'
 
+instance Walkable LiteralSyntax where
+  walk w syntax =
+    case syntax of
+      LiteralSyntaxPrimitive typeName -> LiteralSyntaxPrimitive <$> walk w typeName
+      LiteralSyntaxOverloaded ty conversion -> LiteralSyntaxOverloaded <$> walk w ty <*> walk w conversion
+
 instance Walkable Pattern where
   walk w = walkPattern w $ \case
     PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
@@ -685,27 +691,26 @@ instance Walkable Expr where
     case expr of
       EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
       ETc info inner -> ETc <$> walkTcInfo w info <*> walk w inner
-      EResolved result inner -> EResolved <$> walkResolution w result <*> walk w inner
       EVar name -> EVar <$> walk w name
       EImplicitParam {} -> pure expr
       ETypeSyntax form ty -> ETypeSyntax form <$> walk w ty
-      EInt {} -> pure expr
-      EFloat {} -> pure expr
+      EInt syntax value numericType text -> (\syntax' -> EInt syntax' value numericType text) <$> walk w syntax
+      EFloat syntax value floatType text -> (\syntax' -> EFloat syntax' value floatType text) <$> walk w syntax
       EChar {} -> pure expr
-      ECharHash {} -> pure expr
-      EString {} -> pure expr
-      EStringHash {} -> pure expr
+      ECharHash typeName value text -> (\typeName' -> ECharHash typeName' value text) <$> walk w typeName
+      EString conversion value text -> (\conversion' -> EString conversion' value text) <$> walk w conversion
+      EStringHash typeName value text -> (\typeName' -> EStringHash typeName' value text) <$> walk w typeName
       EOverloadedLabel {} -> pure expr
       EQuasiQuote {} -> pure expr
-      EIf condition thenExpr elseExpr ->
-        EIf <$> walk w condition <*> walk w thenExpr <*> walk w elseExpr
+      EIf method condition thenExpr elseExpr ->
+        EIf <$> walk w method <*> walk w condition <*> walk w thenExpr <*> walk w elseExpr
       EMultiWayIf alternatives -> EMultiWayIf <$> walk w alternatives
       ELambdaPats pats body -> ELambdaPats <$> walk w pats <*> walk w body
       ELambdaCase alternatives -> ELambdaCase <$> walk w alternatives
       ELambdaCases alternatives -> ELambdaCases <$> walk w alternatives
       EInfix lhs name rhs -> EInfix <$> walk w lhs <*> walk w name <*> walk w rhs
       EViewPat lhs rhs -> EViewPat <$> walk w lhs <*> walk w rhs
-      ENegate inner -> ENegate <$> walk w inner
+      ENegate method inner -> ENegate <$> walk w method <*> walk w inner
       ESectionL inner name -> ESectionL <$> walk w inner <*> walk w name
       ESectionR name inner -> ESectionR <$> walk w name <*> walk w inner
       ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
@@ -713,15 +718,15 @@ instance Walkable Expr where
       EDo statements flavor -> EDo <$> walk w statements <*> pure flavor
       EListComp body statements -> EListComp <$> walk w body <*> walk w statements
       EListCompParallel body branches -> EListCompParallel <$> walk w body <*> walk w branches
-      EArithSeq sequence' -> EArithSeq <$> walk w sequence'
+      EArithSeq method sequence' -> EArithSeq <$> walk w method <*> walk w sequence'
       ERecordCon name fields wildcard -> ERecordCon <$> walk w name <*> walk w fields <*> pure wildcard
       ERecordUpd record fields -> ERecordUpd <$> walk w record <*> walk w fields
-      EGetField record field -> EGetField <$> walk w record <*> walk w field
-      EGetFieldProjection fields -> EGetFieldProjection <$> walk w fields
+      EGetField method record field -> EGetField <$> walk w method <*> walk w record <*> walk w field
+      EGetFieldProjection method fields -> EGetFieldProjection <$> walk w method <*> walk w fields
       ETypeSig inner ty -> ETypeSig <$> walk w inner <*> walk w ty
       EParen inner -> EParen <$> walk w inner
-      EList items -> EList <$> walk w items
-      ETuple flavor items -> ETuple flavor <$> walk w items
+      EList syntax method items -> EList <$> walk w syntax <*> walk w method <*> walk w items
+      ETuple syntax flavor items -> (`ETuple` flavor) <$> walk w syntax <*> walk w items
       EUnboxedSum position arity inner -> EUnboxedSum position arity <$> walk w inner
       ETypeApp function ty -> ETypeApp <$> walk w function <*> walk w ty
       EApp function argument -> EApp <$> walk w function <*> walk w argument
