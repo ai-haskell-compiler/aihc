@@ -1479,7 +1479,7 @@ associatedItems gen representation = do
       | otherwise =
           case (familyArguments heads, familyArguments (init heads <> [representation])) of
             (Just lhsArguments, Just rhsArguments) ->
-              pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments))))
+              pure (Just (InstanceItemTypeFamilyInst [] (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments))))
             _ -> reject
       where
         -- A family parameter that is not a class parameter, as the @a@ of
@@ -1535,6 +1535,7 @@ genericItems gen mode dataType =
                 | otherwise = fromMaybe [] (genericKindBinders gen dataType)
               equation =
                 InstanceItemTypeFamilyInst
+                  []
                   ( TypeFamilyInst
                       equationBinders
                       TypeHeadPrefix
@@ -1931,7 +1932,7 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
   maybe id (InstanceItemAnn . mkSpanAnnotation) (genSpan gen) $
-    InstanceItemBind (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
+    InstanceItemBind [] (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =

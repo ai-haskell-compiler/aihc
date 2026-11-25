@@ -569,25 +569,25 @@ instance Walkable NewtypeDecl where
 instance Walkable DataConDecl where
   walk w = walkDataConDecl w $ \case
     DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
-    DataConTc info inner -> DataConTc <$> walkTcInfo w info <*> walk w inner
-    PrefixCon binders context name fields ->
-      PrefixCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
-    InfixCon binders context lhs name rhs ->
+    PrefixCon tc binders context name fields ->
+      PrefixCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    InfixCon tc binders context lhs name rhs ->
       InfixCon
-        <$> walk w binders
+        <$> walkInfos w tc
+        <*> walk w binders
         <*> walk w context
         <*> walk w lhs
         <*> walk w name
         <*> walk w rhs
-    RecordCon binders context name fields ->
-      RecordCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
-    GadtCon telescopes context names body ->
-      GadtCon <$> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
-    TupleCon binders context flavor fields ->
-      TupleCon <$> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
-    UnboxedSumCon binders context position arity field ->
-      UnboxedSumCon <$> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
-    ListCon binders context syntax -> ListCon <$> walk w binders <*> walk w context <*> walk w syntax
+    RecordCon tc binders context name fields ->
+      RecordCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+    GadtCon tc telescopes context names body ->
+      GadtCon <$> walkInfos w tc <*> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
+    TupleCon tc binders context flavor fields ->
+      TupleCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
+    UnboxedSumCon tc binders context position arity field ->
+      UnboxedSumCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
+    ListCon tc binders context syntax -> ListCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w syntax
 
 instance Walkable GadtBody where
   walk w body =
@@ -643,13 +643,12 @@ instance Walkable FunctionalDependency where
 instance Walkable ClassDeclItem where
   walk w = walkClassDeclItem w $ \case
     ClassItemAnn ann inner -> ClassItemAnn <$> walkAnnotation w ann <*> walk w inner
-    ClassItemTc info inner -> ClassItemTc <$> walkTcInfo w info <*> walk w inner
     ClassItemError err inner -> ClassItemError err <$> walk w inner
     ClassItemTypeSig names ty -> ClassItemTypeSig <$> walk w names <*> walk w ty
     ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
     ClassItemFixity assoc namespace precedence operators ->
       ClassItemFixity assoc namespace precedence <$> walk w operators
-    ClassItemDefault value -> ClassItemDefault <$> walk w value
+    ClassItemDefault tc value -> ClassItemDefault <$> walkInfos w tc <*> walk w value
     ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
     ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
     ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
@@ -666,13 +665,12 @@ instance Walkable InstanceDecl where
 instance Walkable InstanceDeclItem where
   walk w = walkInstanceDeclItem w $ \case
     InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
-    InstanceItemTc info inner -> InstanceItemTc <$> walkTcInfo w info <*> walk w inner
     InstanceItemError err inner -> InstanceItemError err <$> walk w inner
-    InstanceItemBind value -> InstanceItemBind <$> walk w value
+    InstanceItemBind tc value -> InstanceItemBind <$> walkInfos w tc <*> walk w value
     InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
     InstanceItemFixity assoc namespace precedence operators ->
       InstanceItemFixity assoc namespace precedence <$> walk w operators
-    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> walk w familyInst
+    InstanceItemTypeFamilyInst tc familyInst -> InstanceItemTypeFamilyInst <$> walkInfos w tc <*> walk w familyInst
     InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> walk w familyInst
     InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
 
@@ -751,12 +749,11 @@ instance Walkable LambdaCaseAlt where
 instance (Walkable body) => Walkable (DoStmt body) where
   walk w = walkDoStmt w $ \case
     DoAnn ann inner -> DoAnn <$> walkAnnotation w ann <*> walk w inner
-    DoTc info inner -> DoTc <$> walkTcInfo w info <*> walk w inner
     DoRecKnot knot inner -> DoRecKnot knot <$> walk w inner
     DoBind methods pat body -> DoBind <$> walk w methods <*> walk w pat <*> walk w body
     DoLetDecls decls -> DoLetDecls <$> walk w decls
     DoExpr method body -> DoExpr <$> walk w method <*> walk w body
-    DoRecStmt methods statements -> DoRecStmt <$> walk w methods <*> walk w statements
+    DoRecStmt tc methods statements -> DoRecStmt <$> walkInfos w tc <*> walk w methods <*> walk w statements
 
 instance Walkable DoBindMethods where
   walk w (DoBindMethods method failure) =
@@ -784,19 +781,17 @@ instance Walkable Cmd where
 instance Walkable CompStmt where
   walk w = walkCompStmt w $ \case
     CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
-    CompTc info inner -> CompTc <$> walkTcInfo w info <*> walk w inner
-    CompGen pat expr -> CompGen <$> walk w pat <*> walk w expr
-    CompGuard expr -> CompGuard <$> walk w expr
-    CompLetDecls decls -> CompLetDecls <$> walk w decls
-    CompThen expr -> CompThen <$> walk w expr
-    CompThenBy function expr -> CompThenBy <$> walk w function <*> walk w expr
-    CompGroupUsing function -> CompGroupUsing <$> walk w function
-    CompGroupByUsing expr function -> CompGroupByUsing <$> walk w expr <*> walk w function
+    CompGen tc pat expr -> CompGen <$> walkInfos w tc <*> walk w pat <*> walk w expr
+    CompGuard tc expr -> CompGuard <$> walkInfos w tc <*> walk w expr
+    CompLetDecls tc decls -> CompLetDecls <$> walkInfos w tc <*> walk w decls
+    CompThen tc expr -> CompThen <$> walkInfos w tc <*> walk w expr
+    CompThenBy tc function expr -> CompThenBy <$> walkInfos w tc <*> walk w function <*> walk w expr
+    CompGroupUsing tc function -> CompGroupUsing <$> walkInfos w tc <*> walk w function
+    CompGroupByUsing tc expr function -> CompGroupByUsing <$> walkInfos w tc <*> walk w expr <*> walk w function
 
 instance Walkable ArithSeq where
   walk w = walkArithSeq w $ \case
     ArithSeqAnn ann inner -> ArithSeqAnn <$> walkAnnotation w ann <*> walk w inner
-    ArithSeqTc info inner -> ArithSeqTc <$> walkTcInfo w info <*> walk w inner
     ArithSeqFrom method from -> ArithSeqFrom <$> walk w method <*> walk w from
     ArithSeqFromThen method from next -> ArithSeqFromThen <$> walk w method <*> walk w from <*> walk w next
     ArithSeqFromTo method from to -> ArithSeqFromTo <$> walk w method <*> walk w from <*> walk w to

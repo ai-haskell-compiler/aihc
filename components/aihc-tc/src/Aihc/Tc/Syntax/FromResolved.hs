@@ -552,13 +552,13 @@ instance FromResolved R.DataConDecl where
   fromResolved node =
     case node of
       R.DataConAnn x1 x2 -> DataConAnn (fromResolved x1) (fromResolved x2)
-      R.PrefixCon x1 x2 x3 x4 -> PrefixCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.InfixCon x1 x2 x3 x4 x5 -> InfixCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
-      R.RecordCon x1 x2 x3 x4 -> RecordCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.GadtCon x1 x2 x3 x4 -> GadtCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.TupleCon x1 x2 x3 x4 -> TupleCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.UnboxedSumCon x1 x2 x3 x4 x5 -> UnboxedSumCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
-      R.ListCon x1 x2 x3 -> ListCon (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.PrefixCon x1 x2 x3 x4 -> PrefixCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.InfixCon x1 x2 x3 x4 x5 -> InfixCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
+      R.RecordCon x1 x2 x3 x4 -> RecordCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.GadtCon x1 x2 x3 x4 -> GadtCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.TupleCon x1 x2 x3 x4 -> TupleCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.UnboxedSumCon x1 x2 x3 x4 x5 -> UnboxedSumCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
+      R.ListCon x1 x2 x3 -> ListCon [] (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.GadtBody where
   type ToPending R.GadtBody = GadtBody
@@ -615,7 +615,7 @@ instance FromResolved R.ClassDeclItem where
       R.ClassItemTypeSig x1 x2 -> ClassItemTypeSig (fromResolved x1) (fromResolved x2)
       R.ClassItemDefaultSig x1 x2 -> ClassItemDefaultSig (fromResolved x1) (fromResolved x2)
       R.ClassItemFixity x1 x2 x3 x4 -> ClassItemFixity (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.ClassItemDefault x1 -> ClassItemDefault (fromResolved x1)
+      R.ClassItemDefault x1 -> ClassItemDefault [] (fromResolved x1)
       R.ClassItemTypeFamilyDecl x1 -> ClassItemTypeFamilyDecl (fromResolved x1)
       R.ClassItemDataFamilyDecl x1 -> ClassItemDataFamilyDecl (fromResolved x1)
       R.ClassItemDefaultTypeInst x1 -> ClassItemDefaultTypeInst (fromResolved x1)
@@ -633,10 +633,10 @@ instance FromResolved R.InstanceDeclItem where
     case node of
       R.InstanceItemAnn x1 x2 -> InstanceItemAnn (fromResolved x1) (fromResolved x2)
       R.InstanceItemError x1 x2 -> InstanceItemError (fromResolved x1) (fromResolved x2)
-      R.InstanceItemBind x1 -> InstanceItemBind (fromResolved x1)
+      R.InstanceItemBind x1 -> InstanceItemBind [] (fromResolved x1)
       R.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig (fromResolved x1) (fromResolved x2)
       R.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst (fromResolved x1)
+      R.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst [] (fromResolved x1)
       R.InstanceItemDataFamilyInst x1 -> InstanceItemDataFamilyInst (fromResolved x1)
       R.InstanceItemPragma x1 -> InstanceItemPragma (fromResolved x1)
 
@@ -722,7 +722,7 @@ instance (FromResolved body) => FromResolved (R.DoStmt body) where
       R.DoBind x1 x2 x3 -> DoBind (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.DoLetDecls x1 -> DoLetDecls (fromResolved x1)
       R.DoExpr x1 x2 -> DoExpr (fromResolved x1) (fromResolved x2)
-      R.DoRecStmt x1 x2 -> DoRecStmt (fromResolved x1) (fromResolved x2)
+      R.DoRecStmt x1 x2 -> DoRecStmt [] (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Cmd where
   type ToPending R.Cmd = Cmd
@@ -744,13 +744,13 @@ instance FromResolved R.CompStmt where
   fromResolved node =
     case node of
       R.CompAnn x1 x2 -> CompAnn (fromResolved x1) (fromResolved x2)
-      R.CompGen x1 x2 -> CompGen (fromResolved x1) (fromResolved x2)
-      R.CompGuard x1 -> CompGuard (fromResolved x1)
-      R.CompLetDecls x1 -> CompLetDecls (fromResolved x1)
-      R.CompThen x1 -> CompThen (fromResolved x1)
-      R.CompThenBy x1 x2 -> CompThenBy (fromResolved x1) (fromResolved x2)
-      R.CompGroupUsing x1 -> CompGroupUsing (fromResolved x1)
-      R.CompGroupByUsing x1 x2 -> CompGroupByUsing (fromResolved x1) (fromResolved x2)
+      R.CompGen x1 x2 -> CompGen [] (fromResolved x1) (fromResolved x2)
+      R.CompGuard x1 -> CompGuard [] (fromResolved x1)
+      R.CompLetDecls x1 -> CompLetDecls [] (fromResolved x1)
+      R.CompThen x1 -> CompThen [] (fromResolved x1)
+      R.CompThenBy x1 x2 -> CompThenBy [] (fromResolved x1) (fromResolved x2)
+      R.CompGroupUsing x1 -> CompGroupUsing [] (fromResolved x1)
+      R.CompGroupByUsing x1 x2 -> CompGroupByUsing [] (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ArithSeq where
   type ToPending R.ArithSeq = ArithSeq

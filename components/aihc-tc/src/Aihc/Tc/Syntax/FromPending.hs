@@ -587,14 +587,13 @@ instance FromPending Pending.DataConDecl where
   fromPending info node =
     case node of
       Pending.DataConAnn x1 x2 -> DataConAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.DataConTc x1 x2 -> wrapInfo DataConTc <$> info x1 <*> fromPending info x2
-      Pending.PrefixCon x1 x2 x3 x4 -> PrefixCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.InfixCon x1 x2 x3 x4 x5 -> InfixCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.RecordCon x1 x2 x3 x4 -> RecordCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.GadtCon x1 x2 x3 x4 -> GadtCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.TupleCon x1 x2 x3 x4 -> TupleCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.UnboxedSumCon x1 x2 x3 x4 x5 -> UnboxedSumCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.ListCon x1 x2 x3 -> ListCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PrefixCon x1 x2 x3 x4 x5 -> PrefixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.InfixCon x1 x2 x3 x4 x5 x6 -> InfixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.RecordCon x1 x2 x3 x4 x5 -> RecordCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.GadtCon x1 x2 x3 x4 x5 -> GadtCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.TupleCon x1 x2 x3 x4 x5 -> TupleCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.UnboxedSumCon x1 x2 x3 x4 x5 x6 -> UnboxedSumCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.ListCon x1 x2 x3 x4 -> ListCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance FromPending Pending.GadtBody where
   type Final Pending.GadtBody = GadtBody
@@ -647,12 +646,11 @@ instance FromPending Pending.ClassDeclItem where
   fromPending info node =
     case node of
       Pending.ClassItemAnn x1 x2 -> ClassItemAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.ClassItemTc x1 x2 -> wrapInfo ClassItemTc <$> info x1 <*> fromPending info x2
       Pending.ClassItemError x1 x2 -> ClassItemError <$> fromPending info x1 <*> fromPending info x2
       Pending.ClassItemTypeSig x1 x2 -> ClassItemTypeSig <$> fromPending info x1 <*> fromPending info x2
       Pending.ClassItemDefaultSig x1 x2 -> ClassItemDefaultSig <$> fromPending info x1 <*> fromPending info x2
       Pending.ClassItemFixity x1 x2 x3 x4 -> ClassItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.ClassItemDefault x1 -> ClassItemDefault <$> fromPending info x1
+      Pending.ClassItemDefault x1 x2 -> ClassItemDefault <$> infos info x1 <*> fromPending info x2
       Pending.ClassItemTypeFamilyDecl x1 -> ClassItemTypeFamilyDecl <$> fromPending info x1
       Pending.ClassItemDataFamilyDecl x1 -> ClassItemDataFamilyDecl <$> fromPending info x1
       Pending.ClassItemDefaultTypeInst x1 -> ClassItemDefaultTypeInst <$> fromPending info x1
@@ -669,12 +667,11 @@ instance FromPending Pending.InstanceDeclItem where
   fromPending info node =
     case node of
       Pending.InstanceItemAnn x1 x2 -> InstanceItemAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.InstanceItemTc x1 x2 -> wrapInfo InstanceItemTc <$> info x1 <*> fromPending info x2
       Pending.InstanceItemError x1 x2 -> InstanceItemError <$> fromPending info x1 <*> fromPending info x2
-      Pending.InstanceItemBind x1 -> InstanceItemBind <$> fromPending info x1
+      Pending.InstanceItemBind x1 x2 -> InstanceItemBind <$> infos info x1 <*> fromPending info x2
       Pending.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig <$> fromPending info x1 <*> fromPending info x2
       Pending.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst <$> fromPending info x1
+      Pending.InstanceItemTypeFamilyInst x1 x2 -> InstanceItemTypeFamilyInst <$> infos info x1 <*> fromPending info x2
       Pending.InstanceItemDataFamilyInst x1 -> InstanceItemDataFamilyInst <$> fromPending info x1
       Pending.InstanceItemPragma x1 -> InstanceItemPragma <$> fromPending info x1
 
@@ -757,12 +754,11 @@ instance (FromPending body) => FromPending (Pending.DoStmt body) where
   fromPending info node =
     case node of
       Pending.DoAnn x1 x2 -> DoAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.DoTc x1 x2 -> wrapInfo DoTc <$> info x1 <*> fromPending info x2
       Pending.DoRecKnot x1 x2 -> DoRecKnot <$> fromPending info x1 <*> fromPending info x2
       Pending.DoBind x1 x2 x3 -> DoBind <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.DoLetDecls x1 -> DoLetDecls <$> fromPending info x1
       Pending.DoExpr x1 x2 -> DoExpr <$> fromPending info x1 <*> fromPending info x2
-      Pending.DoRecStmt x1 x2 -> DoRecStmt <$> fromPending info x1 <*> fromPending info x2
+      Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.Cmd where
   type Final Pending.Cmd = Cmd
@@ -784,21 +780,19 @@ instance FromPending Pending.CompStmt where
   fromPending info node =
     case node of
       Pending.CompAnn x1 x2 -> CompAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.CompTc x1 x2 -> wrapInfo CompTc <$> info x1 <*> fromPending info x2
-      Pending.CompGen x1 x2 -> CompGen <$> fromPending info x1 <*> fromPending info x2
-      Pending.CompGuard x1 -> CompGuard <$> fromPending info x1
-      Pending.CompLetDecls x1 -> CompLetDecls <$> fromPending info x1
-      Pending.CompThen x1 -> CompThen <$> fromPending info x1
-      Pending.CompThenBy x1 x2 -> CompThenBy <$> fromPending info x1 <*> fromPending info x2
-      Pending.CompGroupUsing x1 -> CompGroupUsing <$> fromPending info x1
-      Pending.CompGroupByUsing x1 x2 -> CompGroupByUsing <$> fromPending info x1 <*> fromPending info x2
+      Pending.CompGen x1 x2 x3 -> CompGen <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGuard x1 x2 -> CompGuard <$> infos info x1 <*> fromPending info x2
+      Pending.CompLetDecls x1 x2 -> CompLetDecls <$> infos info x1 <*> fromPending info x2
+      Pending.CompThen x1 x2 -> CompThen <$> infos info x1 <*> fromPending info x2
+      Pending.CompThenBy x1 x2 x3 -> CompThenBy <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGroupUsing x1 x2 -> CompGroupUsing <$> infos info x1 <*> fromPending info x2
+      Pending.CompGroupByUsing x1 x2 x3 -> CompGroupByUsing <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.ArithSeq where
   type Final Pending.ArithSeq = ArithSeq
   fromPending info node =
     case node of
       Pending.ArithSeqAnn x1 x2 -> ArithSeqAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.ArithSeqTc x1 x2 -> wrapInfo ArithSeqTc <$> info x1 <*> fromPending info x2
       Pending.ArithSeqFrom x1 x2 -> ArithSeqFrom <$> fromPending info x1 <*> fromPending info x2
       Pending.ArithSeqFromThen x1 x2 x3 -> ArithSeqFromThen <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.ArithSeqFromTo x1 x2 x3 -> ArithSeqFromTo <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3

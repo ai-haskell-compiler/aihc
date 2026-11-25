@@ -129,14 +129,14 @@ labelWalk =
       walkPattern = patternLabels,
       walkType = wrapped peelType,
       walkDecl = wrapped peelDecl,
-      walkDataConDecl = wrapped peelDataCon,
+      walkDataConDecl = wrappedOwn peelDataCon dataConOwn,
       walkLiteral = wrapped peelLiteral,
       walkGuardQualifier = wrapped peelGuard,
       walkDoStmt = doLabels,
-      walkCompStmt = wrapped peelComp,
+      walkCompStmt = wrappedOwn peelComp compStmtOwn,
       walkArithSeq = arithSeqLabels,
-      walkClassDeclItem = wrapped peelClassItem,
-      walkInstanceDeclItem = wrapped peelInstanceItem,
+      walkClassDeclItem = wrappedOwn peelClassItem classItemOwn,
+      walkInstanceDeclItem = wrappedOwn peelInstanceItem instanceItemOwn,
       walkCmd = wrapped peelCmd,
       walkExportSpec = wrapped peelExport,
       walkImportItem = wrapped peelImport
@@ -149,6 +149,16 @@ labelWalk =
       let (anns, infos, base) = peelLeading peel node
       addInfoLabels (spanFromAnnotations anns) infos
       _ <- children base
+      pure node
+
+    -- The information of a node below its wrappers gets the first span
+    -- of the wrappers, after the information of the wrappers.
+    wrappedOwn :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> ([TcInfo], node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrappedOwn peel own children node = do
+      let (anns, infos, base) = peelLeading peel node
+          (ownInfos, base') = own base
+      addInfoLabels (spanFromAnnotations anns) (infos <> ownInfos)
+      _ <- children base'
       pure node
 
     -- The syntax names of an expression, such as @negate@ for @-x@, get
@@ -230,11 +240,56 @@ doStmtMethods stmt =
     DoBind (Just methods@(DoBindMethods method failure)) pat body ->
       (concatMap nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
     DoExpr (Just method) body -> (nameTc method, DoExpr (Just (without method)) body)
-    DoRecStmt (Just methods@(DoRecMethods mfix return' bind)) stmts ->
-      (concatMap nameTc (doRecMethodsNames methods), DoRecStmt (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
+    DoRecStmt tc (Just methods@(DoRecMethods mfix return' bind)) stmts ->
+      (concatMap nameTc (doRecMethodsNames methods) <> tc, DoRecStmt [] (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
+    DoRecStmt tc Nothing stmts -> (tc, DoRecStmt [] Nothing stmts)
     _ -> ([], stmt)
   where
     without name = name {nameTc = []}
+
+-- | The information of a constructor declaration, and the declaration with
+-- no information.
+dataConOwn :: DataConDecl -> ([TcInfo], DataConDecl)
+dataConOwn decl =
+  case decl of
+    PrefixCon tc a b c d -> (tc, PrefixCon [] a b c d)
+    InfixCon tc a b c d e -> (tc, InfixCon [] a b c d e)
+    RecordCon tc a b c d -> (tc, RecordCon [] a b c d)
+    GadtCon tc a b c d -> (tc, GadtCon [] a b c d)
+    TupleCon tc a b c d -> (tc, TupleCon [] a b c d)
+    UnboxedSumCon tc a b c d e -> (tc, UnboxedSumCon [] a b c d e)
+    ListCon tc a b c -> (tc, ListCon [] a b c)
+    DataConAnn _ _ -> ([], decl)
+
+-- | The information of a comprehension statement, and the statement with
+-- no information.
+compStmtOwn :: CompStmt -> ([TcInfo], CompStmt)
+compStmtOwn stmt =
+  case stmt of
+    CompGen tc pat expr -> (tc, CompGen [] pat expr)
+    CompGuard tc expr -> (tc, CompGuard [] expr)
+    CompLetDecls tc decls -> (tc, CompLetDecls [] decls)
+    CompThen tc function -> (tc, CompThen [] function)
+    CompThenBy tc function key -> (tc, CompThenBy [] function key)
+    CompGroupUsing tc function -> (tc, CompGroupUsing [] function)
+    CompGroupByUsing tc key function -> (tc, CompGroupByUsing [] key function)
+    CompAnn _ _ -> ([], stmt)
+
+-- | The information of a class item, and the item with no information.
+classItemOwn :: ClassDeclItem -> ([TcInfo], ClassDeclItem)
+classItemOwn item =
+  case item of
+    ClassItemDefault tc value -> (tc, ClassItemDefault [] value)
+    _ -> ([], item)
+
+-- | The information of an instance item, and the item with no
+-- information.
+instanceItemOwn :: InstanceDeclItem -> ([TcInfo], InstanceDeclItem)
+instanceItemOwn item =
+  case item of
+    InstanceItemBind tc value -> (tc, InstanceItemBind [] value)
+    InstanceItemTypeFamilyInst tc familyInst -> (tc, InstanceItemTypeFamilyInst [] familyInst)
+    _ -> ([], item)
 
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
@@ -306,7 +361,6 @@ peelDecl _ = Nothing
 
 peelDataCon :: DataConDecl -> Maybe (Maybe Annotation, Maybe TcInfo, DataConDecl)
 peelDataCon (DataConAnn ann inner) = Just (Just ann, Nothing, inner)
-peelDataCon (DataConTc info inner) = Just (Nothing, Just info, inner)
 peelDataCon _ = Nothing
 
 peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcInfo, Literal)
@@ -320,29 +374,24 @@ peelGuard _ = Nothing
 
 peelDo :: DoStmt body -> Maybe (Maybe Annotation, Maybe TcInfo, DoStmt body)
 peelDo (DoAnn ann inner) = Just (Just ann, Nothing, inner)
-peelDo (DoTc info inner) = Just (Nothing, Just info, inner)
 peelDo (DoRecKnot _ inner) = Just (Nothing, Nothing, inner)
 peelDo _ = Nothing
 
 peelComp :: CompStmt -> Maybe (Maybe Annotation, Maybe TcInfo, CompStmt)
 peelComp (CompAnn ann inner) = Just (Just ann, Nothing, inner)
-peelComp (CompTc info inner) = Just (Nothing, Just info, inner)
 peelComp _ = Nothing
 
 peelArithSeq :: ArithSeq -> Maybe (Maybe Annotation, Maybe TcInfo, ArithSeq)
 peelArithSeq (ArithSeqAnn ann inner) = Just (Just ann, Nothing, inner)
-peelArithSeq (ArithSeqTc info inner) = Just (Nothing, Just info, inner)
 peelArithSeq _ = Nothing
 
 peelClassItem :: ClassDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, ClassDeclItem)
 peelClassItem (ClassItemAnn ann inner) = Just (Just ann, Nothing, inner)
-peelClassItem (ClassItemTc info inner) = Just (Nothing, Just info, inner)
 peelClassItem (ClassItemError _ inner) = Just (Nothing, Nothing, inner)
 peelClassItem _ = Nothing
 
 peelInstanceItem :: InstanceDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, InstanceDeclItem)
 peelInstanceItem (InstanceItemAnn ann inner) = Just (Just ann, Nothing, inner)
-peelInstanceItem (InstanceItemTc info inner) = Just (Nothing, Just info, inner)
 peelInstanceItem (InstanceItemError _ inner) = Just (Nothing, Nothing, inner)
 peelInstanceItem _ = Nothing
 

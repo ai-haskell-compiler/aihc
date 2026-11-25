@@ -1518,27 +1518,26 @@ freeVarsCompStmts stmts bodyVars =
   case stmts of
     [] -> bodyVars
     CompAnn _ inner : rest -> freeVarsCompStmts (inner : rest) bodyVars
-    CompTc _ inner : rest -> freeVarsCompStmts (inner : rest) bodyVars
-    CompGen pat source : rest -> do
+    CompGen _ pat source : rest -> do
       sourceVars <- freeVarsExpr source
       patVars <- freeVarsPattern pat
       binders <- patternBinderKeys pat
       restVars <- freeVarsCompStmts rest bodyVars
       pure (sourceVars <> patVars <> Set.difference restVars binders)
-    CompGuard condition : rest ->
+    CompGuard _ condition : rest ->
       Set.union <$> freeVarsExpr condition <*> freeVarsCompStmts rest bodyVars
-    CompLetDecls decls : rest -> do
+    CompLetDecls _ decls : rest -> do
       declVars <- freeVarsDecls decls
       binders <- declBinderKeys decls
       restVars <- freeVarsCompStmts rest bodyVars
       pure (Set.difference (declVars <> restVars) binders)
-    CompThen function : rest ->
+    CompThen _ function : rest ->
       Set.union <$> freeVarsExpr function <*> freeVarsCompStmts rest bodyVars
-    CompThenBy function key : rest ->
+    CompThenBy _ function key : rest ->
       Set.unions <$> sequence [freeVarsExpr function, freeVarsExpr key, freeVarsCompStmts rest bodyVars]
-    CompGroupUsing function : rest ->
+    CompGroupUsing _ function : rest ->
       Set.union <$> freeVarsExpr function <*> freeVarsCompStmts rest bodyVars
-    CompGroupByUsing key function : rest ->
+    CompGroupByUsing _ key function : rest ->
       Set.unions <$> sequence [freeVarsExpr key, freeVarsExpr function, freeVarsCompStmts rest bodyVars]
 
 -- | The names that comprehension statements bind.
@@ -1549,9 +1548,8 @@ compStmtsBinderKeys stmts =
     binderKeys stmt =
       case stmt of
         CompAnn _ inner -> compStmtsBinderKeys [inner]
-        CompTc _ inner -> compStmtsBinderKeys [inner]
-        CompGen pat _ -> patternBinderKeys pat
-        CompLetDecls decls -> declBinderKeys decls
+        CompGen _ pat _ -> patternBinderKeys pat
+        CompLetDecls _ decls -> declBinderKeys decls
         _ -> pure Set.empty
 
 -- | Add the syntax term that a resolution names, if it names one.
@@ -1584,14 +1582,13 @@ doStmtMethodNames stmt =
   case peelDoStmtAnn stmt of
     DoBind methods _ _ -> foldMap doBindMethodsNames methods
     DoExpr method _ -> maybeToList method
-    DoRecStmt methods _ -> foldMap doRecMethodsNames methods
+    DoRecStmt _ methods _ -> foldMap doRecMethodsNames methods
     _ -> []
 
 freeVarsDoStmtsChildren :: DoStmt Expr -> [DoStmt Expr] -> TcM (Set.Set Entity)
 freeVarsDoStmtsChildren stmt rest =
   case stmt of
     DoAnn _ inner -> freeVarsDoStmtsChildren inner rest
-    DoTc _ inner -> freeVarsDoStmtsChildren inner rest
     DoRecKnot _ inner -> freeVarsDoStmtsChildren inner rest
     DoExpr _ body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
     DoBind _ pat body -> do
@@ -1607,7 +1604,7 @@ freeVarsDoStmtsChildren stmt rest =
       pure (Set.difference (declVars <> restVars) binders)
     -- The variables of a recursive group are in scope in all of its
     -- statements and in the statements after it.
-    DoRecStmt _ inner -> do
+    DoRecStmt _ _ inner -> do
       innerVars <- freeVarsDoStmts inner
       restVars <- freeVarsDoStmts rest
       binders <- Set.fromList <$> mapM resolvedUnqualifiedTermKey (recStmtBinderNames inner)
@@ -1624,7 +1621,6 @@ freeVarsArithSeqItems :: ArithSeq -> TcM (Set.Set Entity)
 freeVarsArithSeqItems arithSeq =
   case arithSeq of
     ArithSeqAnn _ inner -> freeVarsArithSeqItems inner
-    ArithSeqTc _ inner -> freeVarsArithSeqItems inner
     ArithSeqFrom _ from -> freeVarsExpr from
     ArithSeqFromThen _ from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
     ArithSeqFromTo _ from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to

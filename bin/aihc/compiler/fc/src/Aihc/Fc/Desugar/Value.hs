@@ -871,9 +871,8 @@ recordConstructorNames :: Syn.DataConDecl -> [Text]
 recordConstructorNames declaration =
   case declaration of
     Syn.DataConAnn _ inner -> recordConstructorNames inner
-    Syn.DataConTc _ inner -> recordConstructorNames inner
-    Syn.RecordCon _ _ constructor _ -> [Syn.unqualifiedNameText constructor]
-    Syn.GadtCon _ _ constructors (Syn.GadtRecordBody _ _) -> map Syn.unqualifiedNameText constructors
+    Syn.RecordCon _ _ _ constructor _ -> [Syn.unqualifiedNameText constructor]
+    Syn.GadtCon _ _ _ constructors (Syn.GadtRecordBody _ _) -> map Syn.unqualifiedNameText constructors
     _ -> []
 
 desugarRecordSelector :: [DataConInfo] -> Text -> Text -> ValueM Decl
@@ -1298,7 +1297,7 @@ desugarClassSelectors classDecl classAnnotation = do
 
 desugarClassDefaults :: Syn.ClassDecl -> ValueM [Decl]
 desugarClassDefaults classDecl = do
-  equations <- concat <$> mapM (defaultItem Nothing) (Syn.classDeclItems classDecl)
+  equations <- concat <$> mapM defaultItem (Syn.classDeclItems classDecl)
   -- A default method with several equations parses as one item per equation,
   -- so the equations are collected before the worker is emitted: one worker
   -- per method, not one per equation.
@@ -1308,18 +1307,14 @@ desugarClassDefaults classDecl = do
   let specs = classInlineSpecs (Syn.classDeclItems classDecl)
   mapM (\(annotation, matches) -> desugarDefaultWorker (Map.findWithDefault InlineDefault (tcInstanceMethodName annotation) specs) annotation matches) (groupDefaultEquations equations)
   where
-    defaultItem maybeAnnotation item =
+    defaultItem item =
       case item of
-        Syn.ClassItemTc info inner ->
-          defaultItem
-            (instanceMethodInfo info <|> maybeAnnotation)
-            inner
-        Syn.ClassItemAnn _ inner -> defaultItem maybeAnnotation inner
-        Syn.ClassItemError _ inner -> defaultItem maybeAnnotation inner
-        Syn.ClassItemDefault valueDecl ->
-          case maybeAnnotation of
-            Just annotation -> pure [(annotation, valueDeclMatches valueDecl)]
-            Nothing -> failValue "class default method does not have a checked annotation"
+        Syn.ClassItemAnn _ inner -> defaultItem inner
+        Syn.ClassItemError _ inner -> defaultItem inner
+        Syn.ClassItemDefault tc valueDecl ->
+          case mapMaybe instanceMethodInfo tc of
+            annotation : _ -> pure [(annotation, valueDeclMatches valueDecl)]
+            [] -> failValue "class default method does not have a checked annotation"
         _ -> pure []
 
 -- | Merge the equations of each default method, keeping both the methods and
@@ -1715,24 +1710,17 @@ instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems inst
   where
     itemMethods item =
       case item of
-        Syn.InstanceItemTc (Syn.InfoInstanceMethod methodAnnotation) inner -> methodItem methodAnnotation inner
-        Syn.InstanceItemTc _ inner -> itemMethods inner
         Syn.InstanceItemAnn _ inner -> itemMethods inner
         Syn.InstanceItemError _ inner -> itemMethods inner
+        Syn.InstanceItemBind tc valueDecl
+          | methodAnnotation : _ <- mapMaybe instanceMethodInfo tc -> methodItem methodAnnotation valueDecl
         _ -> []
-    methodItem methodAnnotation item =
-      case item of
-        Syn.InstanceItemTc info inner ->
-          methodItem
-            (fromMaybe methodAnnotation (instanceMethodInfo info))
-            inner
-        Syn.InstanceItemAnn _ inner -> methodItem methodAnnotation inner
-        Syn.InstanceItemError _ inner -> methodItem methodAnnotation inner
-        Syn.InstanceItemBind (Syn.FunctionBind _ matches) ->
+    methodItem methodAnnotation valueDecl =
+      case valueDecl of
+        Syn.FunctionBind _ matches ->
           [(tcInstanceMethodName methodAnnotation, (tcInstanceMethodType methodAnnotation, matches))]
-        Syn.InstanceItemBind (Syn.PatternBind _ _ rhs) ->
+        Syn.PatternBind _ _ rhs ->
           [(tcInstanceMethodName methodAnnotation, (tcInstanceMethodType methodAnnotation, [emptyMatch rhs]))]
-        _ -> []
 
 groupValues :: [Syn.Decl] -> ValueM ([ValueGroup], [TopPatternGroup])
 groupValues [] = pure ([], [])
@@ -1945,7 +1933,6 @@ classInlineSpecs items = Map.fromList (mapMaybe itemSpec items)
     itemSpec item =
       case item of
         Syn.ClassItemAnn _ inner -> itemSpec inner
-        Syn.ClassItemTc _ inner -> itemSpec inner
         Syn.ClassItemError _ inner -> itemSpec inner
         Syn.ClassItemPragma pragma -> inlinePragmaSpec pragma
         _ -> Nothing
@@ -1957,7 +1944,6 @@ instanceInlineSpecs items = Map.fromList (mapMaybe itemSpec items)
     itemSpec item =
       case item of
         Syn.InstanceItemAnn _ inner -> itemSpec inner
-        Syn.InstanceItemTc _ inner -> itemSpec inner
         Syn.InstanceItemError _ inner -> itemSpec inner
         Syn.InstanceItemPragma pragma -> inlinePragmaSpec pragma
         _ -> Nothing
@@ -5110,7 +5096,8 @@ desugarListCompParallel annotation expression branches = do
     desugarBranch statements = do
       tupleAnnotation <-
         case statements of
-          Syn.CompTc (Syn.InfoType checked) _ : _ -> pure checked
+          statement : _
+            | checked : _ <- mapMaybe infoType (Syn.compStmtTc statement) -> pure checked
           _ -> failValue "parallel list comprehension branch has no checked tuple annotation"
       let tupleType = tcAnnType tupleAnnotation
           binderTypes = tcAnnTypeArgs tupleAnnotation
@@ -5166,14 +5153,14 @@ splitLastTransform statements =
     transformStatement :: Maybe TcAnnotation -> Syn.CompStmt -> Maybe (Maybe TcAnnotation, Syn.CompStmt)
     transformStatement annotation statement =
       case statement of
-        Syn.CompTc info inner ->
-          transformStatement (annotation <|> infoType info) inner
         Syn.CompAnn _ inner -> transformStatement annotation inner
-        Syn.CompThen {} -> Just (annotation, statement)
-        Syn.CompThenBy {} -> Just (annotation, statement)
-        Syn.CompGroupUsing {} -> Just (annotation, statement)
-        Syn.CompGroupByUsing {} -> Just (annotation, statement)
+        Syn.CompThen {} -> Just (own, statement)
+        Syn.CompThenBy {} -> Just (own, statement)
+        Syn.CompGroupUsing {} -> Just (own, statement)
+        Syn.CompGroupByUsing {} -> Just (own, statement)
         _ -> Nothing
+      where
+        own = annotation <|> listToMaybe (mapMaybe infoType (Syn.compStmtTc statement))
 
 -- | Desugar a TransformListComp statement. Let @vs@ be the tuple of the
 -- variables of the statements before it, and @t@ its type. The desugaring
@@ -5193,10 +5180,10 @@ desugarListCompTransform resultElementType cons body prefix annotation transform
       binderTypes = tcAnnTypeArgs annotation
   (isGroup, maybeKey, function) <-
     case transform of
-      Syn.CompThen function' -> pure (False, Nothing, function')
-      Syn.CompThenBy function' key -> pure (False, Just key, function')
-      Syn.CompGroupUsing function' -> pure (True, Nothing, function')
-      Syn.CompGroupByUsing key function' -> pure (True, Just key, function')
+      Syn.CompThen _ function' -> pure (False, Nothing, function')
+      Syn.CompThenBy _ function' key -> pure (False, Just key, function')
+      Syn.CompGroupUsing _ function' -> pure (True, Nothing, function')
+      Syn.CompGroupByUsing _ key function' -> pure (True, Just key, function')
       _ -> failValue ("statement is not a transform statement: " <> take 80 (show transform))
   keys <- mapM requiredBinderKey (compStmtBinderNames prefix)
   unless (length keys == length binderTypes) $
@@ -5301,13 +5288,12 @@ desugarListCompPlain resultElementType cons body statements rest =
     statement : remaining ->
       case statement of
         Syn.CompAnn _ inner -> desugarListCompStatements resultElementType cons body (inner : remaining) rest
-        Syn.CompTc _ inner -> desugarListCompStatements resultElementType cons body (inner : remaining) rest
-        Syn.CompGen pattern' source ->
+        Syn.CompGen _ pattern' source ->
           desugarListCompGenerator resultElementType cons body pattern' source remaining rest
-        Syn.CompGuard guard -> do
+        Syn.CompGuard _ guard -> do
           success <- desugarListCompStatements resultElementType cons body remaining rest
           desugarListCompGuard resultElementType guard success rest
-        Syn.CompLetDecls declarations ->
+        Syn.CompLetDecls _ declarations ->
           desugarLocalDecls declarations (listTypeFromElement resultElementType) (desugarListCompStatements resultElementType cons body remaining rest)
         unsupported -> failValue ("unsupported list comprehension statement: " <> take 80 (show unsupported))
 
@@ -5392,7 +5378,6 @@ arithSeqArguments :: Syn.ArithSeq -> [Syn.Expr]
 arithSeqArguments arithSeq =
   case arithSeq of
     Syn.ArithSeqAnn _ inner -> arithSeqArguments inner
-    Syn.ArithSeqTc _ inner -> arithSeqArguments inner
     Syn.ArithSeqFrom _ from -> [from]
     Syn.ArithSeqFromThen _ from thenExpression -> [from, thenExpression]
     Syn.ArithSeqFromTo _ from to -> [from, to]
@@ -5561,9 +5546,8 @@ desugarDoStatements resultType end statements =
           method <- desugarDoMethod methodName
           action' <- desugarExpr action
           ExApp (ExApp method action') <$> continue
-        Syn.DoRecStmt methods inner -> desugarRecStmt statement methods inner continue
+        Syn.DoRecStmt _ methods inner -> desugarRecStmt statement methods inner continue
         Syn.DoAnn {} -> failValue "do statement keeps an annotation after peeling"
-        Syn.DoTc {} -> failValue "do statement keeps an annotation after peeling"
         Syn.DoRecKnot {} -> failValue "do statement keeps an annotation after peeling"
       where
         continue = desugarDoStatements resultType end rest
@@ -5608,7 +5592,6 @@ doStmtSourceSpan :: Syn.DoStmt body -> Maybe Syn.SourceSpan
 doStmtSourceSpan statement =
   case statement of
     Syn.DoAnn annotation inner -> Syn.annotationSpan annotation <|> doStmtSourceSpan inner
-    Syn.DoTc _ inner -> doStmtSourceSpan inner
     Syn.DoRecKnot _ inner -> doStmtSourceSpan inner
     _ -> Nothing
 
@@ -5690,18 +5673,17 @@ desugarRecStmt statement methods inner rest = do
 -- each generalized group variable. A 'TcRecKnotOccurrence' marker comes
 -- before the occurrence annotation of its variable.
 recStmtAnnotations :: Syn.DoStmt Syn.Expr -> (Maybe TcAnnotation, [(Entity, TcAnnotation)])
-recStmtAnnotations = go Nothing
+recStmtAnnotations statement =
+  case Syn.peelDoStmtAnn statement of
+    Syn.DoRecStmt tc _ _ -> go Nothing tc
+    _ -> (Nothing, [])
   where
-    go annotation statement =
-      case statement of
-        Syn.DoTc (Syn.InfoRecKnotOccurrence key) inner
-          | Syn.DoTc (Syn.InfoType occurrence) rest <- inner ->
-              let (tuple, occurrences) = go annotation rest
-               in (tuple, (key, occurrence) : occurrences)
-        Syn.DoTc (Syn.InfoType checked) inner -> go (Just checked) inner
-        Syn.DoTc _ inner -> go annotation inner
-        Syn.DoRecKnot _ inner -> go annotation inner
-        Syn.DoAnn _ inner -> go annotation inner
+    go annotation infos =
+      case infos of
+        Syn.InfoRecKnotOccurrence key : Syn.InfoType occurrence : rest ->
+          let (tuple, occurrences) = go annotation rest
+           in (tuple, (key, occurrence) : occurrences)
+        Syn.InfoType checked : rest -> go (Just checked) rest
         _ -> (annotation, [])
 
 -- | The knot variables that a 'RecKnotVariables' annotation of a @rec@
@@ -5711,7 +5693,6 @@ recStmtKnotVariables statement =
   case statement of
     Syn.DoRecKnot (RecKnotVariables variables) _ -> Just variables
     Syn.DoAnn _ inner -> recStmtKnotVariables inner
-    Syn.DoTc _ inner -> recStmtKnotVariables inner
     _ -> Nothing
 
 -- | Bind each group variable lazily to its field of a knot value. A group
@@ -6037,7 +6018,6 @@ peelDoStatement :: Syn.DoStmt body -> Syn.DoStmt body
 peelDoStatement statement =
   case statement of
     Syn.DoAnn _ inner -> peelDoStatement inner
-    Syn.DoTc _ inner -> peelDoStatement inner
     Syn.DoRecKnot _ inner -> peelDoStatement inner
     _ -> statement
 

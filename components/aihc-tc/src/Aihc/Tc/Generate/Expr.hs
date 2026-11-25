@@ -58,6 +58,7 @@ import Aihc.Tc.Syntax.Pending
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
+    addCompStmtTc,
     annotateBranchCast,
     annotateExprCast,
     annotateFunCast,
@@ -1985,9 +1986,6 @@ inferArithSeqNode sp arithSeq =
     ArithSeqAnn ann inner -> do
       (inner', resultTy, cts) <- inferArithSeqNode sp inner
       pure (ArithSeqAnn ann inner', resultTy, cts)
-    ArithSeqTc ann inner -> do
-      (inner', resultTy, cts) <- inferArithSeqNode sp inner
-      pure (ArithSeqTc ann inner', resultTy, cts)
     _
       | Just resolution <- syntaxResolution =<< arithSeqMethod arithSeq ->
           inferResolvedArithSeq sp resolution arithSeq
@@ -2027,9 +2025,6 @@ inferArithSeqForm arithSeq =
     ArithSeqAnn ann inner -> do
       (inner', types, cts) <- inferArithSeqForm inner
       pure (ArithSeqAnn ann inner', types, cts)
-    ArithSeqTc ann inner -> do
-      (inner', types, cts) <- inferArithSeqForm inner
-      pure (ArithSeqTc ann inner', types, cts)
     ArithSeqFrom method from -> inferForm (ArithSeqFrom method) [from]
     ArithSeqFromThen method from thenExpr -> inferForm2 (ArithSeqFromThen method) from thenExpr
     ArithSeqFromTo method from to -> inferForm2 (ArithSeqFromTo method) from to
@@ -2105,7 +2100,7 @@ inferListCompParallel sp body branches = do
       let tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] [])
           annotated =
             case quals' of
-              first : rest -> CompTc tupleAnn first : rest
+              first : rest -> addCompStmtTc tupleAnn first : rest
               [] -> []
       pure (annotated, branchBinders, cts)
     -- After the last statement of a branch, equate the type of each
@@ -2139,12 +2134,7 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
           case stmts' of
             inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
             [] -> pure ([], body', bodyTy, cts)
-        CompTc info inner -> do
-          (stmts', body', bodyTy, cts) <- go seen ambient (inner : rest)
-          case stmts' of
-            inner' : rest' -> pure (CompTc info inner' : rest', body', bodyTy, cts)
-            [] -> pure ([], body', bodyTy, cts)
-        CompGen pat src -> do
+        CompGen tc pat src -> do
           elemTy <- freshMetaTv
           (src', srcTy, srcCts) <- inferExpr src
           patCheck <- checkPattern ambient pat elemTy
@@ -2153,25 +2143,25 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
               srcListCt = mkWantedCt (EqPred srcTy (TcTyCon listTyCon' [elemTy])) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternScope patCheck (go (qual : seen) ambient rest)
           remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
-          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
-        CompGuard guard -> do
+          pure (CompGen tc (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
+        CompGuard tc guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
           expectedBoolTy <- boolType
           let guardSp = exprSpan guard <|> ambient
               guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
           (rest', body', bodyTy, bodyCts) <- go (qual : seen) ambient rest
-          pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
-        CompLetDecls decls -> do
+          pure (CompGuard tc guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
+        CompLetDecls tc decls -> do
           (decls', (rest', body'), bodyTy, bodyCts) <-
             inferLocalDecls inferExpr decls $ do
               (rest', body', bodyTy, bodyCts) <- go (qual : seen) ambient rest
               pure ((rest', body'), bodyTy, bodyCts)
-          pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
-        CompThen function -> transform seen ambient qual rest False Nothing function (\_ function' -> CompThen function')
-        CompThenBy function key -> transform seen ambient qual rest False (Just key) function (\key' function' -> CompThenBy function' (fromMaybe key key'))
-        CompGroupUsing function -> transform seen ambient qual rest True Nothing function (\_ function' -> CompGroupUsing function')
-        CompGroupByUsing key function -> transform seen ambient qual rest True (Just key) function (CompGroupByUsing . fromMaybe key)
+          pure (CompLetDecls tc decls' : rest', body', bodyTy, bodyCts)
+        CompThen tc function -> transform seen ambient qual rest False Nothing function (\_ function' -> CompThen tc function')
+        CompThenBy tc function key -> transform seen ambient qual rest False (Just key) function (\key' function' -> CompThenBy tc function' (fromMaybe key key'))
+        CompGroupUsing tc function -> transform seen ambient qual rest True Nothing function (\_ function' -> CompGroupUsing tc function')
+        CompGroupByUsing tc key function -> transform seen ambient qual rest True (Just key) function (CompGroupByUsing tc . fromMaybe key)
 
     -- Check a transform statement of TransformListComp. Let @t@ be the
     -- tuple type of the variables of the statements before it. The
@@ -2204,7 +2194,7 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
       let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
           keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
           tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] keyTys)
-          qual' = CompTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+          qual' = addCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
       pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
 
     transformBinderType sp key = do
@@ -2276,11 +2266,6 @@ inferLastDoStmt expected ambient stmt =
       case stmts' of
         [inner'] -> pure ([DoAnn ann inner'], resultTy, cts)
         _ -> pure (stmts', resultTy, cts)
-    DoTc ann inner -> do
-      (stmts', resultTy, cts) <- inferLastDoStmt expected (doStmtSpan stmt <|> ambient) inner
-      case stmts' of
-        [inner'] -> pure ([DoTc ann inner'], resultTy, cts)
-        _ -> pure (stmts', resultTy, cts)
     DoRecKnot knot inner -> inferLastWrapped (DoRecKnot knot) inner
     DoExpr method body -> do
       (body', bodyTy, cts) <- maybe (inferExprAt ambient body) (`checkExpr` body) expected
@@ -2317,11 +2302,6 @@ inferDoStmt end expected ambient stmt rest =
       (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
       case stmts' of
         inner' : rest' -> pure (DoAnn ann inner' : rest', resultTy, cts)
-        [] -> pure ([], resultTy, cts)
-    DoTc ann inner -> do
-      (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
-      case stmts' of
-        inner' : rest' -> pure (DoTc ann inner' : rest', resultTy, cts)
         [] -> pure ([], resultTy, cts)
     DoRecKnot knot inner -> inferWrapped (DoRecKnot knot) inner
     DoBind methods pat action -> do
@@ -2362,7 +2342,7 @@ inferDoStmt end expected ambient stmt rest =
           (rest', resultTy, restCts) <- inferDoStmtsEnd end expected ambient rest
           pure (rest', resultTy, restCts)
       pure (DoLetDecls decls' : rest', resultTy, cts)
-    DoRecStmt _ _ -> do
+    DoRecStmt _ _ _ -> do
       emitError ambient (OtherError "a rec statement without its resolved methods")
       (rest', resultTy, cts) <- inferDoStmtsEnd end expected ambient rest
       pure (stmt : rest', resultTy, cts)
@@ -2388,9 +2368,9 @@ data RecStmtParts = RecStmtParts
 recStmtParts :: DoStmt Expr -> Maybe RecStmtParts
 recStmtParts stmt =
   case stmt of
-    DoRecKnot variablesKnot@(RecKnotVariables variables) (DoRecStmt (Just methods) stmts) ->
+    DoRecKnot variablesKnot@(RecKnotVariables variables) (DoRecStmt _ (Just methods) stmts) ->
       parts (Just (variablesKnot, variables)) methods stmts
-    DoRecStmt (Just methods) stmts -> parts Nothing methods stmts
+    DoRecStmt _ (Just methods) stmts -> parts Nothing methods stmts
     _ -> Nothing
   where
     parts knot (DoRecMethods mfix return' bind) stmts =
@@ -2461,9 +2441,8 @@ inferRecStmt end expected ambient parts rest = do
           (annotateDoMethodName mfixTy mfixEv mfixPending mfixName)
           (annotateDoMethodName knotTy returnEv returnPending returnName)
           (annotateDoMethodName bindTy bindEv bindPending bindName)
-      stmt' =
-        DoTc (InfoType tuplePending) $
-          foldr knotOccurrence (maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt (Just methods') stmts')) knotOccurrences
+      recTc = InfoType tuplePending : concatMap knotOccurrence knotOccurrences
+      stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt recTc (Just methods') stmts')
   pure
     ( stmt' : rest',
       blockTy,
@@ -2471,8 +2450,7 @@ inferRecStmt end expected ambient parts rest = do
     )
   where
     withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
-    knotOccurrence (key, annotation) inner =
-      DoTc (InfoRecKnotOccurrence key) (DoTc (InfoType annotation) inner)
+    knotOccurrence (key, annotation) = [InfoRecKnotOccurrence key, InfoType annotation]
 
 -- | The type of the knot of a recursive group: the unit type for no
 -- variable, the type of the variable for one variable, and a tuple type for
