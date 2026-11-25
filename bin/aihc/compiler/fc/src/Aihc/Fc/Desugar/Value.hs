@@ -706,13 +706,13 @@ castTarget :: Maybe TcCastAnnotation -> Maybe TcType
 castTarget cast = (\(TcCastAnnotation _ target) -> target) <$> cast
 
 -- | The type of an argument where it stands.
-argumentType :: Syn.ArgumentFit -> Syn.Expr -> Maybe TcType
-argumentType (Syn.ArgumentFit typeLambda cast) argument =
+fitArgumentType :: Syn.ArgumentFit -> Syn.Expr -> Maybe TcType
+fitArgumentType (Syn.ArgumentFit typeLambda cast) argument =
   (tcAnnType <$> typeLambda) <|> castTarget cast <|> exprType argument
 
 -- | The type of the function of an application where it stands.
-functionType :: Syn.FunctionFit -> Syn.Expr -> Maybe TcType
-functionType (Syn.FunctionFit cast instantiation) function =
+fitFunctionType :: Syn.FunctionFit -> Syn.Expr -> Maybe TcType
+fitFunctionType (Syn.FunctionFit cast instantiation) function =
   castTarget cast <|> (tcAnnType <$> instantiation) <|> exprType function
 
 -- | The type of an expression node, without the type of its parts. The
@@ -4110,7 +4110,7 @@ shareSectionOperand :: Syn.ArgumentFit -> Syn.Expr -> Expr -> (Expr -> Expr) -> 
 shareSectionOperand fit operand operand' section
   | isAtom operand' = pure (section operand')
   | otherwise = do
-      operandType <- maybe (inferExprType operand) pure (argumentType fit operand)
+      operandType <- maybe (inferExprType operand) pure (fitArgumentType fit operand)
       fixed <- hasFixedRuntimeRep operandType
       if not fixed
         then pure (section operand')
@@ -7399,10 +7399,10 @@ inferExprType expression =
     Syn.EAnn _ inner -> inferExprType inner
     Syn.EVar _ name -> lookupNamedBindingType name
     Syn.EApp tc function _ -> do
-      functionType' <- maybe (inferExprType function) pure (castTarget (Syn.functionCast (Syn.appFunction tc)))
-      case applicationResultType functionType' of
+      headType <- maybe (inferExprType function) pure (castTarget (Syn.functionCast (Syn.appFunction tc)))
+      case applicationResultType headType of
         Just result -> pure result
-        Nothing -> failValue ("application head is not a checked function: " <> show functionType')
+        Nothing -> failValue ("application head is not a checked function: " <> show headType)
     Syn.EInfix _ _ operator _ -> do
       operatorType <-
         maybe
@@ -7433,10 +7433,10 @@ exprType expression =
   case expression of
     Syn.EAnn _ inner -> exprType inner
     Syn.ETypeSig (Syn.SigTc cast ty fit) inner _ ->
-      castTarget cast <|> (tcAnnType <$> ty) <|> argumentType fit inner
+      castTarget cast <|> (tcAnnType <$> ty) <|> fitArgumentType fit inner
     _
       | Just annotation <- nodeType expression -> Just (tcAnnType annotation)
-    Syn.EApp tc function _ -> functionType (Syn.appFunction tc) function >>= applicationResultType
+    Syn.EApp tc function _ -> fitFunctionType (Syn.appFunction tc) function >>= applicationResultType
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
