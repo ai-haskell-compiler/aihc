@@ -35,7 +35,6 @@ module Aihc.Tc.Syntax.Pending
     annotateFunCast,
     annotateSigCast,
     annotateBranchCast,
-    annotateDoStmtCast,
 
     -- * Resolutions
     ResolutionResult (..),
@@ -91,10 +90,16 @@ module Aihc.Tc.Syntax.Pending
     NPlusKMatch (..),
     ListMatch (..),
     LiteralSyntax (..),
+    DoBindMethods (..),
+    DoRecMethods (..),
     literalMatchNames,
     nPlusKMatchNames,
     listMatchNames,
     literalSyntaxNames,
+    arithSeqMethod,
+    mapArithSeqMethod,
+    doBindMethodsNames,
+    doRecMethodsNames,
     RoleAnnotation (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -477,7 +482,6 @@ instanceHeadName :: Type -> Maybe Name
 instanceHeadName ty =
   case ty of
     TAnn _ inner -> instanceHeadName inner
-    TResolved _ inner -> instanceHeadName inner
     TApp fun _ -> instanceHeadName fun
     TTypeApp fun _ -> instanceHeadName fun
     TParen inner -> instanceHeadName inner
@@ -492,7 +496,6 @@ instanceHeadTypes = go []
     go acc ty =
       case ty of
         TAnn _ inner -> go acc inner
-        TResolved _ inner -> go acc inner
         TApp fun arg -> go (arg : acc) fun
         TTypeApp fun _ -> go acc fun
         TParen inner -> go acc inner
@@ -528,7 +531,7 @@ peelExprAnn expr =
     ETc _ inner -> peelExprAnn inner
     _ -> expr
 
--- | Remove the annotation, resolution and type checker wrappers of a pattern.
+-- | Remove the annotation and type checker wrappers of a pattern.
 peelPatternAnn :: Pattern -> Pattern
 peelPatternAnn pat =
   case pat of
@@ -536,12 +539,11 @@ peelPatternAnn pat =
     PTc _ inner -> peelPatternAnn inner
     _ -> pat
 
--- | Remove the annotation and resolution wrappers of a type.
+-- | Remove the annotation wrappers of a type.
 peelTypeAnn :: Type -> Type
 peelTypeAnn ty =
   case ty of
     TAnn _ inner -> peelTypeAnn inner
-    TResolved _ inner -> peelTypeAnn inner
     _ -> ty
 
 -- | Remove the wrappers of a type, and its parentheses.
@@ -549,17 +551,15 @@ peelTypeHead :: Type -> Type
 peelTypeHead ty =
   case ty of
     TAnn _ inner -> peelTypeHead inner
-    TResolved _ inner -> peelTypeHead inner
     TParen inner -> peelTypeHead inner
     _ -> ty
 
--- | Remove the annotation, resolution and type checker wrappers of a constructor.
+-- | Remove the annotation and type checker wrappers of a constructor.
 peelDataConAnn :: DataConDecl -> DataConDecl
 peelDataConAnn decl =
   case decl of
     DataConAnn _ inner -> peelDataConAnn inner
     DataConTc _ inner -> peelDataConAnn inner
-    DataConResolved _ inner -> peelDataConAnn inner
     _ -> decl
 
 -- | Remove the annotation, error and type checker wrappers of a class item.
@@ -593,13 +593,12 @@ peelCompStmtAnn stmt =
     CompTc _ inner -> peelCompStmtAnn inner
     _ -> stmt
 
--- | Remove the annotation, resolution and type checker wrappers of a sequence.
+-- | Remove the annotation and type checker wrappers of a sequence.
 peelArithSeqAnn :: ArithSeq -> ArithSeq
 peelArithSeqAnn arithSeq =
   case arithSeq of
     ArithSeqAnn _ inner -> peelArithSeqAnn inner
     ArithSeqTc _ inner -> peelArithSeqAnn inner
-    ArithSeqResolved _ inner -> peelArithSeqAnn inner
     _ -> arithSeq
 
 peelCmdAnn :: Cmd -> Cmd
@@ -614,7 +613,6 @@ peelDoStmtAnn stmt =
   case stmt of
     DoAnn _ inner -> peelDoStmtAnn inner
     DoTc _ inner -> peelDoStmtAnn inner
-    DoResolved _ inner -> peelDoStmtAnn inner
     DoRecKnot _ inner -> peelDoStmtAnn inner
     _ -> stmt
 
@@ -1093,9 +1091,6 @@ data ArrowKind
 data Type
   = -- | Metadata for the whole type.
     TAnn Annotation Type
-  | -- | The resolution of built-in type syntax, such as a tuple or a list,
-    -- or a resolve error.
-    TResolved ResolutionResult Type
   | -- | @a@
     TVar UnqualifiedName
   | -- | @Maybe@ or @'Just@
@@ -1120,12 +1115,13 @@ data Type
     TInfix Type Name TypePromotion Type
   | -- | @a -> b@, @a %1 -> b@, or @a %m -> b@
     TFun ArrowKind Type Type
-  | -- | @(a, b)@, @'(a, b)@, or @(# a, b #)@
-    TTuple TupleFlavor TypePromotion [Type]
+  | -- | @(a, b)@, @'(a, b)@, or @(# a, b #)@. The name is the built-in
+    -- tuple syntax.
+    TTuple Name TupleFlavor TypePromotion [Type]
   | -- | @(# a | b #)@
     TUnboxedSum [Type]
-  | -- | @[a]@ or @'[a, b]@
-    TList TypePromotion [Type]
+  | -- | @[a]@ or @'[a, b]@. The name is the built-in list syntax.
+    TList Name TypePromotion [Type]
   | -- | @(ty)@
     TParen Type
   | -- | @(a :: Type)@
@@ -1285,8 +1281,6 @@ data DataConDecl
     DataConAnn Annotation DataConDecl
   | -- | What the type checker found for the whole constructor declaration.
     DataConTc TcInfo DataConDecl
-  | -- | The resolution of built-in constructor syntax, such as @[]@.
-    DataConResolved ResolutionResult DataConDecl
   | -- | @Just a@
     PrefixCon [TyVarBinder] [Type] UnqualifiedName [BangType]
   | -- | @a :+: b@
@@ -1301,8 +1295,8 @@ data DataConDecl
   | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
     -- Fields: forall vars, context, position (1-based), total arity, field type
     UnboxedSumCon [TyVarBinder] [Type] Int Int BangType
-  | -- | List constructor: @[]@
-    ListCon [TyVarBinder] [Type]
+  | -- | List constructor: @[]@. The name is the built-in list syntax.
+    ListCon [TyVarBinder] [Type] Name
   deriving (Eq, Show)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1592,19 +1586,52 @@ data DoStmt body
     DoAnn Annotation (DoStmt body)
   | -- | What the type checker found for the whole statement.
     DoTc TcInfo (DoStmt body)
-  | -- | A method that the desugaring of the statement uses, such as @>>=@.
-    DoResolved ResolutionResult (DoStmt body)
   | -- | The knot variables of a @rec@ segment of an @mdo@ block.
     DoRecKnot RecKnotVariables (DoStmt body)
-  | -- | @pat <- expr@
-    DoBind Pattern body
+  | -- | @pat <- expr@. The methods are 'Nothing' for the last statement of
+    -- a block and for a statement that the resolver did not resolve.
+    DoBind (Maybe DoBindMethods) Pattern body
   | -- | @let decls@
     DoLetDecls [Decl]
-  | -- | A bare expression statement such as @print x@.
-    DoExpr body
-  | -- | @rec { stmts }@
-    DoRecStmt [DoStmt body] -- rec { stmts }
+  | -- | A bare expression statement such as @print x@. The name is the
+    -- @>>@ method that sequences the statement. It is 'Nothing' for the
+    -- last statement of a block and for a statement that the resolver did
+    -- not resolve.
+    DoExpr (Maybe Name) body
+  | -- | @rec { stmts }@. The methods are 'Nothing' for a statement that the
+    -- resolver did not resolve.
+    DoRecStmt (Maybe DoRecMethods) [DoStmt body]
   deriving (Eq, Show)
+
+-- | The methods of the desugaring of a bind statement.
+data DoBindMethods = DoBindMethods
+  { -- | The @>>=@ method that sequences the statement.
+    doBindMethod :: Name,
+    -- | The @fail@ method, when the pattern can fail to match.
+    doBindFail :: Maybe Name
+  }
+  deriving (Eq, Show)
+
+-- | The names of the methods of a bind statement.
+doBindMethodsNames :: DoBindMethods -> [Name]
+doBindMethodsNames (DoBindMethods method failure) = method : maybe [] pure failure
+
+-- | The methods of the desugaring of a @rec@ statement:
+--
+-- > vs <- mfix (\ ~vs -> do { stmts; return vs })
+data DoRecMethods = DoRecMethods
+  { -- | The @mfix@ method that ties the knot.
+    doRecMfix :: Name,
+    -- | The @return@ method that gives the tuple of the group variables.
+    doRecReturn :: Name,
+    -- | The @>>=@ method that binds the tuple for the statements after it.
+    doRecBind :: Name
+  }
+  deriving (Eq, Show)
+
+-- | The names of the methods of a @rec@ statement.
+doRecMethodsNames :: DoRecMethods -> [Name]
+doRecMethodsNames (DoRecMethods mfix return' bind) = [mfix, return', bind]
 
 -- | Arrow command type (used inside 'proc' expressions).
 -- Commands mirror expressions but live in a separate namespace so the
@@ -1660,17 +1687,37 @@ data ArithSeq
     ArithSeqAnn Annotation ArithSeq
   | -- | What the type checker found for the whole arithmetic sequence.
     ArithSeqTc TcInfo ArithSeq
-  | -- | The enumeration method that the sequence uses.
-    ArithSeqResolved ResolutionResult ArithSeq
-  | -- | @[expr ..]@
-    ArithSeqFrom Expr
-  | -- | @[start, thenExpr ..]@
-    ArithSeqFromThen Expr Expr
-  | -- | @[start .. end]@
-    ArithSeqFromTo Expr Expr
-  | -- | @[start, thenExpr .. end]@
-    ArithSeqFromThenTo Expr Expr Expr
+  | -- | @[expr ..]@. The name is the @enumFrom@ method.
+    ArithSeqFrom Name Expr
+  | -- | @[start, thenExpr ..]@. The name is the @enumFromThen@ method.
+    ArithSeqFromThen Name Expr Expr
+  | -- | @[start .. end]@. The name is the @enumFromTo@ method.
+    ArithSeqFromTo Name Expr Expr
+  | -- | @[start, thenExpr .. end]@. The name is the @enumFromThenTo@ method.
+    ArithSeqFromThenTo Name Expr Expr Expr
   deriving (Eq, Show)
+
+-- | The enumeration method of an arithmetic sequence, under its wrappers.
+arithSeqMethod :: ArithSeq -> Maybe Name
+arithSeqMethod arithSeq =
+  case peelArithSeqAnn arithSeq of
+    ArithSeqFrom method _ -> Just method
+    ArithSeqFromThen method _ _ -> Just method
+    ArithSeqFromTo method _ _ -> Just method
+    ArithSeqFromThenTo method _ _ _ -> Just method
+    _ -> Nothing
+
+-- | Change the enumeration method of an arithmetic sequence, under its
+-- wrappers.
+mapArithSeqMethod :: (Name -> Name) -> ArithSeq -> ArithSeq
+mapArithSeqMethod f arithSeq =
+  case arithSeq of
+    ArithSeqFrom method from -> ArithSeqFrom (f method) from
+    ArithSeqFromThen method from then' -> ArithSeqFromThen (f method) from then'
+    ArithSeqFromTo method from to -> ArithSeqFromTo (f method) from to
+    ArithSeqFromThenTo method from then' to -> ArithSeqFromThenTo (f method) from then' to
+    ArithSeqAnn ann inner -> ArithSeqAnn ann (mapArithSeqMethod f inner)
+    ArithSeqTc info inner -> ArithSeqTc info (mapArithSeqMethod f inner)
 
 -- | Wrap a declaration with its checked type.
 annotateDecl :: TcAnnotation -> Decl -> Decl
@@ -1716,15 +1763,6 @@ annotateSigCast ty evidence =
 annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
 annotateBranchCast ty evidence =
   ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
-
--- | Cast the sequencing method of a @do@ statement onto the type the
--- statement uses it at. The method is equated as
--- @method ~ (action -> continuation -> block)@, so the proof runs forwards
--- for the method. The desugarer applies the cast to the method occurrence,
--- because the statement has no expression node for it.
-annotateDoStmtCast :: TcType -> EvVar -> DoStmt body -> DoStmt body
-annotateDoStmtCast ty evidence =
-  DoTc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | The pending type of an item of information, if it is one.
 infoPending :: TcInfo -> Maybe PendingTcAnnotation

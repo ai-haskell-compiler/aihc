@@ -126,12 +126,11 @@ recStmtBinderNames =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
         DoTc _ inner -> stmtBinders inner
-        DoResolved _ inner -> stmtBinders inner
         DoRecKnot _ inner -> stmtBinders inner
-        DoBind pat _ -> patternBinderNames pat
+        DoBind _ pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
-        DoExpr _ -> []
-        DoRecStmt stmts -> concatMap stmtBinders stmts
+        DoExpr _ _ -> []
+        DoRecStmt _ stmts -> concatMap stmtBinders stmts
     declBinders decl =
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]

@@ -130,7 +130,6 @@ dataConBindings wiring origin dataConDecl =
       ]
     DataConTc _ inner -> dataConBindings wiring origin inner
     DataConAnn _ inner -> dataConBindings wiring origin inner
-    DataConResolved _ inner -> dataConBindings wiring origin inner
     _ -> []
 
 recordSelectorBindings :: (Text, Text) -> DataConDecl -> [TcBindingResult]
@@ -139,7 +138,6 @@ recordSelectorBindings origin declaration =
     DataConTc (InfoType tcAnn) inner -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
     DataConTc _ inner -> recordSelectorBindings origin inner
     DataConAnn _ inner -> recordSelectorBindings origin inner
-    DataConResolved _ inner -> recordSelectorBindings origin inner
     _ -> []
   where
     selectorBindingsFromConstructorType constructorType inner =
@@ -186,7 +184,6 @@ recordFieldNamesOf declaration =
   case declaration of
     DataConAnn _ inner -> recordFieldNamesOf inner
     DataConTc _ inner -> recordFieldNamesOf inner
-    DataConResolved _ inner -> recordFieldNamesOf inner
     RecordCon _ _ _ fields -> concatMap fieldNames fields
     GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
     _ -> []
@@ -201,7 +198,6 @@ dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
     DataConTc _ inner -> dataConIdentities inner
-    DataConResolved _ inner -> dataConIdentities inner
     PrefixCon _ _ name _ -> [DeclaredDataCon name]
     InfixCon _ _ _ name _ -> [DeclaredDataCon name]
     RecordCon _ _ name _ -> [DeclaredDataCon name]
@@ -252,7 +248,6 @@ dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
     DataConTc _ inner -> dataConSourceLayout inner
-    DataConResolved _ inner -> dataConSourceLayout inner
     PrefixCon _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
     InfixCon _ _ left _ right ->
@@ -339,12 +334,11 @@ recStmtBinderNames =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
         DoTc _ inner -> stmtBinders inner
-        DoResolved _ inner -> stmtBinders inner
         DoRecKnot _ inner -> stmtBinders inner
-        DoBind pat _ -> patternBinderNames pat
+        DoBind _ pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
-        DoExpr _ -> []
-        DoRecStmt stmts -> concatMap stmtBinders stmts
+        DoExpr _ _ -> []
+        DoRecStmt _ stmts -> concatMap stmtBinders stmts
     declBinders decl =
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]

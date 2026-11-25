@@ -41,8 +41,8 @@ import Aihc.Resolve.Syntax
 data Walk f = Walk
   { -- | Every annotation, where it is attached.
     walkAnnotation :: Annotation -> f Annotation,
-    -- | Every resolution result, where it is attached: on a name, on a
-    -- binder, or in a wrapper constructor such as 'DoResolved'.
+    -- | Every resolution result, where it is attached: on a name or on a
+    -- binder.
     walkResolution :: ResolutionResult -> f ResolutionResult,
     -- | Every annotation list of a node that holds its annotations in a
     -- list, such as a name or a module. The argument walks the elements.
@@ -431,7 +431,6 @@ instance Walkable ArrowKind where
 instance Walkable Type where
   walk w = walkType w $ \case
     TAnn ann inner -> TAnn <$> walkAnnotation w ann <*> walk w inner
-    TResolved result inner -> TResolved <$> walkResolution w result <*> walk w inner
     TVar name -> TVar <$> walk w name
     TCon name promotion -> TCon <$> walk w name <*> pure promotion
     TBuiltinCon builtin promotion -> pure (TBuiltinCon builtin promotion)
@@ -446,9 +445,9 @@ instance Walkable Type where
       TInfix <$> walk w lhs <*> walk w name <*> pure promotion <*> walk w rhs
     TFun arrow argument result ->
       TFun <$> walk w arrow <*> walk w argument <*> walk w result
-    TTuple flavor promotion items -> TTuple flavor promotion <$> walk w items
+    TTuple syntax flavor promotion items -> (\syntax' -> TTuple syntax' flavor promotion) <$> walk w syntax <*> walk w items
     TUnboxedSum items -> TUnboxedSum <$> walk w items
-    TList promotion items -> TList promotion <$> walk w items
+    TList syntax promotion items -> (\syntax' -> TList syntax' promotion) <$> walk w syntax <*> walk w items
     TParen inner -> TParen <$> walk w inner
     TKindSig inner kind -> TKindSig <$> walk w inner <*> walk w kind
     TContext context inner -> TContext <$> walk w context <*> walk w inner
@@ -550,7 +549,6 @@ instance Walkable NewtypeDecl where
 instance Walkable DataConDecl where
   walk w = walkDataConDecl w $ \case
     DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
-    DataConResolved result inner -> DataConResolved <$> walkResolution w result <*> walk w inner
     PrefixCon binders context name fields ->
       PrefixCon <$> walk w binders <*> walk w context <*> walk w name <*> walk w fields
     InfixCon binders context lhs name rhs ->
@@ -568,7 +566,7 @@ instance Walkable DataConDecl where
       TupleCon <$> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
     UnboxedSumCon binders context position arity field ->
       UnboxedSumCon <$> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
-    ListCon binders context -> ListCon <$> walk w binders <*> walk w context
+    ListCon binders context syntax -> ListCon <$> walk w binders <*> walk w context <*> walk w syntax
 
 instance Walkable GadtBody where
   walk w body =
@@ -729,12 +727,19 @@ instance Walkable LambdaCaseAlt where
 instance (Walkable body) => Walkable (DoStmt body) where
   walk w = walkDoStmt w $ \case
     DoAnn ann inner -> DoAnn <$> walkAnnotation w ann <*> walk w inner
-    DoResolved result inner -> DoResolved <$> walkResolution w result <*> walk w inner
     DoRecKnot knot inner -> DoRecKnot knot <$> walk w inner
-    DoBind pat body -> DoBind <$> walk w pat <*> walk w body
+    DoBind methods pat body -> DoBind <$> walk w methods <*> walk w pat <*> walk w body
     DoLetDecls decls -> DoLetDecls <$> walk w decls
-    DoExpr body -> DoExpr <$> walk w body
-    DoRecStmt statements -> DoRecStmt <$> walk w statements
+    DoExpr method body -> DoExpr <$> walk w method <*> walk w body
+    DoRecStmt methods statements -> DoRecStmt <$> walk w methods <*> walk w statements
+
+instance Walkable DoBindMethods where
+  walk w (DoBindMethods method failure) =
+    DoBindMethods <$> walk w method <*> walk w failure
+
+instance Walkable DoRecMethods where
+  walk w (DoRecMethods mfix return' bind) =
+    DoRecMethods <$> walk w mfix <*> walk w return' <*> walk w bind
 
 instance Walkable Cmd where
   walk w = walkCmd w $ \case
@@ -765,9 +770,8 @@ instance Walkable CompStmt where
 instance Walkable ArithSeq where
   walk w = walkArithSeq w $ \case
     ArithSeqAnn ann inner -> ArithSeqAnn <$> walkAnnotation w ann <*> walk w inner
-    ArithSeqResolved result inner -> ArithSeqResolved <$> walkResolution w result <*> walk w inner
-    ArithSeqFrom from -> ArithSeqFrom <$> walk w from
-    ArithSeqFromThen from next -> ArithSeqFromThen <$> walk w from <*> walk w next
-    ArithSeqFromTo from to -> ArithSeqFromTo <$> walk w from <*> walk w to
-    ArithSeqFromThenTo from next to ->
-      ArithSeqFromThenTo <$> walk w from <*> walk w next <*> walk w to
+    ArithSeqFrom method from -> ArithSeqFrom <$> walk w method <*> walk w from
+    ArithSeqFromThen method from next -> ArithSeqFromThen <$> walk w method <*> walk w from <*> walk w next
+    ArithSeqFromTo method from to -> ArithSeqFromTo <$> walk w method <*> walk w from <*> walk w to
+    ArithSeqFromThenTo method from next to ->
+      ArithSeqFromThenTo <$> walk w method <*> walk w from <*> walk w next <*> walk w to

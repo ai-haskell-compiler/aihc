@@ -262,10 +262,9 @@ renderAnnotatedResolveResult sources resolved =
 -- syntax that it resolves:
 --
 -- * A name or a binder: the span of its annotations.
--- * A wrapper constructor, such as 'R.TResolved': the first span of the
---   chain of wrappers around the same node.
--- * A syntax name of an expression, such as @fromInteger@ for @1@: the
---   first span of the chain of wrappers around the expression.
+-- * A syntax name of an expression, a statement, a type, a sequence, or a
+--   constructor declaration, such as @fromInteger@ for @1@: the first span
+--   of the chain of wrappers around the node.
 -- * A name of the match of a pattern, such as @fromInteger@ for @1@: the
 --   first span of the chain of wrappers around the pattern. The parser can
 --   give a pattern two spans, such as @-1@ and @1@ for @-1@.
@@ -286,14 +285,14 @@ labelWalk =
         RWalk.collected (resultLabels (R.unqualifiedNameAnns name) (R.unqualifiedNameResolution name)) *> children name,
       RWalk.walkExpr = wrappedWith exprSyntax peelExpr,
       RWalk.walkPattern = wrappedWith patternMatch peelPattern,
-      RWalk.walkType = wrapped peelType,
+      RWalk.walkType = wrappedWith typeSyntax peelType,
       RWalk.walkDecl = \children decl -> wrapped peelDecl (\base -> ruleLabels base *> children base) decl,
-      RWalk.walkDataConDecl = wrapped peelDataCon,
+      RWalk.walkDataConDecl = wrappedWith dataConSyntax peelDataCon,
       RWalk.walkLiteral = wrapped peelLiteral,
       RWalk.walkGuardQualifier = wrapped peelGuard,
-      RWalk.walkDoStmt = wrapped peelDoStmt,
+      RWalk.walkDoStmt = wrappedWith doStmtMethods peelDoStmt,
       RWalk.walkCompStmt = wrapped peelCompStmt,
-      RWalk.walkArithSeq = wrapped peelArithSeq,
+      RWalk.walkArithSeq = wrappedWith arithSeqMethod peelArithSeq,
       RWalk.walkClassDeclItem = wrapped peelClassItem,
       RWalk.walkInstanceDeclItem = wrapped peelInstanceItem,
       RWalk.walkCmd = wrapped peelCmd,
@@ -311,10 +310,9 @@ labelWalk =
 errorLabels :: [Annotation] -> Maybe ResolveError -> [(SourceSpan, Doc ann)]
 errorLabels anns resolveError = labelsAt (spanFromAnnotations anns) (map (pretty . errorLabel) (maybeToList resolveError))
 
--- | One wrapper of a node: an annotation, or a result of the resolver.
+-- | One wrapper of a node: an annotation, or a resolve error.
 data Wrapper
   = WrapperAnnotation Annotation
-  | WrapperResult ResolutionResult
   | WrapperError ResolveError
   | WrapperOther
 
@@ -347,7 +345,6 @@ wrappedWith own peel children node =
     wrapperDoc wrapper =
       case wrapper of
         WrapperAnnotation ann -> maybeToList (resolutionAnnotationDoc ann)
-        WrapperResult result -> [resultDoc result]
         WrapperError resolveError -> [pretty (errorLabel resolveError)]
         WrapperOther -> []
 
@@ -414,11 +411,43 @@ peelPattern pat =
     R.PAnn ann inner -> Just (WrapperAnnotation ann, inner)
     _ -> Nothing
 
+-- | The result of the syntax name of a tuple or a list type, and the type
+-- with no result in the name.
+typeSyntax :: R.Type -> ([ResolutionResult], R.Type)
+typeSyntax ty =
+  case ty of
+    R.TTuple syntax flavor promotion items -> (maybeToList (R.nameResolution syntax), R.TTuple (unresolvedName syntax) flavor promotion items)
+    R.TList syntax promotion items -> (maybeToList (R.nameResolution syntax), R.TList (unresolvedName syntax) promotion items)
+    _ -> ([], ty)
+
+-- | The result of the syntax name of a list constructor declaration, and
+-- the declaration with no result in the name.
+dataConSyntax :: R.DataConDecl -> ([ResolutionResult], R.DataConDecl)
+dataConSyntax decl =
+  case decl of
+    R.ListCon binders context syntax -> (maybeToList (R.nameResolution syntax), R.ListCon binders context (unresolvedName syntax))
+    _ -> ([], decl)
+
+-- | The result of the method name of an arithmetic sequence, and the
+-- sequence with no result in the name.
+arithSeqMethod :: R.ArithSeq -> ([ResolutionResult], R.ArithSeq)
+arithSeqMethod arithSeq =
+  case arithSeq of
+    R.ArithSeqFrom method from -> (results method, R.ArithSeqFrom (unresolvedName method) from)
+    R.ArithSeqFromThen method from then' -> (results method, R.ArithSeqFromThen (unresolvedName method) from then')
+    R.ArithSeqFromTo method from to -> (results method, R.ArithSeqFromTo (unresolvedName method) from to)
+    R.ArithSeqFromThenTo method from then' to -> (results method, R.ArithSeqFromThenTo (unresolvedName method) from then' to)
+    _ -> ([], arithSeq)
+  where
+    results = maybeToList . R.nameResolution
+
+unresolvedName :: R.Name -> R.Name
+unresolvedName name = name {R.nameResolution = Nothing}
+
 peelType :: R.Type -> Maybe (Wrapper, R.Type)
 peelType ty =
   case ty of
     R.TAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.TResolved result inner -> Just (WrapperResult result, inner)
     _ -> Nothing
 
 peelDecl :: R.Decl -> Maybe (Wrapper, R.Decl)
@@ -432,7 +461,6 @@ peelDataCon :: R.DataConDecl -> Maybe (Wrapper, R.DataConDecl)
 peelDataCon decl =
   case decl of
     R.DataConAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.DataConResolved result inner -> Just (WrapperResult result, inner)
     _ -> Nothing
 
 peelLiteral :: R.Literal -> Maybe (Wrapper, R.Literal)
@@ -447,11 +475,26 @@ peelGuard qualifier =
     R.GuardAnn ann inner -> Just (WrapperAnnotation ann, inner)
     _ -> Nothing
 
+-- | The results of the method names of a do statement, and the statement
+-- with no results in these names. The @>>=@ method of a bind statement
+-- goes before its @fail@ method.
+doStmtMethods :: R.DoStmt body -> ([ResolutionResult], R.DoStmt body)
+doStmtMethods stmt =
+  case stmt of
+    R.DoBind (Just methods@(R.DoBindMethods method failure)) pat body ->
+      (results (R.doBindMethodsNames methods), R.DoBind (Just (R.DoBindMethods (unresolved method) (unresolved <$> failure))) pat body)
+    R.DoExpr (Just method) body -> (results [method], R.DoExpr (Just (unresolved method)) body)
+    R.DoRecStmt (Just methods@(R.DoRecMethods mfix return' bind)) stmts ->
+      (results (R.doRecMethodsNames methods), R.DoRecStmt (Just (R.DoRecMethods (unresolved mfix) (unresolved return') (unresolved bind))) stmts)
+    _ -> ([], stmt)
+  where
+    results = mapMaybe R.nameResolution
+    unresolved name = name {R.nameResolution = Nothing}
+
 peelDoStmt :: R.DoStmt body -> Maybe (Wrapper, R.DoStmt body)
 peelDoStmt stmt =
   case stmt of
     R.DoAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.DoResolved result inner -> Just (WrapperResult result, inner)
     R.DoRecKnot _ inner -> Just (WrapperOther, inner)
     _ -> Nothing
 
@@ -465,7 +508,6 @@ peelArithSeq :: R.ArithSeq -> Maybe (Wrapper, R.ArithSeq)
 peelArithSeq arithSeq =
   case arithSeq of
     R.ArithSeqAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.ArithSeqResolved result inner -> Just (WrapperResult result, inner)
     _ -> Nothing
 
 peelClassItem :: R.ClassDeclItem -> Maybe (Wrapper, R.ClassDeclItem)

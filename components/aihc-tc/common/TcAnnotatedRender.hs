@@ -30,6 +30,8 @@ import Aihc.Tc.Syntax
     CompStmt (..),
     DataConDecl (..),
     Decl (..),
+    DoBindMethods (..),
+    DoRecMethods (..),
     DoStmt (..),
     ExportSpec (..),
     Expr (..),
@@ -49,9 +51,13 @@ import Aihc.Tc.Syntax
     TcInfo (..),
     Type (..),
     annotationSpan,
+    arithSeqMethod,
+    doBindMethodsNames,
+    doRecMethodsNames,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
+    mapArithSeqMethod,
     moduleName,
     nPlusKMatchNames,
   )
@@ -126,9 +132,9 @@ labelWalk =
       walkDataConDecl = wrapped peelDataCon,
       walkLiteral = wrapped peelLiteral,
       walkGuardQualifier = wrapped peelGuard,
-      walkDoStmt = wrapped peelDo,
+      walkDoStmt = doLabels,
       walkCompStmt = wrapped peelComp,
-      walkArithSeq = wrapped peelArithSeq,
+      walkArithSeq = arithSeqLabels,
       walkClassDeclItem = wrapped peelClassItem,
       walkInstanceDeclItem = wrapped peelInstanceItem,
       walkCmd = wrapped peelCmd,
@@ -151,6 +157,26 @@ labelWalk =
       let (anns, infos, base) = peelLeading peelExpr node
           (syntaxInfos, base') = exprSyntax base
       addInfoLabels (spanFromAnnotations anns) (infos <> syntaxInfos)
+      _ <- children base'
+      pure node
+
+    -- The method names of a statement get the span of the statement,
+    -- before the information of its wrappers.
+    doLabels :: (DoStmt body -> State (Labels ann) (DoStmt body)) -> DoStmt body -> State (Labels ann) (DoStmt body)
+    doLabels children node = do
+      let (anns, infos, base) = peelLeading peelDo node
+          (methodInfos, base') = doStmtMethods base
+      addInfoLabels (spanFromAnnotations anns) (methodInfos <> infos)
+      _ <- children base'
+      pure node
+
+    -- The method name of an arithmetic sequence gets the span of the
+    -- sequence, before the information of its wrappers.
+    arithSeqLabels children node = do
+      let (anns, infos, base) = peelLeading peelArithSeq node
+          methodInfos = foldMap nameTc (arithSeqMethod base)
+          base' = mapArithSeqMethod (\name -> name {nameTc = []}) base
+      addInfoLabels (spanFromAnnotations anns) (methodInfos <> infos)
       _ <- children base'
       pure node
 
@@ -193,6 +219,22 @@ patternMatch pat =
         LiteralMatchPrimitive typeName -> LiteralMatchPrimitive (without typeName)
         LiteralMatchOverloaded (OverloadedLiteralMatch literalType conversion negation equality) ->
           LiteralMatchOverloaded (OverloadedLiteralMatch (without <$> literalType) (without conversion) (without <$> negation) (without equality))
+
+-- | The information of the method names of a statement, and the statement
+-- with no information in these names. The methods go from the outside in:
+-- @>>=@ before @fail@, and @mfix@, @return@, and @>>=@ for a @rec@
+-- statement.
+doStmtMethods :: DoStmt body -> ([TcInfo], DoStmt body)
+doStmtMethods stmt =
+  case stmt of
+    DoBind (Just methods@(DoBindMethods method failure)) pat body ->
+      (concatMap nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
+    DoExpr (Just method) body -> (nameTc method, DoExpr (Just (without method)) body)
+    DoRecStmt (Just methods@(DoRecMethods mfix return' bind)) stmts ->
+      (concatMap nameTc (doRecMethodsNames methods), DoRecStmt (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
+    _ -> ([], stmt)
+  where
+    without name = name {nameTc = []}
 
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
@@ -254,7 +296,6 @@ peelPattern _ = Nothing
 
 peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)
 peelType (TAnn ann inner) = Just (Just ann, Nothing, inner)
-peelType (TResolved _ inner) = Just (Nothing, Nothing, inner)
 peelType _ = Nothing
 
 peelDecl :: Decl -> Maybe (Maybe Annotation, Maybe TcInfo, Decl)
@@ -266,7 +307,6 @@ peelDecl _ = Nothing
 peelDataCon :: DataConDecl -> Maybe (Maybe Annotation, Maybe TcInfo, DataConDecl)
 peelDataCon (DataConAnn ann inner) = Just (Just ann, Nothing, inner)
 peelDataCon (DataConTc info inner) = Just (Nothing, Just info, inner)
-peelDataCon (DataConResolved _ inner) = Just (Nothing, Nothing, inner)
 peelDataCon _ = Nothing
 
 peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcInfo, Literal)
@@ -281,7 +321,6 @@ peelGuard _ = Nothing
 peelDo :: DoStmt body -> Maybe (Maybe Annotation, Maybe TcInfo, DoStmt body)
 peelDo (DoAnn ann inner) = Just (Just ann, Nothing, inner)
 peelDo (DoTc info inner) = Just (Nothing, Just info, inner)
-peelDo (DoResolved _ inner) = Just (Nothing, Nothing, inner)
 peelDo (DoRecKnot _ inner) = Just (Nothing, Nothing, inner)
 peelDo _ = Nothing
 
@@ -293,7 +332,6 @@ peelComp _ = Nothing
 peelArithSeq :: ArithSeq -> Maybe (Maybe Annotation, Maybe TcInfo, ArithSeq)
 peelArithSeq (ArithSeqAnn ann inner) = Just (Just ann, Nothing, inner)
 peelArithSeq (ArithSeqTc info inner) = Just (Nothing, Just info, inner)
-peelArithSeq (ArithSeqResolved _ inner) = Just (Nothing, Nothing, inner)
 peelArithSeq _ = Nothing
 
 peelClassItem :: ClassDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, ClassDeclItem)
