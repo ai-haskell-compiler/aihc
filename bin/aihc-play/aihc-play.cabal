@@ -21,6 +21,7 @@ library
     Aihc.Play.Names
     Aihc.Play.Protocol
     Aihc.Play.Session
+    Aihc.Play.Splices
     Aihc.Play.Tree
     Aihc.Play.Types
 

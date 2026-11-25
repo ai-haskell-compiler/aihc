@@ -64,7 +64,7 @@ main =
   where
     run getSession command source = do
       session <- getSession
-      pure (renderJson (runCommand session command source))
+      renderJson <$> runCommand session noSpliceHost command source
     compile getSession source =
       case parseCommand "compile" of
         Nothing -> assertFailure "The compile command is absent." >> pure ""

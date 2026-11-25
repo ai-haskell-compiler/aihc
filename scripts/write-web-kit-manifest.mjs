@@ -22,7 +22,7 @@ const option = (name) => (options.includes(name) ? options[options.indexOf(name)
 const toolsUrl = option("--tools-url");
 const dataUrl = option("--data-url");
 
-const GLUE = ["aihc.js", "worker.js", "host.js", "manifest.js"];
+const GLUE = ["aihc.js", "worker.js", "host.js", "manifest.js", "engine-core.js"];
 const COMPILER = "aihc-play-component.js";
 const SPLICE_IMAGE = "th-image.wasm.gz";
 const isDocument = (path) => /(^|\/)(README\.md|[^/]*(LICENSE|COPYING|NOTICE)[^/]*)$/i.test(path);

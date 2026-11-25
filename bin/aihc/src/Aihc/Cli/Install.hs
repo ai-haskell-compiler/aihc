@@ -220,9 +220,6 @@ import Aihc.Resolve
     moduleExportsWithOrigins,
     moduleTopLevelName,
     modulesInPackage,
-    resolveSpliceBodies,
-    resolveUnit,
-    spliceBodyImports,
   )
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.Traverse qualified as RWalk
@@ -261,9 +258,10 @@ import Aihc.Tc
 import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
-import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
+import Aihc.Th.Prepare (PreparedSplices (..), prepareSplices, resolveUnitQuotes)
+import Aihc.Th.Quote (moduleHasQuote, quoteImports, quotedModuleNames)
 import Aihc.Th.Reify (exportedFixity)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), expandSplices, moduleSpliceSpans, moduleSplices, splicePackageId, spliceResultsPath)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), expandSplices, moduleSplices, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -2164,21 +2162,6 @@ addQuoteImports file source
         else pure source
   | otherwise = pure source
 
--- | Resolve a unit, and change the expression quotes of its modules. A
--- quote needs the result of name resolution, and its new expression has
--- names that are not resolved. Thus, a unit with a quote resolves two
--- times. The second time starts from the parsed modules, with the new
--- expressions in the positions of the quotes.
-resolveUnitQuotes :: Builtins -> ModuleExports -> [ModuleUnit] -> Either ResolveFailure ResolvedUnit
-resolveUnitQuotes builtinScope exports modules =
-  case resolveUnit builtinScope exports modules of
-    Right (ResolvedUnit resolved)
-      | any (hasQuoteImports . moduleUnitAst) modules ->
-          resolveUnit builtinScope exports [parsed {moduleUnitAst = desugarModuleQuotes (moduleUnitAst parsed) (resolvedModuleSyntax modu)} | (parsed, modu) <- zip modules resolved]
-    result -> result
-  where
-    hasQuoteImports modu = any ((`elem` map importDeclModule quoteImports) . importDeclModule) (Syntax.moduleImports modu) && moduleHasQuote modu
-
 -- | Cut the parsed modules into units and add the tasks of each unit and
 -- the finish task. A unit waits on the units of its own package it
 -- imports, and on the units of the dependencies that hold the modules it
@@ -3162,58 +3145,25 @@ expandUnitSplices context runtimes unit availableExports sources modules =
       case sourceModuleSpliceRequest source of
         Nothing -> pure moduleUnit
         Just template -> do
-          let original = moduleUnitAst moduleUnit
-              -- A name quote in a splice body gets its package and its
-              -- module from the scope of this module. A name of this
-              -- package gets the package id of the splice package, the same
-              -- id as the names of the copied modules and of the facts that
-              -- @reify@ gives in the splice.
-              inSplicePackage global
-                | globalNamePackage global == ownPackage = global {globalNamePackage = PackageId (splicePackageId template)}
-                | otherwise = global
-              localNames = localBinderNames original
-              bound = bindSpliceNameQuotes localNames (\namespace -> fmap inSplicePackage . moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit namespace) original
-              splices = moduleSplices bound
-              -- A quote in a splice body names what it names at the splice:
-              -- the compiler resolves the bodies in the scope of this module,
-              -- and changes their quotes before the splice module gets them.
-              -- A name of this package gets the package id of the splice
-              -- package.
-              spliceBody splice =
-                case splice of
-                  ExpressionSplice body -> body
-                  DeclarationSplice body -> body
-                  TypeSplice body -> body
-                  PatternSplice body -> body
-              withBody splice body =
-                case splice of
-                  ExpressionSplice _ -> ExpressionSplice body
-                  DeclarationSplice _ -> DeclarationSplice body
-                  TypeSplice _ -> TypeSplice body
-                  PatternSplice _ -> PatternSplice body
-              resolvedBodies = resolveSpliceBodies (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody splices)
-              desugaredSplices =
-                zipWith
-                  (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
-                  splices
-                  resolvedBodies
-              -- The splice module gets only the imports that the splice
-              -- bodies need. Thus, the splice package does not compile a
-              -- package that only the other code of the module uses. For
-              -- example, a package with a C library that is not available
-              -- for WebAssembly.
-              usedImports =
-                filter
-                  (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules)
-                  (spliceBodyImports (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody desugaredSplices) (spliceRequestImports template))
+          let prepared =
+                prepareSplices
+                  (builtinFunctionScope resolvePackage availableExports)
+                  availableExports
+                  moduleUnit
+                  ownPackage
+                  (splicePackageId template)
+                  (spliceRequestImports template)
+              bound = preparedModule prepared
+              splices = preparedSplices prepared
+              usedImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (preparedImports prepared)
               usedReferences =
                 [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- usedImports]
                   <> [(Nothing, "Prelude") | moduleUsesImplicitPrelude source]
               usedOwnModules = ownModulesOf (spliceRequestPackage template) usedReferences
               request =
                 template
-                  { spliceRequestSplices = desugaredSplices,
-                    spliceRequestSpans = moduleSpliceSpans bound,
+                  { spliceRequestSplices = splices,
+                    spliceRequestSpans = preparedSpans prepared,
                     spliceRequestImports = usedImports,
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
                     spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- usedOwnModules],

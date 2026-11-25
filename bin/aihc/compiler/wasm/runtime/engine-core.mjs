@@ -29,7 +29,10 @@
 // core does not call into the guest while the guest runs.
 //
 // The transport reads a line synchronously. Thus, an import of the
-// instance can also read the next command while the instance runs.
+// instance can also read the next command while the instance runs. With
+// the async option, the transport gives a promise of each line. Then the
+// imports that read a line suspend the instance with JavaScript Promise
+// Integration, and serve gives a promise. A browser uses this option.
 //
 // The instance gets no access to the host. Each import of the image is
 // denied, apart from the functions in hostFunctions. These functions give
@@ -157,15 +160,21 @@ function dynamicLinkInformation(module) {
 //                                         is not a FilesystemError.
 //   output       true when the instance can write to its standard output
 //                and to its standard error.
+//   async        true when readLine gives a promise.
+//
+// imageBytes can also be a compiled WebAssembly.Module.
 //
 // The result has the function serve, which reads the commands until the
 // end of the input.
-export function createEngine({ imageBytes, transport, readModule, files = null, output = false }) {
+export function createEngine({ imageBytes, transport, readModule, files = null, output = false, async = false }) {
   function reply(text) {
     transport.write(text.replace(/\s+/g, " "));
   }
 
-  const imageModule = new WebAssembly.Module(imageBytes);
+  const imageModule = imageBytes instanceof WebAssembly.Module ? imageBytes : new WebAssembly.Module(imageBytes);
+  // An import that reads a line. In the async mode, it suspends the
+  // instance until the line is available.
+  const reading = (sync, asynchronous) => (async ? new WebAssembly.Suspending(asynchronous) : sync);
   let image;
 
   // The functions that the host supplies to the image and to shared modules.
@@ -190,22 +199,23 @@ export function createEngine({ imageBytes, transport, readModule, files = null, 
       view.setUint32(result, list, true);
       view.setUint32(result + 4, 1, true);
     },
-    "env aihc_engine_next": nextClosure,
+    "env aihc_engine_next": reading(nextClosure, nextClosureAsync),
     // A closure sends a message to the host.
     "env aihc_engine_send": (message, length) => {
       closureRun.messages.push(toHex(memoryBytes(message, length)));
     },
     // A closure sends a request to the host and waits for the reply. The
     // result is the number of bytes of the reply.
-    "env aihc_engine_request": (message, length) => {
-      reply("request " + toHex(memoryBytes(message, length)));
-      const line = transport.readLine();
-      if (line === null) throw new Error("the input ended at a request");
-      const [command, bytes] = line.split(" ");
-      if (command !== "reply") throw new Error("the host sent the command " + command + " at a request");
-      requestReply = fromHex(bytes ?? "");
-      return BigInt(requestReply.length);
-    },
+    "env aihc_engine_request": reading(
+      (message, length) => {
+        reply("request " + toHex(memoryBytes(message, length)));
+        return takeReply(transport.readLine());
+      },
+      async (message, length) => {
+        reply("request " + toHex(memoryBytes(message, length)));
+        return takeReply(await transport.readLine());
+      },
+    ),
     // Copy the reply of the last request to memory of the guest.
     "env aihc_engine_reply": (target) => {
       new Uint8Array(image.memory.buffer, target, requestReply.length).set(requestReply);
@@ -764,48 +774,117 @@ export function createEngine({ imageBytes, transport, readModule, files = null, 
     return "error " + (error?.message ?? error);
   }
 
+  // Keep the reply line of a request. The result is the number of bytes of
+  // the reply.
+  function takeReply(line) {
+    if (line === null) throw new Error("the input ended at a request");
+    const [command, bytes] = line.split(" ");
+    if (command !== "reply") throw new Error("the host sent the command " + command + " at a request");
+    requestReply = fromHex(bytes ?? "");
+    return BigInt(requestReply.length);
+  }
+
   // The import aihc_engine_next of the guest. It replies to the command that
   // gave control to the guest. Then it reads commands until one gives a
   // closure. The result is the address of the closure, or zero at the end of
   // the input.
   function nextClosure() {
+    replyToClosure();
+    for (let line = transport.readLine(); line !== null; line = transport.readLine()) {
+      const address = guestCommand(line);
+      if (address !== undefined) return address;
+    }
+    return 0;
+  }
+
+  async function nextClosureAsync() {
+    replyToClosure();
+    for (let line = await transport.readLine(); line !== null; line = await transport.readLine()) {
+      const address = guestCommand(line);
+      if (address !== undefined) return address;
+    }
+    return 0;
+  }
+
+  // Reply to the command that gave control to the guest.
+  function replyToClosure() {
     if (closureRun === null) reply("ok");
     else if (closureRun.failure !== undefined) reply("error " + closureRun.failure);
     else reply(["ok", ...closureRun.messages].join(" "));
     closureRun = null;
-    for (let line = transport.readLine(); line !== null; line = transport.readLine()) {
-      const [command, name] = line.split(" ");
-      try {
-        if (command === "load") {
-          load(readModule(line.slice(5)));
-          reply("ok");
-        } else if (command === "run") {
-          const address = dataSymbols.get(name);
-          if (address === undefined) throw new Error("unknown closure " + name);
-          closureRun = { messages: [] };
-          return address;
-        } else {
-          throw new Error("the guest cannot do the command " + command);
-        }
-      } catch (error) {
-        reply(failure(error));
+  }
+
+  // Do one command while the guest has control. The result is the address
+  // of a closure for the guest, or undefined.
+  function guestCommand(line) {
+    const [command, name] = line.split(" ");
+    try {
+      if (command === "load") {
+        load(readModule(line.slice(5)));
+        reply("ok");
+      } else if (command === "run") {
+        const address = dataSymbols.get(name);
+        if (address === undefined) throw new Error("unknown closure " + name);
+        closureRun = { messages: [] };
+        return address;
+      } else {
+        throw new Error("the guest cannot do the command " + command);
       }
+    } catch (error) {
+      reply(failure(error));
     }
-    return 0;
+    return undefined;
   }
 
   // Run the program of the image. The call returns at the end of the input.
   // A trap in the guest is the reply to the command that the guest has.
   function start() {
-    if (guest !== "idle") throw new Error("the guest was started before");
-    guest = "running";
+    beginGuest();
     try {
       image.__wasm_call_ctors?.();
       image.aihc_lir_program_start();
     } finally {
-      guest = "stopped";
-      closureRun = null;
+      endGuest();
     }
+  }
+
+  async function startAsync() {
+    beginGuest();
+    try {
+      image.__wasm_call_ctors?.();
+      await WebAssembly.promising(image.aihc_lir_program_start)();
+    } finally {
+      endGuest();
+    }
+  }
+
+  function beginGuest() {
+    if (guest !== "idle") throw new Error("the guest was started before");
+    guest = "running";
+  }
+
+  function endGuest() {
+    guest = "stopped";
+    closureRun = null;
+  }
+
+  // Do one command while the guest does not have control. The result is
+  // true for the command "start", which the caller does.
+  function hostCommand(line) {
+    const [command, ...parameters] = line.split(" ");
+    if (command === "load") {
+      load(readModule(line.slice(5)));
+      reply("ok");
+    } else if (command === "call") {
+      reply(call(parameters[0], parameters.slice(1)));
+    } else if (command === "start") {
+      return true;
+    } else if (command === "run") {
+      throw new Error("the guest is " + guest);
+    } else {
+      throw new Error("unknown command " + command);
+    }
+    return false;
   }
 
   // Reply "ok" to show that the instance is ready. Then do each command
@@ -813,25 +892,24 @@ export function createEngine({ imageBytes, transport, readModule, files = null, 
   function serve() {
     reply("ok");
     for (let line = transport.readLine(); line !== null; line = transport.readLine()) {
-      const [command, ...parameters] = line.split(" ");
       try {
-        if (command === "load") {
-          load(readModule(line.slice(5)));
-          reply("ok");
-        } else if (command === "call") {
-          reply(call(parameters[0], parameters.slice(1)));
-        } else if (command === "start") {
-          start();
-        } else if (command === "run") {
-          throw new Error("the guest is " + guest);
-        } else {
-          throw new Error("unknown command " + command);
-        }
+        if (hostCommand(line)) start();
       } catch (error) {
         reply(failure(error));
       }
     }
   }
 
-  return { serve };
+  async function serveAsync() {
+    reply("ok");
+    for (let line = await transport.readLine(); line !== null; line = await transport.readLine()) {
+      try {
+        if (hostCommand(line)) await startAsync();
+      } catch (error) {
+        reply(failure(error));
+      }
+    }
+  }
+
+  return { serve: async ? serveAsync : serve };
 }

@@ -9,6 +9,7 @@
 //      loads a release from assets.aihc.app.
 //   3. It starts a headless browser. The page type-checks, compiles, and
 //      runs the programs of this directory, and sends the results back.
+//      Splices.hs has Template Haskell splices, which run in the browser.
 //
 // AIHC_SMOKE_BROWSER names the browser executable. Without it, the test
 // finds Chromium below AIHC_SMOKE_BROWSERS, which the Nix app sets.
@@ -109,6 +110,7 @@ const programs = {
   echo: await readFile(join(here, "Echo.hs"), "utf8"),
   count: await readFile(join(here, "Count.hs"), "utf8"),
   wrong: await readFile(join(here, "Wrong.hs"), "utf8"),
+  splices: await readFile(join(here, "Splices.hs"), "utf8"),
 };
 const page = `<!doctype html>
 <meta charset="utf-8">
@@ -150,6 +152,8 @@ try {
   result.count = await run(count);
   result.countSeconds = (performance.now() - start) / 1000;
   await log("Count.hs ran for " + result.countSeconds.toFixed(2) + " seconds");
+  // The splices of a module run in the browser.
+  result.splices = await run(await build("splices"));
   result.sizeAfter = await aihc.downloadSize();
   await send("/result", { ok: true, result });
 } catch (error) {
@@ -236,6 +240,7 @@ const numbers = Array.from({ length: 2000 }, (_, index) => index + 1 + "\n").joi
 await expect("Count.hs prints 2000 lines", result.count, { exitCode: 0, stdout: numbers, stderr: "" });
 // With the slow timers of jco, each line took 16 ms and the run took 32 seconds.
 await expect("Count.hs prints its lines in less than 10 seconds", result.countSeconds < 10, true);
+await expect("Splices.hs prints the results of its splices", result.splices, { exitCode: 0, stdout: '42\n["Circle","Square"]\n', stderr: "" });
 await expect("the browser cache has all the files after the test", result.sizeAfter.missing, 0);
 await expect("the download size is the size of the glue, the compiler, and the linker", result.sizeBefore.total, manifest.files.filter((file) => ["glue", "compiler", "linker"].includes(file.group)).reduce((sum, file) => sum + file.bytes, 0));
 await cleanUp();

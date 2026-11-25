@@ -1,7 +1,9 @@
 // The worker of the web kit. aihc.js starts it and sends it messages.
 //
 // The first message gives the worker one of two roles:
-//   { role: "compiler", manifest }       The compiler, the assembler, and the linker.
+//   { role: "compiler", manifest }       The compiler, the assembler, the
+//                                        linker, and the engine that runs
+//                                        Template Haskell splices.
 //   { role: "program", files, stdin }    One compiled program.
 // A compiler worker does one request at a time, in the order of the
 // requests. Each program has its own worker, memory, and lifetime.
@@ -31,7 +33,7 @@ function compilerRole(manifest) {
   // The browser tools fetch their files with the global fetch. With this
   // fetch, the browser keeps the files for the next visit.
   globalThis.fetch = downloads.fetch;
-  let helperPromise, toolsPromise, runtimePromise;
+  let helperPromise, toolsPromise, runtimePromise, imagePromise;
   let current;
   const report = (type, text) => postMessage({ id: current, type, text });
 
@@ -57,17 +59,33 @@ function compilerRole(manifest) {
         while ((newline = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, newline);
           buffer = buffer.slice(newline + 1);
+          let answer;
+          try {
+            answer = JSON.parse(line);
+          } catch {
+            const waiter = pending;
+            pending = null;
+            waiter?.reject(new Error("The compiler gave an answer that is not JSON: " + line.slice(0, 200)));
+            continue;
+          }
+          // A line with the field engine is for the engine of the splices.
+          if (typeof answer?.engine === "string") {
+            splices(answer);
+            continue;
+          }
           const waiter = pending;
           pending = null;
-          try {
-            waiter?.resolve(JSON.parse(line));
-          } catch {
-            waiter?.reject(new Error("The compiler gave an answer that is not JSON: " + line.slice(0, 200)));
-          }
+          waiter?.resolve(answer);
         }
       },
       writeErr: (bytes) => report("log", new TextDecoder().decode(bytes)),
     };
+    // Give one line to the helper, for example a reply of the engine.
+    const toHelper = (text) => {
+      const bytes = encoder.encode(text.replace(/\n/g, " ") + "\n");
+      for (let offset = 0; offset < bytes.length; offset += INPUT_CHUNK) push(bytes.subarray(offset, offset + INPUT_CHUNK));
+    };
+    const splices = spliceRelay(toHelper);
     // Give a request to the helper: the header line, then the body.
     const ask = (command, body) =>
       new Promise((resolve, reject) => {
@@ -109,6 +127,84 @@ function compilerRole(manifest) {
     runtimePromise ??= downloads.inflated(manifest.linker.runtime).then(decodePack);
     toolsPromise.catch(() => {});
     runtimePromise.catch(() => {});
+  }
+
+  // The image of the engine, compiled one time.
+  const spliceImage = () => {
+    imagePromise ??= downloads.inflated(manifest.splices.image).then((bytes) => WebAssembly.compile(bytes));
+    return imagePromise;
+  };
+
+  // The relay between the helper and the engine of the splices. The helper
+  // writes the messages of Main.hs of bin/aihc-play. The engine runs in
+  // this worker: while the engine runs a splice, the helper waits for its
+  // next input, and JavaScript Promise Integration suspends the two.
+  function spliceRelay(toHelper) {
+    let engine = null;
+    let queue = Promise.resolve();
+    const oneLine = (error) => String(error?.message ?? error).replace(/\s+/g, " ");
+    async function open() {
+      const [{ createEngine }, image] = await Promise.all([import("./engine-core.js"), spliceImage()]);
+      const lines = [];
+      const waiters = [];
+      const modules = new Map();
+      const current = {
+        modules,
+        next: 0,
+        push: (line) => (waiters.length ? waiters.shift()(line) : lines.push(line)),
+      };
+      const core = createEngine({
+        imageBytes: image,
+        async: true,
+        transport: {
+          readLine: () => (lines.length ? Promise.resolve(lines.shift()) : new Promise((resolve) => waiters.push(resolve))),
+          write: toHelper,
+        },
+        readModule: (id) => {
+          const bytes = modules.get(id);
+          modules.delete(id);
+          if (!bytes) throw new Error("no shared module " + id);
+          return bytes;
+        },
+      });
+      engine = current;
+      // serve writes "ok" first, and then the reply of each command.
+      core.serve().catch((error) => toHelper("error " + oneLine(error))).finally(() => {
+        if (engine === current) engine = null;
+      });
+    }
+    // Assemble and link a splice module as a shared module, and load it.
+    async function load(assembly) {
+      if (!engine) throw new Error("the engine is not open");
+      startLinker();
+      const { commands } = await toolsPromise;
+      const decoder = new TextDecoder();
+      const options = { stdout: () => {}, stderr: (bytes) => { if (bytes) report("log", decoder.decode(bytes)); } };
+      let files = { "splices.s": assembly };
+      files = await commands.clang(["--target=wasm32-wasip3", "-mtail-call", "-mmultivalue", "-mreference-types", "-msign-ext", "-c", "splices.s", "-o", "splices.o"], files, options);
+      files = await commands["wasm-ld"](["-shared", "--experimental-pic", "--unresolved-symbols=import-dynamic", "--extra-features=atomics", "--no-entry", "splices.o", "-o", "splices.wasm"], files, options);
+      if (!files["splices.wasm"]) throw new Error("the linker made no shared module");
+      const id = String(engine.next++);
+      engine.modules.set(id, files["splices.wasm"]);
+      engine.push("load " + id);
+    }
+    function handle(message) {
+      if (message.engine === "open") return open();
+      if (message.engine === "load") return load(message.assembly);
+      if (message.engine === "line") {
+        if (!engine) throw new Error("the engine is not open");
+        engine.push(message.line);
+      } else if (message.engine === "close") {
+        engine?.push(null);
+        engine = null;
+      } else {
+        throw new Error("unknown engine message " + message.engine);
+      }
+    }
+    // The messages are in order, also when one of them waits.
+    return (message) => {
+      queue = queue.then(() => handle(message)).catch((error) => toHelper("error " + oneLine(error)));
+    };
   }
 
   // Compile, assemble, and link one module. The result is the files of a
