@@ -283,7 +283,7 @@ planPackages request = do
                 <> [(prim, anyVersion) | all ((`notElem` [prim, mkPackageName "aihc-rts"]) . fst) roots],
             configUnsupported = unsupportedPackages,
             configPkgConfigModules = requestPkgConfigModules request,
-            configSubLibraries = Map.empty,
+            configSubLibraries = mempty,
             configMaxConflicts = 10000
           }
       inputs = solverInputs request descriptions localRoots localDirectories
