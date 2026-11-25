@@ -184,10 +184,9 @@ storeArguments program
             GrinStoreRec bindings body -> GrinStoreRec bindings <$> rewriteCalls body
             GrinCase value binder alternatives ->
               GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> rewriteCalls (grinAltRhs alternative)) alternatives
-            GrinCall rep callee arguments
-              | let moved = MonoidMap.get callee positions,
-                not (Map.null moved) ->
-                  pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
+            GrinCall rep callee arguments ->
+              let moved = MonoidMap.get callee positions
+               in pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
             _ -> pure expression
         expand moved index argument =
           case (Map.lookup index moved, argument) of
