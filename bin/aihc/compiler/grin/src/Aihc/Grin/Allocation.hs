@@ -124,8 +124,8 @@ storeArguments program
         <> foldMap (exprNodeFunctions . grinFunctionBody) functions
     -- Each call of each function, with what each argument is: a node that
     -- the caller stores for this argument alone, or nothing.
-    calls :: Map FunctionName [[Maybe GrinNode]]
-    calls = Map.fromListWith (<>) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
+    calls :: MonoidMap FunctionName [[Maybe GrinNode]]
+    calls = MonoidMap.fromListWith (flip (<>)) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
     positions :: Map FunctionName (Map Int GrinNodeTag)
     positions =
       Map.filter (not . Map.null) $
@@ -133,7 +133,7 @@ storeArguments program
           [ (grinFunctionName function, qualified)
           | function <- functions,
             Set.notMember (grinFunctionName function) named,
-            let sites = Map.findWithDefault [] (grinFunctionName function) calls,
+            let sites = MonoidMap.get (grinFunctionName function) calls,
             not (null sites),
             let arity = length (grinFunctionParameters function)
                 qualified =
@@ -164,7 +164,7 @@ storeArguments program
           case Map.lookup index moved of
             Nothing -> pure ([var], [])
             Just tag ->
-              case [node | site <- Map.findWithDefault [] (grinFunctionName function) calls, Just node <- [site !! index]] of
+              case [node | site <- MonoidMap.get (grinFunctionName function) calls, Just node <- [site !! index]] of
                 example : _ -> do
                   fields <- traverse (freshField var) (grinNodeFields example)
                   pure (fields, [(var, GrinNode tag (map GrinVarValue fields))])
