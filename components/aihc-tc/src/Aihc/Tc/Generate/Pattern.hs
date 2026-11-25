@@ -53,6 +53,7 @@ import Aihc.Tc.Syntax.Pending
     NumericType (..),
     OverloadedLiteralMatch (..),
     Pattern (..),
+    PatternTc (..),
     RecordField (..),
     SourceSpan,
     TcInfo (..),
@@ -60,19 +61,20 @@ import Aihc.Tc.Syntax.Pending
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
-    addPatternTc,
     annotationSpan,
+    emptyPatternTc,
+    fillSlot,
     infoHasType,
     infoIsPending,
     mkSpanAnnotation,
+    modifyPatternTc,
     nameText,
     patternTc,
+    patternTcHasType,
     peelDeclAnn,
     peelLiteralAnn,
     peelPatternAnn,
-    prependPatternTc,
     resolvedBinderEntity,
-    setPatternTc,
   )
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -131,7 +133,7 @@ recStmtBinderNames =
         DoRecKnot _ inner -> stmtBinders inner
         DoBind _ pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
-        DoExpr _ _ -> []
+        DoExpr {} -> []
         DoRecStmt _ _ stmts -> concatMap stmtBinders stmts
     declBinders decl =
       case peelDeclAnn decl of
@@ -269,7 +271,8 @@ checkPattern sp pat scrutTy
       (body, typeArgs, predicates) <- instantiatePatternType scrutTy
       wanted <- mapM (predToCt sp "pattern") predicates
       check <- checkPattern sp pat body
-      let annotate = addPatternTc InfoPatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
+      let instantiation = pendingAnnotation body typeArgs (map ctEvVar wanted) []
+          annotate = atPatternSpan sp . modifyPatternTc (\tc -> tc {patternInstantiation = fillSlot "pattern instantiation" (patternInstantiation tc) instantiation})
       pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
   where
     isSigmaType ty = case ty of
@@ -317,10 +320,6 @@ checkPatternWithoutResultType sp pat scrutTy =
         PAnn ann inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
-        _
-          | tc@(_ : _) <- patternTc pat -> do
-              innerCheck <- checkPatternWithoutResultType sp (setPatternTc [] pat) scrutTy
-              pure innerCheck {pcPatterns = [prependPatternTc tc (checkedPattern innerCheck)]}
         PParen tc inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PParen tc (checkedPattern innerCheck)]}
@@ -340,8 +339,17 @@ checkedPatternType sp ty pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
 annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt Nothing pending = addPatternTc (InfoType pending)
-annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . addPatternTc (InfoType pending)
+annotatePendingPatternAt sp pending =
+  atPatternSpan sp . modifyPatternTc (\tc -> tc {patternType = fillSlot "pattern type" (patternType tc) pending})
+
+-- | Put a pattern below a span annotation, if there is a span.
+atPatternSpan :: Maybe SourceSpan -> Pattern -> Pattern
+atPatternSpan sp pat = maybe pat (\sp' -> PAnn (mkSpanAnnotation sp') pat) sp
+
+-- | Set the cast of the scrutinee of a pattern.
+castPatternScrutinee :: PendingTcCastAnnotation -> Pattern -> Pattern
+castPatternScrutinee cast =
+  modifyPatternTc (\tc -> tc {patternCast = fillSlot "pattern cast" (patternCast tc) cast})
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
@@ -371,7 +379,7 @@ patternNeedsCheckedType pat =
 patternHasPendingType :: Pattern -> Bool
 patternHasPendingType pat =
   case pat of
-    _ | any infoHasType (patternTc pat) -> True
+    _ | patternTcHasType (patternTc pat) -> True
     PAnn _ inner -> patternHasPendingType inner
     PParen _ inner -> patternHasPendingType inner
     PLit _ _ literal -> literalHasPendingType literal
@@ -413,18 +421,14 @@ viewExprSpan expr =
   case expr of
     EAnn ann inner -> annotationSpan ann <|> viewExprSpan inner
     EVar _ name -> sourceSpanFromAnnotations (nameAnns name)
-    EParen _ inner -> viewExprSpan inner
-    EPragma _ _ inner -> viewExprSpan inner
+    EParen inner -> viewExprSpan inner
+    EPragma _ inner -> viewExprSpan inner
     EApp _ function _ -> viewExprSpan function
     _ -> Nothing
 
 checkPatternCore :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore sp pat scrutTy =
   case pat of
-    _
-      | tc@(_ : _) <- patternTc pat -> do
-          innerCheck <- checkPattern sp (setPatternTc [] pat) scrutTy
-          pure innerCheck {pcPatterns = [prependPatternTc tc (checkedPattern innerCheck)]}
     PVar _ name ->
       pure (checkedOnly pat) {pcBindings = [(name, scrutTy)]}
     PAnn ann inner -> do
@@ -446,7 +450,7 @@ checkPatternCore sp pat scrutTy =
             -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              let castPattern = addPatternTc (InfoCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit tc match (checkedLiteral literalTy lit))
+              let castPattern = castPatternScrutinee (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight) (PLit tc match (checkedLiteral literalTy lit))
               pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
             Nothing -> pure (checkedOnly (PLit tc match (checkedLiteral scrutTy lit)))
     PNegLit _ _ lit
@@ -472,8 +476,8 @@ checkPatternCore sp pat scrutTy =
       when wildcard $
         abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
       head' <- lookupRecordHead name
-      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ _ -> pure (PWildcard []))
-      checkConPattern sp (PCon [] name [] subPats) name subPats scrutTy
+      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ _ -> pure (PWildcard emptyPatternTc))
+      checkConPattern sp (PCon emptyPatternTc name [] subPats) name subPats scrutTy
     PList _ _ items -> checkListPattern sp items scrutTy
     PView tc viewExpr inner -> do
       let viewSpan = viewExprSpan viewExpr <|> sp
@@ -559,7 +563,7 @@ checkTypeSigPattern sp inner tyAnn scrutTy = do
       innerCheck
         { pcWantedCts = [eqCt | not solved] <> pcWantedCts innerCheck,
           pcTyVars = boundTyVars <> pcTyVars innerCheck,
-          pcPatterns = [PTypeSig [] (checkedPattern innerCheck) tyAnn]
+          pcPatterns = [PTypeSig emptyPatternTc (checkedPattern innerCheck) tyAnn]
         }
 
 -- | A fresh type variable for a pattern signature to bind, and the meta
@@ -607,8 +611,8 @@ checkTuplePattern sp flavor items scrutTy = do
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
-  let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple [] flavor (pcPatterns itemChecks))
-      castPattern = addPatternTc (InfoCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
+  let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple emptyPatternTc flavor (pcPatterns itemChecks))
+      castPattern = castPatternScrutinee (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
 
 -- | Whether a pattern contains a constructor pattern.
@@ -650,7 +654,7 @@ checkListPattern sp items scrutTy =
           { pcWantedCts = [scrutCt],
             pcGivenCts = predicateGivens,
             pcSkolems = skolems,
-            pcPatterns = [PList [] Nothing []]
+            pcPatterns = [PList emptyPatternTc Nothing []]
           }
     item : rest -> do
       (consCon, scheme) <- listConstructorScheme tcWiringConsDataCon
@@ -673,7 +677,7 @@ checkListPattern sp items scrutTy =
               { pcWantedCts = [scrutCt] <> pcWantedCts nestedCheck,
                 pcGivenCts = predicateGivens <> pcGivenCts nestedCheck,
                 pcSkolems = skolems <> pcSkolems nestedCheck,
-                pcPatterns = [PList [] Nothing checkedItems]
+                pcPatterns = [PList emptyPatternTc Nothing checkedItems]
               }
         _ -> abortTc "the wired list cons constructor has an invalid arity"
 
@@ -1045,7 +1049,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcTyVars = boundTyVars <> pcTyVars subCheck,
-            pcPatterns = [addPatternTc (InfoCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
+            pcPatterns = [castPatternScrutinee (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight) annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)

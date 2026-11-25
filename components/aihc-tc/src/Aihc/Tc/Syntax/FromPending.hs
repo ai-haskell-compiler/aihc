@@ -6,7 +6,9 @@
 --
 -- The change visits the nodes in source order: the fields of a
 -- constructor from left to right, and the information of a wrapper before
--- the node in the wrapper.
+-- the node in the wrapper. The information of a part, such as the cast of
+-- an argument, comes right before the part. The order is important,
+-- because the change of one item can fix meta variables of a later item.
 --
 -- Each instance has one case for each constructor of the data declaration.
 -- When a constructor changes in one tree, change its case here too.
@@ -15,6 +17,7 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
+import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, TcAnnotation, TcCastAnnotation)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Data.Maybe (catMaybes)
@@ -28,6 +31,85 @@ wrapInfo wrap item node = maybe node (`wrap` node) item
 -- function removes.
 infos :: (Monad m) => (Pending.TcInfo -> m (Maybe TcInfo)) -> [Pending.TcInfo] -> m [TcInfo]
 infos info items = catMaybes <$> traverse info items
+
+-- | Change a type field. A type that the function removes leaves the field
+-- empty.
+typeSlot :: (Monad m) => (Pending.TcInfo -> m (Maybe TcInfo)) -> Maybe PendingTcAnnotation -> m (Maybe TcAnnotation)
+typeSlot info slot =
+  case slot of
+    Nothing -> pure Nothing
+    Just annotation -> do
+      item <- info (Pending.InfoType annotation)
+      pure $ case item of
+        Just (InfoType annotation') -> Just annotation'
+        _ -> Nothing
+
+-- | Change a cast field. A cast that the function removes leaves the field
+-- empty.
+castSlot :: (Monad m) => (Pending.TcInfo -> m (Maybe TcInfo)) -> Maybe PendingTcCastAnnotation -> m (Maybe TcCastAnnotation)
+castSlot info slot =
+  case slot of
+    Nothing -> pure Nothing
+    Just annotation -> do
+      item <- info (Pending.InfoCast annotation)
+      pure $ case item of
+        Just (InfoCast annotation') -> Just annotation'
+        _ -> Nothing
+
+instance FromPending Pending.VarTc where
+  type Final Pending.VarTc = VarTc
+  fromPending info (Pending.VarTc ty recursive) =
+    VarTc <$> typeSlot info ty <*> typeSlot info recursive
+
+instance FromPending Pending.ArgumentFit where
+  type Final Pending.ArgumentFit = ArgumentFit
+  fromPending info (Pending.ArgumentFit typeLambda cast) =
+    ArgumentFit <$> typeSlot info typeLambda <*> castSlot info cast
+
+instance FromPending Pending.FunctionFit where
+  type Final Pending.FunctionFit = FunctionFit
+  fromPending info (Pending.FunctionFit cast instantiation) =
+    FunctionFit <$> castSlot info cast <*> typeSlot info instantiation
+
+instance FromPending Pending.AppTc where
+  type Final Pending.AppTc = AppTc
+  fromPending info (Pending.AppTc ty function argument) =
+    AppTc <$> typeSlot info ty <*> fromPending info function <*> fromPending info argument
+
+instance FromPending Pending.InfixTc where
+  type Final Pending.InfixTc = InfixTc
+  fromPending info (Pending.InfixTc ty left right) =
+    InfixTc <$> typeSlot info ty <*> fromPending info left <*> fromPending info right
+
+instance FromPending Pending.IfTc where
+  type Final Pending.IfTc = IfTc
+  fromPending info (Pending.IfTc ty condition thenCast elseCast) =
+    IfTc <$> typeSlot info ty <*> castSlot info condition <*> castSlot info thenCast <*> castSlot info elseCast
+
+instance FromPending Pending.LambdaTc where
+  type Final Pending.LambdaTc = LambdaTc
+  fromPending info (Pending.LambdaTc ty body) =
+    LambdaTc <$> typeSlot info ty <*> castSlot info body
+
+instance FromPending Pending.SigTc where
+  type Final Pending.SigTc = SigTc
+  fromPending info (Pending.SigTc cast ty inner) =
+    SigTc <$> castSlot info cast <*> typeSlot info ty <*> fromPending info inner
+
+instance FromPending Pending.SectionTc where
+  type Final Pending.SectionTc = SectionTc
+  fromPending info (Pending.SectionTc ty operand) =
+    SectionTc <$> typeSlot info ty <*> fromPending info operand
+
+instance FromPending Pending.ListItem where
+  type Final Pending.ListItem = ListItem
+  fromPending info (Pending.ListItem cast expr) =
+    ListItem <$> castSlot info cast <*> fromPending info expr
+
+instance FromPending Pending.PatternTc where
+  type Final Pending.PatternTc = PatternTc
+  fromPending info (Pending.PatternTc parameter instantiation cast ty) =
+    PatternTc <$> typeSlot info parameter <*> typeSlot info instantiation <*> castSlot info cast <*> typeSlot info ty
 
 class FromPending a where
   type Final a
@@ -384,7 +466,7 @@ instance (FromPending body) => FromPending (Pending.GuardedRhs body) where
   type Final (Pending.GuardedRhs body) = GuardedRhs (Final body)
   fromPending info node =
     case node of
-      Pending.GuardedRhs x1 x2 x3 -> GuardedRhs <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.GuardedRhs x1 x2 x3 x4 -> GuardedRhs <$> fromPending info x1 <*> fromPending info x2 <*> castSlot info x3 <*> fromPending info x4
 
 instance FromPending Pending.GuardQualifier where
   type Final Pending.GuardQualifier = GuardQualifier
@@ -443,28 +525,28 @@ instance FromPending Pending.Pattern where
   fromPending info node =
     case node of
       Pending.PAnn x1 x2 -> PAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PVar x1 x2 -> PVar <$> infos info x1 <*> fromPending info x2
-      Pending.PTypeBinder x1 x2 -> PTypeBinder <$> infos info x1 <*> fromPending info x2
-      Pending.PTypeSyntax x1 x2 x3 -> PTypeSyntax <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PWildcard x1 -> PWildcard <$> infos info x1
-      Pending.PLit x1 x2 x3 -> PLit <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PQuasiQuote x1 x2 x3 -> PQuasiQuote <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PTuple x1 x2 x3 -> PTuple <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PUnboxedSum x1 x2 x3 x4 -> PUnboxedSum <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PList x1 x2 x3 -> PList <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PCon x1 x2 x3 x4 -> PCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PBuiltinCon x1 x2 x3 x4 -> PBuiltinCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PInfix x1 x2 x3 x4 -> PInfix <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PView x1 x2 x3 -> PView <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PAs x1 x2 x3 -> PAs <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PStrict x1 x2 -> PStrict <$> infos info x1 <*> fromPending info x2
-      Pending.PIrrefutable x1 x2 -> PIrrefutable <$> infos info x1 <*> fromPending info x2
-      Pending.PNegLit x1 x2 x3 -> PNegLit <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PNPlusK x1 x2 x3 x4 -> PNPlusK <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PParen x1 x2 -> PParen <$> infos info x1 <*> fromPending info x2
-      Pending.PRecord x1 x2 x3 x4 -> PRecord <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.PTypeSig x1 x2 x3 -> PTypeSig <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.PSplice x1 x2 -> PSplice <$> infos info x1 <*> fromPending info x2
+      Pending.PVar x1 x2 -> PVar <$> fromPending info x1 <*> fromPending info x2
+      Pending.PTypeBinder x1 x2 -> PTypeBinder <$> fromPending info x1 <*> fromPending info x2
+      Pending.PTypeSyntax x1 x2 x3 -> PTypeSyntax <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PWildcard x1 -> PWildcard <$> fromPending info x1
+      Pending.PLit x1 x2 x3 -> PLit <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PQuasiQuote x1 x2 x3 -> PQuasiQuote <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PTuple x1 x2 x3 -> PTuple <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PUnboxedSum x1 x2 x3 x4 -> PUnboxedSum <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PList x1 x2 x3 -> PList <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PCon x1 x2 x3 x4 -> PCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PBuiltinCon x1 x2 x3 x4 -> PBuiltinCon <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PInfix x1 x2 x3 x4 -> PInfix <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PView x1 x2 x3 -> PView <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PAs x1 x2 x3 -> PAs <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PStrict x1 x2 -> PStrict <$> fromPending info x1 <*> fromPending info x2
+      Pending.PIrrefutable x1 x2 -> PIrrefutable <$> fromPending info x1 <*> fromPending info x2
+      Pending.PNegLit x1 x2 x3 -> PNegLit <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PNPlusK x1 x2 x3 x4 -> PNPlusK <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PParen x1 x2 -> PParen <$> fromPending info x1 <*> fromPending info x2
+      Pending.PRecord x1 x2 x3 x4 -> PRecord <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PTypeSig x1 x2 x3 -> PTypeSig <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.PSplice x1 x2 -> PSplice <$> fromPending info x1 <*> fromPending info x2
 
 instance FromPending Pending.ForallTelescope where
   type Final Pending.ForallTelescope = ForallTelescope
@@ -685,55 +767,87 @@ instance FromPending Pending.Expr where
   fromPending info node =
     case node of
       Pending.EAnn x1 x2 -> EAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.EVar x1 x2 -> EVar <$> infos info x1 <*> fromPending info x2
-      Pending.EImplicitParam x1 x2 -> EImplicitParam <$> infos info x1 <*> fromPending info x2
-      Pending.ETypeSyntax x1 x2 x3 -> ETypeSyntax <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EInt x1 x2 x3 x4 x5 -> EInt <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.EFloat x1 x2 x3 x4 x5 -> EFloat <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.EChar x1 x2 x3 -> EChar <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ECharHash x1 x2 x3 x4 -> ECharHash <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EString x1 x2 x3 x4 -> EString <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EStringHash x1 x2 x3 x4 -> EStringHash <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EOverloadedLabel x1 x2 x3 -> EOverloadedLabel <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EQuasiQuote x1 x2 x3 -> EQuasiQuote <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EIf x1 x2 x3 x4 x5 -> EIf <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.EMultiWayIf x1 x2 -> EMultiWayIf <$> infos info x1 <*> fromPending info x2
-      Pending.ELambdaPats x1 x2 x3 -> ELambdaPats <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ELambdaCase x1 x2 -> ELambdaCase <$> infos info x1 <*> fromPending info x2
-      Pending.ELambdaCases x1 x2 -> ELambdaCases <$> infos info x1 <*> fromPending info x2
-      Pending.EInfix x1 x2 x3 x4 -> EInfix <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EViewPat x1 x2 x3 -> EViewPat <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ENegate x1 x2 x3 -> ENegate <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ESectionL x1 x2 x3 -> ESectionL <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ESectionR x1 x2 x3 -> ESectionR <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ELetDecls x1 x2 x3 -> ELetDecls <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ECase x1 x2 x3 -> ECase <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EDo x1 x2 x3 -> EDo <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EListComp x1 x2 x3 -> EListComp <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EListCompParallel x1 x2 x3 -> EListCompParallel <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EArithSeq x1 x2 x3 -> EArithSeq <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ERecordCon x1 x2 x3 x4 -> ERecordCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.ERecordUpd x1 x2 x3 -> ERecordUpd <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EGetField x1 x2 x3 x4 -> EGetField <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EGetFieldProjection x1 x2 x3 -> EGetFieldProjection <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ETypeSig x1 x2 x3 -> ETypeSig <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EParen x1 x2 -> EParen <$> infos info x1 <*> fromPending info x2
-      Pending.EList x1 x2 x3 x4 -> EList <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.ETuple x1 x2 x3 x4 -> ETuple <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.EUnboxedSum x1 x2 x3 x4 -> EUnboxedSum <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.ETypeApp x1 x2 x3 -> ETypeApp <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EApp x1 x2 x3 -> EApp <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.ETHExpQuote x1 x2 -> ETHExpQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHTypedQuote x1 x2 -> ETHTypedQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHDeclQuote x1 x2 -> ETHDeclQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHTypeQuote x1 x2 -> ETHTypeQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHPatQuote x1 x2 -> ETHPatQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHNameQuote x1 x2 -> ETHNameQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHTypeNameQuote x1 x2 -> ETHTypeNameQuote <$> infos info x1 <*> fromPending info x2
-      Pending.ETHSplice x1 x2 -> ETHSplice <$> infos info x1 <*> fromPending info x2
-      Pending.ETHTypedSplice x1 x2 -> ETHTypedSplice <$> infos info x1 <*> fromPending info x2
-      Pending.EProc x1 x2 x3 -> EProc <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.EPragma x1 x2 x3 -> EPragma <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EVar x1 x2 -> EVar <$> fromPending info x1 <*> fromPending info x2
+      Pending.EImplicitParam x1 x2 -> EImplicitParam <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETypeSyntax x2 x3 -> ETypeSyntax <$> fromPending info x2 <*> fromPending info x3
+      Pending.EInt x1 x2 x3 x4 x5 -> EInt <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.EFloat x1 x2 x3 x4 x5 -> EFloat <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.EChar x1 x2 x3 -> EChar <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.ECharHash x1 x2 x3 x4 -> ECharHash <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.EString x1 x2 x3 x4 -> EString <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.EStringHash x1 x2 x3 x4 -> EStringHash <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.EOverloadedLabel x1 x2 x3 -> EOverloadedLabel <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EQuasiQuote x1 x2 x3 -> EQuasiQuote <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EIf (Pending.IfTc ty c1 c2 c3) x2 x3 x4 x5 -> do
+        ty' <- typeSlot info ty
+        x2' <- fromPending info x2
+        c1' <- castSlot info c1
+        x3' <- fromPending info x3
+        c2' <- castSlot info c2
+        x4' <- fromPending info x4
+        c3' <- castSlot info c3
+        x5' <- fromPending info x5
+        pure (EIf (IfTc ty' c1' c2' c3') x2' x3' x4' x5')
+      Pending.EMultiWayIf x1 x2 -> EMultiWayIf <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ELambdaPats (Pending.LambdaTc ty cast) x2 x3 -> do
+        ty' <- typeSlot info ty
+        x2' <- fromPending info x2
+        cast' <- castSlot info cast
+        x3' <- fromPending info x3
+        pure (ELambdaPats (LambdaTc ty' cast') x2' x3')
+      Pending.ELambdaCase x1 x2 -> ELambdaCase <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ELambdaCases x1 x2 -> ELambdaCases <$> typeSlot info x1 <*> fromPending info x2
+      Pending.EInfix (Pending.InfixTc ty left right) x2 x3 x4 -> do
+        ty' <- typeSlot info ty
+        left' <- fromPending info left
+        x2' <- fromPending info x2
+        x3' <- fromPending info x3
+        right' <- fromPending info right
+        x4' <- fromPending info x4
+        pure (EInfix (InfixTc ty' left' right') x2' x3' x4')
+      Pending.EViewPat x2 x3 -> EViewPat <$> fromPending info x2 <*> fromPending info x3
+      Pending.ENegate x1 x2 x3 -> ENegate <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.ESectionL x1 x2 x3 -> ESectionL <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.ESectionR (Pending.SectionTc ty operand) x2 x3 -> do
+        ty' <- typeSlot info ty
+        x2' <- fromPending info x2
+        operand' <- fromPending info operand
+        x3' <- fromPending info x3
+        pure (ESectionR (SectionTc ty' operand') x2' x3')
+      Pending.ELetDecls x2 x3 -> ELetDecls <$> fromPending info x2 <*> fromPending info x3
+      Pending.ECase x1 x2 x3 -> ECase <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EDo x1 x2 x3 -> EDo <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EListComp x1 x2 x3 -> EListComp <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EListCompParallel x1 x2 x3 -> EListCompParallel <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EArithSeq x1 x2 x3 -> EArithSeq <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.ERecordCon x2 x3 x4 -> ERecordCon <$> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.ERecordUpd x2 x3 -> ERecordUpd <$> fromPending info x2 <*> fromPending info x3
+      Pending.EGetField x1 x2 x3 x4 -> EGetField <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.EGetFieldProjection x1 x2 x3 -> EGetFieldProjection <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.ETypeSig x1 x2 x3 -> ETypeSig <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EParen x2 -> EParen <$> fromPending info x2
+      Pending.EList x1 x2 x3 x4 -> EList <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.ETuple x1 x2 x3 x4 -> ETuple <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.EUnboxedSum x1 x2 x3 x4 -> EUnboxedSum <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.ETypeApp x1 x2 x3 -> ETypeApp <$> typeSlot info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.EApp (Pending.AppTc ty function argument) x2 x3 -> do
+        ty' <- typeSlot info ty
+        function' <- fromPending info function
+        x2' <- fromPending info x2
+        argument' <- fromPending info argument
+        x3' <- fromPending info x3
+        pure (EApp (AppTc ty' function' argument') x2' x3')
+      Pending.ETHExpQuote x1 x2 -> ETHExpQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHTypedQuote x1 x2 -> ETHTypedQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHDeclQuote x1 x2 -> ETHDeclQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHTypeQuote x1 x2 -> ETHTypeQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHPatQuote x1 x2 -> ETHPatQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHNameQuote x1 x2 -> ETHNameQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHTypeNameQuote x1 x2 -> ETHTypeNameQuote <$> typeSlot info x1 <*> fromPending info x2
+      Pending.ETHSplice x2 -> ETHSplice <$> fromPending info x2
+      Pending.ETHTypedSplice x2 -> ETHTypedSplice <$> fromPending info x2
+      Pending.EProc x2 x3 -> EProc <$> fromPending info x2 <*> fromPending info x3
+      Pending.EPragma x2 x3 -> EPragma <$> fromPending info x2 <*> fromPending info x3
 
 instance (FromPending body) => FromPending (Pending.CaseAlt body) where
   type Final (Pending.CaseAlt body) = CaseAlt (Final body)
@@ -755,7 +869,7 @@ instance (FromPending body) => FromPending (Pending.DoStmt body) where
       Pending.DoRecKnot x1 x2 -> DoRecKnot <$> fromPending info x1 <*> fromPending info x2
       Pending.DoBind x1 x2 x3 -> DoBind <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.DoLetDecls x1 -> DoLetDecls <$> fromPending info x1
-      Pending.DoExpr x1 x2 -> DoExpr <$> fromPending info x1 <*> fromPending info x2
+      Pending.DoExpr x1 x2 x3 -> DoExpr <$> fromPending info x1 <*> castSlot info x2 <*> fromPending info x3
       Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.Cmd where

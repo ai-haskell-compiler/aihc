@@ -123,7 +123,6 @@ finalizeInfo item =
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
-    InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
     InfoClass annotation -> checked (Final.InfoClass annotation)
     InfoDeriving annotation -> checked (Final.InfoDeriving annotation)
     InfoDerivedInstance -> checked Final.InfoDerivedInstance

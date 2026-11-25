@@ -48,6 +48,7 @@ import Aihc.Tc.Syntax.Pending
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
+    PatternTc (..),
     RecordField (..),
     ResolutionResult (..),
     Rhs (..),
@@ -56,22 +57,25 @@ import Aihc.Tc.Syntax.Pending
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    annotateFunCast,
     annotateRhsCast,
     annotationSpan,
     arithSeqMethod,
+    castToRight,
     doBindMethodsNames,
     doRecMethodsNames,
+    fillSlot,
+    listItemExpr,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
     mkSpanAnnotation,
+    modifyPatternTc,
     nPlusKMatchNames,
     nameResolved,
     peelDeclAnn,
     peelDoStmtAnn,
-    prependPatternTc,
     unqualifiedNameText,
+    varRecursiveType,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
@@ -280,18 +284,20 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
     -- instantiation of an operator.
     annotateExpr schemes expr =
       case expr of
-        EVar tc name -> do
+        EVar ty name -> do
           pending <- occurrencePending schemes name
           case pending of
             Nothing -> pure expr
             Just annotation ->
               pure $ case mapMaybe annotationSpan (nameAnns name) of
-                sp : _ -> EAnn (mkSpanAnnotation sp) (EVar (tc <> [InfoType annotation]) name)
-                [] -> EVar (tc <> [InfoType annotation]) name
+                sp : _ -> EAnn (mkSpanAnnotation sp) (EVar (recursive ty annotation) name)
+                [] -> EVar (recursive ty annotation) name
         EInfix tc left operator right -> (\operator' -> EInfix tc left operator' right) <$> annotateOperator schemes operator
         ESectionL tc left operator -> ESectionL tc left <$> annotateOperator schemes operator
         ESectionR tc operator right -> (\operator' -> ESectionR tc operator' right) <$> annotateOperator schemes operator
         _ -> pure expr
+
+    recursive tc annotation = tc {varRecursiveType = fillSlot "recursive occurrence type" (varRecursiveType tc) annotation}
 
     annotateOperator schemes name = do
       pending <- occurrencePending schemes name
@@ -334,7 +340,7 @@ declTermReferences decl = do
     collectUpdatedLabels = idWalk {walkExpr = \children expr -> collected (updatedLabels expr) *> children expr}
     updatedLabels expr =
       case expr of
-        ERecordUpd _ _ fields -> map (nameText . recordFieldName) fields
+        ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     -- The name of built-in list or tuple syntax is not a term.
     hasTermResolution name =
@@ -586,13 +592,13 @@ checkGuardedRhss inferExpr checkBody resultTy guardedRhss = do
 inferGuardedRhs :: InferExpr -> InferExpr -> TcType -> GuardedRhs Expr -> TcM (GuardedRhs Expr, [Ct])
 inferGuardedRhs inferExpr checkBody resultTy guardedRhs = do
   let sp = sourceSpanFromAnnotations (guardedRhsAnns guardedRhs)
-  (qualifiers', body', cts) <-
+  (qualifiers', (bodyCast, body'), cts) <-
     inferGuardQualifiers inferExpr sp resultTy (guardedRhsGuards guardedRhs) $ do
       (body', bodyTy, bodyCts) <- checkBody (guardedRhsBody guardedRhs)
       ev <- freshEvVar
       let bodyCt = mkWantedCt (EqPred bodyTy resultTy) ev (AppOrigin sp) sp
-      pure (annotateFunCast resultTy ev body', bodyCts ++ [bodyCt])
-  pure (guardedRhs {guardedRhsGuards = qualifiers', guardedRhsBody = body'}, cts)
+      pure ((castToRight resultTy ev, body'), bodyCts ++ [bodyCt])
+  pure (guardedRhs {guardedRhsGuards = qualifiers', guardedRhsCast = fillSlot "guarded body cast" (guardedRhsCast guardedRhs) bodyCast, guardedRhsBody = body'}, cts)
 
 -- | Infer guard qualifiers from left to right. A pattern guard and a let
 -- guard bind names for the qualifiers and the body that follow them.
@@ -955,7 +961,7 @@ inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name sc
   instantiation <- instantiateWithArgs scheme
   forceCts <- mapM wantedForce (instPreds instantiation)
   let forcePending = pendingAnnotation (instType instantiation) (instTypeArgs instantiation) (map ctEvVar forceCts) []
-      pat' = prependPatternTc [InfoPatternInstantiation, InfoType forcePending] pat
+      pat' = modifyPatternTc (\tc -> tc {patternInstantiation = fillSlot "strict binder instantiation" (patternInstantiation tc) forcePending}) pat
       declPending = pendingAnnotation (schemeToType scheme) [] [] []
   pure (DeclTc (InfoType declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
   where
@@ -1435,7 +1441,7 @@ freeVarsExprChildren expr =
     EMultiWayIf _ alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
     ELambdaCase _ alts -> Set.unions <$> mapM freeVarsAlt alts
     ELambdaCases _ alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
-    EViewPat _ view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
+    EViewPat view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
     ELambdaPats _ pats body -> do
       bodyVars <- freeVarsExpr body
       patVars <- Set.unions <$> mapM freeVarsPattern pats
@@ -1455,7 +1461,7 @@ freeVarsExprChildren expr =
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
-    ELetDecls _ decls body -> do
+    ELetDecls decls body -> do
       declVars <- freeVarsDecls decls
       bodyVars <- freeVarsExpr body
       localBinders <- declBinderKeys decls
@@ -1466,9 +1472,9 @@ freeVarsExprChildren expr =
       pure (scrutVars <> altVars)
     ETypeApp _ inner _ -> freeVarsExpr inner
     ETypeSig _ inner _ -> freeVarsExpr inner
-    EParen _ inner -> freeVarsExpr inner
-    EPragma _ _ inner -> freeVarsExpr inner
-    EList _ _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EParen inner -> freeVarsExpr inner
+    EPragma _ inner -> freeVarsExpr inner
+    EList _ _ _ items -> Set.unions <$> mapM (freeVarsExpr . listItemExpr) items
     EArithSeq _ _ arithSeq -> freeVarsArithSeq arithSeq
     ETuple _ _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp _ f a -> do
@@ -1484,9 +1490,9 @@ freeVarsExprChildren expr =
       -- from the body variables by the branches that bind them.
       binders <- Set.unions <$> mapM compStmtsBinderKeys branches
       pure (Set.unions branchVars <> Set.difference bodyVars binders)
-    ERecordCon _ name fields _ ->
+    ERecordCon name fields _ ->
       Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
-    ERecordUpd _ record fields -> do
+    ERecordUpd record fields -> do
       recordVars <- freeVarsExpr record
       fieldVars <- Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields
       -- A record update names field labels and no head, so nothing else
@@ -1576,7 +1582,7 @@ doStmtMethodNames :: DoStmt body -> [Name]
 doStmtMethodNames stmt =
   case peelDoStmtAnn stmt of
     DoBind methods _ _ -> foldMap doBindMethodsNames methods
-    DoExpr method _ -> maybeToList method
+    DoExpr method _ _ -> maybeToList method
     DoRecStmt _ methods _ -> foldMap doRecMethodsNames methods
     _ -> []
 
@@ -1585,7 +1591,7 @@ freeVarsDoStmtsChildren stmt rest =
   case stmt of
     DoAnn _ inner -> freeVarsDoStmtsChildren inner rest
     DoRecKnot _ inner -> freeVarsDoStmtsChildren inner rest
-    DoExpr _ body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
+    DoExpr _ _ body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
     DoBind _ pat body -> do
       bodyVars <- freeVarsExpr body
       patVars <- freeVarsPattern pat

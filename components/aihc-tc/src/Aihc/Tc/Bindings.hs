@@ -328,7 +328,7 @@ recStmtBinderNames =
         DoRecKnot _ inner -> stmtBinders inner
         DoBind _ pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
-        DoExpr _ _ -> []
+        DoExpr {} -> []
         DoRecStmt _ _ stmts -> concatMap stmtBinders stmts
     declBinders decl =
       case peelDeclAnn decl of

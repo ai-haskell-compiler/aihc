@@ -24,6 +24,8 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Syntax
   ( Annotation,
+    AppTc (..),
+    ArgumentFit (..),
     ArithSeq (..),
     ClassDeclItem (..),
     Cmd (..),
@@ -35,9 +37,14 @@ import Aihc.Tc.Syntax
     DoStmt (..),
     ExportSpec (..),
     Expr (..),
+    FunctionFit (..),
     GuardQualifier (..),
+    IfTc (..),
     ImportItem (..),
+    InfixTc (..),
     InstanceDeclItem (..),
+    LambdaTc (..),
+    ListItem (..),
     ListMatch (..),
     Literal (..),
     LiteralMatch (..),
@@ -47,14 +54,27 @@ import Aihc.Tc.Syntax
     Name (..),
     OverloadedLiteralMatch (..),
     Pattern (..),
+    PatternTc (..),
+    SectionTc (..),
+    SigTc (..),
     SourceSpan,
     TcInfo (..),
     Type (..),
+    VarTc (..),
     annotationSpan,
     arithSeqMethod,
     doBindMethodsNames,
     doRecMethodsNames,
-    exprTc,
+    emptyAppTc,
+    emptyIfTc,
+    emptyInfixTc,
+    emptyLambdaTc,
+    emptyPatternTc,
+    emptySectionTc,
+    emptySigTc,
+    emptyVarTc,
+    exprType,
+    listItem,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
@@ -62,7 +82,7 @@ import Aihc.Tc.Syntax
     moduleName,
     nPlusKMatchNames,
     patternTc,
-    setExprTc,
+    setExprType,
     setPatternTc,
   )
 import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
@@ -72,7 +92,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter (Doc, pretty)
@@ -166,12 +186,17 @@ labelWalk =
       pure node
 
     -- The syntax names of an expression, such as @negate@ for @-x@, get
-    -- the span of the expression, after the information of its wrappers.
+    -- the span of the expression, after the type of the expression. The
+    -- information of a part, such as the instantiation of the function of
+    -- an application, gets the span of the part. It goes before the
+    -- labels of the part itself.
     exprLabels children node = do
-      let (anns, infos, base) = peelLeading peelExpr node
-          (syntaxInfos, base') = exprSyntax (setExprTc [] base)
-      addInfoLabels (spanFromAnnotations anns) (infos <> exprTc base <> syntaxInfos)
-      _ <- children base'
+      let (anns, _, base) = peelLeading peelExpr node
+          (ownInfos, partInfos, base') = exprOwn base
+          (syntaxInfos, base'') = exprSyntax base'
+      addInfoLabels (spanFromAnnotations anns) (ownInfos <> syntaxInfos)
+      mapM_ (\(part, infos) -> addInfoLabels (exprLeadingSpan part) infos) partInfos
+      _ <- children base''
       pure node
 
     -- The method names of a statement get the span of the statement,
@@ -201,14 +226,57 @@ labelWalk =
     patternLabels children node = do
       let (anns, infos, base) = peelLeading peelPattern node
           patternSpan = spanFromAnnotations anns
-          (matchInfos, base') = patternMatch (setPatternTc [] base)
-      addInfoLabels patternSpan (infos <> patternTc base <> matchInfos)
+          (matchInfos, base') = patternMatch (setPatternTc emptyPatternTc base)
+      addInfoLabels patternSpan (infos <> patternTcInfos (patternTc base) <> matchInfos)
       case base' of
         PLit _ _ literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
           addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
         _ -> void (children base')
       pure node
+
+-- | The information of a pattern node, from the scrutinee to the pattern.
+patternTcInfos :: PatternTc -> [TcInfo]
+patternTcInfos (PatternTc parameter instantiation cast ty) =
+  map InfoType (maybeToList parameter <> maybeToList instantiation)
+    <> map InfoCast (maybeToList cast)
+    <> map InfoType (maybeToList ty)
+
+-- | The leading span of an expression.
+exprLeadingSpan :: Expr -> Maybe SourceSpan
+exprLeadingSpan expr =
+  let (anns, _, _) = peelLeading peelExpr expr
+   in spanFromAnnotations anns
+
+-- | The information of an expression node, the information of its parts
+-- with the parts, and the node with no information.
+exprOwn :: Expr -> ([TcInfo], [(Expr, [TcInfo])], Expr)
+exprOwn expr =
+  case expr of
+    EApp (AppTc ty function argument) left right ->
+      (types ty, [(left, functionInfos function), (right, argumentInfos argument)], EApp emptyAppTc left right)
+    EInfix (InfixTc ty leftFit rightFit) left operator right ->
+      (types ty, [(left, argumentInfos leftFit), (right, argumentInfos rightFit)], EInfix emptyInfixTc left operator right)
+    ETypeSig (SigTc cast ty inner) inner' sig ->
+      (map InfoCast (maybeToList cast) <> types ty, [(inner', argumentInfos inner)], ETypeSig emptySigTc inner' sig)
+    ESectionL (SectionTc ty operand) inner operator ->
+      (types ty, [(inner, argumentInfos operand)], ESectionL emptySectionTc inner operator)
+    ESectionR (SectionTc ty operand) operator inner ->
+      (types ty, [(inner, argumentInfos operand)], ESectionR emptySectionTc operator inner)
+    EIf (IfTc ty condition thenCast elseCast) method c t e ->
+      (types ty, [(c, casts condition), (t, casts thenCast), (e, casts elseCast)], EIf emptyIfTc method c t e)
+    ELambdaPats (LambdaTc ty bodyCast) pats body ->
+      (types ty, [(body, casts bodyCast)], ELambdaPats emptyLambdaTc pats body)
+    EVar (VarTc ty recursive) name ->
+      (types ty <> types recursive, [], EVar emptyVarTc name)
+    EList ty syntax method items ->
+      (types ty, [(item, casts cast) | ListItem cast item <- items], EList Nothing syntax method (map (listItem . listItemExpr) items))
+    _ -> (types (exprType expr), [], fromMaybe expr (setExprType Nothing expr))
+  where
+    types = map InfoType . maybeToList
+    casts = map InfoCast . maybeToList
+    functionInfos (FunctionFit cast instantiation) = casts cast <> types instantiation
+    argumentInfos (ArgumentFit typeLambda cast) = types typeLambda <> casts cast
 
 -- | The information of the names of the match of a pattern, and the
 -- pattern with no information in these names.
@@ -243,7 +311,7 @@ doStmtMethods stmt =
   case stmt of
     DoBind (Just methods@(DoBindMethods method failure)) pat body ->
       (concatMap nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
-    DoExpr (Just method) body -> (nameTc method, DoExpr (Just (without method)) body)
+    DoExpr (Just method) cast body -> (nameTc method, DoExpr (Just (without method)) cast body)
     DoRecStmt tc (Just methods@(DoRecMethods mfix return' bind)) stmts ->
       (concatMap nameTc (doRecMethodsNames methods) <> tc, DoRecStmt [] (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
     DoRecStmt tc Nothing stmts -> (tc, DoRecStmt [] Nothing stmts)

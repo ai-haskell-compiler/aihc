@@ -34,6 +34,7 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
+import Aihc.Tc.Annotations (TcAnnotation, TcCastAnnotation)
 import Aihc.Tc.Syntax
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it
@@ -105,6 +106,70 @@ walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 -- | The type checker information of one node.
 walkInfos :: (Applicative f) => Walk f -> [TcInfo] -> f [TcInfo]
 walkInfos w = traverse (walkTcInfo w)
+
+-- | A type field of a node, walked as an item of type checker information.
+-- A hook must give back a type for a type.
+walkTypeSlot :: (Applicative f) => Walk f -> Maybe TcAnnotation -> f (Maybe TcAnnotation)
+walkTypeSlot w = traverse (\annotation -> fromInfo annotation <$> walkTcInfo w (InfoType annotation))
+  where
+    fromInfo annotation info =
+      case info of
+        InfoType annotation' -> annotation'
+        _ -> annotation
+
+-- | A cast field of a node, walked as an item of type checker information.
+-- A hook must give back a cast for a cast.
+walkCastSlot :: (Applicative f) => Walk f -> Maybe TcCastAnnotation -> f (Maybe TcCastAnnotation)
+walkCastSlot w = traverse (\annotation -> fromInfo annotation <$> walkTcInfo w (InfoCast annotation))
+  where
+    fromInfo annotation info =
+      case info of
+        InfoCast annotation' -> annotation'
+        _ -> annotation
+
+instance Walkable VarTc where
+  walk w (VarTc ty recursive) =
+    VarTc <$> walkTypeSlot w ty <*> walkTypeSlot w recursive
+
+instance Walkable ArgumentFit where
+  walk w (ArgumentFit typeLambda cast) =
+    ArgumentFit <$> walkTypeSlot w typeLambda <*> walkCastSlot w cast
+
+instance Walkable FunctionFit where
+  walk w (FunctionFit cast instantiation) =
+    FunctionFit <$> walkCastSlot w cast <*> walkTypeSlot w instantiation
+
+instance Walkable AppTc where
+  walk w (AppTc ty function argument) =
+    AppTc <$> walkTypeSlot w ty <*> walk w function <*> walk w argument
+
+instance Walkable InfixTc where
+  walk w (InfixTc ty left right) =
+    InfixTc <$> walkTypeSlot w ty <*> walk w left <*> walk w right
+
+instance Walkable IfTc where
+  walk w (IfTc ty condition thenCast elseCast) =
+    IfTc <$> walkTypeSlot w ty <*> walkCastSlot w condition <*> walkCastSlot w thenCast <*> walkCastSlot w elseCast
+
+instance Walkable LambdaTc where
+  walk w (LambdaTc ty body) =
+    LambdaTc <$> walkTypeSlot w ty <*> walkCastSlot w body
+
+instance Walkable SigTc where
+  walk w (SigTc cast ty inner) =
+    SigTc <$> walkCastSlot w cast <*> walkTypeSlot w ty <*> walk w inner
+
+instance Walkable SectionTc where
+  walk w (SectionTc ty operand) =
+    SectionTc <$> walkTypeSlot w ty <*> walk w operand
+
+instance Walkable ListItem where
+  walk w (ListItem cast expr) =
+    ListItem <$> walkCastSlot w cast <*> walk w expr
+
+instance Walkable PatternTc where
+  walk w (PatternTc parameter instantiation cast ty) =
+    PatternTc <$> walkTypeSlot w parameter <*> walkTypeSlot w instantiation <*> walkCastSlot w cast <*> walkTypeSlot w ty
 
 -- | The resolution result of a name or a binder, if it has one.
 walkMaybeResolution :: (Applicative f) => Walk f -> Maybe ResolutionResult -> f (Maybe ResolutionResult)
@@ -349,8 +414,8 @@ instance (Walkable body) => Walkable (Rhs body) where
         GuardedRhss <$> walkAnns w anns <*> walkInfos w infos <*> walk w guarded <*> walk w decls
 
 instance (Walkable body) => Walkable (GuardedRhs body) where
-  walk w (GuardedRhs anns guards body) =
-    GuardedRhs <$> walkAnns w anns <*> walk w guards <*> walk w body
+  walk w (GuardedRhs anns guards cast body) =
+    GuardedRhs <$> walkAnns w anns <*> walk w guards <*> walkCastSlot w cast <*> walk w body
 
 instance Walkable GuardQualifier where
   walk w = walkGuardQualifier w $ \case
@@ -404,28 +469,28 @@ instance Walkable LiteralSyntax where
 instance Walkable Pattern where
   walk w = walkPattern w $ \case
     PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
-    PVar tc name -> PVar <$> walkInfos w tc <*> walk w name
-    PTypeBinder tc binder -> PTypeBinder <$> walkInfos w tc <*> walk w binder
-    PTypeSyntax tc form ty -> PTypeSyntax <$> walkInfos w tc <*> pure form <*> walk w ty
-    PWildcard tc -> PWildcard <$> walkInfos w tc
-    PLit tc match literal -> PLit <$> walkInfos w tc <*> walk w match <*> walk w literal
-    PQuasiQuote tc quoter body -> PQuasiQuote <$> walkInfos w tc <*> pure quoter <*> pure body
-    PTuple tc flavor items -> PTuple <$> walkInfos w tc <*> pure flavor <*> walk w items
-    PUnboxedSum tc position arity inner -> PUnboxedSum <$> walkInfos w tc <*> pure position <*> pure arity <*> walk w inner
-    PList tc match items -> PList <$> walkInfos w tc <*> walk w match <*> walk w items
-    PCon tc name types pats -> PCon <$> walkInfos w tc <*> walk w name <*> walk w types <*> walk w pats
-    PBuiltinCon tc builtin types pats -> PBuiltinCon <$> walkInfos w tc <*> pure builtin <*> walk w types <*> walk w pats
-    PInfix tc lhs name rhs -> PInfix <$> walkInfos w tc <*> walk w lhs <*> walk w name <*> walk w rhs
-    PView tc expr inner -> PView <$> walkInfos w tc <*> walk w expr <*> walk w inner
-    PAs tc name inner -> PAs <$> walkInfos w tc <*> walk w name <*> walk w inner
-    PStrict tc inner -> PStrict <$> walkInfos w tc <*> walk w inner
-    PIrrefutable tc inner -> PIrrefutable <$> walkInfos w tc <*> walk w inner
-    PNegLit tc match literal -> PNegLit <$> walkInfos w tc <*> walk w match <*> walk w literal
-    PNPlusK tc match name literal -> PNPlusK <$> walkInfos w tc <*> walk w match <*> walk w name <*> walk w literal
-    PParen tc inner -> PParen <$> walkInfos w tc <*> walk w inner
-    PRecord tc name fields wildcard -> PRecord <$> walkInfos w tc <*> walk w name <*> walk w fields <*> pure wildcard
-    PTypeSig tc inner ty -> PTypeSig <$> walkInfos w tc <*> walk w inner <*> walk w ty
-    PSplice tc expr -> PSplice <$> walkInfos w tc <*> walk w expr
+    PVar tc name -> PVar <$> walk w tc <*> walk w name
+    PTypeBinder tc binder -> PTypeBinder <$> walk w tc <*> walk w binder
+    PTypeSyntax tc form ty -> PTypeSyntax <$> walk w tc <*> pure form <*> walk w ty
+    PWildcard tc -> PWildcard <$> walk w tc
+    PLit tc match literal -> PLit <$> walk w tc <*> walk w match <*> walk w literal
+    PQuasiQuote tc quoter body -> PQuasiQuote <$> walk w tc <*> pure quoter <*> pure body
+    PTuple tc flavor items -> PTuple <$> walk w tc <*> pure flavor <*> walk w items
+    PUnboxedSum tc position arity inner -> PUnboxedSum <$> walk w tc <*> pure position <*> pure arity <*> walk w inner
+    PList tc match items -> PList <$> walk w tc <*> walk w match <*> walk w items
+    PCon tc name types pats -> PCon <$> walk w tc <*> walk w name <*> walk w types <*> walk w pats
+    PBuiltinCon tc builtin types pats -> PBuiltinCon <$> walk w tc <*> pure builtin <*> walk w types <*> walk w pats
+    PInfix tc lhs name rhs -> PInfix <$> walk w tc <*> walk w lhs <*> walk w name <*> walk w rhs
+    PView tc expr inner -> PView <$> walk w tc <*> walk w expr <*> walk w inner
+    PAs tc name inner -> PAs <$> walk w tc <*> walk w name <*> walk w inner
+    PStrict tc inner -> PStrict <$> walk w tc <*> walk w inner
+    PIrrefutable tc inner -> PIrrefutable <$> walk w tc <*> walk w inner
+    PNegLit tc match literal -> PNegLit <$> walk w tc <*> walk w match <*> walk w literal
+    PNPlusK tc match name literal -> PNPlusK <$> walk w tc <*> walk w match <*> walk w name <*> walk w literal
+    PParen tc inner -> PParen <$> walk w tc <*> walk w inner
+    PRecord tc name fields wildcard -> PRecord <$> walk w tc <*> walk w name <*> walk w fields <*> pure wildcard
+    PTypeSig tc inner ty -> PTypeSig <$> walk w tc <*> walk w inner <*> walk w ty
+    PSplice tc expr -> PSplice <$> walk w tc <*> walk w expr
 
 -- Types
 
@@ -678,56 +743,87 @@ instance Walkable Expr where
   walk w = walkExpr w $ \expr ->
     case expr of
       EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
-      EVar tc name -> EVar <$> walkInfos w tc <*> walk w name
-      EImplicitParam tc name -> EImplicitParam <$> walkInfos w tc <*> pure name
-      ETypeSyntax tc form ty -> ETypeSyntax <$> walkInfos w tc <*> pure form <*> walk w ty
-      EInt tc syntax value numericType text -> (\tc' syntax' -> EInt tc' syntax' value numericType text) <$> walkInfos w tc <*> walk w syntax
-      EFloat tc syntax value floatType text -> (\tc' syntax' -> EFloat tc' syntax' value floatType text) <$> walkInfos w tc <*> walk w syntax
-      EChar tc value text -> EChar <$> walkInfos w tc <*> pure value <*> pure text
-      ECharHash tc typeName value text -> (\tc' typeName' -> ECharHash tc' typeName' value text) <$> walkInfos w tc <*> walk w typeName
-      EString tc conversion value text -> (\tc' conversion' -> EString tc' conversion' value text) <$> walkInfos w tc <*> walk w conversion
-      EStringHash tc typeName value text -> (\tc' typeName' -> EStringHash tc' typeName' value text) <$> walkInfos w tc <*> walk w typeName
-      EOverloadedLabel tc label text -> EOverloadedLabel <$> walkInfos w tc <*> pure label <*> pure text
-      EQuasiQuote tc quoter body -> EQuasiQuote <$> walkInfos w tc <*> pure quoter <*> pure body
-      EIf tc method condition thenExpr elseExpr ->
-        EIf <$> walkInfos w tc <*> walk w method <*> walk w condition <*> walk w thenExpr <*> walk w elseExpr
-      EMultiWayIf tc alternatives -> EMultiWayIf <$> walkInfos w tc <*> walk w alternatives
-      ELambdaPats tc pats body -> ELambdaPats <$> walkInfos w tc <*> walk w pats <*> walk w body
-      ELambdaCase tc alternatives -> ELambdaCase <$> walkInfos w tc <*> walk w alternatives
-      ELambdaCases tc alternatives -> ELambdaCases <$> walkInfos w tc <*> walk w alternatives
-      EInfix tc lhs name rhs -> EInfix <$> walkInfos w tc <*> walk w lhs <*> walk w name <*> walk w rhs
-      EViewPat tc lhs rhs -> EViewPat <$> walkInfos w tc <*> walk w lhs <*> walk w rhs
-      ENegate tc method inner -> ENegate <$> walkInfos w tc <*> walk w method <*> walk w inner
-      ESectionL tc inner name -> ESectionL <$> walkInfos w tc <*> walk w inner <*> walk w name
-      ESectionR tc name inner -> ESectionR <$> walkInfos w tc <*> walk w name <*> walk w inner
-      ELetDecls tc decls body -> ELetDecls <$> walkInfos w tc <*> walk w decls <*> walk w body
-      ECase tc scrutinee alternatives -> ECase <$> walkInfos w tc <*> walk w scrutinee <*> walk w alternatives
-      EDo tc statements flavor -> EDo <$> walkInfos w tc <*> walk w statements <*> pure flavor
-      EListComp tc body statements -> EListComp <$> walkInfos w tc <*> walk w body <*> walk w statements
-      EListCompParallel tc body branches -> EListCompParallel <$> walkInfos w tc <*> walk w body <*> walk w branches
-      EArithSeq tc method sequence' -> EArithSeq <$> walkInfos w tc <*> walk w method <*> walk w sequence'
-      ERecordCon tc name fields wildcard -> ERecordCon <$> walkInfos w tc <*> walk w name <*> walk w fields <*> pure wildcard
-      ERecordUpd tc record fields -> ERecordUpd <$> walkInfos w tc <*> walk w record <*> walk w fields
-      EGetField tc method record field -> EGetField <$> walkInfos w tc <*> walk w method <*> walk w record <*> walk w field
-      EGetFieldProjection tc method fields -> EGetFieldProjection <$> walkInfos w tc <*> walk w method <*> walk w fields
-      ETypeSig tc inner ty -> ETypeSig <$> walkInfos w tc <*> walk w inner <*> walk w ty
-      EParen tc inner -> EParen <$> walkInfos w tc <*> walk w inner
-      EList tc syntax method items -> EList <$> walkInfos w tc <*> walk w syntax <*> walk w method <*> walk w items
-      ETuple tc syntax flavor items -> (\tc' syntax' items' -> ETuple tc' syntax' flavor items') <$> walkInfos w tc <*> walk w syntax <*> walk w items
-      EUnboxedSum tc position arity inner -> EUnboxedSum <$> walkInfos w tc <*> pure position <*> pure arity <*> walk w inner
-      ETypeApp tc function ty -> ETypeApp <$> walkInfos w tc <*> walk w function <*> walk w ty
-      EApp tc function argument -> EApp <$> walkInfos w tc <*> walk w function <*> walk w argument
-      ETHExpQuote tc inner -> ETHExpQuote <$> walkInfos w tc <*> walk w inner
-      ETHTypedQuote tc inner -> ETHTypedQuote <$> walkInfos w tc <*> walk w inner
-      ETHDeclQuote tc decls -> ETHDeclQuote <$> walkInfos w tc <*> walk w decls
-      ETHTypeQuote tc ty -> ETHTypeQuote <$> walkInfos w tc <*> walk w ty
-      ETHPatQuote tc pat -> ETHPatQuote <$> walkInfos w tc <*> walk w pat
-      ETHNameQuote tc inner -> ETHNameQuote <$> walkInfos w tc <*> walk w inner
-      ETHTypeNameQuote tc ty -> ETHTypeNameQuote <$> walkInfos w tc <*> walk w ty
-      ETHSplice tc inner -> ETHSplice <$> walkInfos w tc <*> walk w inner
-      ETHTypedSplice tc inner -> ETHTypedSplice <$> walkInfos w tc <*> walk w inner
-      EProc tc pat command -> EProc <$> walkInfos w tc <*> walk w pat <*> walk w command
-      EPragma tc pragma inner -> EPragma <$> walkInfos w tc <*> pure pragma <*> walk w inner
+      EVar tc name -> EVar <$> walk w tc <*> walk w name
+      EImplicitParam tc name -> EImplicitParam <$> walkTypeSlot w tc <*> pure name
+      ETypeSyntax form ty -> ETypeSyntax <$> pure form <*> walk w ty
+      EInt tc syntax value numericType text -> (\tc' syntax' -> EInt tc' syntax' value numericType text) <$> walkTypeSlot w tc <*> walk w syntax
+      EFloat tc syntax value floatType text -> (\tc' syntax' -> EFloat tc' syntax' value floatType text) <$> walkTypeSlot w tc <*> walk w syntax
+      EChar tc value text -> EChar <$> walkTypeSlot w tc <*> pure value <*> pure text
+      ECharHash tc typeName value text -> (\tc' typeName' -> ECharHash tc' typeName' value text) <$> walkTypeSlot w tc <*> walk w typeName
+      EString tc conversion value text -> (\tc' conversion' -> EString tc' conversion' value text) <$> walkTypeSlot w tc <*> walk w conversion
+      EStringHash tc typeName value text -> (\tc' typeName' -> EStringHash tc' typeName' value text) <$> walkTypeSlot w tc <*> walk w typeName
+      EOverloadedLabel tc label text -> EOverloadedLabel <$> walkTypeSlot w tc <*> pure label <*> pure text
+      EQuasiQuote tc quoter body -> EQuasiQuote <$> walkTypeSlot w tc <*> pure quoter <*> pure body
+      EIf (IfTc ty c1 c2 c3) method condition thenExpr elseExpr ->
+        (\ty' method' c1' condition' c2' thenExpr' c3' elseExpr' -> EIf (IfTc ty' c1' c2' c3') method' condition' thenExpr' elseExpr')
+          <$> walkTypeSlot w ty
+          <*> walk w method
+          <*> walkCastSlot w c1
+          <*> walk w condition
+          <*> walkCastSlot w c2
+          <*> walk w thenExpr
+          <*> walkCastSlot w c3
+          <*> walk w elseExpr
+      EMultiWayIf tc alternatives -> EMultiWayIf <$> walkTypeSlot w tc <*> walk w alternatives
+      ELambdaPats (LambdaTc ty cast) pats body ->
+        (\ty' pats' cast' body' -> ELambdaPats (LambdaTc ty' cast') pats' body')
+          <$> walkTypeSlot w ty
+          <*> walk w pats
+          <*> walkCastSlot w cast
+          <*> walk w body
+      ELambdaCase tc alternatives -> ELambdaCase <$> walkTypeSlot w tc <*> walk w alternatives
+      ELambdaCases tc alternatives -> ELambdaCases <$> walkTypeSlot w tc <*> walk w alternatives
+      EInfix (InfixTc ty left right) lhs name rhs ->
+        (\ty' left' lhs' name' right' rhs' -> EInfix (InfixTc ty' left' right') lhs' name' rhs')
+          <$> walkTypeSlot w ty
+          <*> walk w left
+          <*> walk w lhs
+          <*> walk w name
+          <*> walk w right
+          <*> walk w rhs
+      EViewPat lhs rhs -> EViewPat <$> walk w lhs <*> walk w rhs
+      ENegate tc method inner -> ENegate <$> walkTypeSlot w tc <*> walk w method <*> walk w inner
+      ESectionL tc inner name -> ESectionL <$> walk w tc <*> walk w inner <*> walk w name
+      ESectionR (SectionTc ty operand) name inner ->
+        (\ty' name' operand' inner' -> ESectionR (SectionTc ty' operand') name' inner')
+          <$> walkTypeSlot w ty
+          <*> walk w name
+          <*> walk w operand
+          <*> walk w inner
+      ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
+      ECase tc scrutinee alternatives -> ECase <$> walkTypeSlot w tc <*> walk w scrutinee <*> walk w alternatives
+      EDo tc statements flavor -> EDo <$> walkTypeSlot w tc <*> walk w statements <*> pure flavor
+      EListComp tc body statements -> EListComp <$> walkTypeSlot w tc <*> walk w body <*> walk w statements
+      EListCompParallel tc body branches -> EListCompParallel <$> walkTypeSlot w tc <*> walk w body <*> walk w branches
+      EArithSeq tc method sequence' -> EArithSeq <$> walkTypeSlot w tc <*> walk w method <*> walk w sequence'
+      ERecordCon name fields wildcard -> ERecordCon <$> walk w name <*> walk w fields <*> pure wildcard
+      ERecordUpd record fields -> ERecordUpd <$> walk w record <*> walk w fields
+      EGetField tc method record field -> EGetField <$> walkTypeSlot w tc <*> walk w method <*> walk w record <*> walk w field
+      EGetFieldProjection tc method fields -> EGetFieldProjection <$> walkTypeSlot w tc <*> walk w method <*> walk w fields
+      ETypeSig tc inner ty -> ETypeSig <$> walk w tc <*> walk w inner <*> walk w ty
+      EParen inner -> EParen <$> walk w inner
+      EList tc syntax method items -> EList <$> walkTypeSlot w tc <*> walk w syntax <*> walk w method <*> walk w items
+      ETuple tc syntax flavor items -> (\tc' syntax' items' -> ETuple tc' syntax' flavor items') <$> walkTypeSlot w tc <*> walk w syntax <*> walk w items
+      EUnboxedSum tc position arity inner -> EUnboxedSum <$> walkTypeSlot w tc <*> pure position <*> pure arity <*> walk w inner
+      ETypeApp tc function ty -> ETypeApp <$> walkTypeSlot w tc <*> walk w function <*> walk w ty
+      EApp (AppTc ty functionFit argumentFit) function argument ->
+        (\ty' functionFit' function' argumentFit' argument' -> EApp (AppTc ty' functionFit' argumentFit') function' argument')
+          <$> walkTypeSlot w ty
+          <*> walk w functionFit
+          <*> walk w function
+          <*> walk w argumentFit
+          <*> walk w argument
+      ETHExpQuote tc inner -> ETHExpQuote <$> walkTypeSlot w tc <*> walk w inner
+      ETHTypedQuote tc inner -> ETHTypedQuote <$> walkTypeSlot w tc <*> walk w inner
+      ETHDeclQuote tc decls -> ETHDeclQuote <$> walkTypeSlot w tc <*> walk w decls
+      ETHTypeQuote tc ty -> ETHTypeQuote <$> walkTypeSlot w tc <*> walk w ty
+      ETHPatQuote tc pat -> ETHPatQuote <$> walkTypeSlot w tc <*> walk w pat
+      ETHNameQuote tc inner -> ETHNameQuote <$> walkTypeSlot w tc <*> walk w inner
+      ETHTypeNameQuote tc ty -> ETHTypeNameQuote <$> walkTypeSlot w tc <*> walk w ty
+      ETHSplice inner -> ETHSplice <$> walk w inner
+      ETHTypedSplice inner -> ETHTypedSplice <$> walk w inner
+      EProc pat command -> EProc <$> walk w pat <*> walk w command
+      EPragma pragma inner -> EPragma <$> pure pragma <*> walk w inner
 
 instance (Walkable body) => Walkable (CaseAlt body) where
   walk w (CaseAlt anns pat rhs) =
@@ -743,7 +839,7 @@ instance (Walkable body) => Walkable (DoStmt body) where
     DoRecKnot knot inner -> DoRecKnot knot <$> walk w inner
     DoBind methods pat body -> DoBind <$> walk w methods <*> walk w pat <*> walk w body
     DoLetDecls decls -> DoLetDecls <$> walk w decls
-    DoExpr method body -> DoExpr <$> walk w method <*> walk w body
+    DoExpr method cast body -> DoExpr <$> walk w method <*> walkCastSlot w cast <*> walk w body
     DoRecStmt tc methods statements -> DoRecStmt <$> walkInfos w tc <*> walk w methods <*> walk w statements
 
 instance Walkable DoBindMethods where

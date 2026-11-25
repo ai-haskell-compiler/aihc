@@ -10,8 +10,10 @@
 --   a whole declaration or literal.
 -- * Fields such as 'nameTc' and 'matchTc' hold the information for a name,
 --   an equation, a rule, or a module.
--- * The first field of each expression and pattern constructor holds the
---   information for that node. 'exprTc' and 'patternTc' read it.
+-- * Expression constructors hold the type of the node, or a record such as
+--   'AppTc' that also says how a part fits its position. 'exprType' reads
+--   the type.
+-- * The first field of each pattern constructor holds a 'PatternTc'.
 -- * 'moduleTcDiagnostics' holds the diagnostics of the module.
 --
 -- All information is final. "Aihc.Tc.Finalize" makes this tree from the
@@ -132,6 +134,28 @@ module Aihc.Tc.Syntax
 
     -- * Expressions
     Expr (..),
+    VarTc (..),
+    emptyVarTc,
+    ArgumentFit (..),
+    emptyArgumentFit,
+    FunctionFit (..),
+    emptyFunctionFit,
+    AppTc (..),
+    emptyAppTc,
+    InfixTc (..),
+    emptyInfixTc,
+    IfTc (..),
+    emptyIfTc,
+    LambdaTc (..),
+    emptyLambdaTc,
+    SigTc (..),
+    emptySigTc,
+    SectionTc (..),
+    emptySectionTc,
+    ListItem (..),
+    listItem,
+    PatternTc (..),
+    emptyPatternTc,
     CaseAlt (..),
     LambdaCaseAlt (..),
     DoStmt (..),
@@ -147,14 +171,11 @@ module Aihc.Tc.Syntax
     peelDeclAnn,
     peelExprAnn,
     peelPatternAnn,
-    exprTc,
-    setExprTc,
-    addExprTc,
+    exprType,
+    setExprType,
     patternTc,
     setPatternTc,
-    addPatternTc,
-    prependExprTc,
-    prependPatternTc,
+    modifyPatternTc,
     peelTypeAnn,
     peelTypeHead,
     peelDoStmtAnn,
@@ -304,8 +325,6 @@ data TcInfo
     InfoCast !TcCastAnnotation
   | -- | A cast that gives an equation the arity of its type.
     InfoMatchArityCast !TcMatchArityCast
-  | -- | The constructor pattern instantiates its type arguments.
-    InfoPatternInstantiation
   | InfoInstanceMethod !TcInstanceMethodAnnotation
   | InfoInstance !TcInstanceAnnotation
   | InfoClass !TcClassAnnotation
@@ -549,133 +568,102 @@ peelPatternAnn pat =
     PAnn _ inner -> peelPatternAnn inner
     _ -> pat
 
--- | What the type checker found for an expression node, under its
--- annotation wrappers. The items go from the outside in: a cast comes
--- before the type that it casts.
-exprTc :: Expr -> [TcInfo]
-exprTc expr =
+-- | The type of an expression node, under its annotation wrappers.
+exprType :: Expr -> Maybe TcAnnotation
+exprType expr =
   case expr of
-    EAnn _ inner -> exprTc inner
-    EVar tc _ -> tc
-    EImplicitParam tc _ -> tc
-    ETypeSyntax tc _ _ -> tc
-    EInt tc _ _ _ _ -> tc
-    EFloat tc _ _ _ _ -> tc
-    EChar tc _ _ -> tc
-    ECharHash tc _ _ _ -> tc
-    EString tc _ _ _ -> tc
-    EStringHash tc _ _ _ -> tc
-    EOverloadedLabel tc _ _ -> tc
-    EQuasiQuote tc _ _ -> tc
-    EIf tc _ _ _ _ -> tc
-    EMultiWayIf tc _ -> tc
-    ELambdaPats tc _ _ -> tc
-    ELambdaCase tc _ -> tc
-    ELambdaCases tc _ -> tc
-    EInfix tc _ _ _ -> tc
-    EViewPat tc _ _ -> tc
-    ENegate tc _ _ -> tc
-    ESectionL tc _ _ -> tc
-    ESectionR tc _ _ -> tc
-    ELetDecls tc _ _ -> tc
-    ECase tc _ _ -> tc
-    EDo tc _ _ -> tc
-    EListComp tc _ _ -> tc
-    EListCompParallel tc _ _ -> tc
-    EArithSeq tc _ _ -> tc
-    ERecordCon tc _ _ _ -> tc
-    ERecordUpd tc _ _ -> tc
-    EGetField tc _ _ _ -> tc
-    EGetFieldProjection tc _ _ -> tc
-    ETypeSig tc _ _ -> tc
-    EParen tc _ -> tc
-    EList tc _ _ _ -> tc
-    ETuple tc _ _ _ -> tc
-    EUnboxedSum tc _ _ _ -> tc
-    ETypeApp tc _ _ -> tc
-    EApp tc _ _ -> tc
-    ETHExpQuote tc _ -> tc
-    ETHTypedQuote tc _ -> tc
-    ETHDeclQuote tc _ -> tc
-    ETHTypeQuote tc _ -> tc
-    ETHPatQuote tc _ -> tc
-    ETHNameQuote tc _ -> tc
-    ETHTypeNameQuote tc _ -> tc
-    ETHSplice tc _ -> tc
-    ETHTypedSplice tc _ -> tc
-    EProc tc _ _ -> tc
-    EPragma tc _ _ -> tc
+    EAnn _ inner -> exprType inner
+    EVar tc _ -> varType tc
+    EImplicitParam ty _ -> ty
+    EInt ty _ _ _ _ -> ty
+    EFloat ty _ _ _ _ -> ty
+    EChar ty _ _ -> ty
+    ECharHash ty _ _ _ -> ty
+    EString ty _ _ _ -> ty
+    EStringHash ty _ _ _ -> ty
+    EOverloadedLabel ty _ _ -> ty
+    EQuasiQuote ty _ _ -> ty
+    EIf tc _ _ _ _ -> ifType tc
+    EMultiWayIf ty _ -> ty
+    ELambdaPats tc _ _ -> lambdaType tc
+    ELambdaCase ty _ -> ty
+    ELambdaCases ty _ -> ty
+    EInfix tc _ _ _ -> infixType tc
+    ENegate ty _ _ -> ty
+    ESectionL tc _ _ -> sectionType tc
+    ESectionR tc _ _ -> sectionType tc
+    ECase ty _ _ -> ty
+    EDo ty _ _ -> ty
+    EListComp ty _ _ -> ty
+    EListCompParallel ty _ _ -> ty
+    EArithSeq ty _ _ -> ty
+    EGetField ty _ _ _ -> ty
+    EGetFieldProjection ty _ _ -> ty
+    ETypeSig tc _ _ -> sigType tc
+    EList ty _ _ _ -> ty
+    ETuple ty _ _ _ -> ty
+    EUnboxedSum ty _ _ _ -> ty
+    ETypeApp ty _ _ -> ty
+    EApp tc _ _ -> appType tc
+    ETHExpQuote ty _ -> ty
+    ETHTypedQuote ty _ -> ty
+    ETHDeclQuote ty _ -> ty
+    ETHTypeQuote ty _ -> ty
+    ETHPatQuote ty _ -> ty
+    ETHNameQuote ty _ -> ty
+    ETHTypeNameQuote ty _ -> ty
+    _ -> Nothing
 
--- | Set what the type checker found for an expression node, under its
--- annotation wrappers.
-setExprTc :: [TcInfo] -> Expr -> Expr
-setExprTc tc expr =
+-- | Set the type of an expression node, under its annotation wrappers.
+-- The result is 'Nothing' when the node has no type.
+setExprType :: Maybe TcAnnotation -> Expr -> Maybe Expr
+setExprType ty expr =
   case expr of
-    EAnn ann inner -> EAnn ann (setExprTc tc inner)
-    EVar _ x1 -> EVar tc x1
-    EImplicitParam _ x1 -> EImplicitParam tc x1
-    ETypeSyntax _ x1 x2 -> ETypeSyntax tc x1 x2
-    EInt _ x1 x2 x3 x4 -> EInt tc x1 x2 x3 x4
-    EFloat _ x1 x2 x3 x4 -> EFloat tc x1 x2 x3 x4
-    EChar _ x1 x2 -> EChar tc x1 x2
-    ECharHash _ x1 x2 x3 -> ECharHash tc x1 x2 x3
-    EString _ x1 x2 x3 -> EString tc x1 x2 x3
-    EStringHash _ x1 x2 x3 -> EStringHash tc x1 x2 x3
-    EOverloadedLabel _ x1 x2 -> EOverloadedLabel tc x1 x2
-    EQuasiQuote _ x1 x2 -> EQuasiQuote tc x1 x2
-    EIf _ x1 x2 x3 x4 -> EIf tc x1 x2 x3 x4
-    EMultiWayIf _ x1 -> EMultiWayIf tc x1
-    ELambdaPats _ x1 x2 -> ELambdaPats tc x1 x2
-    ELambdaCase _ x1 -> ELambdaCase tc x1
-    ELambdaCases _ x1 -> ELambdaCases tc x1
-    EInfix _ x1 x2 x3 -> EInfix tc x1 x2 x3
-    EViewPat _ x1 x2 -> EViewPat tc x1 x2
-    ENegate _ x1 x2 -> ENegate tc x1 x2
-    ESectionL _ x1 x2 -> ESectionL tc x1 x2
-    ESectionR _ x1 x2 -> ESectionR tc x1 x2
-    ELetDecls _ x1 x2 -> ELetDecls tc x1 x2
-    ECase _ x1 x2 -> ECase tc x1 x2
-    EDo _ x1 x2 -> EDo tc x1 x2
-    EListComp _ x1 x2 -> EListComp tc x1 x2
-    EListCompParallel _ x1 x2 -> EListCompParallel tc x1 x2
-    EArithSeq _ x1 x2 -> EArithSeq tc x1 x2
-    ERecordCon _ x1 x2 x3 -> ERecordCon tc x1 x2 x3
-    ERecordUpd _ x1 x2 -> ERecordUpd tc x1 x2
-    EGetField _ x1 x2 x3 -> EGetField tc x1 x2 x3
-    EGetFieldProjection _ x1 x2 -> EGetFieldProjection tc x1 x2
-    ETypeSig _ x1 x2 -> ETypeSig tc x1 x2
-    EParen _ x1 -> EParen tc x1
-    EList _ x1 x2 x3 -> EList tc x1 x2 x3
-    ETuple _ x1 x2 x3 -> ETuple tc x1 x2 x3
-    EUnboxedSum _ x1 x2 x3 -> EUnboxedSum tc x1 x2 x3
-    ETypeApp _ x1 x2 -> ETypeApp tc x1 x2
-    EApp _ x1 x2 -> EApp tc x1 x2
-    ETHExpQuote _ x1 -> ETHExpQuote tc x1
-    ETHTypedQuote _ x1 -> ETHTypedQuote tc x1
-    ETHDeclQuote _ x1 -> ETHDeclQuote tc x1
-    ETHTypeQuote _ x1 -> ETHTypeQuote tc x1
-    ETHPatQuote _ x1 -> ETHPatQuote tc x1
-    ETHNameQuote _ x1 -> ETHNameQuote tc x1
-    ETHTypeNameQuote _ x1 -> ETHTypeNameQuote tc x1
-    ETHSplice _ x1 -> ETHSplice tc x1
-    ETHTypedSplice _ x1 -> ETHTypedSplice tc x1
-    EProc _ x1 x2 -> EProc tc x1 x2
-    EPragma _ x1 x2 -> EPragma tc x1 x2
-
--- | Put an item of information in front of what the type checker found
--- for an expression node, under its annotation wrappers.
-addExprTc :: TcInfo -> Expr -> Expr
-addExprTc item = prependExprTc [item]
-
--- | Put items of information in front of what the type checker found
--- for an expression node, under its annotation wrappers.
-prependExprTc :: [TcInfo] -> Expr -> Expr
-prependExprTc items expr = setExprTc (items <> exprTc expr) expr
+    EAnn ann inner -> EAnn ann <$> setExprType ty inner
+    EVar tc x1 -> Just (EVar tc {varType = ty} x1)
+    EImplicitParam _ x1 -> Just (EImplicitParam ty x1)
+    EInt _ x1 x2 x3 x4 -> Just (EInt ty x1 x2 x3 x4)
+    EFloat _ x1 x2 x3 x4 -> Just (EFloat ty x1 x2 x3 x4)
+    EChar _ x1 x2 -> Just (EChar ty x1 x2)
+    ECharHash _ x1 x2 x3 -> Just (ECharHash ty x1 x2 x3)
+    EString _ x1 x2 x3 -> Just (EString ty x1 x2 x3)
+    EStringHash _ x1 x2 x3 -> Just (EStringHash ty x1 x2 x3)
+    EOverloadedLabel _ x1 x2 -> Just (EOverloadedLabel ty x1 x2)
+    EQuasiQuote _ x1 x2 -> Just (EQuasiQuote ty x1 x2)
+    EIf tc x1 x2 x3 x4 -> Just (EIf tc {ifType = ty} x1 x2 x3 x4)
+    EMultiWayIf _ x1 -> Just (EMultiWayIf ty x1)
+    ELambdaPats tc x1 x2 -> Just (ELambdaPats tc {lambdaType = ty} x1 x2)
+    ELambdaCase _ x1 -> Just (ELambdaCase ty x1)
+    ELambdaCases _ x1 -> Just (ELambdaCases ty x1)
+    EInfix tc x1 x2 x3 -> Just (EInfix tc {infixType = ty} x1 x2 x3)
+    ENegate _ x1 x2 -> Just (ENegate ty x1 x2)
+    ESectionL tc x1 x2 -> Just (ESectionL tc {sectionType = ty} x1 x2)
+    ESectionR tc x1 x2 -> Just (ESectionR tc {sectionType = ty} x1 x2)
+    ECase _ x1 x2 -> Just (ECase ty x1 x2)
+    EDo _ x1 x2 -> Just (EDo ty x1 x2)
+    EListComp _ x1 x2 -> Just (EListComp ty x1 x2)
+    EListCompParallel _ x1 x2 -> Just (EListCompParallel ty x1 x2)
+    EArithSeq _ x1 x2 -> Just (EArithSeq ty x1 x2)
+    EGetField _ x1 x2 x3 -> Just (EGetField ty x1 x2 x3)
+    EGetFieldProjection _ x1 x2 -> Just (EGetFieldProjection ty x1 x2)
+    ETypeSig tc x1 x2 -> Just (ETypeSig tc {sigType = ty} x1 x2)
+    EList _ x1 x2 x3 -> Just (EList ty x1 x2 x3)
+    ETuple _ x1 x2 x3 -> Just (ETuple ty x1 x2 x3)
+    EUnboxedSum _ x1 x2 x3 -> Just (EUnboxedSum ty x1 x2 x3)
+    ETypeApp _ x1 x2 -> Just (ETypeApp ty x1 x2)
+    EApp tc x1 x2 -> Just (EApp tc {appType = ty} x1 x2)
+    ETHExpQuote _ x1 -> Just (ETHExpQuote ty x1)
+    ETHTypedQuote _ x1 -> Just (ETHTypedQuote ty x1)
+    ETHDeclQuote _ x1 -> Just (ETHDeclQuote ty x1)
+    ETHTypeQuote _ x1 -> Just (ETHTypeQuote ty x1)
+    ETHPatQuote _ x1 -> Just (ETHPatQuote ty x1)
+    ETHNameQuote _ x1 -> Just (ETHNameQuote ty x1)
+    ETHTypeNameQuote _ x1 -> Just (ETHTypeNameQuote ty x1)
+    _ -> Nothing
 
 -- | What the type checker found for a pattern node, under its
--- annotation wrappers. The items go from the outside in: a cast comes
--- before the type that it casts.
-patternTc :: Pattern -> [TcInfo]
+-- annotation wrappers.
+patternTc :: Pattern -> PatternTc
 patternTc pat =
   case pat of
     PAnn _ inner -> patternTc inner
@@ -704,7 +692,7 @@ patternTc pat =
 
 -- | Set what the type checker found for a pattern node, under its
 -- annotation wrappers.
-setPatternTc :: [TcInfo] -> Pattern -> Pattern
+setPatternTc :: PatternTc -> Pattern -> Pattern
 setPatternTc tc pat =
   case pat of
     PAnn ann inner -> PAnn ann (setPatternTc tc inner)
@@ -731,15 +719,10 @@ setPatternTc tc pat =
     PTypeSig _ x1 x2 -> PTypeSig tc x1 x2
     PSplice _ x1 -> PSplice tc x1
 
--- | Put an item of information in front of what the type checker found
--- for a pattern node, under its annotation wrappers.
-addPatternTc :: TcInfo -> Pattern -> Pattern
-addPatternTc item = prependPatternTc [item]
-
--- | Put items of information in front of what the type checker found
--- for a pattern node, under its annotation wrappers.
-prependPatternTc :: [TcInfo] -> Pattern -> Pattern
-prependPatternTc items pat = setPatternTc (items <> patternTc pat) pat
+-- | Change what the type checker found for a pattern node, under its
+-- annotation wrappers.
+modifyPatternTc :: (PatternTc -> PatternTc) -> Pattern -> Pattern
+modifyPatternTc f pat = setPatternTc (f (patternTc pat)) pat
 
 -- | Remove the annotation wrappers of a type.
 peelTypeAnn :: Type -> Type
@@ -1161,6 +1144,8 @@ data Rhs body
 data GuardedRhs body = GuardedRhs
   { guardedRhsAnns :: [Annotation],
     guardedRhsGuards :: [GuardQualifier],
+    -- | The cast of the body onto the result type.
+    guardedRhsCast :: Maybe TcCastAnnotation,
     guardedRhsBody :: body
   }
   deriving (Eq, Show)
@@ -1270,56 +1255,56 @@ literalSyntaxNames syntax =
     LiteralSyntaxOverloaded literalType conversion -> maybe [] pure literalType <> [conversion]
 
 -- | A pattern. The first field of each constructor, except 'PAnn', is what
--- the type checker found for the pattern.
+-- the type checker found for the pattern. 'patternTc' reads it.
 data Pattern
   = -- | Metadata for the whole pattern.
     PAnn Annotation Pattern
   | -- | @x@
-    PVar [TcInfo] UnqualifiedName
+    PVar PatternTc UnqualifiedName
   | -- | @\@a@ in a required type argument pattern.
-    PTypeBinder [TcInfo] TyVarBinder
+    PTypeBinder PatternTc TyVarBinder
   | -- | @type T@ in a term-level pattern position.
-    PTypeSyntax [TcInfo] TypeSyntaxForm Type
+    PTypeSyntax PatternTc TypeSyntaxForm Type
   | -- | @_@
-    PWildcard [TcInfo]
+    PWildcard PatternTc
   | -- | @1@ or @'x'@
-    PLit [TcInfo] LiteralMatch Literal
+    PLit PatternTc LiteralMatch Literal
   | -- | @[p| body |]@
-    PQuasiQuote [TcInfo] Text Text
+    PQuasiQuote PatternTc Text Text
   | -- | @(p1, p2)@ or @(# p1, p2 #)@
-    PTuple [TcInfo] TupleFlavor [Pattern]
+    PTuple PatternTc TupleFlavor [Pattern]
   | -- | @(# | p | #)@
-    PUnboxedSum [TcInfo] Int Int Pattern
+    PUnboxedSum PatternTc Int Int Pattern
   | -- | @[p1, p2]@
-    PList [TcInfo] (Maybe ListMatch) [Pattern]
+    PList PatternTc (Maybe ListMatch) [Pattern]
   | -- | @Just x@ or @Proxy \@Type@
-    PCon [TcInfo] Name [Type] [Pattern]
+    PCon PatternTc Name [Type] [Pattern]
   | -- | @(,) x y@ or @(#,#) x y@: a built-in constructor applied to
     -- invisible type arguments and patterns.
-    PBuiltinCon [TcInfo] BuiltinCon [Type] [Pattern]
+    PBuiltinCon PatternTc BuiltinCon [Type] [Pattern]
   | -- | @x :+: y@
-    PInfix [TcInfo] Pattern Name Pattern
+    PInfix PatternTc Pattern Name Pattern
   | -- | @(view -> pat)@
-    PView [TcInfo] Expr Pattern
+    PView PatternTc Expr Pattern
   | -- | @name\@pat@
-    PAs [TcInfo] UnqualifiedName Pattern
+    PAs PatternTc UnqualifiedName Pattern
   | -- | @!pat@
-    PStrict [TcInfo] Pattern
+    PStrict PatternTc Pattern
   | -- | @~pat@
-    PIrrefutable [TcInfo] Pattern
+    PIrrefutable PatternTc Pattern
   | -- | @-1@
-    PNegLit [TcInfo] LiteralMatch Literal
+    PNegLit PatternTc LiteralMatch Literal
   | -- | @n+1@, an n+k pattern.  It needs the @NPlusKPatterns@ extension.
     -- The literal is always a non-negative integer literal.
-    PNPlusK [TcInfo] NPlusKMatch UnqualifiedName Literal
+    PNPlusK PatternTc NPlusKMatch UnqualifiedName Literal
   | -- | @(pat)@
-    PParen [TcInfo] Pattern
+    PParen PatternTc Pattern
   | -- | @T { x = p, y, .. }@
-    PRecord [TcInfo] Name [RecordField Pattern] Bool -- Bool: wildcard present
+    PRecord PatternTc Name [RecordField Pattern] Bool -- Bool: wildcard present
   | -- | @(pat :: ty)@
-    PTypeSig [TcInfo] Pattern Type
+    PTypeSig PatternTc Pattern Type
   | -- | @$pat@ or @$(pat)@
-    PSplice [TcInfo] Expr
+    PSplice PatternTc Expr
   -- \$pat or $(pat) (TH pattern splice)
   deriving (Eq, Show)
 
@@ -1698,121 +1683,282 @@ data ForeignDecl = ForeignDecl
   }
   deriving (Eq, Show)
 
--- | An expression. The first field of each constructor, except 'EAnn', is
--- what the type checker found for the expression.
+-- | An expression. A constructor that the type checker gives a type has
+-- the type as its first field. 'exprType' reads it. Some constructors have
+-- a record with more information instead, such as 'AppTc'.
 data Expr
   = -- | Metadata for the whole expression.
     EAnn Annotation Expr
   | -- | @x@ or @Data.List.map@
-    EVar [TcInfo] Name
+    EVar VarTc Name
   | -- | @?x@
-    EImplicitParam [TcInfo] Text
+    EImplicitParam (Maybe TcAnnotation) Text
   | -- | @type T@ in a term position.
-    ETypeSyntax [TcInfo] TypeSyntaxForm Type
+    ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt [TcInfo] LiteralSyntax Integer NumericType Text
+    EInt (Maybe TcAnnotation) LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat [TcInfo] LiteralSyntax Rational FloatType Text
+    EFloat (Maybe TcAnnotation) LiteralSyntax Rational FloatType Text
   | -- | @'x'@
-    EChar [TcInfo] Char Text
+    EChar (Maybe TcAnnotation) Char Text
   | -- | @'x'#@. The name is the type @Char#@.
-    ECharHash [TcInfo] Name Char Text
+    ECharHash (Maybe TcAnnotation) Name Char Text
   | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
-    EString [TcInfo] (Maybe Name) Text Text
+    EString (Maybe TcAnnotation) (Maybe Name) Text Text
   | -- | @"hello"#@. The name is the type @Addr#@.
-    EStringHash [TcInfo] Name Text Text
+    EStringHash (Maybe TcAnnotation) Name Text Text
   | -- | @#name@
-    EOverloadedLabel [TcInfo] Text Text
+    EOverloadedLabel (Maybe TcAnnotation) Text Text
   | -- | @[qq| body |]@
-    EQuasiQuote [TcInfo] Text Text
+    EQuasiQuote (Maybe TcAnnotation) Text Text
   | -- | @if c then t else e@. Under @RebindableSyntax@, the name is
     -- @ifThenElse@.
-    EIf [TcInfo] (Maybe Name) Expr Expr Expr
+    EIf IfTc (Maybe Name) Expr Expr Expr
   | -- | @if | g1 -> e1 | g2 -> e2@
-    EMultiWayIf [TcInfo] [GuardedRhs Expr]
+    EMultiWayIf (Maybe TcAnnotation) [GuardedRhs Expr]
   | -- | @\x y -> body@
-    ELambdaPats [TcInfo] [Pattern] Expr
+    ELambdaPats LambdaTc [Pattern] Expr
   | -- | @\case { p -> e }@
-    ELambdaCase [TcInfo] [CaseAlt Expr]
+    ELambdaCase (Maybe TcAnnotation) [CaseAlt Expr]
   | -- | @\cases { p q -> e }@
-    ELambdaCases [TcInfo] [LambdaCaseAlt]
+    ELambdaCases (Maybe TcAnnotation) [LambdaCaseAlt]
   | -- | @a + b@
-    EInfix [TcInfo] Expr Name Expr
+    EInfix InfixTc Expr Name Expr
   | -- | @f -> pat@ inside parentheses: the view-pattern arrow.
     -- The arrow is grammar, not an operator that a scope can bind, so it
     -- gets its own constructor.  'checkPattern' turns this into 'PView'.
-    EViewPat [TcInfo] Expr Expr
+    EViewPat Expr Expr
   | -- | @-x@. The name is @negate@.
-    ENegate [TcInfo] Name Expr
+    ENegate (Maybe TcAnnotation) Name Expr
   | -- | @(x +)@
-    ESectionL [TcInfo] Expr Name
+    ESectionL SectionTc Expr Name
   | -- | @(+ x)@
-    ESectionR [TcInfo] Name Expr
+    ESectionR SectionTc Name Expr
   | -- | @let x = 1 in x@
-    ELetDecls [TcInfo] [Decl] Expr
+    ELetDecls [Decl] Expr
   | -- | @case x of { Just y -> y }@
-    ECase [TcInfo] Expr [CaseAlt Expr]
+    ECase (Maybe TcAnnotation) Expr [CaseAlt Expr]
   | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@
-    EDo [TcInfo] [DoStmt Expr] DoFlavor
+    EDo (Maybe TcAnnotation) [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
-    EListComp [TcInfo] Expr [CompStmt]
+    EListComp (Maybe TcAnnotation) Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
-    EListCompParallel [TcInfo] Expr [[CompStmt]]
+    EListCompParallel (Maybe TcAnnotation) Expr [[CompStmt]]
   | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
-    EArithSeq [TcInfo] (Maybe Name) ArithSeq
+    EArithSeq (Maybe TcAnnotation) (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
-    ERecordCon [TcInfo] Name [RecordField Expr] Bool -- Bool: wildcard present
+    ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | -- | @r { x = 1 }@
-    ERecordUpd [TcInfo] Expr [RecordField Expr]
+    ERecordUpd Expr [RecordField Expr]
   | -- | @a.b@ under @OverloadedRecordDot@. The first name is @getField@.
-    EGetField [TcInfo] Name Expr Name
+    EGetField (Maybe TcAnnotation) Name Expr Name
   | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
     -- @getField@.
-    EGetFieldProjection [TcInfo] Name [Name]
+    EGetFieldProjection (Maybe TcAnnotation) Name [Name]
   | -- | @(expr :: ty)@
-    ETypeSig [TcInfo] Expr Type
+    ETypeSig SigTc Expr Type
   | -- | @(expr)@
-    EParen [TcInfo] Expr
+    EParen Expr
   | -- | @[x, y]@. The first name is the list syntax. Under
     -- @OverloadedLists@, the second name is @fromListN@.
-    EList [TcInfo] Name (Maybe Name) [Expr]
+    EList (Maybe TcAnnotation) Name (Maybe Name) [ListItem]
   | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
-    ETuple [TcInfo] Name TupleFlavor [Maybe Expr]
+    ETuple (Maybe TcAnnotation) Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
-    EUnboxedSum [TcInfo] Int Int Expr
+    EUnboxedSum (Maybe TcAnnotation) Int Int Expr
   | -- | @f \@Type@
-    ETypeApp [TcInfo] Expr Type
+    ETypeApp (Maybe TcAnnotation) Expr Type
   | -- | @f x@
-    EApp [TcInfo] Expr Expr
+    EApp AppTc Expr Expr
   | -- Template Haskell quotes
 
     -- | @[| expr |]@ or @[e| expr |]@
-    ETHExpQuote [TcInfo] Expr
+    ETHExpQuote (Maybe TcAnnotation) Expr
   | -- | @[|| expr ||]@ or @[e|| expr ||]@
-    ETHTypedQuote [TcInfo] Expr
+    ETHTypedQuote (Maybe TcAnnotation) Expr
   | -- | @[d| decls |]@
-    ETHDeclQuote [TcInfo] [Decl]
+    ETHDeclQuote (Maybe TcAnnotation) [Decl]
   | -- | @[t| type |]@
-    ETHTypeQuote [TcInfo] Type
+    ETHTypeQuote (Maybe TcAnnotation) Type
   | -- | @[p| pat |]@
-    ETHPatQuote [TcInfo] Pattern
+    ETHPatQuote (Maybe TcAnnotation) Pattern
   | -- | @'expr@ in the term namespace.
-    ETHNameQuote [TcInfo] Expr
+    ETHNameQuote (Maybe TcAnnotation) Expr
   | -- | @''Type@ in the type namespace.
-    ETHTypeNameQuote [TcInfo] Type
+    ETHTypeNameQuote (Maybe TcAnnotation) Type
   | -- Template Haskell splices
 
     -- | @$expr@ or @$(expr)@
-    ETHSplice [TcInfo] Expr
+    ETHSplice Expr
   | -- | @$$expr@ or @$$(expr)@
-    ETHTypedSplice [TcInfo] Expr
+    ETHTypedSplice Expr
   | -- Arrow notation (Arrows extension)
 
     -- | @proc pat -> cmd@
-    EProc [TcInfo] Pattern Cmd
+    EProc Pattern Cmd
   | -- | @{-# SCC foo #-} expr@
-    EPragma [TcInfo] Pragma Expr
+    EPragma Pragma Expr
   deriving (Eq, Show)
+
+-- | What the type checker found for a variable occurrence.
+data VarTc = VarTc
+  { -- | The type of the occurrence, with the type arguments and the
+    -- evidence that instantiate the variable.
+    varType :: !(Maybe TcAnnotation),
+    -- | The instantiation that a recursive binding group gives an
+    -- occurrence of a generalized binder of the group. The desugarer uses
+    -- it only when the occurrence has no type.
+    varRecursiveType :: !(Maybe TcAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | A variable occurrence with no type checker information.
+emptyVarTc :: VarTc
+emptyVarTc = VarTc Nothing Nothing
+
+-- | What the type checker found for an argument where it fits the
+-- parameter type of its function. The type lambda is outside the cast.
+data ArgumentFit = ArgumentFit
+  { -- | The type lambda that gives an argument of higher rank its
+    -- polytype. The annotation has the type binders and the evidence
+    -- binders.
+    argumentTypeLambda :: !(Maybe TcAnnotation),
+    -- | The cast of the argument onto the parameter type.
+    argumentCast :: !(Maybe TcCastAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | An argument with no type checker information.
+emptyArgumentFit :: ArgumentFit
+emptyArgumentFit = ArgumentFit Nothing Nothing
+
+-- | What the type checker found for the function of an application. The
+-- cast is outside the instantiation.
+data FunctionFit = FunctionFit
+  { -- | The cast of the function onto an arrow type.
+    functionCast :: !(Maybe TcCastAnnotation),
+    -- | The instantiation of the polytype of the function. The annotation
+    -- has the type arguments and the evidence.
+    functionInstantiation :: !(Maybe TcAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | A function with no type checker information.
+emptyFunctionFit :: FunctionFit
+emptyFunctionFit = FunctionFit Nothing Nothing
+
+-- | What the type checker found for an application.
+data AppTc = AppTc
+  { -- | The instantiation of a polytype result of the application.
+    appType :: !(Maybe TcAnnotation),
+    appFunction :: !FunctionFit,
+    appArgument :: !ArgumentFit
+  }
+  deriving (Eq, Show)
+
+-- | An application with no type checker information.
+emptyAppTc :: AppTc
+emptyAppTc = AppTc Nothing emptyFunctionFit emptyArgumentFit
+
+-- | What the type checker found for an infix application.
+data InfixTc = InfixTc
+  { -- | The instantiation of a polytype result of the application.
+    infixType :: !(Maybe TcAnnotation),
+    infixLeft :: !ArgumentFit,
+    infixRight :: !ArgumentFit
+  }
+  deriving (Eq, Show)
+
+-- | An infix application with no type checker information.
+emptyInfixTc :: InfixTc
+emptyInfixTc = InfixTc Nothing emptyArgumentFit emptyArgumentFit
+
+-- | What the type checker found for an @if@ expression. A cast puts a
+-- part onto the type that the expression needs there.
+data IfTc = IfTc
+  { ifType :: !(Maybe TcAnnotation),
+    ifConditionCast :: !(Maybe TcCastAnnotation),
+    ifThenCast :: !(Maybe TcCastAnnotation),
+    ifElseCast :: !(Maybe TcCastAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | An @if@ expression with no type checker information.
+emptyIfTc :: IfTc
+emptyIfTc = IfTc Nothing Nothing Nothing Nothing
+
+-- | What the type checker found for a lambda.
+data LambdaTc = LambdaTc
+  { lambdaType :: !(Maybe TcAnnotation),
+    -- | The cast of the body onto the result type of the lambda.
+    lambdaBodyCast :: !(Maybe TcCastAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | A lambda with no type checker information.
+emptyLambdaTc :: LambdaTc
+emptyLambdaTc = LambdaTc Nothing Nothing
+
+-- | What the type checker found for an expression with a signature. The
+-- cast is outside the type.
+data SigTc = SigTc
+  { -- | The cast of the expression onto its signature type.
+    sigCast :: !(Maybe TcCastAnnotation),
+    -- | The instantiation of a polytype signature.
+    sigType :: !(Maybe TcAnnotation),
+    -- | How the inner expression fits a polytype signature.
+    sigInner :: !ArgumentFit
+  }
+  deriving (Eq, Show)
+
+-- | An expression signature with no type checker information.
+emptySigTc :: SigTc
+emptySigTc = SigTc Nothing Nothing emptyArgumentFit
+
+-- | What the type checker found for an operator section.
+data SectionTc = SectionTc
+  { sectionType :: !(Maybe TcAnnotation),
+    -- | How the operand fits the parameter type of the operator.
+    sectionOperand :: !ArgumentFit
+  }
+  deriving (Eq, Show)
+
+-- | An operator section with no type checker information.
+emptySectionTc :: SectionTc
+emptySectionTc = SectionTc Nothing emptyArgumentFit
+
+-- | An element of a list expression.
+data ListItem = ListItem
+  { -- | The cast of the element onto the element type of the list.
+    listItemCast :: !(Maybe TcCastAnnotation),
+    listItemExpr :: !Expr
+  }
+  deriving (Eq, Show)
+
+-- | An element of a list expression with no cast.
+listItem :: Expr -> ListItem
+listItem = ListItem Nothing
+
+-- | What the type checker found for a pattern. The parts go from the
+-- scrutinee to the pattern: the type of a lambda parameter, the
+-- instantiation of a polytype scrutinee, the cast of the scrutinee, and
+-- the type of the pattern.
+data PatternTc = PatternTc
+  { -- | The type of a lambda parameter, when the pattern does not give
+    -- its binder the type.
+    patternParameterType :: !(Maybe TcAnnotation),
+    -- | The instantiation of a polytype scrutinee. The annotation has the
+    -- type arguments and the evidence.
+    patternInstantiation :: !(Maybe TcAnnotation),
+    -- | The cast of the scrutinee onto the type of the pattern.
+    patternCast :: !(Maybe TcCastAnnotation),
+    patternType :: !(Maybe TcAnnotation)
+  }
+  deriving (Eq, Show)
+
+-- | A pattern with no type checker information.
+emptyPatternTc :: PatternTc
+emptyPatternTc = PatternTc Nothing Nothing Nothing Nothing
 
 -- | One @case@ or @\case@ alternative.
 -- Example: @Just x -> x@.
@@ -1847,7 +1993,10 @@ data DoStmt body
     -- @>>@ method that sequences the statement. It is 'Nothing' for the
     -- last statement of a block and for a statement that the resolver did
     -- not resolve.
-    DoExpr (Maybe Name) body
+    --
+    -- The cast puts the last statement of a block onto the type of the
+    -- block.
+    DoExpr (Maybe Name) (Maybe TcCastAnnotation) body
   | -- | @rec { stmts }@. The information is the type of the tuple of the
     -- group variables, then a pair of items for each knot occurrence. The
     -- methods are 'Nothing' for a statement that the resolver did not

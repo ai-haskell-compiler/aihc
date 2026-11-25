@@ -246,7 +246,7 @@ quotedModuleNames package home modu
     bare expr =
       case expr of
         Tc.EAnn _ inner -> bare inner
-        Tc.EParen _ inner -> bare inner
+        Tc.EParen inner -> bare inner
         _ -> expr
 
 -- | Change each quote of a syntax tree that is in the subset, as
