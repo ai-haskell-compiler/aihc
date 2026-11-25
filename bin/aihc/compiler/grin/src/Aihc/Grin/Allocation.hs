@@ -128,25 +128,25 @@ storeArguments program
     calls = MonoidMap.fromListWith (flip (<>)) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
     positions :: MonoidMap FunctionName (Map Int GrinNodeTag)
     positions =
-      MonoidMap.fromMap $
-        Map.fromList
-          [ (grinFunctionName function, qualified)
-          | function <- functions,
-            Set.notMember (grinFunctionName function) named,
-            let sites = MonoidMap.get (grinFunctionName function) calls,
-            not (null sites),
-            let arity = length (grinFunctionParameters function)
-                qualified =
-                  Map.fromList
-                    [ (index, tag)
-                    | index <- [0 .. arity - 1],
-                      Just (GrinNode tag fields : others) <- [traverse (\site -> if length site == arity then site !! index else Nothing) sites],
-                      movableTag tag,
-                      length fields <= storeArgumentFieldLimit,
-                      all ((== tag) . grinNodeTag) others,
-                      all ((== length fields) . length . grinNodeFields) others
-                    ]
-          ]
+      MonoidMap.fromListWith
+        (flip const)
+        [ (grinFunctionName function, qualified)
+        | function <- functions,
+          Set.notMember (grinFunctionName function) named,
+          let sites = MonoidMap.get (grinFunctionName function) calls,
+          not (null sites),
+          let arity = length (grinFunctionParameters function)
+              qualified =
+                Map.fromList
+                  [ (index, tag)
+                  | index <- [0 .. arity - 1],
+                    Just (GrinNode tag fields : others) <- [traverse (\site -> if length site == arity then site !! index else Nothing) sites],
+                    movableTag tag,
+                    length fields <= storeArgumentFieldLimit,
+                    all ((== tag) . grinNodeTag) others,
+                    all ((== length fields) . length . grinNodeFields) others
+                  ]
+        ]
     rewriteFunction function = do
       body <- rewriteCalls (grinFunctionBody function)
       let moved = MonoidMap.get (grinFunctionName function) positions
