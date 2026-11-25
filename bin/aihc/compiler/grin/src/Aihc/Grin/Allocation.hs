@@ -133,7 +133,8 @@ storeArguments program
           [ (grinFunctionName function, qualified)
           | function <- functions,
             Set.notMember (grinFunctionName function) named,
-            Just sites <- [Map.lookup (grinFunctionName function) calls],
+            let sites = Map.findWithDefault [] (grinFunctionName function) calls,
+            not (null sites),
             let arity = length (grinFunctionParameters function)
                 qualified =
                   Map.fromList
