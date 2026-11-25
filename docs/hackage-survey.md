@@ -5,558 +5,572 @@ This file tells which Hackage packages compile with GHC and with aihc.
 On each run, the script takes the most downloaded Hackage packages that are
 not in the tables. For each new package, the script compiles the latest
 release with `cabal build` and GHC. If GHC compiles it, the script compiles
-the same release with `aihc install NAME-VERSION --lint`.
+the same release with `aihc install NAME-VERSION --lint`. Then, the script
+runs the test suites of the release with `cabal test`. If they pass with
+GHC, the script runs them with `aihc test DIR --lint`.
+
+The Tests column gives one of these values:
+
+- `pass`: all test suites pass with GHC and with aihc.
+- `fail`: all test suites pass with GHC, and a test suite fails with aihc.
+- `ghc fail`: a test suite fails with GHC, and aihc does not run them.
+- `none`: the package has no test suite.
+- `-`: the script did not run the test suites.
 
 Run the script with `nix run .#hackage-survey`. Give the names of packages
 as arguments to survey those packages instead of the download list.
 The script does not compile a package that is in a table again. To compile
-a package again, remove its row.
+a package again, remove its row. To run only the test suites of the
+packages with the Tests value `-`, give the option `--tests-only`.
 
 ## Summary
 
 - Packages that compile with GHC: 535
 - Packages that compile with aihc: 449
 - Packages that do not compile with GHC: 398
+- Packages whose test suites pass with aihc: 2
+- Packages whose test suites fail with aihc: 0
+- Packages whose test suites fail with GHC: 0
 
 ## Packages that compile with GHC
 
-| Package | Version | AIHC | Error |
-| ------- | ------- | ---- | ----- |
-| BNFC | 2.9.6.3 | pass |  |
-| Cabal | 3.18.2.0 | pass |  |
-| Cabal-syntax | 3.18.2.0 | pass |  |
-| Chart-diagrams | 1.9.5.1 | fail | timed out after 900 seconds |
-| ChasingBottoms | 1.3.1.17 | pass |  |
-| Diff | 2.0.1 | pass |  |
-| GLFW-b | 3.3.9.1 | pass |  |
-| Glob | 0.10.2 | pass |  |
-| HDBC | 2.4.0.5 | pass |  |
-| HDBC-odbc | 2.6.0.0 | pass |  |
-| HPDF | 1.8 | pass |  |
-| HStringTemplate | 0.8.8 | pass |  |
-| HTTP | 4000.5.0 | pass |  |
-| HUnit | 1.6.2.0 | pass |  |
-| HaTeX | 3.23.0.2 | pass |  |
-| HaXml | 1.25.14 | pass |  |
-| HsOpenSSL | 0.11.7.11 | pass |  |
-| JuicyPixels | 3.3.9 | pass |  |
-| ListLike | 4.7.8.4 | pass |  |
-| MissingH | 1.6.0.3 | pass |  |
-| MonadRandom | 0.6.2.1 | pass |  |
-| OneTuple | 0.4.3 | pass |  |
-| OpenGLRaw | 3.3.4.1 | pass |  |
-| QuickCheck | 2.19.0.0 | pass |  |
-| RSA | 2.4.1 | pass |  |
-| Rasterific | 0.7.5.4 | pass |  |
-| SHA | 1.6.4.4 | pass |  |
-| StateVar | 1.2.2 | pass |  |
-| TCache | 1.0.0.1 | pass |  |
-| Yampa | 0.15.1 | pass |  |
-| acid-state | 0.17.0 | pass |  |
-| active | 0.2.1.1 | pass |  |
-| ad | 4.5.6 | pass |  |
-| adjunctions | 4.4.4 | pass |  |
-| aeson | 2.3.2.0 | pass |  |
-| aeson-pretty | 0.8.11 | pass |  |
-| aeson-value-parser | 0.19.7.2 | pass |  |
-| aivika | 6.2 | pass |  |
-| alex | 3.5.4.2 | pass |  |
-| amqp | 0.24.0 | pass |  |
-| ansi-terminal | 1.1.5 | pass |  |
-| ansi-terminal-game | 1.9.4.0 | pass |  |
-| ansi-wl-pprint | 1.1.1 | pass |  |
-| apecs | 0.10.1 | fail | apecs-0.10.1/src/Apecs/Experimental/Reactive.hs:77:26: error: unsolved constraint Has w m (Elem s) |
-| arbtt | 0.12.0.3 | pass |  |
-| arch-hs | 0.16.2 | fail | arch-hs-0.16.2/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strategy |
-| arithmoi | 0.13.4.0 | pass |  |
-| async | 2.2.6 | pass |  |
-| atomic-primops | 0.8.8 | pass |  |
-| attoparsec | 0.14.4 | pass |  |
-| authenticate | 1.3.5.2 | pass |  |
-| auto-update | 0.2.8 | pass |  |
-| aws | 0.25.3 | pass |  |
-| barbies | 2.1.1.0 | pass |  |
-| base-compat | 0.15.0 | pass |  |
-| base-compat-batteries | 0.15.0 | pass |  |
-| base-orphans | 0.9.4 | pass |  |
-| base-prelude | 1.6.1.1 | pass |  |
-| base16 | 2.0 | pass |  |
-| base64 | 2.1 | pass |  |
-| base64-bytestring | 1.2.1.0 | pass |  |
-| basement | 0.0.16 | pass |  |
-| beam-postgres | 0.6.4.0 | fail | pqueue-1.7.0.0/src/Data/PQueue/Min.hs:32:3: error: pattern synonym Empty has the scrutinee type Seq and cannot be bundled with MinQueue |
-| bearriver | 0.15.1 | fail | dunai-0.14.2/src/Data/MonadicStreamFunction/Util.hs:41:17: error: unhandled syntax: term name ‘EProc’ |
-| bifunctors | 5.6.3 | pass |  |
-| binary | 0.8.9.3 | pass |  |
-| bitvec | 1.1.6.0 | pass |  |
-| blaze-builder | 0.4.4.1 | pass |  |
-| blaze-html | 0.9.2.0 | pass |  |
-| blaze-markup | 0.8.3.0 | pass |  |
-| bloodhound | 1.0.0.0 | pass |  |
-| bluefin | 0.10.1.0 | pass |  |
-| bound | 2.0.7 | pass |  |
-| brick | 3.0 | fail | brick-3.0/.aihc-target/llvm/splices/brick/Brick.Widgets.List/package/src/Brick/Main.hs:81:8: error: module ‘Graphics.Vty.CrossPlatform’ not found |
-| bson | 0.4.0.1 | pass |  |
-| bv-sized | 1.0.8 | fail | parameterized-utils-2.3.1.0/src/Data/Parameterized/NatRepr/Internal.hs:71:25: error: unsolved constraint 0 ~ + t0 1 |
-| bytes | 0.17.5 | pass |  |
-| byteslice | 0.2.15.0 | pass |  |
-| bytestring | 0.12.2.0 | pass |  |
-| c2hs | 0.28.8 | pass |  |
-| cabal-debian | 5.5.1 | fail | timed out after 900 seconds |
-| cabal-doctest | 1.0.13 | pass |  |
-| cabal-gild | 1.8.4.2 | pass |  |
-| cabal-rpm | 2.3.2 | pass |  |
-| cabal2nix | 2.21.3 | fail | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
-| cachix-api | 1.14.0 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| call-alloy | 0.6.0.3 | pass |  |
-| call-stack | 0.4.0 | pass |  |
-| case-insensitive | 1.2.2.0 | pass |  |
-| cassava | 0.5.4.1 | pass |  |
-| cereal | 0.5.8.3 | pass |  |
-| cgi | 3001.5.2.0 | pass |  |
-| cgrep | 9.2.3 | pass |  |
-| charset | 0.3.12 | pass |  |
-| chart-svg | 0.8.3.3 | fail | In Color-0.4.1: FC lint failed: |
-| chronos | 1.1.7.0 | pass |  |
-| citeproc | 0.14.2 | pass |  |
-| classy-prelude | 1.5.0.3 | pass |  |
-| classy-prelude-conduit | 1.5.0 | pass |  |
-| clientsession | 0.9.3.0 | pass |  |
-| clock | 0.8.4 | pass |  |
-| cmark | 0.6.1 | pass |  |
-| cmdargs | 0.10.22 | pass |  |
-| cndict | 0.10.0 | pass |  |
-| cobot-io | 0.1.5.8 | fail | timed out after 900 seconds |
-| colour | 2.3.7 | pass |  |
-| commonmark | 0.3.2 | pass |  |
-| commonmark-extensions | 0.2.8 | pass |  |
-| comonad | 5.0.10 | pass |  |
-| comonad-transformers | 4.0 | pass |  |
-| comonads-fd | 4.0 | pass |  |
-| composition-prelude | 3.0.1.0 | pass |  |
-| concurrent-output | 1.10.21 | pass |  |
-| conduit | 1.3.6.1 | pass |  |
-| conduit-extra | 1.3.8 | pass |  |
-| constraints | 0.14.4 | pass |  |
-| constraints-extras | 0.4.0.2 | pass |  |
-| containers | 0.8.1 | pass |  |
-| contravariant | 1.5.6 | pass |  |
-| cookie | 0.5.1 | pass |  |
-| copilot | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| copilot-c99 | 4.8.2 | pass |  |
-| copilot-core | 4.8.2 | pass |  |
-| copilot-language | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| copilot-libraries | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| copilot-theorem | 4.8.2 | fail | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| core-program | 0.7.0.0 | fail | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
-| cpphs | 1.20.10 | pass |  |
-| cql-io | 2.0.0 | fail | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
-| criterion | 1.6.5.0 | pass |  |
-| crypto-api | 0.13.3 | pass |  |
-| cryptohash | 0.11.9 | pass |  |
-| crypton | 2.2.6 | pass |  |
-| crypton-x509 | 1.10.1 | pass |  |
-| crypton-x509-validation | 1.10.1 | pass |  |
-| cryptonite | 0.30 | pass |  |
-| csound-expression | 5.4.4.1 | fail | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
-| csound-expression-typed | 0.2.9.0 | fail | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
-| data-accessor | 0.2.3.1 | pass |  |
-| data-default | 0.8.0.2 | pass |  |
-| data-default-class | 0.2.0.0 | pass |  |
-| data-fix | 0.3.4 | pass |  |
-| dataframe | 3.8.0.0 | fail | The plan needs build tools this compiler cannot run: |
-| dbus | 1.4.3 | fail | timed out after 900 seconds |
-| debian | 4.1.2 | fail | timed out after 900 seconds |
-| deepseq | 1.5.2.0 | pass |  |
-| deferred-folds | 0.9.18.10 | pass |  |
-| dejafu | 2.4.0.8 | pass |  |
-| dependent-sum | 0.7.2.0 | pass |  |
-| deriving-compat | 0.6.8 | pass |  |
-| dhall | 1.42.3 | pass |  |
-| diagrams-contrib | 1.4.8 | fail | timed out after 900 seconds |
-| diagrams-core | 1.5.1.2 | pass |  |
-| diagrams-lib | 1.6 | fail | timed out after 900 seconds |
-| diagrams-rasterific | 1.5.0.1 | fail | timed out after 900 seconds |
-| diagrams-svg | 1.5.1 | fail | timed out after 900 seconds |
-| digestive-functors | 0.8.4.2 | pass |  |
-| digit | 0.15 | pass |  |
-| dimensional | 1.6.2 | pass |  |
-| direct-sqlite | 2.3.29 | pass |  |
-| directory | 1.3.11.0 | pass |  |
-| discord-haskell | 1.19.0 | pass |  |
-| distributed-process | 0.7.10 | pass |  |
-| distributive | 0.6.3 | pass |  |
-| dlist | 1.0 | pass |  |
-| dns | 4.2.1 | pass |  |
-| dobutokO2 | 0.45.3.0 | pass |  |
-| doctemplates | 0.11.1 | pass |  |
-| dotenv | 0.12.0.0 | pass |  |
-| double-conversion | 2.0.5.0 | pass |  |
-| either | 5.0.3 | pass |  |
-| email-validate | 2.3.2.21 | pass |  |
-| entropy | 0.4.1.11 | pass |  |
-| errors | 2.3.0 | pass |  |
-| ersatz | 0.6 | pass |  |
-| esqueleto | 3.6.0.3 | pass |  |
-| exceptions | 0.10.12 | pass |  |
-| extra | 1.8.1 | pass |  |
-| fast-logger | 3.2.9 | pass |  |
-| fb | 2.1.1.2 | pass |  |
-| fgl | 5.8.3.1 | pass |  |
-| file-embed | 0.0.16.0 | pass |  |
-| filepath | 1.5.5.0 | pass |  |
-| filestore | 0.6.5.1 | pass |  |
-| fingertree | 0.1.6.3 | pass |  |
-| fixed-vector | 2.1.1.0 | pass |  |
-| flatparse | 0.5.6.1 | pass |  |
-| foldl | 1.4.18 | pass |  |
-| force-layout | 0.4.1 | pass |  |
-| formatting | 7.2.0 | pass |  |
-| foundation | 0.0.30 | pass |  |
-| free | 5.2 | pass |  |
-| fused-effects | 1.1.2.7 | pass |  |
-| generic-deriving | 1.14.7 | pass |  |
-| generics-sop | 0.5.1.4 | pass |  |
-| genvalidity | 1.1.1.0 | pass |  |
-| ghc-events | 0.21.0.0 | pass |  |
-| ghcid | 1.0.0 | pass |  |
-| ghcjs-dom | 0.10.0.0 | pass |  |
-| ginger | 0.10.6.0 | pass |  |
-| github | 0.30.0.2 | pass |  |
-| github-release | 2.0.0.19 | pass |  |
-| gloss | 1.13.2.2 | pass |  |
-| gnuplot | 0.5.7 | pass |  |
-| graphql | 1.5.0.3 | pass |  |
-| graphviz | 2999.20.2.1 | pass |  |
-| h-raylib | 6.1.0.0 | fail | timed out after 900 seconds |
-| hackage-security | 0.6.4.0 | fail | hackage-security-0.6.4.0/src/Hackage/Security/Trusted.hs:40:31: error: unbound term name ‘static’ |
-| haddock-library | 1.11.0 | pass |  |
-| hakyll | 4.17.0.0 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| half | 0.3.3 | pass |  |
-| hamlet | 1.2.0 | pass |  |
-| happstack-server | 7.9.5 | pass |  |
-| happstack-server-tls | 7.2.1.7 | pass |  |
-| happy | 2.2 | pass |  |
-| happy-lib | 2.2 | pass |  |
-| hashable | 1.5.1.0 | pass |  |
-| hashtables | 1.4.2 | pass |  |
-| haskeline | 0.8.5.0 | pass |  |
-| haskell-src-exts | 1.24.0 | pass |  |
-| haskell-src-meta | 0.8.16 | pass |  |
-| haskoin-core | 2.0.0 | fail | haskoin-core-2.0.0/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
-| haskoin-store-data | 3.0.0 | fail | haskoin-core-2.0.1/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
-| hasql | 2.0.1.0 | pass |  |
-| hasql-optparse-applicative | 0.9.1.1 | pass |  |
-| hasql-pool | 1.5.1.1 | pass |  |
-| hasql-transaction | 1.2.3.1 | pass |  |
-| haxr | 3000.11.6.1 | pass |  |
-| hedgehog | 1.7 | pass |  |
-| hedis | 0.16.4 | pass |  |
-| heist | 1.1.1.2 | pass |  |
-| hexpat | 0.20.13 | pass |  |
-| histogram-fill | 0.9.1.0 | pass |  |
-| hjsmin | 0.2.1 | pass |  |
-| hledger | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| hledger-ui | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| hledger-web | 1.52.4 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| hmatrix | 0.20.2 | fail | built  semigroups-0.20.1 in 0.4 s |
-| hmatrix-gsl-stats | 0.4.1.8 | fail | built  semigroups-0.20.1 in 0.5 s |
-| hoauth2 | 2.15.2 | pass |  |
-| hpack | 0.39.6 | fail | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
-| hsc2hs | 0.68.10 | pass |  |
-| hslogger | 1.3.2.0 | pass |  |
-| hslua | 2.5.0 | pass |  |
-| hspec | 2.11.18 | pass |  |
-| hspec-core | 2.11.18 | pass |  |
-| hspec-discover | 2.11.18 | pass |  |
-| hspec-expectations | 0.8.4 | pass |  |
-| hspec-meta | 2.11.18 | pass |  |
-| http-api-data | 0.7 | pass |  |
-| http-client | 0.7.19 | pass |  |
-| http-client-tls | 0.4.0 | pass |  |
-| http-conduit | 2.3.9.1 | pass |  |
-| http-conduit-downloader | 1.1.5 | pass |  |
-| http-date | 0.0.13 | pass |  |
-| http-media | 0.8.1.1 | pass |  |
-| http-reverse-proxy | 0.6.2.0 | pass |  |
-| http-streams | 0.8.9.9 | pass |  |
-| http-types | 0.12.6 | pass |  |
-| http2 | 5.4.13 | pass |  |
-| http2-tls | 0.5.9 | pass |  |
-| http3 | 0.1.11 | pass |  |
-| hvega | 0.12.0.7 | pass |  |
-| hw-kafka-client | 5.3.0 | pass |  |
-| hw-prim | 0.6.3.2 | pass |  |
-| hxt | 9.3.1.22 | pass |  |
-| hyphenation | 0.8.3 | pass |  |
-| indexed-traversable | 0.1.5 | pass |  |
-| indexed-traversable-instances | 0.1.2.1 | pass |  |
-| inline-c | 0.9.1.10 | pass |  |
-| insert-ordered-containers | 0.3.0.1 | pass |  |
-| integer-logarithms | 1.0.5 | pass |  |
-| invariant | 0.6.5 | pass |  |
-| io-streams | 1.5.2.2 | pass |  |
-| ip | 1.7.8 | pass |  |
-| iproute | 1.8.0 | pass |  |
-| jose | 0.13 | fail | <unknown location in Crypto.JOSE.JWA.JWS>: error: could not match Value with [Char] |
-| jose-jwt | 0.11.0 | pass |  |
-| jsaddle | 0.9.10.0 | pass |  |
-| kan-extensions | 5.2.8 | pass |  |
-| katip | 0.8.8.4 | pass |  |
-| keiro | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| keiro-core | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| keiro-dsl | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| keiro-pgmq | 0.25.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| keter | 2.3.6 | fail | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
-| keys | 3.12.5 | pass |  |
-| kiroku-otel | 0.3.0.1 | fail | In streamly-core-0.3.3: FC lint failed: |
-| kiroku-store | 0.13.0.2 | fail | In streamly-core-0.3.3: FC lint failed: |
-| language-c | 0.10.2 | pass |  |
-| language-c-quote | 0.13.0.2 | pass |  |
-| language-docker | 16.0.0 | pass |  |
-| language-javascript | 0.7.1.0 | pass |  |
-| lens | 5.3.6 | pass |  |
-| lens-aeson | 1.2.3 | pass |  |
-| lens-family-core | 2.1.3 | pass |  |
-| lentil | 1.5.10.0 | pass |  |
-| libarchive | 3.0.6.0 | fail | The plan needs build tools this compiler cannot run: |
-| lifted-async | 0.11.0 | pass |  |
-| lifted-base | 0.2.3.12 | pass |  |
-| linear | 1.23.3 | pass |  |
-| liquid-fixpoint | 0.9.6.3.7 | fail | liquid-fixpoint-0.9.6.3.7/.aihc-target/llvm/splices/liquid-fixpoint/Language.Fixpoint.Types.Config/package/src/AihcSplice.hs:7:18: error: module ‘Data.Store’ no |
-| list-t | 1.0.5.7 | pass |  |
-| logict | 0.8.2.0 | pass |  |
-| lsp-test | 0.18.0.0 | fail | row-types-1.0.1.2/src/Data/Row/Dictionaries.hs:106:1: error: kind mismatch: expected Row k0, got k0 |
-| lucid | 2.11.20260427 | pass |  |
-| massiv | 1.0.5.0 | pass |  |
-| math-functions | 0.3.4.4 | pass |  |
-| megaparsec | 9.8.3 | pass |  |
-| memory | 0.18.0 | pass |  |
-| microlens | 0.5.0.0 | pass |  |
-| microlens-ghc | 0.4.15.2 | pass |  |
-| microlens-mtl | 0.2.1.1 | pass |  |
-| microlens-platform | 0.4.4.2 | pass |  |
-| microlens-th | 0.4.3.18 | pass |  |
-| mighttpd2 | 4.0.12 | pass |  |
-| mime-mail | 0.5.2 | pass |  |
-| mime-types | 0.1.2.2 | pass |  |
-| miso | 1.15.0.0 | pass |  |
-| mmorph | 1.2.2 | pass |  |
-| modern-uri | 0.3.6.1 | pass |  |
-| monad-control | 1.0.3.1 | pass |  |
-| monad-logger | 0.3.42 | pass |  |
-| mongoDB | 2.7.1.4 | pass |  |
-| mono-traversable | 1.0.21.0 | pass |  |
-| monoid-extras | 0.7.0.2 | pass |  |
-| monoid-subclasses | 1.2.6.1 | pass |  |
-| monoidal-containers | 0.6.8.0 | pass |  |
-| morpheus-graphql | 0.28.5 | fail | timed out after 900 seconds |
-| mtl | 2.3.2 | pass |  |
-| mwc-random | 0.15.3.0 | pass |  |
-| mysql-haskell | 1.5.0 | pass |  |
-| network | 3.2.12.0 | pass |  |
-| network-byte-order | 0.1.9 | pass |  |
-| network-uri | 2.6.4.2 | pass |  |
-| ngx-export | 1.7.11.1 | pass |  |
-| ngx-export-tools | 1.2.6.3 | pass |  |
-| numhask | 0.13.3.0 | pass |  |
-| old-time | 1.1.1.0 | pass |  |
-| opaleye | 0.10.8.0 | fail | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 419699 for K with arguments [TcT |
-| optparse-applicative | 0.19.0.0 | pass |  |
-| optparse-generic | 1.5.3 | pass |  |
-| os-string | 2.0.11 | pass |  |
-| pandoc | 3.14 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| pandoc-crossref | 0.3.26 | fail | timed out after 900 seconds |
-| pandoc-types | 1.23.1.2 | pass |  |
-| parallel | 3.3.0.0 | pass |  |
-| parsec | 3.1.18.0 | pass |  |
-| parser-combinators | 1.3.1 | pass |  |
-| parsers | 0.12.12 | pass |  |
-| patat | 0.15.2.0 | fail | /private/tmp/claude-501/-Users-lemmih-coding-ai-haskell-compiler-aihc--claude-worktrees-cool-cartwright-9e650f/ccd7b847-4a56-4111-8600-07df72506c9d/scratchpad/s |
-| path | 0.9.6 | fail | path-0.9.6/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
-| path-io | 1.8.2 | fail | path-io-1.8.2/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
-| persistent | 2.18.1.0 | pass |  |
-| persistent-mongoDB | 2.13.1.0 | pass |  |
-| persistent-postgresql | 2.14.3.0 | fail | configure: error: Library requirements (PostgreSQL) not met. |
-| persistent-sqlite | 2.13.3.1 | fail | In persistent-sqlite-2.13.3.1: Template Haskell failed in module Database.Persist.Sqlite: the engine failed: the shared module refers to the unknown symbol sqli |
-| persistent-template | 2.12.0.0 | pass |  |
-| phino | 0.0.165 | fail | In phino-0.0.165: GRIN generation failed: value Name {nameText = "$fEqGLOBAL$c==", nameSort = SortValue, nameOrigin = OriginTop (PackageId {packageIdText = "phi |
-| pipes | 4.3.16 | pass |  |
-| pointed | 5.0.5 | pass |  |
-| polysemy | 1.9.2.0 | fail | polysemy-1.9.2.0/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strate |
-| pontarius-xmpp | 0.5.7.2 | fail | pontarius-xmpp-0.5.7.2/source/Network/Xmpp/Tls.hs:125:1: error: could not match CertificateStore with CertificateStore |
-| postgresql-binary | 0.15.0.1 | pass |  |
-| postgresql-libpq | 0.11.0.0 | pass |  |
-| postgresql-query | 3.10.0 | fail | configure: error: Library requirements (PostgreSQL) not met. |
-| postgresql-simple | 0.7.0.1 | pass |  |
-| pqi-conformance | 1.0.18.0 | pass |  |
-| pretty-show | 1.10 | pass |  |
-| pretty-simple | 4.1.4.0 | pass |  |
-| prettyprinter | 1.7.2 | pass |  |
-| prettyprinter-ansi-terminal | 1.1.4 | pass |  |
-| primitive | 0.9.1.0 | pass |  |
-| primitive-extras | 0.10.2.2 | pass |  |
-| process | 1.6.30.0 | pass |  |
-| profunctors | 5.6.3 | pass |  |
-| propellor | 5.18 | fail | In propellor-5.18: FC lint failed: |
-| proto-lens | 0.7.1.7 | pass |  |
-| protolude | 0.3.5 | pass |  |
-| psqueues | 0.2.8.3 | pass |  |
-| pusher-http-haskell | 2.1.0.27 | pass |  |
-| quic | 0.3.22 | pass |  |
-| quickcheck-instances | 0.4 | pass |  |
-| random | 1.3.1 | pass |  |
-| rank2classes | 1.5.5.1 | pass |  |
-| ratel | 2.0.0.19 | pass |  |
-| rattletrap | 14.1.4 | pass |  |
-| reactive-banana | 1.3.2.0 | pass |  |
-| rebase | 1.23 | pass |  |
-| recursion-schemes | 5.2.3 | pass |  |
-| reducers | 3.12.5 | pass |  |
-| reflection | 2.1.9 | pass |  |
-| reflex | 0.9.4.1 | fail | reflex-0.9.4.1/src/Reflex/Profiled.hs:71:34: error: unbound type name ‘CostCentreStack’ |
-| regex-base | 0.94.0.3 | pass |  |
-| regex-posix | 0.96.0.2 | pass |  |
-| regex-tdfa | 1.3.2.7 | pass |  |
-| registry | 0.6.3.3 | pass |  |
-| relational-query | 0.12.3.1 | pass |  |
-| resource-pool | 0.5.1.0 | pass |  |
-| resourcet | 1.3.0 | pass |  |
-| retry | 0.9.3.1 | pass |  |
-| rio | 0.1.25.0 | pass |  |
-| safe | 0.3.21 | pass |  |
-| safe-exceptions | 0.1.7.4 | pass |  |
-| sbp | 6.5.2 | pass |  |
-| sbv | 14.9 | fail | sbv-14.9/.aihc-target/llvm/splices/sbv/Data.SBV.Maybe/package/src/Data/SBV/List.hs:564:1: error: could not match SBV [a] with [SBV a] |
-| scientific | 0.3.10.0 | pass |  |
-| scotty | 0.30 | pass |  |
-| secp256k1-haskell | 3.0.0 | pass |  |
-| semialign | 1.4 | pass |  |
-| semigroupoids | 6.0.2 | pass |  |
-| semigroups | 0.20.1 | pass |  |
-| servant | 0.20.3.0 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-client | 0.20.3.0 | fail | In servant-client-core-0.20.3.0: FC lint failed: |
-| servant-docs | 0.13.1 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-lucid | 0.9.0.6 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-server | 0.20.3.0 | fail | In servant-server-0.20.3.0: FC lint failed: |
-| servant-swagger | 1.2.3 | fail | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-swagger-ui | 0.3.5.5.0.1 | fail | In servant-server-0.20.3.0: FC lint failed: |
-| shake | 0.19.9 | pass |  |
-| shakespeare | 2.2.0 | pass |  |
-| shakespeare-css | 1.1.0 | pass |  |
-| shakespeare-js | 1.3.0 | pass |  |
-| shelly | 1.12.1.1 | pass |  |
-| shibuya-kiroku-adapter | 0.8.0.0 | fail | In streamly-core-0.3.3: FC lint failed: |
-| simple-sendfile | 0.2.33 | pass |  |
-| singletons | 3.0.4 | fail | singletons-3.0.4/src/Data/Singletons.hs:806:1: error: could not match SLambda with SWrappedSing |
-| skylighting | 0.15.0.1 | pass |  |
-| skylighting-core | 0.15.0.1 | pass |  |
-| snap | 1.1.3.3 | pass |  |
-| snap-core | 1.0.5.1 | pass |  |
-| snap-server | 1.1.2.1 | pass |  |
-| some | 1.1 | pass |  |
-| split | 0.2.5.1 | pass |  |
-| splitmix | 0.1.3.2 | pass |  |
-| sqlite-simple | 0.4.19.0 | pass |  |
-| statistics | 0.16.5.0 | pass |  |
-| stm | 2.5.3.1 | pass |  |
-| stm-containers | 1.2.2 | pass |  |
-| store | 0.7.22 | fail | <unknown location in Data.Store.Internal>: error: kind mismatch: expected 'BoxedRep 'Lifted, got 'WordRep |
-| stratosphere | 1.0.1 | pass |  |
-| streaming | 0.2.4.0 | pass |  |
-| streaming-commons | 0.2.3.1 | pass |  |
-| streamly | 0.11.1 | fail | In streamly-core-0.3.3: FC lint failed: |
-| strict | 0.5.1 | pass |  |
-| strive | 6.1.0.5 | pass |  |
-| swagger2 | 2.9.1 | fail | timed out after 900 seconds |
-| syb | 0.7.4 | pass |  |
-| system-fileio | 0.3.16.7 | pass |  |
-| system-filepath | 0.4.14.1 | pass |  |
-| tagged | 0.9 | pass |  |
-| tagsoup | 0.14.8 | pass |  |
-| tar | 0.7.2.0 | pass |  |
-| tasty | 1.5.5 | pass |  |
-| tasty-golden | 2.3.6 | pass |  |
-| tasty-quickcheck | 0.11.1 | pass |  |
-| terminfo | 0.4.1.7 | pass |  |
-| test-framework | 0.8.2.3 | pass |  |
-| texmath | 0.13.3.5 | pass |  |
-| text | 2.1.4 | pass |  |
-| text-builder | 1.0.0.5 | pass |  |
-| text-icu | 0.8.0.5 | pass |  |
-| text-iso8601 | 0.2.0.0 | pass |  |
-| text-short | 0.1.6.1 | pass |  |
-| text-show | 3.11.4 | fail | src/TextShow/Foreign/Ptr.hs:49:7: error: unbound term name ‘integerFromWord#’ |
-| th-abstraction | 0.7.2.0 | pass |  |
-| th-compat | 0.1.7 | pass |  |
-| th-desugar | 1.19 | fail | th-desugar-1.19/Language/Haskell/TH/Desugar/Util.hs:60:22: error: not exported: type name ‘IP’ |
-| th-expand-syns | 0.4.12.0 | pass |  |
-| th-lift | 0.8.7 | pass |  |
-| th-lift-instances | 0.1.20 | pass |  |
-| th-orphans | 0.13.17 | pass |  |
-| these | 1.2.1 | pass |  |
-| tidal | 1.10.3 | pass |  |
-| time | 1.16.0.1 | pass |  |
-| time-compat | 1.9.9 | pass |  |
-| time-manager | 0.5.2 | pass |  |
-| tls | 2.5.1 | pass |  |
-| tmp-postgres | 1.34.1.0 | pass |  |
-| transformers | 0.6.3.0 | pass |  |
-| transformers-base | 0.4.6.1 | pass |  |
-| transformers-compat | 0.8 | pass |  |
-| tree-diff | 0.4.1 | pass |  |
-| trifecta | 2.1.4 | pass |  |
-| turtle | 1.6.2 | pass |  |
-| typed-process | 0.2.13.0 | pass |  |
-| typst | 0.12.1 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| tzdata | 0.2.20260911.0 | pass |  |
-| uniplate | 1.6.13 | pass |  |
-| unix | 2.8.8.0 | pass |  |
-| unix-compat | 0.7.4.1 | pass |  |
-| unix-time | 0.6.0 | pass |  |
-| unliftio | 0.2.25.1 | pass |  |
-| unordered-containers | 0.2.21 | pass |  |
-| usb | 1.3.0.6 | pass |  |
-| utf8-string | 1.0.2 | pass |  |
-| uu-parsinglib | 2.9.2 | pass |  |
-| uuagc | 0.9.57 | fail | src-ag/Order.ag:20:8: error: module ‘SequentialComputation’ not found |
-| uuid | 1.3.16.1 | pass |  |
-| uuid-types | 1.0.6.1 | pass |  |
-| validity | 0.12.1.0 | pass |  |
-| vault | 0.3.2.0 | pass |  |
-| vector | 0.13.2.0 | pass |  |
-| vector-algorithms | 0.9.1.0 | pass |  |
-| vector-sized | 1.6.1 | pass |  |
-| vector-space | 0.19 | pass |  |
-| versions | 6.0.9 | pass |  |
-| vinyl | 0.14.3 | pass |  |
-| void | 0.7.4 | pass |  |
-| vty | 6.7 | pass |  |
-| wai | 3.2.5 | pass |  |
-| wai-app-file-cgi | 3.3.0 | pass |  |
-| wai-app-static | 3.2.1 | pass |  |
-| wai-extra | 3.1.18 | pass |  |
-| wai-logger | 2.5.1 | pass |  |
-| wai-test | 3.0.0 | pass |  |
-| warp | 3.4.21 | pass |  |
-| warp-tls | 3.4.18 | pass |  |
-| web-routes | 0.27.16 | pass |  |
-| webdriver | 0.15.0.0 | fail | In webdriver-0.15.0.0: Template Haskell failed in module Test.WebDriver.Capabilities.FirefoxOptions: the wasm32-wasip3 target has no C++ standard library: its s |
-| websockets | 0.13.0.0 | pass |  |
-| wide-word | 0.1.9.0 | pass |  |
-| witch | 1.4.0.1 | pass |  |
-| witherable | 0.5 | pass |  |
-| x509 | 1.7.7 | pass |  |
-| x509-validation | 1.6.12 | pass |  |
-| xlsx | 1.3.0 | fail | timed out after 900 seconds |
-| xml-conduit | 1.10.1.0 | pass |  |
-| xmlhtml | 0.2.5.4 | pass |  |
-| yaml | 0.11.11.2 | pass |  |
-| yesod-test | 1.7.0.3 | fail | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
-| yi | 0.19.3 | fail | src/Yi/Lexer/common.hsinc:24:34: error: could not match Int with [(Point, Char)] → () → (a, b) |
-| yst | 0.7.2 | fail | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| zip-archive | 0.5 | pass |  |
-| zlib | 0.7.1.1 | pass |  |
+| Package | Version | AIHC | Tests | Error |
+| ------- | ------- | ---- | ----- | ----- |
+| BNFC | 2.9.6.3 | pass | - |  |
+| Cabal | 3.18.2.0 | pass | - |  |
+| Cabal-syntax | 3.18.2.0 | pass | - |  |
+| Chart-diagrams | 1.9.5.1 | fail | - | timed out after 900 seconds |
+| ChasingBottoms | 1.3.1.17 | pass | - |  |
+| Diff | 2.0.1 | pass | pass |  |
+| GLFW-b | 3.3.9.1 | pass | - |  |
+| Glob | 0.10.2 | pass | - |  |
+| HDBC | 2.4.0.5 | pass | - |  |
+| HDBC-odbc | 2.6.0.0 | pass | - |  |
+| HPDF | 1.8 | pass | - |  |
+| HStringTemplate | 0.8.8 | pass | - |  |
+| HTTP | 4000.5.0 | pass | - |  |
+| HUnit | 1.6.2.0 | pass | - |  |
+| HaTeX | 3.23.0.2 | pass | - |  |
+| HaXml | 1.25.14 | pass | - |  |
+| HsOpenSSL | 0.11.7.11 | pass | - |  |
+| JuicyPixels | 3.3.9 | pass | - |  |
+| ListLike | 4.7.8.4 | pass | - |  |
+| MissingH | 1.6.0.3 | pass | - |  |
+| MonadRandom | 0.6.2.1 | pass | - |  |
+| OneTuple | 0.4.3 | pass | - |  |
+| OpenGLRaw | 3.3.4.1 | pass | - |  |
+| QuickCheck | 2.19.0.0 | pass | - |  |
+| RSA | 2.4.1 | pass | - |  |
+| Rasterific | 0.7.5.4 | pass | - |  |
+| SHA | 1.6.4.4 | pass | - |  |
+| StateVar | 1.2.2 | pass | - |  |
+| TCache | 1.0.0.1 | pass | - |  |
+| Yampa | 0.15.1 | pass | - |  |
+| acid-state | 0.17.0 | pass | - |  |
+| active | 0.2.1.1 | pass | - |  |
+| ad | 4.5.6 | pass | - |  |
+| adjunctions | 4.4.4 | pass | - |  |
+| aeson | 2.3.2.0 | pass | - |  |
+| aeson-pretty | 0.8.11 | pass | - |  |
+| aeson-value-parser | 0.19.7.2 | pass | - |  |
+| aivika | 6.2 | pass | - |  |
+| alex | 3.5.4.2 | pass | - |  |
+| amqp | 0.24.0 | pass | - |  |
+| ansi-terminal | 1.1.5 | pass | - |  |
+| ansi-terminal-game | 1.9.4.0 | pass | - |  |
+| ansi-wl-pprint | 1.1.1 | pass | - |  |
+| apecs | 0.10.1 | fail | - | apecs-0.10.1/src/Apecs/Experimental/Reactive.hs:77:26: error: unsolved constraint Has w m (Elem s) |
+| arbtt | 0.12.0.3 | pass | - |  |
+| arch-hs | 0.16.2 | fail | - | arch-hs-0.16.2/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strategy |
+| arithmoi | 0.13.4.0 | pass | - |  |
+| async | 2.2.6 | pass | - |  |
+| atomic-primops | 0.8.8 | pass | - |  |
+| attoparsec | 0.14.4 | pass | - |  |
+| authenticate | 1.3.5.2 | pass | - |  |
+| auto-update | 0.2.8 | pass | - |  |
+| aws | 0.25.3 | pass | - |  |
+| barbies | 2.1.1.0 | pass | - |  |
+| base-compat | 0.15.0 | pass | - |  |
+| base-compat-batteries | 0.15.0 | pass | - |  |
+| base-orphans | 0.9.4 | pass | - |  |
+| base-prelude | 1.6.1.1 | pass | - |  |
+| base16 | 2.0 | pass | - |  |
+| base64 | 2.1 | pass | - |  |
+| base64-bytestring | 1.2.1.0 | pass | - |  |
+| basement | 0.0.16 | pass | - |  |
+| beam-postgres | 0.6.4.0 | fail | - | pqueue-1.7.0.0/src/Data/PQueue/Min.hs:32:3: error: pattern synonym Empty has the scrutinee type Seq and cannot be bundled with MinQueue |
+| bearriver | 0.15.1 | fail | - | dunai-0.14.2/src/Data/MonadicStreamFunction/Util.hs:41:17: error: unhandled syntax: term name ‘EProc’ |
+| bifunctors | 5.6.3 | pass | - |  |
+| binary | 0.8.9.3 | pass | - |  |
+| bitvec | 1.1.6.0 | pass | - |  |
+| blaze-builder | 0.4.4.1 | pass | - |  |
+| blaze-html | 0.9.2.0 | pass | - |  |
+| blaze-markup | 0.8.3.0 | pass | - |  |
+| bloodhound | 1.0.0.0 | pass | - |  |
+| bluefin | 0.10.1.0 | pass | - |  |
+| bound | 2.0.7 | pass | - |  |
+| brick | 3.0 | fail | - | brick-3.0/.aihc-target/llvm/splices/brick/Brick.Widgets.List/package/src/Brick/Main.hs:81:8: error: module ‘Graphics.Vty.CrossPlatform’ not found |
+| bson | 0.4.0.1 | pass | - |  |
+| bv-sized | 1.0.8 | fail | - | parameterized-utils-2.3.1.0/src/Data/Parameterized/NatRepr/Internal.hs:71:25: error: unsolved constraint 0 ~ + t0 1 |
+| bytes | 0.17.5 | pass | - |  |
+| byteslice | 0.2.15.0 | pass | - |  |
+| bytestring | 0.12.2.0 | pass | - |  |
+| c2hs | 0.28.8 | pass | - |  |
+| cabal-debian | 5.5.1 | fail | - | timed out after 900 seconds |
+| cabal-doctest | 1.0.13 | pass | - |  |
+| cabal-gild | 1.8.4.2 | pass | - |  |
+| cabal-rpm | 2.3.2 | pass | - |  |
+| cabal2nix | 2.21.3 | fail | - | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
+| cachix-api | 1.14.0 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| call-alloy | 0.6.0.3 | pass | - |  |
+| call-stack | 0.4.0 | pass | - |  |
+| case-insensitive | 1.2.2.0 | pass | - |  |
+| cassava | 0.5.4.1 | pass | - |  |
+| cereal | 0.5.8.3 | pass | - |  |
+| cgi | 3001.5.2.0 | pass | - |  |
+| cgrep | 9.2.3 | pass | - |  |
+| charset | 0.3.12 | pass | - |  |
+| chart-svg | 0.8.3.3 | fail | - | In Color-0.4.1: FC lint failed: |
+| chronos | 1.1.7.0 | pass | - |  |
+| citeproc | 0.14.2 | pass | - |  |
+| classy-prelude | 1.5.0.3 | pass | - |  |
+| classy-prelude-conduit | 1.5.0 | pass | - |  |
+| clientsession | 0.9.3.0 | pass | - |  |
+| clock | 0.8.4 | pass | - |  |
+| cmark | 0.6.1 | pass | - |  |
+| cmdargs | 0.10.22 | pass | - |  |
+| cndict | 0.10.0 | pass | - |  |
+| cobot-io | 0.1.5.8 | fail | - | timed out after 900 seconds |
+| colour | 2.3.7 | pass | - |  |
+| commonmark | 0.3.2 | pass | - |  |
+| commonmark-extensions | 0.2.8 | pass | - |  |
+| comonad | 5.0.10 | pass | - |  |
+| comonad-transformers | 4.0 | pass | - |  |
+| comonads-fd | 4.0 | pass | - |  |
+| composition-prelude | 3.0.1.0 | pass | - |  |
+| concurrent-output | 1.10.21 | pass | - |  |
+| conduit | 1.3.6.1 | pass | - |  |
+| conduit-extra | 1.3.8 | pass | - |  |
+| constraints | 0.14.4 | pass | - |  |
+| constraints-extras | 0.4.0.2 | pass | - |  |
+| containers | 0.8.1 | pass | - |  |
+| contravariant | 1.5.6 | pass | - |  |
+| cookie | 0.5.1 | pass | - |  |
+| copilot | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot-c99 | 4.8.2 | pass | - |  |
+| copilot-core | 4.8.2 | pass | - |  |
+| copilot-language | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot-libraries | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot-theorem | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| core-program | 0.7.0.0 | fail | - | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
+| cpphs | 1.20.10 | pass | - |  |
+| cql-io | 2.0.0 | fail | - | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
+| criterion | 1.6.5.0 | pass | - |  |
+| crypto-api | 0.13.3 | pass | - |  |
+| cryptohash | 0.11.9 | pass | - |  |
+| crypton | 2.2.6 | pass | - |  |
+| crypton-x509 | 1.10.1 | pass | - |  |
+| crypton-x509-validation | 1.10.1 | pass | - |  |
+| cryptonite | 0.30 | pass | - |  |
+| csound-expression | 5.4.4.1 | fail | - | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
+| csound-expression-typed | 0.2.9.0 | fail | - | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
+| data-accessor | 0.2.3.1 | pass | - |  |
+| data-default | 0.8.0.2 | pass | - |  |
+| data-default-class | 0.2.0.0 | pass | - |  |
+| data-fix | 0.3.4 | pass | - |  |
+| dataframe | 3.8.0.0 | fail | - | The plan needs build tools this compiler cannot run: |
+| dbus | 1.4.3 | fail | - | timed out after 900 seconds |
+| debian | 4.1.2 | fail | - | timed out after 900 seconds |
+| deepseq | 1.5.2.0 | pass | - |  |
+| deferred-folds | 0.9.18.10 | pass | - |  |
+| dejafu | 2.4.0.8 | pass | - |  |
+| dependent-sum | 0.7.2.0 | pass | - |  |
+| deriving-compat | 0.6.8 | pass | - |  |
+| dhall | 1.42.3 | pass | - |  |
+| diagrams-contrib | 1.4.8 | fail | - | timed out after 900 seconds |
+| diagrams-core | 1.5.1.2 | pass | - |  |
+| diagrams-lib | 1.6 | fail | - | timed out after 900 seconds |
+| diagrams-rasterific | 1.5.0.1 | fail | - | timed out after 900 seconds |
+| diagrams-svg | 1.5.1 | fail | - | timed out after 900 seconds |
+| digestive-functors | 0.8.4.2 | pass | - |  |
+| digit | 0.15 | pass | - |  |
+| dimensional | 1.6.2 | pass | - |  |
+| direct-sqlite | 2.3.29 | pass | - |  |
+| directory | 1.3.11.0 | pass | - |  |
+| discord-haskell | 1.19.0 | pass | - |  |
+| distributed-process | 0.7.10 | pass | - |  |
+| distributive | 0.6.3 | pass | - |  |
+| dlist | 1.0 | pass | - |  |
+| dns | 4.2.1 | pass | - |  |
+| dobutokO2 | 0.45.3.0 | pass | - |  |
+| doctemplates | 0.11.1 | pass | - |  |
+| dotenv | 0.12.0.0 | pass | - |  |
+| double-conversion | 2.0.5.0 | pass | - |  |
+| either | 5.0.3 | pass | - |  |
+| email-validate | 2.3.2.21 | pass | - |  |
+| entropy | 0.4.1.11 | pass | - |  |
+| errors | 2.3.0 | pass | - |  |
+| ersatz | 0.6 | pass | - |  |
+| esqueleto | 3.6.0.3 | pass | - |  |
+| exceptions | 0.10.12 | pass | - |  |
+| extra | 1.8.1 | pass | - |  |
+| fast-logger | 3.2.9 | pass | - |  |
+| fb | 2.1.1.2 | pass | - |  |
+| fgl | 5.8.3.1 | pass | - |  |
+| file-embed | 0.0.16.0 | pass | - |  |
+| filepath | 1.5.5.0 | pass | - |  |
+| filestore | 0.6.5.1 | pass | - |  |
+| fingertree | 0.1.6.3 | pass | - |  |
+| fixed-vector | 2.1.1.0 | pass | - |  |
+| flatparse | 0.5.6.1 | pass | - |  |
+| foldl | 1.4.18 | pass | - |  |
+| force-layout | 0.4.1 | pass | - |  |
+| formatting | 7.2.0 | pass | - |  |
+| foundation | 0.0.30 | pass | - |  |
+| free | 5.2 | pass | - |  |
+| fused-effects | 1.1.2.7 | pass | - |  |
+| generic-deriving | 1.14.7 | pass | - |  |
+| generics-sop | 0.5.1.4 | pass | - |  |
+| genvalidity | 1.1.1.0 | pass | - |  |
+| ghc-events | 0.21.0.0 | pass | - |  |
+| ghcid | 1.0.0 | pass | - |  |
+| ghcjs-dom | 0.10.0.0 | pass | - |  |
+| ginger | 0.10.6.0 | pass | - |  |
+| github | 0.30.0.2 | pass | - |  |
+| github-release | 2.0.0.19 | pass | - |  |
+| gloss | 1.13.2.2 | pass | - |  |
+| gnuplot | 0.5.7 | pass | - |  |
+| graphql | 1.5.0.3 | pass | - |  |
+| graphviz | 2999.20.2.1 | pass | - |  |
+| h-raylib | 6.1.0.0 | fail | - | timed out after 900 seconds |
+| hackage-security | 0.6.4.0 | fail | - | hackage-security-0.6.4.0/src/Hackage/Security/Trusted.hs:40:31: error: unbound term name ‘static’ |
+| haddock-library | 1.11.0 | pass | - |  |
+| hakyll | 4.17.0.0 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| half | 0.3.3 | pass | - |  |
+| hamlet | 1.2.0 | pass | - |  |
+| happstack-server | 7.9.5 | pass | - |  |
+| happstack-server-tls | 7.2.1.7 | pass | - |  |
+| happy | 2.2 | pass | - |  |
+| happy-lib | 2.2 | pass | - |  |
+| hashable | 1.5.1.0 | pass | - |  |
+| hashtables | 1.4.2 | pass | - |  |
+| haskeline | 0.8.5.0 | pass | - |  |
+| haskell-src-exts | 1.24.0 | pass | - |  |
+| haskell-src-meta | 0.8.16 | pass | - |  |
+| haskoin-core | 2.0.0 | fail | - | haskoin-core-2.0.0/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
+| haskoin-store-data | 3.0.0 | fail | - | haskoin-core-2.0.1/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
+| hasql | 2.0.1.0 | pass | - |  |
+| hasql-optparse-applicative | 0.9.1.1 | pass | - |  |
+| hasql-pool | 1.5.1.1 | pass | - |  |
+| hasql-transaction | 1.2.3.1 | pass | - |  |
+| haxr | 3000.11.6.1 | pass | - |  |
+| hedgehog | 1.7 | pass | - |  |
+| hedis | 0.16.4 | pass | - |  |
+| heist | 1.1.1.2 | pass | - |  |
+| hexpat | 0.20.13 | pass | - |  |
+| histogram-fill | 0.9.1.0 | pass | - |  |
+| hjsmin | 0.2.1 | pass | - |  |
+| hledger | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hledger-ui | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hledger-web | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| hmatrix | 0.20.2 | fail | - | built  semigroups-0.20.1 in 0.4 s |
+| hmatrix-gsl-stats | 0.4.1.8 | fail | - | built  semigroups-0.20.1 in 0.5 s |
+| hoauth2 | 2.15.2 | pass | - |  |
+| hpack | 0.39.6 | fail | - | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
+| hsc2hs | 0.68.10 | pass | - |  |
+| hslogger | 1.3.2.0 | pass | - |  |
+| hslua | 2.5.0 | pass | - |  |
+| hspec | 2.11.18 | pass | - |  |
+| hspec-core | 2.11.18 | pass | - |  |
+| hspec-discover | 2.11.18 | pass | - |  |
+| hspec-expectations | 0.8.4 | pass | - |  |
+| hspec-meta | 2.11.18 | pass | - |  |
+| http-api-data | 0.7 | pass | - |  |
+| http-client | 0.7.19 | pass | - |  |
+| http-client-tls | 0.4.0 | pass | - |  |
+| http-conduit | 2.3.9.1 | pass | - |  |
+| http-conduit-downloader | 1.1.5 | pass | - |  |
+| http-date | 0.0.13 | pass | - |  |
+| http-media | 0.8.1.1 | pass | - |  |
+| http-reverse-proxy | 0.6.2.0 | pass | - |  |
+| http-streams | 0.8.9.9 | pass | - |  |
+| http-types | 0.12.6 | pass | - |  |
+| http2 | 5.4.13 | pass | - |  |
+| http2-tls | 0.5.9 | pass | - |  |
+| http3 | 0.1.11 | pass | - |  |
+| hvega | 0.12.0.7 | pass | - |  |
+| hw-kafka-client | 5.3.0 | pass | - |  |
+| hw-prim | 0.6.3.2 | pass | - |  |
+| hxt | 9.3.1.22 | pass | - |  |
+| hyphenation | 0.8.3 | pass | - |  |
+| indexed-traversable | 0.1.5 | pass | - |  |
+| indexed-traversable-instances | 0.1.2.1 | pass | - |  |
+| inline-c | 0.9.1.10 | pass | - |  |
+| insert-ordered-containers | 0.3.0.1 | pass | - |  |
+| integer-logarithms | 1.0.5 | pass | - |  |
+| invariant | 0.6.5 | pass | - |  |
+| io-streams | 1.5.2.2 | pass | - |  |
+| ip | 1.7.8 | pass | - |  |
+| iproute | 1.8.0 | pass | - |  |
+| jose | 0.13 | fail | - | <unknown location in Crypto.JOSE.JWA.JWS>: error: could not match Value with [Char] |
+| jose-jwt | 0.11.0 | pass | - |  |
+| jsaddle | 0.9.10.0 | pass | - |  |
+| kan-extensions | 5.2.8 | pass | - |  |
+| katip | 0.8.8.4 | pass | - |  |
+| keiro | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| keiro-core | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| keiro-dsl | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| keiro-pgmq | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| keter | 2.3.6 | fail | - | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
+| keys | 3.12.5 | pass | - |  |
+| kiroku-otel | 0.3.0.1 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| kiroku-store | 0.13.0.2 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| language-c | 0.10.2 | pass | - |  |
+| language-c-quote | 0.13.0.2 | pass | - |  |
+| language-docker | 16.0.0 | pass | - |  |
+| language-javascript | 0.7.1.0 | pass | - |  |
+| lens | 5.3.6 | pass | - |  |
+| lens-aeson | 1.2.3 | pass | - |  |
+| lens-family-core | 2.1.3 | pass | - |  |
+| lentil | 1.5.10.0 | pass | - |  |
+| libarchive | 3.0.6.0 | fail | - | The plan needs build tools this compiler cannot run: |
+| lifted-async | 0.11.0 | pass | - |  |
+| lifted-base | 0.2.3.12 | pass | - |  |
+| linear | 1.23.3 | pass | - |  |
+| liquid-fixpoint | 0.9.6.3.7 | fail | - | liquid-fixpoint-0.9.6.3.7/.aihc-target/llvm/splices/liquid-fixpoint/Language.Fixpoint.Types.Config/package/src/AihcSplice.hs:7:18: error: module ‘Data.Store’ no |
+| list-t | 1.0.5.7 | pass | - |  |
+| logict | 0.8.2.0 | pass | - |  |
+| lsp-test | 0.18.0.0 | fail | - | row-types-1.0.1.2/src/Data/Row/Dictionaries.hs:106:1: error: kind mismatch: expected Row k0, got k0 |
+| lucid | 2.11.20260427 | pass | - |  |
+| massiv | 1.0.5.0 | pass | - |  |
+| math-functions | 0.3.4.4 | pass | - |  |
+| megaparsec | 9.8.3 | pass | - |  |
+| memory | 0.18.0 | pass | - |  |
+| microlens | 0.5.0.0 | pass | - |  |
+| microlens-ghc | 0.4.15.2 | pass | - |  |
+| microlens-mtl | 0.2.1.1 | pass | - |  |
+| microlens-platform | 0.4.4.2 | pass | - |  |
+| microlens-th | 0.4.3.18 | pass | - |  |
+| mighttpd2 | 4.0.12 | pass | - |  |
+| mime-mail | 0.5.2 | pass | - |  |
+| mime-types | 0.1.2.2 | pass | - |  |
+| miso | 1.15.0.0 | pass | - |  |
+| mmorph | 1.2.2 | pass | - |  |
+| modern-uri | 0.3.6.1 | pass | - |  |
+| monad-control | 1.0.3.1 | pass | - |  |
+| monad-logger | 0.3.42 | pass | - |  |
+| mongoDB | 2.7.1.4 | pass | - |  |
+| mono-traversable | 1.0.21.0 | pass | - |  |
+| monoid-extras | 0.7.0.2 | pass | - |  |
+| monoid-subclasses | 1.2.6.1 | pass | - |  |
+| monoidal-containers | 0.6.8.0 | pass | - |  |
+| morpheus-graphql | 0.28.5 | fail | - | timed out after 900 seconds |
+| mtl | 2.3.2 | pass | - |  |
+| mwc-random | 0.15.3.0 | pass | - |  |
+| mysql-haskell | 1.5.0 | pass | - |  |
+| network | 3.2.12.0 | pass | - |  |
+| network-byte-order | 0.1.9 | pass | - |  |
+| network-uri | 2.6.4.2 | pass | - |  |
+| ngx-export | 1.7.11.1 | pass | - |  |
+| ngx-export-tools | 1.2.6.3 | pass | - |  |
+| numhask | 0.13.3.0 | pass | - |  |
+| old-time | 1.1.1.0 | pass | - |  |
+| opaleye | 0.10.8.0 | fail | - | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 419699 for K with arguments [TcT |
+| optparse-applicative | 0.19.0.0 | pass | - |  |
+| optparse-generic | 1.5.3 | pass | - |  |
+| os-string | 2.0.11 | pass | - |  |
+| pandoc | 3.14 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| pandoc-crossref | 0.3.26 | fail | - | timed out after 900 seconds |
+| pandoc-types | 1.23.1.2 | pass | - |  |
+| parallel | 3.3.0.0 | pass | - |  |
+| parsec | 3.1.18.0 | pass | - |  |
+| parser-combinators | 1.3.1 | pass | - |  |
+| parsers | 0.12.12 | pass | - |  |
+| patat | 0.15.2.0 | fail | - | /private/tmp/claude-501/-Users-lemmih-coding-ai-haskell-compiler-aihc--claude-worktrees-cool-cartwright-9e650f/ccd7b847-4a56-4111-8600-07df72506c9d/scratchpad/s |
+| path | 0.9.6 | fail | - | path-0.9.6/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
+| path-io | 1.8.2 | fail | - | path-io-1.8.2/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
+| persistent | 2.18.1.0 | pass | - |  |
+| persistent-mongoDB | 2.13.1.0 | pass | - |  |
+| persistent-postgresql | 2.14.3.0 | fail | - | configure: error: Library requirements (PostgreSQL) not met. |
+| persistent-sqlite | 2.13.3.1 | fail | - | In persistent-sqlite-2.13.3.1: Template Haskell failed in module Database.Persist.Sqlite: the engine failed: the shared module refers to the unknown symbol sqli |
+| persistent-template | 2.12.0.0 | pass | - |  |
+| phino | 0.0.165 | fail | - | In phino-0.0.165: GRIN generation failed: value Name {nameText = "$fEqGLOBAL$c==", nameSort = SortValue, nameOrigin = OriginTop (PackageId {packageIdText = "phi |
+| pipes | 4.3.16 | pass | - |  |
+| pointed | 5.0.5 | pass | - |  |
+| polysemy | 1.9.2.0 | fail | - | polysemy-1.9.2.0/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strate |
+| pontarius-xmpp | 0.5.7.2 | fail | - | pontarius-xmpp-0.5.7.2/source/Network/Xmpp/Tls.hs:125:1: error: could not match CertificateStore with CertificateStore |
+| postgresql-binary | 0.15.0.1 | pass | - |  |
+| postgresql-libpq | 0.11.0.0 | pass | - |  |
+| postgresql-query | 3.10.0 | fail | - | configure: error: Library requirements (PostgreSQL) not met. |
+| postgresql-simple | 0.7.0.1 | pass | - |  |
+| pqi-conformance | 1.0.18.0 | pass | - |  |
+| pretty-show | 1.10 | pass | - |  |
+| pretty-simple | 4.1.4.0 | pass | - |  |
+| prettyprinter | 1.7.2 | pass | - |  |
+| prettyprinter-ansi-terminal | 1.1.4 | pass | - |  |
+| primitive | 0.9.1.0 | pass | - |  |
+| primitive-extras | 0.10.2.2 | pass | - |  |
+| process | 1.6.30.0 | pass | - |  |
+| profunctors | 5.6.3 | pass | - |  |
+| propellor | 5.18 | fail | - | In propellor-5.18: FC lint failed: |
+| proto-lens | 0.7.1.7 | pass | - |  |
+| protolude | 0.3.5 | pass | - |  |
+| psqueues | 0.2.8.3 | pass | - |  |
+| pusher-http-haskell | 2.1.0.27 | pass | - |  |
+| quic | 0.3.22 | pass | - |  |
+| quickcheck-instances | 0.4 | pass | - |  |
+| random | 1.3.1 | pass | - |  |
+| rank2classes | 1.5.5.1 | pass | - |  |
+| ratel | 2.0.0.19 | pass | - |  |
+| rattletrap | 14.1.4 | pass | - |  |
+| reactive-banana | 1.3.2.0 | pass | - |  |
+| rebase | 1.23 | pass | - |  |
+| recursion-schemes | 5.2.3 | pass | - |  |
+| reducers | 3.12.5 | pass | - |  |
+| reflection | 2.1.9 | pass | - |  |
+| reflex | 0.9.4.1 | fail | - | reflex-0.9.4.1/src/Reflex/Profiled.hs:71:34: error: unbound type name ‘CostCentreStack’ |
+| regex-base | 0.94.0.3 | pass | - |  |
+| regex-posix | 0.96.0.2 | pass | - |  |
+| regex-tdfa | 1.3.2.7 | pass | - |  |
+| registry | 0.6.3.3 | pass | - |  |
+| relational-query | 0.12.3.1 | pass | - |  |
+| resource-pool | 0.5.1.0 | pass | - |  |
+| resourcet | 1.3.0 | pass | - |  |
+| retry | 0.9.3.1 | pass | - |  |
+| rio | 0.1.25.0 | pass | - |  |
+| safe | 0.3.21 | pass | - |  |
+| safe-exceptions | 0.1.7.4 | pass | - |  |
+| sbp | 6.5.2 | pass | - |  |
+| sbv | 14.9 | fail | - | sbv-14.9/.aihc-target/llvm/splices/sbv/Data.SBV.Maybe/package/src/Data/SBV/List.hs:564:1: error: could not match SBV [a] with [SBV a] |
+| scientific | 0.3.10.0 | pass | - |  |
+| scotty | 0.30 | pass | - |  |
+| secp256k1-haskell | 3.0.0 | pass | - |  |
+| semialign | 1.4 | pass | - |  |
+| semigroupoids | 6.0.2 | pass | - |  |
+| semigroups | 0.20.1 | pass | - |  |
+| servant | 0.20.3.0 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-client | 0.20.3.0 | fail | - | In servant-client-core-0.20.3.0: FC lint failed: |
+| servant-docs | 0.13.1 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-lucid | 0.9.0.6 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-server | 0.20.3.0 | fail | - | In servant-server-0.20.3.0: FC lint failed: |
+| servant-swagger | 1.2.3 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| servant-swagger-ui | 0.3.5.5.0.1 | fail | - | In servant-server-0.20.3.0: FC lint failed: |
+| shake | 0.19.9 | pass | - |  |
+| shakespeare | 2.2.0 | pass | - |  |
+| shakespeare-css | 1.1.0 | pass | - |  |
+| shakespeare-js | 1.3.0 | pass | - |  |
+| shelly | 1.12.1.1 | pass | - |  |
+| shibuya-kiroku-adapter | 0.8.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| simple-sendfile | 0.2.33 | pass | - |  |
+| singletons | 3.0.4 | fail | - | singletons-3.0.4/src/Data/Singletons.hs:806:1: error: could not match SLambda with SWrappedSing |
+| skylighting | 0.15.0.1 | pass | - |  |
+| skylighting-core | 0.15.0.1 | pass | - |  |
+| snap | 1.1.3.3 | pass | - |  |
+| snap-core | 1.0.5.1 | pass | - |  |
+| snap-server | 1.1.2.1 | pass | - |  |
+| some | 1.1 | pass | - |  |
+| split | 0.2.5.1 | pass | pass |  |
+| splitmix | 0.1.3.2 | pass | - |  |
+| sqlite-simple | 0.4.19.0 | pass | - |  |
+| statistics | 0.16.5.0 | pass | - |  |
+| stm | 2.5.3.1 | pass | - |  |
+| stm-containers | 1.2.2 | pass | - |  |
+| store | 0.7.22 | fail | - | <unknown location in Data.Store.Internal>: error: kind mismatch: expected 'BoxedRep 'Lifted, got 'WordRep |
+| stratosphere | 1.0.1 | pass | - |  |
+| streaming | 0.2.4.0 | pass | - |  |
+| streaming-commons | 0.2.3.1 | pass | - |  |
+| streamly | 0.11.1 | fail | - | In streamly-core-0.3.3: FC lint failed: |
+| strict | 0.5.1 | pass | - |  |
+| strive | 6.1.0.5 | pass | - |  |
+| swagger2 | 2.9.1 | fail | - | timed out after 900 seconds |
+| syb | 0.7.4 | pass | - |  |
+| system-fileio | 0.3.16.7 | pass | - |  |
+| system-filepath | 0.4.14.1 | pass | - |  |
+| tagged | 0.9 | pass | - |  |
+| tagsoup | 0.14.8 | pass | - |  |
+| tar | 0.7.2.0 | pass | - |  |
+| tasty | 1.5.5 | pass | - |  |
+| tasty-golden | 2.3.6 | pass | - |  |
+| tasty-quickcheck | 0.11.1 | pass | - |  |
+| terminfo | 0.4.1.7 | pass | - |  |
+| test-framework | 0.8.2.3 | pass | - |  |
+| texmath | 0.13.3.5 | pass | - |  |
+| text | 2.1.4 | pass | - |  |
+| text-builder | 1.0.0.5 | pass | - |  |
+| text-icu | 0.8.0.5 | pass | - |  |
+| text-iso8601 | 0.2.0.0 | pass | - |  |
+| text-short | 0.1.6.1 | pass | - |  |
+| text-show | 3.11.4 | fail | - | src/TextShow/Foreign/Ptr.hs:49:7: error: unbound term name ‘integerFromWord#’ |
+| th-abstraction | 0.7.2.0 | pass | - |  |
+| th-compat | 0.1.7 | pass | - |  |
+| th-desugar | 1.19 | fail | - | th-desugar-1.19/Language/Haskell/TH/Desugar/Util.hs:60:22: error: not exported: type name ‘IP’ |
+| th-expand-syns | 0.4.12.0 | pass | - |  |
+| th-lift | 0.8.7 | pass | - |  |
+| th-lift-instances | 0.1.20 | pass | - |  |
+| th-orphans | 0.13.17 | pass | - |  |
+| these | 1.2.1 | pass | - |  |
+| tidal | 1.10.3 | pass | - |  |
+| time | 1.16.0.1 | pass | - |  |
+| time-compat | 1.9.9 | pass | - |  |
+| time-manager | 0.5.2 | pass | - |  |
+| tls | 2.5.1 | pass | - |  |
+| tmp-postgres | 1.34.1.0 | pass | - |  |
+| transformers | 0.6.3.0 | pass | - |  |
+| transformers-base | 0.4.6.1 | pass | - |  |
+| transformers-compat | 0.8 | pass | - |  |
+| tree-diff | 0.4.1 | pass | - |  |
+| trifecta | 2.1.4 | pass | - |  |
+| turtle | 1.6.2 | pass | - |  |
+| typed-process | 0.2.13.0 | pass | - |  |
+| typst | 0.12.1 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| tzdata | 0.2.20260911.0 | pass | - |  |
+| uniplate | 1.6.13 | pass | - |  |
+| unix | 2.8.8.0 | pass | - |  |
+| unix-compat | 0.7.4.1 | pass | - |  |
+| unix-time | 0.6.0 | pass | - |  |
+| unliftio | 0.2.25.1 | pass | - |  |
+| unordered-containers | 0.2.21 | pass | - |  |
+| usb | 1.3.0.6 | pass | - |  |
+| utf8-string | 1.0.2 | pass | - |  |
+| uu-parsinglib | 2.9.2 | pass | - |  |
+| uuagc | 0.9.57 | fail | - | src-ag/Order.ag:20:8: error: module ‘SequentialComputation’ not found |
+| uuid | 1.3.16.1 | pass | - |  |
+| uuid-types | 1.0.6.1 | pass | - |  |
+| validity | 0.12.1.0 | pass | - |  |
+| vault | 0.3.2.0 | pass | - |  |
+| vector | 0.13.2.0 | pass | - |  |
+| vector-algorithms | 0.9.1.0 | pass | - |  |
+| vector-sized | 1.6.1 | pass | - |  |
+| vector-space | 0.19 | pass | - |  |
+| versions | 6.0.9 | pass | - |  |
+| vinyl | 0.14.3 | pass | - |  |
+| void | 0.7.4 | pass | - |  |
+| vty | 6.7 | pass | - |  |
+| wai | 3.2.5 | pass | - |  |
+| wai-app-file-cgi | 3.3.0 | pass | - |  |
+| wai-app-static | 3.2.1 | pass | - |  |
+| wai-extra | 3.1.18 | pass | - |  |
+| wai-logger | 2.5.1 | pass | - |  |
+| wai-test | 3.0.0 | pass | - |  |
+| warp | 3.4.21 | pass | - |  |
+| warp-tls | 3.4.18 | pass | - |  |
+| web-routes | 0.27.16 | pass | - |  |
+| webdriver | 0.15.0.0 | fail | - | In webdriver-0.15.0.0: Template Haskell failed in module Test.WebDriver.Capabilities.FirefoxOptions: the wasm32-wasip3 target has no C++ standard library: its s |
+| websockets | 0.13.0.0 | pass | - |  |
+| wide-word | 0.1.9.0 | pass | - |  |
+| witch | 1.4.0.1 | pass | - |  |
+| witherable | 0.5 | pass | - |  |
+| x509 | 1.7.7 | pass | - |  |
+| x509-validation | 1.6.12 | pass | - |  |
+| xlsx | 1.3.0 | fail | - | timed out after 900 seconds |
+| xml-conduit | 1.10.1.0 | pass | - |  |
+| xmlhtml | 0.2.5.4 | pass | - |  |
+| yaml | 0.11.11.2 | pass | - |  |
+| yesod-test | 1.7.0.3 | fail | - | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
+| yi | 0.19.3 | fail | - | src/Yi/Lexer/common.hsinc:24:34: error: could not match Int with [(Point, Char)] → () → (a, b) |
+| yst | 0.7.2 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
+| zip-archive | 0.5 | pass | - |  |
+| zlib | 0.7.1.1 | pass | - |  |
 
 ## Packages that do not compile with GHC
 
