@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -9,7 +11,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
 -- The code outside the splices uses this package, and the splices do not.
@@ -245,6 +247,10 @@ data Colour = Red
 
 $(quoteDescribe ''Colour)
 
+newtype Weight = Weight Int
+
+$(quoteShowVia [t|Int|] [t|Weight|])
+
 -- A declaration quote in a splice body, with a signature and a value.
 $( [d|
      quotedNumber :: Int
@@ -397,6 +403,7 @@ main = do
   print ($$(typedSteps 3) 5, $$(typedOffset 41))
   putStrLn (describe Red)
   print quotedNumber
+  print (Weight 8)
   -- A quote with a do expression, a let statement, and a let expression.
   $( [|
        do
