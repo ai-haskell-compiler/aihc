@@ -1449,7 +1449,7 @@ demandedSubLibraries config name = MonoidMap.get name (configSubLibraries config
 -- grows and a package has a finite number of sub-libraries, so this ends.
 withUsedSubLibraries :: SolverConfig -> Solution -> Maybe SolverConfig
 withUsedSubLibraries config solution
-  | demanded == configSubLibraries config = Nothing
+  | used `MonoidMap.isSubmapOf` configSubLibraries config = Nothing
   | otherwise = Just config {configSubLibraries = demanded}
   where
     used = foldMap assignmentUsedSubLibraries solution
