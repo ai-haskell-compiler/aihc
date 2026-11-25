@@ -12,7 +12,7 @@ import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, read
 import Aihc.Cli.Progress (quietProgress, withProgress)
 import Aihc.Cli.Repl (ReplStreams (..), replSession)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact)
-import Aihc.Cli.Splice (withSplices)
+import Aihc.Cli.Splice (withNativeSplices, withSplices)
 import Aihc.Cli.Test (TestSuiteResult (..), buildTests, renderTestSummary, runTestSuites)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -120,6 +120,7 @@ tests =
                 testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
                 testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
                 testCase "gives the -with-rtsopts options of a Cabal executable to the runtime" (test_buildRuntimeOptions coreStore),
+                testCase "runs the splices of a program as native code without the sandbox" (test_buildNativeSplices coreStore),
                 testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
                 testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
                 -- The --lto builds need core libraries built with the flag,
@@ -803,6 +804,31 @@ test_buildSplices getStore getEngineStore = do
       assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\nUnboundVarE Missing\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n([DecidedStrict,DecidedLazy,DecidedUnpack],[DecidedLazy])\n(Just (Fixity 6 InfixR),Just (Fixity 5 InfixR),Nothing)\n(0,2,2,True)\n(4,\"4\")\nTrue\nTrue\nTrue\nTrue\n-9223372036854775808\nProxy\nProxy\nShape\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (366,12) (366,177)\n(True,1,[(\"FamInt\",2)])\n42\n(1,5)\nTrue\n(2,True)\n[1,2,255]\n(True,True,True,Nothing)\n(Nothing,Just 'j',Left 3)\n0.5\n0.25\n(True,False)\nTrue\n(-37,42)\nColour!\n42\n5\np\n\"\"\n" out
       assertEqual "stderr" "" err
 
+-- | With @--unsafe-disable-th-sandbox@, a build runs the splices of a
+-- program in a native program for the host, not in the WebAssembly
+-- engine. The splices thus have the word size of the host. The output of
+-- a splice does not go into the protocol of the engine. The test needs no
+-- WebAssembly tools.
+test_buildNativeSplices :: IO SeedStore -> Assertion
+test_buildNativeSplices getStore =
+  withBuildModuleSandbox getStore "aihc-native-splices" $ \sandbox _fixtureRoot _storeRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/native-splices"
+    let output = sandboxRoot sandbox </> "program"
+    void $
+      buildWithConfig
+        (quietProgress SystemIO.stdout)
+        options
+          { buildInput = fixtureRoot </> "Main.hs",
+            buildSourceDirectories = [fixtureRoot],
+            buildPackageConstraints = buildPackageConstraints options <> ["template-haskell"],
+            buildOutput = Just output
+          }
+        withNativeSplices
+    (status, out, err) <- readProcessWithExitCode output [] ""
+    assertEqual "exit status" ExitSuccess status
+    assertEqual "stdout" "64\n3\n" out
+    assertEqual "stderr" "" err
+
 -- | A session evaluates each input in one instance. A later input uses the
 -- names of the earlier inputs, a new definition hides the earlier
 -- definition, and the action of a bind statement runs one time. An
@@ -951,7 +977,7 @@ test_buildModuleOptimizationOption = do
   let arguments extra = ["build", "Main.hs", "--target", "apple-arm64"] <> extra
       levelOf parsed =
         case parsed of
-          Right (CmdBuild options) -> pure (buildOptimization options)
+          Right (CmdBuild _ options) -> pure (buildOptimization options)
           Right other -> assertFailure ("unexpected command: " <> show other)
           Left err -> assertFailure ("parse error: " <> err)
   assertEqual "default level" O0 =<< levelOf (parseCommandPure (arguments []))
@@ -965,7 +991,7 @@ test_buildModuleOptimizationOption = do
     Right command -> assertFailure ("accepted -O3: " <> show command)
   installLevel <-
     case parseCommandPure ["install", "demo", "--target", "apple-arm64", "-O0"] of
-      Right (CmdInstall options) -> pure (installOptimization options)
+      Right (CmdInstall _ options) -> pure (installOptimization options)
       other -> assertFailure ("install parse: " <> show other)
   assertEqual "install -O0" O0 installLevel
   help <- either pure (assertFailure . ("help is not a failure: " <>) . show) (parseCommandPure ["build", "--help"])
@@ -977,11 +1003,11 @@ test_checkPrimBoundsOption :: Assertion
 test_checkPrimBoundsOption = do
   let buildFlag extra =
         case parseCommandPure (["build", "Main.hs", "--target", "apple-arm64"] <> extra) of
-          Right (CmdBuild options) -> pure (buildCheckPrimBounds options)
+          Right (CmdBuild _ options) -> pure (buildCheckPrimBounds options)
           other -> assertFailure ("build parse: " <> show other)
       installFlag extra =
         case parseCommandPure (["install", "demo", "--target", "apple-arm64"] <> extra) of
-          Right (CmdInstall options) -> pure (installCheckPrimBounds options)
+          Right (CmdInstall _ options) -> pure (installCheckPrimBounds options)
           other -> assertFailure ("install parse: " <> show other)
   assertEqual "build default" False =<< buildFlag []
   assertEqual "build flag" True =<< buildFlag ["--check-prim-bounds"]
@@ -1032,12 +1058,12 @@ test_lto getStore =
   withBuildPackageSandbox getStore "aihc-lto" $ \sandbox buildRoot options -> do
     ltoFlag <-
       case parseCommandPure ["build", "Main.hs", "--target", "apple-arm64", "--lto"] of
-        Right (CmdBuild parsed) -> pure (buildLto parsed)
+        Right (CmdBuild _ parsed) -> pure (buildLto parsed)
         other -> assertFailure ("build parse: " <> show other)
     assertBool "build parses --lto" ltoFlag
     installFlag <-
       case parseCommandPure ["install", "demo", "--target", "apple-arm64", "--lto"] of
-        Right (CmdInstall parsed) -> pure (installLto parsed)
+        Right (CmdInstall _ parsed) -> pure (installLto parsed)
         other -> assertFailure ("install parse: " <> show other)
     assertBool "install parses --lto" installFlag
     let root = sandboxRoot sandbox

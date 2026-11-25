@@ -577,7 +577,12 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- one splice, to the action. The action runs the splices in source
     -- order and gives the module with their results. "Aihc.Cli.Splice"
     -- supplies it. Without it, the build does not run splices.
-    compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module))
+    compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module)),
+    -- | The splices run in a native program with no sandbox
+    -- (@--unsafe-disable-th-sandbox@). Such a splice can give a result that
+    -- the sandbox does not allow, so the packages get store keys of their
+    -- own.
+    compileNativeSplices :: !Bool
   }
 
 -- | What 'compileObserver' receives.
@@ -805,7 +810,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileUseColor = False,
         compileProgress = quietProgress stdout,
         compileObserver = Nothing,
-        compileSplices = Nothing
+        compileSplices = Nothing,
+        compileNativeSplices = False
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -2493,7 +2499,7 @@ buildEnvironmentIdentity target = do
 -- that add or drop outputs, such as @--keep-core@, or that only check,
 -- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> codeModelKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> codeModelKeyParts config <> nativeSplicesKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -2534,11 +2540,17 @@ checkPrimBoundsKeyParts config = ["check-prim-bounds" | compileCheckPrimBounds c
 codeModelKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
 codeModelKeyParts config = ["position-independent" | compileCodeModel config == Wasm.PositionIndependent]
 
+-- | The key part of a build that runs splices with no sandbox. A build
+-- with the sandbox adds nothing.
+nativeSplicesKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+nativeSplicesKeyParts config = ["native-splices" | compileNativeSplices config]
+
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its
--- level keeps its interfaces.
+-- level keeps its interfaces. The results of splices change the modules,
+-- so the splice mode is a part.
 frontendOptionsKey :: ModuleCompileConfig -> String
-frontendOptionsKey config = stableHash (compilerKeyParts config)
+frontendOptionsKey config = stableHash (compilerKeyParts config <> nativeSplicesKeyParts config)
 
 -- | The part of the configuration the backend outputs depend on.
 backendOptionsKey :: ModuleCompileConfig -> String
@@ -2552,6 +2564,7 @@ backendOptionsKey config =
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
         <> codeModelKeyParts config
+        <> nativeSplicesKeyParts config
         <> ["profile-allocations" | compileProfileAllocations config]
         <> ["profile-time" | compileProfileTime config]
     )

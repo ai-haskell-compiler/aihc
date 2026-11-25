@@ -6,6 +6,7 @@ module Aihc.Cli.Options
     PlanCommandOptions (..),
     PlanOptions (..),
     ReplOptions (..),
+    SpliceMode (..),
     TestOptions (..),
     defaultPlanOptions,
     parseCommandIO,
@@ -19,12 +20,21 @@ import Aihc.PackagePlan.Project (ProjectSelection (..))
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdBuild !BuildOptions
-  | CmdInstall !InstallOptions
+  = CmdBuild !SpliceMode !BuildOptions
+  | CmdInstall !SpliceMode !InstallOptions
   | CmdLinkExe !LinkExeOptions
   | CmdPlan !PlanCommandOptions
   | CmdRepl !ReplOptions
   | CmdTest !TestOptions
+  deriving (Eq, Show)
+
+-- | Where a build runs the Template Haskell splices of its modules.
+data SpliceMode
+  = -- | In the WebAssembly engine, which is a sandbox.
+    SandboxedSplices
+  | -- | In a native program with no sandbox
+    -- (@--unsafe-disable-th-sandbox@).
+    NativeSplices
   deriving (Eq, Show)
 
 -- | Build an executable, or every executable of a Cabal package.
@@ -232,13 +242,13 @@ commandParser =
     ( OA.command
         "build"
         ( OA.info
-            (CmdBuild <$> buildOptionsParser OA.<**> OA.helper)
+            (CmdBuild <$> spliceModeOption <*> buildOptionsParser OA.<**> OA.helper)
             (OA.progDesc "Build one Haskell executable from a main module, or every executable of a Cabal package from a local directory or Hackage")
         )
         <> OA.command
           "install"
           ( OA.info
-              (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
+              (CmdInstall <$> spliceModeOption <*> installOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Build and install one Cabal library from a local directory or Hackage")
           )
         <> OA.command
@@ -447,6 +457,15 @@ executableOptions description =
             <> OA.metavar "NAME"
             <> OA.help description
         )
+    )
+
+spliceModeOption :: OA.Parser SpliceMode
+spliceModeOption =
+  OA.flag
+    SandboxedSplices
+    NativeSplices
+    ( OA.long "unsafe-disable-th-sandbox"
+        <> OA.help "Run Template Haskell splices as native code, not in the WebAssembly sandbox. WARNING: A splice then has all the access of the user. It can read and write files, start processes, and use the network. Use this option only for packages that you trust. The splices use the packages of a native build again, so the build does not compile its dependencies a second time for WebAssembly"
     )
 
 workspaceOption :: OA.Parser (Maybe FilePath)
