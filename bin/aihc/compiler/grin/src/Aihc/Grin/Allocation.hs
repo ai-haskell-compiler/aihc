@@ -7,11 +7,15 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad.Trans.State.Strict (evalState, state)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 
@@ -214,7 +218,7 @@ functionCalls function =
       case value of
         GrinVarValue var
           | Just node <- Map.lookup var stored,
-            Map.findWithDefault 0 var counts == (1 :: Int) ->
+            MonoidMap.get var counts == 1 ->
               Just node
         _ -> Nothing
 
@@ -244,8 +248,8 @@ rawCalls expression =
     _ -> []
 
 -- | How many times each variable occurs in an expression.
-useCounts :: GrinExpr -> Map GrinVar Int
-useCounts expression = Map.fromListWith (+) [(var, 1) | var <- occurrences expression]
+useCounts :: GrinExpr -> MonoidMap GrinVar (Sum Int)
+useCounts expression = Occurrences.count (occurrences expression)
   where
     occurrences current =
       case current of
