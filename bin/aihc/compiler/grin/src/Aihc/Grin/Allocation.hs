@@ -114,7 +114,7 @@ move pointer node = go
 -- caller.
 storeArguments :: GrinProgram -> GrinProgram
 storeArguments program
-  | Map.null positions = program
+  | MonoidMap.null positions = program
   | otherwise = program {grinFunctions = evalState (mapM rewriteFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)}
   where
     functions = grinFunctions program
@@ -126,9 +126,9 @@ storeArguments program
     -- the caller stores for this argument alone, or nothing.
     calls :: MonoidMap FunctionName [[Maybe GrinNode]]
     calls = MonoidMap.fromListWith (flip (<>)) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
-    positions :: Map FunctionName (Map Int GrinNodeTag)
+    positions :: MonoidMap FunctionName (Map Int GrinNodeTag)
     positions =
-      Map.filter (not . Map.null) $
+      MonoidMap.fromMap . Map.filter (not . Map.null) $
         Map.fromList
           [ (grinFunctionName function, qualified)
           | function <- functions,
@@ -149,7 +149,7 @@ storeArguments program
           ]
     rewriteFunction function = do
       body <- rewriteCalls (grinFunctionBody function)
-      let moved = Map.findWithDefault Map.empty (grinFunctionName function) positions
+      let moved = MonoidMap.get (grinFunctionName function) positions
       if Map.null moved
         then pure function {grinFunctionBody = body}
         else do
@@ -174,7 +174,7 @@ storeArguments program
           Set.fromList
             [ var
             | (callee, arguments) <- rawCalls (grinFunctionBody function),
-              let moved = Map.findWithDefault Map.empty callee positions,
+              let moved = MonoidMap.get callee positions,
               not (Map.null moved),
               (index, GrinVarValue var) <- zip [0 ..] arguments,
               Map.member index moved
@@ -188,7 +188,7 @@ storeArguments program
             GrinCase value binder alternatives ->
               GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> rewriteCalls (grinAltRhs alternative)) alternatives
             GrinCall rep callee arguments
-              | let moved = Map.findWithDefault Map.empty callee positions,
+              | let moved = MonoidMap.get callee positions,
                 not (Map.null moved) ->
                   pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
             _ -> pure expression
