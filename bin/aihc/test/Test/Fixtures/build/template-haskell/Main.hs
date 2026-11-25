@@ -12,6 +12,10 @@ import Data.Proxy (Proxy (..))
 import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
+-- The code outside the splices uses this package, and the splices do not.
+-- The C code of the package does not compile for WebAssembly, so the
+-- splice builds must not compile the package.
+import NativeOnly (nativeAnswer)
 import Quasi (quasiLines)
 import Language.Haskell.TH.Syntax (Lift (..), Name (..), NameFlavour (..), mkNameG_tc, mkNameG_v, pkgString)
 
@@ -405,3 +409,5 @@ main = do
   -- different quote.
   putStrLn ($(lamE [[p|(Just letter, _)|]] [|[letter]|]) (Just 'p', True))
   putStrLn $pathVariable
+  -- A function of a package that only the code outside the splices uses.
+  print nativeAnswer

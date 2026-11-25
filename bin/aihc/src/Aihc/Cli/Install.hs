@@ -222,6 +222,7 @@ import Aihc.Resolve
     modulesInPackage,
     resolveSpliceBodies,
     resolveUnit,
+    spliceBodyImports,
   )
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.Traverse qualified as RWalk
@@ -3095,15 +3096,29 @@ expandUnitSplices context runtimes unit availableExports sources modules =
     unavailableModules =
       Set.fromList [sourceModuleName other | runtime <- Map.elems runtimes, other <- sourceUnitSources (runtimeUnit runtime)]
         `Set.difference` Set.fromList (map sourceModuleName belowSources)
-    -- The packages that have the modules that each module of the list
-    -- imports. A splice can only use these packages and the packages below
-    -- them, so the splice package does not depend on the other packages of
-    -- the component. The builds for the engine then do not compile those
-    -- other packages, and their C code, for WebAssembly. A core library
-    -- stays, because its name in the dependencies and its name in the
-    -- exports can be different.
-    importedDependencies importers dependencies =
-      let imported = Set.fromList [packageName package | importer <- importers, (_, name) <- sourceDependencies importer, package <- providerPackagesOf (taskModuleProvider context) name]
+    belowByName = Map.fromList [(sourceModuleName below, below) | below <- belowSources]
+    -- The modules of the units below that the imports of the list name,
+    -- with the modules of the units below that those modules import. The
+    -- splice package compiles only these modules again.
+    ownModulesOf ownName references = go Set.empty (localNames references)
+      where
+        localNames refs = [name | (qualifier, name) <- refs, importCanBeLocal ownName qualifier, name `Map.member` belowByName]
+        go _ [] = []
+        go seen (name : rest)
+          | name `Set.member` seen = go seen rest
+          | otherwise =
+              case Map.lookup name belowByName of
+                Just below -> below : go (Set.insert name seen) (localNames (sourceDependencies below) <> rest)
+                Nothing -> go (Set.insert name seen) rest
+    -- The packages that have the modules of the list of imports. A splice
+    -- can only use these packages and the packages below them, so the
+    -- splice package does not depend on the other packages of the
+    -- component. The builds for the engine then do not compile those other
+    -- packages, and their C code, for WebAssembly. A core library stays,
+    -- because its name in the dependencies and its name in the exports can
+    -- be different.
+    importedDependencies references dependencies =
+      let imported = Set.fromList [packageName package | (_, name) <- references, package <- providerPackagesOf (taskModuleProvider context) name]
        in [dependency | dependency@(name, _) <- dependencies, name `Set.member` imported || isJust (lookupCoreProvider (T.unpack name))]
     expand run importedTypes source moduleUnit =
       case sourceModuleSpliceRequest source of
@@ -3144,18 +3159,31 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                   (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
                   splices
                   resolvedBodies
+              -- The splice module gets only the imports that the splice
+              -- bodies need. Thus, the splice package does not compile a
+              -- package that only the other code of the module uses. For
+              -- example, a package with a C library that is not available
+              -- for WebAssembly.
+              usedImports =
+                filter
+                  (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules)
+                  (spliceBodyImports (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody desugaredSplices) (spliceRequestImports template))
+              usedReferences =
+                [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- usedImports]
+                  <> [(Nothing, "Prelude") | moduleUsesImplicitPrelude source]
+              usedOwnModules = ownModulesOf (spliceRequestPackage template) usedReferences
               request =
                 template
                   { spliceRequestSplices = desugaredSplices,
                     spliceRequestSpans = moduleSpliceSpans bound,
-                    spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
+                    spliceRequestImports = usedImports,
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
-                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
-                    spliceRequestOwnResults = [(sourceModuleName below, spliceResultsPath belowRequest) | below <- belowSources, Just belowRequest <- [sourceModuleSpliceRequest below]],
+                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- usedOwnModules],
+                    spliceRequestOwnResults = [(sourceModuleName below, spliceResultsPath belowRequest) | below <- usedOwnModules, Just belowRequest <- [sourceModuleSpliceRequest below]],
                     spliceRequestDependencies =
                       importedDependencies
-                        (source : belowSources)
-                        (nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]]))
+                        (usedReferences <> concatMap sourceDependencies usedOwnModules)
+                        (nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- usedOwnModules, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]]))
                   }
           prefixFacts <- newIORef Map.empty
           let facts prefix answer global
