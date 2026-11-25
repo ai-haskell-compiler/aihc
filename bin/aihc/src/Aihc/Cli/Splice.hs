@@ -46,25 +46,21 @@ import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), nativeTargetStoreDirectory)
-import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (OperatorFixity)
-import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
-import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, patternResultFromTree, typeResultFromTree)
-import Aihc.Th.Reify (exportedFixity, fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
-import Aihc.Th.Request (Request (..), RequestName (..), lookupNameReply, reportedFailure, requestFromTree)
-import Aihc.Th.Splices (FactsAnswer, NameLookup, PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
+import Aihc.Resolve.Types (GlobalName (..), PackageId (..))
+import Aihc.Th.Reify (exportedFixity)
+import Aihc.Th.Run (SpliceEnvironment (..), convertResult, describeFailure, renamePackageId, resultTrees, runSpliceClosure, spliceAt)
+import Aihc.Th.Splices (FactsAnswer, PackageFile (..), RunSplice, SpliceRequest (..), spliceModuleName, spliceModuleText, splicePackageId, splicePackageName, splicePackageVersion, spliceResultsPath)
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
-import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, runClosure, startGuest, withEngine)
-import Control.Exception (IOException, catch, try)
-import Control.Monad (forM_, join, when)
-import Data.ByteString (ByteString)
+import Aihc.Wasm.Engine (engineGuestPath, linkSharedModule, loadSharedModule, startGuest, withEngine)
+import Control.Exception (catch)
+import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.Char (isUpper)
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
+import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -72,7 +68,6 @@ import Data.Text.IO qualified as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, removePathForcibly)
 import System.FilePath (replaceExtension, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr, stdout)
-import System.IO.Error (ioeGetErrorString, isUserError)
 
 -- | Make a build run the expression splices of its modules. The builds
 -- that 'runSplices' starts do the same, so a package of the image can also
@@ -126,7 +121,6 @@ runSplicesFor origin given action =
         names -> "\nThe splices of the module cannot use these modules of its own package, because they are in the same import cycle as the module: " <> intercalate ", " (map T.unpack names) <> "."
     packageDirectory = root </> "package"
     package = splicePackageName request
-    packageIds = (splicePackageId request, spliceRequestPackageId request)
     run = do
       createDirectoryIfMissing True root
       removePathForcibly resultsPath
@@ -148,12 +142,10 @@ runSplicesFor origin given action =
       let from = maybe (spliceRequestPackageId request) originPackageId ownOrigin
           renamed = Map.map (renamePackageId from (spliceRequestPackageId request)) recorded
       action $ \index _ _ _ -> do
-        splice <- spliceAt index
+        splice <- spliceAt request index
         tree <- maybe (ioError (userError ("The recorded results in " <> path <> " have no result for splice " <> show index <> "."))) pure (Map.lookup index renamed)
         modifyIORef' results (Map.insert index tree)
         either (ioError . userError . T.unpack) pure (convertResult splice tree)
-    spliceAt index =
-      maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
     runEngine results = do
       absolute <- absoluteRequest request
       image <- buildImage request
@@ -176,52 +168,23 @@ runSplicesFor origin given action =
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory Wasm32Wasip3) (installStorePath installed)
       storeFacts <- newReifier (Map.map snd packages)
       storeFixity <- newFixityReader (Map.map snd packages)
-      let fromGuest = fromSplice packageIds (primPackageId packages)
-          toGuest = toSplice packageIds
       withEngine (Just packageRoot) image $ \engine -> do
         startGuest engine
         loadSharedModule engine shared
+        let environment =
+              SpliceEnvironment
+                { spliceEnvironmentRequest = request,
+                  spliceEnvironmentPackageIds = (splicePackageId request, spliceRequestPackageId request),
+                  spliceEnvironmentPrimPackage = primPackageId packages,
+                  spliceEnvironmentFacts = storeFacts,
+                  spliceEnvironmentFixity = storeFixity,
+                  spliceEnvironmentWarn = \message ->
+                    hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
+                }
         action $ \index lookupName localFacts localFixity -> do
-          splice <- spliceAt index
-          let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
-              fixity global = localFixity global >>= maybe (storeFixity global) (pure . Right)
-          requests <- newIORef []
-          let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-          outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify fixity location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
-          made <- reverse <$> readIORef requests
-          forM_ [message | RequestReport False message <- made] $ \message ->
-            hPutStrLn stderr ("warning: Template Haskell in module " <> T.unpack (spliceRequestModule request) <> ": " <> T.unpack message)
-          -- A report of an error is the cause of a failure of the closure,
-          -- so the report comes before the failure itself.
-          case (reportedFailure made, outcome) of
-            (Just message, _) -> ioError (userError (T.unpack message))
-            (Nothing, Left failure) -> ioError (userError ("splice " <> show index <> describeRequests made <> ": " <> describeFailure failure))
-            (Nothing, Right [message]) -> do
-              tree <- either (ioError . userError . T.unpack) (pure . fromGuest) (decodeTree message)
-              modifyIORef' results (Map.insert index tree)
-              either (ioError . userError . T.unpack) pure (convertResult splice tree)
-            (Nothing, Right messages) -> ioError (userError ("a splice sent " <> show (length messages) <> " messages"))
-
--- | The result of a splice from its tree.
-convertResult :: Splice -> Tree -> Either Text SpliceResult
-convertResult splice tree =
-  case splice of
-    ExpressionSplice _ -> ExpressionResult <$> expressionFromTree tree
-    TypeSplice _ -> TypeResult <$> typeResultFromTree tree
-    PatternSplice _ -> PatternResult <$> patternResultFromTree tree
-    DeclarationSplice _ -> DeclarationResult <$> declarationsFromTree tree
-
--- | The trees of a file of splice results, by the position of the splice.
-resultTrees :: Tree -> Either Text (Map Int Tree)
-resultTrees tree =
-  case tree of
-    TreeNode "Results" entries -> Map.fromList <$> mapM entry entries
-    _ -> Left "The file of splice results is not correct."
-  where
-    entry value =
-      case value of
-        TreeNode "Result" [TreeInteger index, result] -> Right (fromInteger index, result)
-        _ -> Left "The file of splice results is not correct."
+          (tree, result) <- runSpliceClosure engine environment index lookupName localFacts localFixity
+          modifyIORef' results (Map.insert index tree)
+          pure result
 
 -- | The request with absolute paths for the source files and the include
 -- directories of the package. The Cabal file of the splice package names
@@ -241,18 +204,6 @@ absoluteRequest request = do
         [entry | entry@(path, _) <- Map.toList (spliceRequestPackageFiles request), path `elem` map snd (spliceRequestOwnModules request)]
   pure request {spliceRequestOwnModules = ownModules, spliceRequestOwnResults = ownResults, spliceRequestPackageFiles = files}
 
--- | Change the package id of the splice package to the package id of the
--- original package, in each name of a tree from the splice. The first id
--- of the pair is the id of the splice package.
---
--- The library gives the package @ghc-prim@ to some built-in names, as GHC
--- does. An example is the name that @tupleTypeName@ gives. The function
--- changes that package to the given id of the @aihc-prim@ package, which
--- has these names.
-fromSplice :: (Text, Text) -> Maybe PackageId -> Tree -> Tree
-fromSplice (splice, original) prim =
-  maybe id (renamePackageId "ghc-prim" . packageIdText) prim . renamePackageId splice original
-
 -- | The package id of the @aihc-prim@ package, if the splice package
 -- depends on it.
 primPackageId :: Map PackageId (Text, FilePath) -> Maybe PackageId
@@ -260,20 +211,6 @@ primPackageId packages =
   case [identity | (identity, (name, _)) <- Map.toList packages, name == "aihc-prim"] of
     identity : _ -> Just identity
     [] -> Nothing
-
--- | Change the package id of the original package to the package id of the
--- splice package, in each name of a tree to the splice.
-toSplice :: (Text, Text) -> Tree -> Tree
-toSplice (splice, original) = renamePackageId original splice
-
-renamePackageId :: Text -> Text -> Tree -> Tree
-renamePackageId from to = go
-  where
-    go tree =
-      case tree of
-        TreeNode "PkgName" [TreeString identity] | identity == from -> TreeNode "PkgName" [TreeString to]
-        TreeNode constructor fields -> TreeNode constructor (map go fields)
-        _ -> tree
 
 -- | Copy the source file of a module of the original package into the
 -- source directory of the splice package. The copy starts with the
@@ -295,107 +232,6 @@ copyOwnModule request directory (name, path) = do
   let boot = replaceExtension path "hs-boot"
   hasBoot <- doesFileExist boot
   when hasBoot (BS.readFile boot >>= BS.writeFile (replaceExtension target "hs-boot"))
-
--- | The message of a failure. A failure of a file operation also names
--- the file and the operation.
-describeFailure :: IOException -> String
-describeFailure failure
-  | isUserError failure = ioeGetErrorString failure
-  | otherwise = show failure
-
--- | The names that a splice asked @reify@ for, for a failure message.
-describeRequests :: [Request] -> String
-describeRequests made =
-  case [name | request <- made, Just name <- [reifiedName request]] of
-    [] -> ""
-    names -> " (after reify of " <> intercalate ", " (map T.unpack names) <> ")"
-  where
-    reifiedName request =
-      case request of
-        RequestReify name _ -> Just name
-        RequestReifyRoles name _ -> Just name
-        RequestReifyConStrictness name _ -> Just name
-        RequestReifyFixity name _ -> Just name
-        RequestReport {} -> Nothing
-        RequestLocation -> Nothing
-        RequestLookupName {} -> Nothing
-
--- | Do the request of a splice and give the bytes of the reply. Each
--- request goes to the list. The reply to a report has no bytes. The reply
--- to @reify@ is an @Either String Info@ value. The reply to @reifyRoles@ is
--- an @Either String [Role]@ value. The reply to @reifyConStrictness@ is an
--- @Either String [DecidedStrictness]@ value. The reply to @reifyFixity@ is
--- an @Either String (Maybe Fixity)@ value. A name that the compiler cannot
--- find has no fixity declaration that the compiler knows, so it gives
--- 'Nothing'. The reply to @location@ is the @Loc@ value of the splice.
-answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> (GlobalName -> IO (Either Text (Maybe OperatorFixity))) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest fromGuest toGuest lookupName reify fixity location requests bytes =
-  case decodeTree bytes >>= requestFromTree . fromGuest of
-    Right made -> do
-      modifyIORef' requests (made :)
-      case made of
-        RequestReport {} -> pure BS.empty
-        RequestReify name global -> facts reifyInfo name global
-        RequestReifyRoles name global -> facts reifyRoles name global
-        RequestReifyConStrictness name global -> facts reifyConStrictness name global
-        RequestReifyFixity name requested -> do
-          answer <- case requested of
-            RequestGlobal global -> fixity global
-            RequestScoped scoped -> maybe (pure (Right Nothing)) fixity (scopedName name scoped)
-            RequestUnknown -> pure (Right Nothing)
-          pure (encodeReply (fixityTree <$> answer))
-        RequestLocation -> pure (encodeTree location)
-        RequestLookupName isType scoped ->
-          let namespace = if isType then ResolutionNamespaceType else ResolutionNamespaceTerm
-           in pure (encodeTree (toGuest (lookupNameReply (lookupName namespace scoped))))
-    Left message -> ioError (userError (T.unpack message))
-  where
-    facts question name requested =
-      case requested of
-        RequestGlobal global -> reply (reify question global)
-        RequestScoped scoped ->
-          case scopedName name scoped of
-            Just global -> reply (reify question global)
-            Nothing -> reply (pure (Left (name <> " is not in scope at the splice.")))
-        RequestUnknown -> reply (pure (Left ("The compiler can only give the facts of a name with a package and a module, or of a name in scope at the splice, and " <> name <> " is not such a name.")))
-    scopedName name scoped = listToMaybe (mapMaybe (`lookupName` scoped) (guessedNamespaces name))
-    reply ask = encodeReply <$> ask
-    encodeReply answer =
-      encodeTree . toGuest $ case answer of
-        Right value -> TreeNode "Right" [value]
-        Left message -> TreeNode "Left" [TreeString message]
-
--- | The namespaces where the compiler looks for a name with no package, in
--- order. As with GHC, a name that starts with an upper-case letter or a
--- colon is first a type constructor or a class, and then a data
--- constructor.
-guessedNamespaces :: Text -> [ResolutionNamespace]
-guessedNamespaces name =
-  case T.uncons name of
-    Just (first, _)
-      | isUpper first || first == ':' -> [ResolutionNamespaceType, ResolutionNamespaceTerm]
-    _ -> [ResolutionNamespaceTerm]
-
--- | The @Loc@ value of a splice: the source file, the package id, the
--- module, and the start and the end of the splice. A splice with no source
--- span gets the position 1:1. GHC gives the column after the last
--- character as the end, as the source span does.
-spliceLocation :: SpliceRequest -> Maybe Syntax.SourceSpan -> Tree
-spliceLocation request span' =
-  TreeNode
-    "Loc"
-    [ TreeString (T.pack (spliceRequestSourceFile request)),
-      TreeString (spliceRequestPackageId request),
-      TreeString (spliceRequestModule request),
-      position start,
-      position end
-    ]
-  where
-    (start, end) =
-      case span' of
-        Just (Syntax.SourceSpan _ startLine startColumn endLine endColumn _ _) -> ((startLine, startColumn), (endLine, endColumn))
-        Nothing -> ((1, 1), (1, 1))
-    position (line, column) = TreeNode "(,)" [TreeInteger (toInteger line), TreeInteger (toInteger column)]
 
 -- | The name and the store directory of each package below a package, by
 -- the package id that names of the package have. The manifest of a package names the

@@ -268,6 +268,7 @@ library
     Aihc.Th.Quote
     Aihc.Th.Reify
     Aihc.Th.Request
+    Aihc.Th.Run
     Aihc.Th.Splices
     Aihc.Th.Wire
     Aihc.Wasm

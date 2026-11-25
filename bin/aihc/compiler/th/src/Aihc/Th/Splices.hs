@@ -28,8 +28,7 @@ module Aihc.Th.Splices
     moduleSplices,
     moduleSpliceSpans,
     replaceModuleSplices,
-    replaceFirstSplice,
-    firstSplicePosition,
+    expandSplices,
     FactsAnswer,
     LocalFacts,
     LocalFixity,
@@ -216,6 +215,38 @@ firstSplicePosition modu =
         DeclAnn _ inner -> isDeclarationSplice inner
         DeclSplice _ -> True
         _ -> False
+
+-- | Replace the splices of a module one at a time, in source order, with
+-- the results of the function. The first argument is the number of
+-- splices that the function can run. The function gets the position of
+-- the splice in 'moduleSplices', the declarations above the splice that
+-- the splice can get the facts of, and the module with the results of
+-- the splices above the splice.
+--
+-- A top-level declaration splice ends a declaration group. A splice gets
+-- the declarations of the groups above it. A top-level declaration
+-- splice gets all the declarations above it.
+expandSplices :: (Monad m) => Int -> (Int -> [Decl] -> Module -> m SpliceResult) -> Module -> m Module
+expandSplices count runAt = go 0 0
+  where
+    go index boundary modu
+      | index >= count = pure modu
+      | otherwise =
+          case firstSplicePosition modu of
+            Nothing -> pure modu
+            Just (position, isDeclaration) -> do
+              let prefix = take (if isDeclaration then position else boundary) (moduleDecls modu)
+              result <- runAt index prefix modu
+              let boundary'
+                    | isDeclaration = position + resultLength result
+                    | otherwise = boundary
+              go (index + 1) boundary' (replaceFirstSplice result modu)
+    resultLength result =
+      case result of
+        DeclarationResult decls -> length decls
+        ExpressionResult _ -> 0
+        TypeResult _ -> 0
+        PatternResult _ -> 0
 
 -- | How the compiler answers a question about a name from the type facts
 -- of the module that declares it, such as @reify@ or @reifyRoles@.
