@@ -173,7 +173,6 @@ storeArguments program
             [ var
             | (callee, arguments) <- rawCalls (grinFunctionBody function),
               let moved = MonoidMap.get callee positions,
-              not (Map.null moved),
               (index, GrinVarValue var) <- zip [0 ..] arguments,
               Map.member index moved
             ]
