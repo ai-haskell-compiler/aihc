@@ -5,8 +5,6 @@ import Aihc.Cli.OptimizationPlan (OptimizationPlan (..), optimizationPlan)
 import Aihc.Cli.PlayBundle (BundleStats (..), LoadedBundle (..), loadBundle)
 import Aihc.Cli.PlayBundleStore (StoreBundleInfo (..), writeStoreBundle, writeStoreRuntime)
 import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
-import Aihc.Dev.ExtractHi (extractPackage)
-import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Frontend (FrontendOptions (..), runFrontend)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
@@ -18,17 +16,13 @@ import Aihc.Tc (TcInterface (..))
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Control.Monad (foldM_, unless, when)
-import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import GHC.Clock (getMonotonicTime)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
-import System.FilePath (takeDirectory)
 import System.IO (stderr)
 
 main :: IO ()
@@ -45,8 +39,7 @@ main = do
 
 -- | Top-level command type. New subcommands are added here.
 data Command
-  = ExtractResolveIface ExtractResolveIfaceOpts
-  | Fuzz FuzzCLI.Command
+  = Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
   | PlayBundle FilePath FilePath
@@ -55,26 +48,15 @@ data Command
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget) Bool
 
-data ExtractResolveIfaceOpts = ExtractResolveIfaceOpts
-  { eriPackage :: String,
-    eriOutput :: FilePath
-  }
-
 commandParser :: Parser Command
 commandParser =
   subparser
     ( command
-        "extract-resolve-iface"
+        "fuzz"
         ( info
-            (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
-            (progDesc "Extract minimal resolver interface (names only) from .hi files")
+            (Fuzz <$> FuzzCLI.commandParser <**> helper)
+            (progDesc "Continuously run Hedgehog properties in parallel")
         )
-        <> command
-          "fuzz"
-          ( info
-              (Fuzz <$> FuzzCLI.commandParser <**> helper)
-              (progDesc "Continuously run Hedgehog properties in parallel")
-          )
         <> command
           "frontend"
           ( info
@@ -183,27 +165,7 @@ frontendParser =
           )
       )
 
-extractResolveIfaceParser :: Parser ExtractResolveIfaceOpts
-extractResolveIfaceParser =
-  ExtractResolveIfaceOpts
-    <$> strOption
-      ( long "package"
-          <> metavar "PACKAGE"
-          <> help "Package name to extract (e.g. 'base', 'ghc-prim')"
-      )
-    <*> strOption
-      ( long "output"
-          <> metavar "FILE"
-          <> help "Output file path for the JSON interface"
-      )
-
 runCommand :: Command -> IO ()
-runCommand (ExtractResolveIface opts) = do
-  pkg <- extractPackage (eriPackage opts)
-  let resolveIface = toResolveIface pkg
-      outputPath = eriOutput opts
-  createDirectoryIfMissing True (takeDirectory outputPath)
-  BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Fuzz fuzzCommand) =
   Fuzz.runCommand fuzzCommand
 runCommand (Frontend options) =
