@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Run one splice in an engine and convert its result.
+-- | Run one splice and convert its result.
 --
--- This module does not know where the engine, the image, and the shared
--- module come from. The caller starts the engine, loads the shared module
--- of the splice module, and gives the facts of the names that are not
--- local to the module. Thus, the command line and a different host can
--- use the same code.
+-- This module does not know how the closure of a splice runs. The caller
+-- gives a function that runs the closure, for example in a WebAssembly
+-- engine or in a native engine. The caller also gives the facts of the
+-- names that are not local to the module. Thus, the command line and a
+-- different host can use the same code.
 --
 -- The body of a splice can use the modules of its own package. The splice
 -- package has a copy of these modules, and the names of the copies have
@@ -30,9 +30,8 @@ import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace 
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, patternResultFromTree, typeResultFromTree)
 import Aihc.Th.Reify (fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
 import Aihc.Th.Request (Request (..), RequestName (..), lookupNameReply, reportedFailure, requestFromTree)
-import Aihc.Th.Splices (FactsAnswer, LocalFacts, LocalFixity, NameLookup, Splice (..), SpliceRequest (..), SpliceResult (..), spliceClosureName, spliceModuleName, splicePackageId)
+import Aihc.Th.Splices (FactsAnswer, LocalFacts, LocalFixity, NameLookup, Splice (..), SpliceRequest (..), SpliceResult (..))
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
-import Aihc.Wasm.Engine (Engine, runClosure)
 import Control.Exception (IOException, try)
 import Control.Monad (forM_, join)
 import Data.ByteString (ByteString)
@@ -66,19 +65,20 @@ data SpliceEnvironment = SpliceEnvironment
     spliceEnvironmentWarn :: !(Text -> IO ())
   }
 
--- | Run the closure of the splice at a position of the request, in an
--- engine that has the shared module of the splice module. The function
--- answers the requests of the splice. The result is the tree that the
--- splice sent, with the package ids of the original package, and its
--- conversion to the surface syntax.
-runSpliceClosure :: Engine -> SpliceEnvironment -> Int -> NameLookup -> LocalFacts -> LocalFixity -> IO (Tree, SpliceResult)
-runSpliceClosure engine environment index lookupName localFacts localFixity = do
+-- | Run the closure of the splice at a position of the request. The first
+-- argument runs the closure of that splice. It gets the function that
+-- answers each request of the closure, and it gives the messages that the
+-- closure sent. The result is the tree that the splice sent, with the
+-- package ids of the original package, and its conversion to the surface
+-- syntax.
+runSpliceClosure :: ((ByteString -> IO ByteString) -> IO [ByteString]) -> SpliceEnvironment -> Int -> NameLookup -> LocalFacts -> LocalFixity -> IO (Tree, SpliceResult)
+runSpliceClosure runClosure environment index lookupName localFacts localFixity = do
   splice <- spliceAt request index
   let reify answer global = localFacts answer global >>= maybe (spliceEnvironmentFacts environment answer global) pure
       fixity global = localFixity global >>= maybe (spliceEnvironmentFixity environment global) (pure . Right)
   requests <- newIORef []
   let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-  outcome <- try (runClosure engine (answerRequest fromGuest toGuest lookupName reify fixity location requests) (splicePackageId request) spliceModuleName (spliceClosureName index))
+  outcome <- try (runClosure (answerRequest fromGuest toGuest lookupName reify fixity location requests))
   made <- reverse <$> readIORef requests
   forM_ [message | RequestReport False message <- made] (spliceEnvironmentWarn environment)
   -- A report of an error is the cause of a failure of the closure, so the

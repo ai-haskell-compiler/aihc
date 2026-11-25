@@ -62,6 +62,7 @@ module Aihc.Resolve
     -- * Names in the scope of a module
     moduleTopLevelName,
     resolveSpliceBodies,
+    spliceBodyImports,
   )
 where
 
@@ -177,6 +178,42 @@ resolveSpliceBodies (Builtins builtinScope) exports unit bodies =
     package = moduleUnitPackage unit
     modu = moduleUnitAst unit
     scope = moduleScope builtinScope package exports (moduleUnitExtensions unit) modu
+
+-- | The imports of a list that the bodies of the splices of a module need.
+-- The list is the imports of the module. The
+-- splices run in a different module, with these imports only. Thus, that
+-- module does not need the other imports, nor the packages that give
+-- them. The compiler resolves the bodies in the scope of the module, and an
+-- import stays when it gives a name that a body uses.
+--
+-- An import stays in three other cases. An import of @Prelude@ stops the
+-- implicit import of @Prelude@, which can make a name ambiguous. An import
+-- with an empty item list, such as @import M ()@, gives only instances. An
+-- import of a module that the exports do not identify cannot be examined. A name that does not
+-- resolve here does not resolve with fewer imports either, so it keeps no
+-- import. A name that is only in a quote of a body does not
+-- keep an import: give the bodies after the quotes are changed into calls
+-- of the quote library, and the quotes then name no imported entity.
+--
+-- An import that gives only an orphan instance that a splice uses is not
+-- found. Use an empty item list for such an import.
+spliceBodyImports :: Builtins -> ModuleExports -> ModuleUnit -> [Expr] -> [ImportDecl] -> [ImportDecl]
+spliceBodyImports builtinsScope exports unit bodies =
+  filter needed
+  where
+    resolutions = collectResolutions Just (resolveSpliceBodies builtinsScope exports unit bodies)
+    used = Set.fromList [global | ResolutionOk Resolved {resolutionTarget = EntityGlobal global} <- resolutions]
+    needed importDecl =
+      case importDeclSpec importDecl of
+        _ | importDeclModule importDecl == "Prelude" -> True
+        Just ImportSpec {importSpecHiding = False, importSpecItems = []} -> True
+        _ ->
+          case matchingModuleScopes (moduleUnitPackage unit) (importDeclPackage importDecl) (importDeclModule importDecl) exports of
+            [scope] ->
+              let imported = filterImportSpec (importDeclSpec importDecl) scope
+                  entities = Map.elems (scopeTerms imported) <> Map.elems (scopeTypes imported)
+               in any (\entity -> case entity of EntityGlobal global -> global `Set.member` used; _ -> False) entities
+            _ -> True
 
 resolveModule :: Scope -> Package -> ModuleExports -> [Extension] -> Int -> Module -> (Int, ([ResolveError], [GlobalName], R.Module))
 resolveModule builtinScope package exports extensions nextLocal modu =

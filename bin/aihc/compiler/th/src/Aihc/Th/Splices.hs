@@ -111,7 +111,10 @@ data SpliceRequest = SpliceRequest
     -- directory of the package, as GHC gives it to @location@.
     spliceRequestSourceFile :: !FilePath,
     -- | The source span of each splice, in the order of 'moduleSplices'.
-    spliceRequestSpans :: ![Maybe SourceSpan]
+    spliceRequestSpans :: ![Maybe SourceSpan],
+    -- | The user trusts the package, so its splices run as native code with
+    -- no sandbox (@--unsafe-disable-th-sandbox@).
+    spliceRequestNative :: !Bool
   }
 
 -- | The settings of the component of a source file of a package.

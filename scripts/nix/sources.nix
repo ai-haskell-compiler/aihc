@@ -172,6 +172,7 @@ in rec {
   ];
 
   templateHaskellSrc = mkComponentSrc "/core-libs/aihc-template-haskell" [
+    ".c"
     ".hs"
     ".hs-boot"
     ".cabal"

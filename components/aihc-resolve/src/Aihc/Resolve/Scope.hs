@@ -30,6 +30,7 @@ module Aihc.Resolve.Scope
     moduleScope,
     moduleKey,
     matchingModuleScopes,
+    filterImportSpec,
     lookupImportedModule,
     emptyScope,
     unionScope,

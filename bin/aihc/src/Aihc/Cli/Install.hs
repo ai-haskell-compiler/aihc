@@ -144,7 +144,7 @@ import Aihc.Fc.Imports (declTopReferences)
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
-import Aihc.Hackage.Package (Arch, OS, buildArch, buildOS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
+import Aihc.Hackage.Package (Arch, OS, PackageName, Version, buildArch, buildOS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), c2hsImports, preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
@@ -222,6 +222,7 @@ import Aihc.Resolve
     modulesInPackage,
     resolveSpliceBodies,
     resolveUnit,
+    spliceBodyImports,
   )
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.Traverse qualified as RWalk
@@ -577,7 +578,16 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- one splice, to the action. The action runs the splices in source
     -- order and gives the module with their results. "Aihc.Cli.Splice"
     -- supplies it. Without it, the build does not run splices.
-    compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module))
+    compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module)),
+    -- | The packages whose splices run in a native program with no
+    -- sandbox (@--unsafe-disable-th-sandbox@). A package without a version
+    -- names each version.
+    compileNativeSplicePackages :: ![(PackageName, Maybe Version)],
+    -- | The splices of this package run with no sandbox. Such a splice can
+    -- give a result that the sandbox does not allow, so the package gets a
+    -- store key of its own. 'slotConfig' sets it from
+    -- 'compileNativeSplicePackages'.
+    compileNativeSplices :: !Bool
   }
 
 -- | What 'compileObserver' receives.
@@ -805,7 +815,9 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileUseColor = False,
         compileProgress = quietProgress stdout,
         compileObserver = Nothing,
-        compileSplices = Nothing
+        compileSplices = Nothing,
+        compileNativeSplicePackages = [],
+        compileNativeSplices = False
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -1161,9 +1173,22 @@ installGraph config locations plans components = do
 
 -- | The config a package of the graph compiles with.
 slotConfig :: InstallShared -> PackageSlot -> ModuleCompileConfig
-slotConfig shared slot
-  | slotRoot slot = sharedConfig shared
-  | otherwise = dependencyCompileConfig (sharedConfig shared)
+slotConfig shared slot =
+  selectNativeSplices (planName plan) (Just (Cabal.packageVersion (planDescription plan))) $
+    if slotRoot slot
+      then sharedConfig shared
+      else dependencyCompileConfig (sharedConfig shared)
+  where
+    plan = slotPlan slot
+
+-- | Set 'compileNativeSplices' for the package with the name and the
+-- version. An executable has no version, so only a name without a version
+-- selects it.
+selectNativeSplices :: PackageName -> Maybe Version -> ModuleCompileConfig -> ModuleCompileConfig
+selectNativeSplices name version config =
+  config {compileNativeSplices = any selects (compileNativeSplicePackages config)}
+  where
+    selects (selected, selectedVersion) = selected == name && maybe True ((== version) . Just) selectedVersion
 
 -- | The slot of a package, made after the slots of its dependencies, with
 -- its prepare task in the graph.
@@ -1280,8 +1305,14 @@ executableSlot shared graph order (component, dependencies) = do
 -- it, as the packages of an install see their dependencies.
 prepareExecutable :: InstallShared -> TaskGraph -> ExecutableSlot -> IO ()
 prepareExecutable shared graph slot = do
-  let config = sharedConfig shared
-      component = executableSlotComponent slot
+  let component = executableSlotComponent slot
+      -- The user names an executable as the progress names it. Each
+      -- main module has the package name @exe@, so that name is not useful.
+      executableName = case componentItem component of
+        ItemExecutable name -> name
+        ItemTestSuite name -> name
+        ItemPackage name -> name
+      config = selectNativeSplices (mkPackageName (T.unpack executableName)) Nothing (sharedConfig shared)
       closure = executableSlotClosure slot
       package = componentPackage component
       outputRoot = componentOutputRoot component
@@ -2082,7 +2113,8 @@ moduleSpliceRequest shared build file source =
                   spliceRequestUnavailableImports = [],
                   spliceRequestSplices = [],
                   spliceRequestSourceFile = makeRelative (moduleBuildPackageRoot build) (HackageCabal.fileInfoPath file),
-                  spliceRequestSpans = []
+                  spliceRequestSpans = [],
+                  spliceRequestNative = compileNativeSplices (moduleBuildConfig build)
                 }
     _ -> pure Nothing
   where
@@ -2493,7 +2525,7 @@ buildEnvironmentIdentity target = do
 -- that add or drop outputs, such as @--keep-core@, or that only check,
 -- such as @--lint@, are recorded in the manifest instead.
 packageOptionsKey :: ModuleCompileConfig -> String
-packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> codeModelKeyParts config)
+packageOptionsKey config = stableHash (compilerKeyParts config <> optimizationKeyParts config <> ltoKeyParts config <> checkPrimBoundsKeyParts config <> codeModelKeyParts config <> nativeSplicesKeyParts config)
 
 -- | The compiler and the target.
 compilerKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
@@ -2534,11 +2566,17 @@ checkPrimBoundsKeyParts config = ["check-prim-bounds" | compileCheckPrimBounds c
 codeModelKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
 codeModelKeyParts config = ["position-independent" | compileCodeModel config == Wasm.PositionIndependent]
 
+-- | The key part of a build that runs splices with no sandbox. A build
+-- with the sandbox adds nothing.
+nativeSplicesKeyParts :: ModuleCompileConfig -> [BS8.ByteString]
+nativeSplicesKeyParts config = ["native-splices" | compileNativeSplices config]
+
 -- | The part of the configuration the type interfaces depend on. The level
 -- changes only C and LLVM objects, so a local package that changes its
--- level keeps its interfaces.
+-- level keeps its interfaces. The results of splices change the modules,
+-- so the splice mode is a part.
 frontendOptionsKey :: ModuleCompileConfig -> String
-frontendOptionsKey config = stableHash (compilerKeyParts config)
+frontendOptionsKey config = stableHash (compilerKeyParts config <> nativeSplicesKeyParts config)
 
 -- | The part of the configuration the backend outputs depend on.
 backendOptionsKey :: ModuleCompileConfig -> String
@@ -2552,6 +2590,7 @@ backendOptionsKey config =
         <> ltoKeyParts config
         <> checkPrimBoundsKeyParts config
         <> codeModelKeyParts config
+        <> nativeSplicesKeyParts config
         <> ["profile-allocations" | compileProfileAllocations config]
         <> ["profile-time" | compileProfileTime config]
     )
@@ -3095,15 +3134,29 @@ expandUnitSplices context runtimes unit availableExports sources modules =
     unavailableModules =
       Set.fromList [sourceModuleName other | runtime <- Map.elems runtimes, other <- sourceUnitSources (runtimeUnit runtime)]
         `Set.difference` Set.fromList (map sourceModuleName belowSources)
-    -- The packages that have the modules that each module of the list
-    -- imports. A splice can only use these packages and the packages below
-    -- them, so the splice package does not depend on the other packages of
-    -- the component. The builds for the engine then do not compile those
-    -- other packages, and their C code, for WebAssembly. A core library
-    -- stays, because its name in the dependencies and its name in the
-    -- exports can be different.
-    importedDependencies importers dependencies =
-      let imported = Set.fromList [packageName package | importer <- importers, (_, name) <- sourceDependencies importer, package <- providerPackagesOf (taskModuleProvider context) name]
+    belowByName = Map.fromList [(sourceModuleName below, below) | below <- belowSources]
+    -- The modules of the units below that the imports of the list name,
+    -- with the modules of the units below that those modules import. The
+    -- splice package compiles only these modules again.
+    ownModulesOf ownName references = go Set.empty (localNames references)
+      where
+        localNames refs = [name | (qualifier, name) <- refs, importCanBeLocal ownName qualifier, name `Map.member` belowByName]
+        go _ [] = []
+        go seen (name : rest)
+          | name `Set.member` seen = go seen rest
+          | otherwise =
+              case Map.lookup name belowByName of
+                Just below -> below : go (Set.insert name seen) (localNames (sourceDependencies below) <> rest)
+                Nothing -> go (Set.insert name seen) rest
+    -- The packages that have the modules of the list of imports. A splice
+    -- can only use these packages and the packages below them, so the
+    -- splice package does not depend on the other packages of the
+    -- component. The builds for the engine then do not compile those other
+    -- packages, and their C code, for WebAssembly. A core library stays,
+    -- because its name in the dependencies and its name in the exports can
+    -- be different.
+    importedDependencies references dependencies =
+      let imported = Set.fromList [packageName package | (_, name) <- references, package <- providerPackagesOf (taskModuleProvider context) name]
        in [dependency | dependency@(name, _) <- dependencies, name `Set.member` imported || isJust (lookupCoreProvider (T.unpack name))]
     expand run importedTypes source moduleUnit =
       case sourceModuleSpliceRequest source of
@@ -3144,18 +3197,31 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                   (\splice resolved -> withBody splice (renameQuotedPackage (packageIdText ownPackage) (splicePackageId template) (desugarSpliceBody localNames (spliceBody splice) resolved)))
                   splices
                   resolvedBodies
+              -- The splice module gets only the imports that the splice
+              -- bodies need. Thus, the splice package does not compile a
+              -- package that only the other code of the module uses. For
+              -- example, a package with a C library that is not available
+              -- for WebAssembly.
+              usedImports =
+                filter
+                  (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules)
+                  (spliceBodyImports (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = bound} (map spliceBody desugaredSplices) (spliceRequestImports template))
+              usedReferences =
+                [(importDeclPackage importDecl, importDeclModule importDecl) | importDecl <- usedImports]
+                  <> [(Nothing, "Prelude") | moduleUsesImplicitPrelude source]
+              usedOwnModules = ownModulesOf (spliceRequestPackage template) usedReferences
               request =
                 template
                   { spliceRequestSplices = desugaredSplices,
                     spliceRequestSpans = moduleSpliceSpans bound,
-                    spliceRequestImports = filter (\importDecl -> importDeclModule importDecl `Set.notMember` unavailableModules) (spliceRequestImports template),
+                    spliceRequestImports = usedImports,
                     spliceRequestUnavailableImports = [importDeclModule importDecl | importDecl <- spliceRequestImports template, importDeclModule importDecl `Set.member` unavailableModules],
-                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- belowSources],
-                    spliceRequestOwnResults = [(sourceModuleName below, spliceResultsPath belowRequest) | below <- belowSources, Just belowRequest <- [sourceModuleSpliceRequest below]],
+                    spliceRequestOwnModules = [(sourceModuleName below, sourceModulePath below) | below <- usedOwnModules],
+                    spliceRequestOwnResults = [(sourceModuleName below, spliceResultsPath belowRequest) | below <- usedOwnModules, Just belowRequest <- [sourceModuleSpliceRequest below]],
                     spliceRequestDependencies =
                       importedDependencies
-                        (source : belowSources)
-                        (nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- belowSources, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]]))
+                        (usedReferences <> concatMap sourceDependencies usedOwnModules)
+                        (nub (spliceRequestDependencies template <> concat [packageFileDependencies file | below <- usedOwnModules, Just file <- [Map.lookup (sourceModulePath below) (spliceRequestPackageFiles template)]]))
                   }
           prefixFacts <- newIORef Map.empty
           let facts prefix answer global

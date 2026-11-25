@@ -392,7 +392,6 @@ executable aihc-dev
     Aihc.Dev.Explore.Haskell
     Aihc.Dev.Explore.TextMate
     Aihc.Dev.ExtractHi
-    Aihc.Dev.ExtractHi.Compare
     Aihc.Dev.ExtractHi.Ghc
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
@@ -576,7 +575,6 @@ test-suite dev-spec
   other-modules:
     Aihc.Dev.Explore.Document
     Aihc.Dev.ExtractHi
-    Aihc.Dev.ExtractHi.Compare
     Aihc.Dev.ExtractHi.Ghc
     Aihc.Dev.ExtractHi.ToResolveIface
     Aihc.Dev.ExtractHi.Types
@@ -589,7 +587,6 @@ test-suite dev-spec
     Aihc.Grin.Fuzz
     Aihc.Testing.RuntimeArchive
     Test.ExploreDocument
-    Test.ExtractHiCompare
     Test.Fuzz
     Test.Grin.Arbitrary
     Test.Native.GcFuzz
