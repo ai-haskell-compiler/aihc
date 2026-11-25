@@ -149,7 +149,7 @@ import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Syntax (Module)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.FromPending (Finalizer (..), FromPending (..))
 import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
@@ -159,6 +159,7 @@ import Aihc.Tc.Zonk (finalizeDiagnostics)
 import Data.Functor.Identity (Identity (..))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 
 -- | Top-level bindings recovered from a type-checked module's annotations.
 tcModuleBindings :: TcWiring -> Module -> [TcBindingResult]
@@ -217,7 +218,14 @@ typecheckWithFacts check imported resolved
 -- | A module that the type checker did not check. It keeps only the
 -- identity of the module.
 uncheckedModule :: Pending.Module -> Final.Module
-uncheckedModule = runIdentity . fromPending (pure . plainInfo)
+uncheckedModule =
+  runIdentity
+    . fromPending
+      Finalizer
+        { finalizeItem = pure . plainInfo,
+          missingType = \node -> error ("uncheckedModule: a module without declarations has the node " <> T.unpack node),
+          recover = fmap Just
+        }
   where
     plainInfo item =
       case item of

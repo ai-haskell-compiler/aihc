@@ -35,7 +35,7 @@ import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.FromPending (Finalizer (..), FromPending (..))
 import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
@@ -65,16 +65,47 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (rnf)
 import Control.Monad (mfilter, zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (gets)
+import Control.Monad.Trans.Except (catchE, runExceptT, throwE)
+import Control.Monad.Trans.Reader (ReaderT)
+import Control.Monad.Trans.State.Strict (StateT (..), gets)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set qualified as Set
+import Data.Text qualified as T
 
 -- | Change the tree that the type checker works on into the final tree.
 -- Each item of pending information becomes final information. The change
 -- covers every syntax constructor, so a pending item cannot escape.
+--
+-- A node whose rule always gives a type must have a type in the final
+-- tree. In a module with type errors, a declaration that did not pass the
+-- check can have a node without a type. That declaration stays unchecked.
+-- In a module without type errors, such a node is a fault of the type
+-- checker.
 finalizeModuleTc :: Module -> TcM Final.Module
-finalizeModuleTc = fromPending finalizeInfo
+finalizeModuleTc modu = do
+  hasErrors <- (> 0) <$> currentErrorCount
+  if hasErrors
+    then do
+      result <- runExceptT (fromPending recovering modu)
+      either (const (abortTc "internal type annotation error: a checked node outside a declaration has no type")) pure result
+    else fromPending strictFinalizer modu
+  where
+    recovering =
+      Finalizer
+        { finalizeItem = lift . finalizeInfo,
+          missingType = const (throwE ()),
+          recover = \action -> catchE (Just <$> action) (const (pure Nothing))
+        }
+
+-- | The change of a checked tree. A node without its type stops the check.
+strictFinalizer :: Finalizer (ReaderT TcEnv (StateT TcState TcResult))
+strictFinalizer =
+  Finalizer
+    { finalizeItem = finalizeInfo,
+      missingType = \node -> abortTc ("internal type annotation error: the checked node " <> T.unpack node <> " has no type"),
+      recover = fmap Just
+    }
 
 -- | Finalize one item of information. A cast whose proof is not needed
 -- goes away.
@@ -118,7 +149,7 @@ finalizeInfo item =
     InfoInstance instanceAnnotation -> Just . Final.InfoInstance <$> finalizeInstanceAnnotation instanceAnnotation
     -- The matcher, builder, and selector equations are syntax in the
     -- information. Each one changes as the tree does.
-    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> fromPending finalizeInfo equations
+    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> fromPending strictFinalizer equations
     -- The checker writes the types of declarations as final information.
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)

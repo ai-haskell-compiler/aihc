@@ -725,15 +725,6 @@ nodeType expression =
     Syn.EVar (Syn.VarTc ty recursive) _ -> ty <|> recursive
     _ -> Syn.exprType expression
 
--- | An expression node without its own type.
-withoutNodeType :: Syn.Expr -> Syn.Expr
-withoutNodeType expression =
-  case expression of
-    Syn.EAnn annotation inner -> Syn.EAnn annotation (withoutNodeType inner)
-    Syn.EVar (Syn.VarTc (Just _) recursive) name -> Syn.EVar (Syn.VarTc Nothing recursive) name
-    Syn.EVar (Syn.VarTc Nothing _) name -> Syn.EVar Syn.emptyVarTc name
-    _ -> fromMaybe expression (Syn.setExprType Nothing expression)
-
 infoType :: Syn.TcInfo -> Maybe TcAnnotation
 infoType item =
   case item of
@@ -3741,13 +3732,23 @@ guardFailure resultType' next binder =
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
   case expression of
+    Syn.EAnn _ inner -> desugarExpr inner
     -- A given equality made the expression fit its signature, so the
     -- proof it carries is the cast that keeps the Core well typed.
-    Syn.ETypeSig tc@(Syn.SigTc cast@(Just _) _ _) inner signature ->
-      castWith cast (desugarExpr (Syn.ETypeSig tc {Syn.sigCast = Nothing} inner signature))
-    _
-      | Just tcAnnotation <- nodeType expression ->
-          desugarAnnotatedExpr tcAnnotation expression (desugarExpr (withoutNodeType expression))
+    Syn.ETypeSig tc _ _ -> castWith (Syn.sigCast tc) (desugarTypedExpr expression)
+    _ -> desugarTypedExpr expression
+
+-- | Desugar an expression with the type of the node, if it has one.
+desugarTypedExpr :: Syn.Expr -> ValueM Expr
+desugarTypedExpr expression =
+  case nodeType expression of
+    Just tcAnnotation -> desugarAnnotatedExpr tcAnnotation expression (desugarNode expression)
+    Nothing -> desugarNode expression
+
+-- | Desugar an expression node without its own type.
+desugarNode :: Syn.Expr -> ValueM Expr
+desugarNode expression =
+  case expression of
     Syn.EIf _ (Just method) _ _ _
       | Just _ <- syntaxResolved method ->
           failValue "rebindable if expression is missing its checked result type"
@@ -3947,7 +3948,7 @@ negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
     _
-      | Syn.EInt (Just tcAnnotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _ <- Syn.peelExprAnn expression,
+      | Syn.EInt tcAnnotation (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _ <- Syn.peelExprAnn expression,
         Just resolution <- syntaxResolved conversion,
         null (tcAnnTypeBinders tcAnnotation),
         null (tcAnnEvidenceBinders tcAnnotation),

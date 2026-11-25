@@ -145,13 +145,10 @@ module Aihc.Tc.Syntax
     InfixTc (..),
     emptyInfixTc,
     IfTc (..),
-    emptyIfTc,
     LambdaTc (..),
-    emptyLambdaTc,
     SigTc (..),
     emptySigTc,
     SectionTc (..),
-    emptySectionTc,
     ListItem (..),
     listItem,
     PatternTc (..),
@@ -172,7 +169,6 @@ module Aihc.Tc.Syntax
     peelExprAnn,
     peelPatternAnn,
     exprType,
-    setExprType,
     patternTc,
     setPatternTc,
     modifyPatternTc,
@@ -312,6 +308,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Error (TcDiagnostic)
+import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types (TcType)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -574,91 +571,44 @@ exprType expr =
   case expr of
     EAnn _ inner -> exprType inner
     EVar tc _ -> varType tc
-    EImplicitParam ty _ -> ty
-    EInt ty _ _ _ _ -> ty
-    EFloat ty _ _ _ _ -> ty
-    EChar ty _ _ -> ty
-    ECharHash ty _ _ _ -> ty
-    EString ty _ _ _ -> ty
-    EStringHash ty _ _ _ -> ty
-    EOverloadedLabel ty _ _ -> ty
-    EQuasiQuote ty _ _ -> ty
-    EIf tc _ _ _ _ -> ifType tc
-    EMultiWayIf ty _ -> ty
-    ELambdaPats tc _ _ -> lambdaType tc
-    ELambdaCase ty _ -> ty
+    EImplicitParam ty _ -> Just ty
+    EInt ty _ _ _ _ -> Just ty
+    EFloat ty _ _ _ _ -> Just ty
+    EChar ty _ _ -> Just ty
+    ECharHash ty _ _ _ -> Just ty
+    EString ty _ _ _ -> Just ty
+    EStringHash ty _ _ _ -> Just ty
+    EOverloadedLabel ty _ _ -> Just ty
+    EQuasiQuote ty _ _ -> Just ty
+    EIf tc _ _ _ _ -> Just (ifType tc)
+    EMultiWayIf ty _ -> Just ty
+    ELambdaPats tc _ _ -> Just (lambdaType tc)
+    ELambdaCase ty _ -> Just ty
     ELambdaCases ty _ -> ty
     EInfix tc _ _ _ -> infixType tc
-    ENegate ty _ _ -> ty
-    ESectionL tc _ _ -> sectionType tc
-    ESectionR tc _ _ -> sectionType tc
-    ECase ty _ _ -> ty
-    EDo ty _ _ -> ty
-    EListComp ty _ _ -> ty
-    EListCompParallel ty _ _ -> ty
-    EArithSeq ty _ _ -> ty
-    EGetField ty _ _ _ -> ty
-    EGetFieldProjection ty _ _ -> ty
+    ENegate ty _ _ -> Just ty
+    ESectionL tc _ _ -> Just (sectionType tc)
+    ESectionR tc _ _ -> Just (sectionType tc)
+    ECase ty _ _ -> Just ty
+    EDo ty _ _ -> Just ty
+    EListComp ty _ _ -> Just ty
+    EListCompParallel ty _ _ -> Just ty
+    EArithSeq ty _ _ -> Just ty
+    EGetField ty _ _ _ -> Just ty
+    EGetFieldProjection ty _ _ -> Just ty
     ETypeSig tc _ _ -> sigType tc
-    EList ty _ _ _ -> ty
-    ETuple ty _ _ _ -> ty
-    EUnboxedSum ty _ _ _ -> ty
+    EList ty _ _ _ -> Just ty
+    ETuple ty _ _ _ -> Just ty
+    EUnboxedSum ty _ _ _ -> Just ty
     ETypeApp ty _ _ -> ty
     EApp tc _ _ -> appType tc
-    ETHExpQuote ty _ -> ty
-    ETHTypedQuote ty _ -> ty
-    ETHDeclQuote ty _ -> ty
-    ETHTypeQuote ty _ -> ty
-    ETHPatQuote ty _ -> ty
-    ETHNameQuote ty _ -> ty
-    ETHTypeNameQuote ty _ -> ty
-    _ -> Nothing
-
--- | Set the type of an expression node, under its annotation wrappers.
--- The result is 'Nothing' when the node has no type.
-setExprType :: Maybe TcAnnotation -> Expr -> Maybe Expr
-setExprType ty expr =
-  case expr of
-    EAnn ann inner -> EAnn ann <$> setExprType ty inner
-    EVar tc x1 -> Just (EVar tc {varType = ty} x1)
-    EImplicitParam _ x1 -> Just (EImplicitParam ty x1)
-    EInt _ x1 x2 x3 x4 -> Just (EInt ty x1 x2 x3 x4)
-    EFloat _ x1 x2 x3 x4 -> Just (EFloat ty x1 x2 x3 x4)
-    EChar _ x1 x2 -> Just (EChar ty x1 x2)
-    ECharHash _ x1 x2 x3 -> Just (ECharHash ty x1 x2 x3)
-    EString _ x1 x2 x3 -> Just (EString ty x1 x2 x3)
-    EStringHash _ x1 x2 x3 -> Just (EStringHash ty x1 x2 x3)
-    EOverloadedLabel _ x1 x2 -> Just (EOverloadedLabel ty x1 x2)
-    EQuasiQuote _ x1 x2 -> Just (EQuasiQuote ty x1 x2)
-    EIf tc x1 x2 x3 x4 -> Just (EIf tc {ifType = ty} x1 x2 x3 x4)
-    EMultiWayIf _ x1 -> Just (EMultiWayIf ty x1)
-    ELambdaPats tc x1 x2 -> Just (ELambdaPats tc {lambdaType = ty} x1 x2)
-    ELambdaCase _ x1 -> Just (ELambdaCase ty x1)
-    ELambdaCases _ x1 -> Just (ELambdaCases ty x1)
-    EInfix tc x1 x2 x3 -> Just (EInfix tc {infixType = ty} x1 x2 x3)
-    ENegate _ x1 x2 -> Just (ENegate ty x1 x2)
-    ESectionL tc x1 x2 -> Just (ESectionL tc {sectionType = ty} x1 x2)
-    ESectionR tc x1 x2 -> Just (ESectionR tc {sectionType = ty} x1 x2)
-    ECase _ x1 x2 -> Just (ECase ty x1 x2)
-    EDo _ x1 x2 -> Just (EDo ty x1 x2)
-    EListComp _ x1 x2 -> Just (EListComp ty x1 x2)
-    EListCompParallel _ x1 x2 -> Just (EListCompParallel ty x1 x2)
-    EArithSeq _ x1 x2 -> Just (EArithSeq ty x1 x2)
-    EGetField _ x1 x2 x3 -> Just (EGetField ty x1 x2 x3)
-    EGetFieldProjection _ x1 x2 -> Just (EGetFieldProjection ty x1 x2)
-    ETypeSig tc x1 x2 -> Just (ETypeSig tc {sigType = ty} x1 x2)
-    EList _ x1 x2 x3 -> Just (EList ty x1 x2 x3)
-    ETuple _ x1 x2 x3 -> Just (ETuple ty x1 x2 x3)
-    EUnboxedSum _ x1 x2 x3 -> Just (EUnboxedSum ty x1 x2 x3)
-    ETypeApp _ x1 x2 -> Just (ETypeApp ty x1 x2)
-    EApp tc x1 x2 -> Just (EApp tc {appType = ty} x1 x2)
-    ETHExpQuote _ x1 -> Just (ETHExpQuote ty x1)
-    ETHTypedQuote _ x1 -> Just (ETHTypedQuote ty x1)
-    ETHDeclQuote _ x1 -> Just (ETHDeclQuote ty x1)
-    ETHTypeQuote _ x1 -> Just (ETHTypeQuote ty x1)
-    ETHPatQuote _ x1 -> Just (ETHPatQuote ty x1)
-    ETHNameQuote _ x1 -> Just (ETHNameQuote ty x1)
-    ETHTypeNameQuote _ x1 -> Just (ETHTypeNameQuote ty x1)
+    ETHExpQuote ty _ -> Just ty
+    ETHTypedQuote ty _ -> Just ty
+    ETHDeclQuote ty _ -> Just ty
+    ETHTypeQuote ty _ -> Just ty
+    ETHPatQuote ty _ -> Just ty
+    ETHNameQuote ty _ -> Just ty
+    ETHTypeNameQuote ty _ -> Just ty
     _ -> Nothing
 
 -- | What the type checker found for a pattern node, under its
@@ -993,6 +943,10 @@ data Decl
     DeclTc TcInfo Decl
   | -- | A resolve error for the whole declaration.
     DeclError ResolveError Decl
+  | -- | A declaration that did not pass the type check. It keeps the form
+    -- that it has before the check. Only a module with type errors has
+    -- it.
+    DeclUnchecked Pending.Decl
   | -- | @f x = x@ or @x = 1@
     DeclValue ValueDecl
   | -- | @?x = e@ in a @let@ or @where@ group
@@ -1618,6 +1572,10 @@ data ClassDeclItem
     ClassItemAnn Annotation ClassDeclItem
   | -- | A resolve error for the whole class item.
     ClassItemError ResolveError ClassDeclItem
+  | -- | A class item that did not pass the type check. It keeps the form
+    -- that it has before the check. Only a module with type errors has
+    -- it.
+    ClassItemUnchecked Pending.ClassDeclItem
   | -- | @f :: a -> Bool@
     ClassItemTypeSig [BinderName] Type
   | -- | @default f :: Show a => a -> String@
@@ -1655,6 +1613,10 @@ data InstanceDeclItem
     InstanceItemAnn Annotation InstanceDeclItem
   | -- | A resolve error for the whole instance item.
     InstanceItemError ResolveError InstanceDeclItem
+  | -- | An instance item that did not pass the type check. It keeps the
+    -- form that it has before the check. Only a module with type errors
+    -- has it.
+    InstanceItemUnchecked Pending.InstanceDeclItem
   | -- | A method body such as @show x = ...@. The information is the
     -- checked type of the method.
     InstanceItemBind [TcInfo] ValueDecl
@@ -1692,34 +1654,34 @@ data Expr
   | -- | @x@ or @Data.List.map@
     EVar VarTc Name
   | -- | @?x@
-    EImplicitParam (Maybe TcAnnotation) Text
+    EImplicitParam TcAnnotation Text
   | -- | @type T@ in a term position.
     ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt (Maybe TcAnnotation) LiteralSyntax Integer NumericType Text
+    EInt TcAnnotation LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat (Maybe TcAnnotation) LiteralSyntax Rational FloatType Text
+    EFloat TcAnnotation LiteralSyntax Rational FloatType Text
   | -- | @'x'@
-    EChar (Maybe TcAnnotation) Char Text
+    EChar TcAnnotation Char Text
   | -- | @'x'#@. The name is the type @Char#@.
-    ECharHash (Maybe TcAnnotation) Name Char Text
+    ECharHash TcAnnotation Name Char Text
   | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
-    EString (Maybe TcAnnotation) (Maybe Name) Text Text
+    EString TcAnnotation (Maybe Name) Text Text
   | -- | @"hello"#@. The name is the type @Addr#@.
-    EStringHash (Maybe TcAnnotation) Name Text Text
+    EStringHash TcAnnotation Name Text Text
   | -- | @#name@
-    EOverloadedLabel (Maybe TcAnnotation) Text Text
+    EOverloadedLabel TcAnnotation Text Text
   | -- | @[qq| body |]@
-    EQuasiQuote (Maybe TcAnnotation) Text Text
+    EQuasiQuote TcAnnotation Text Text
   | -- | @if c then t else e@. Under @RebindableSyntax@, the name is
     -- @ifThenElse@.
     EIf IfTc (Maybe Name) Expr Expr Expr
   | -- | @if | g1 -> e1 | g2 -> e2@
-    EMultiWayIf (Maybe TcAnnotation) [GuardedRhs Expr]
+    EMultiWayIf TcAnnotation [GuardedRhs Expr]
   | -- | @\x y -> body@
     ELambdaPats LambdaTc [Pattern] Expr
   | -- | @\case { p -> e }@
-    ELambdaCase (Maybe TcAnnotation) [CaseAlt Expr]
+    ELambdaCase TcAnnotation [CaseAlt Expr]
   | -- | @\cases { p q -> e }@
     ELambdaCases (Maybe TcAnnotation) [LambdaCaseAlt]
   | -- | @a + b@
@@ -1729,7 +1691,7 @@ data Expr
     -- gets its own constructor.  'checkPattern' turns this into 'PView'.
     EViewPat Expr Expr
   | -- | @-x@. The name is @negate@.
-    ENegate (Maybe TcAnnotation) Name Expr
+    ENegate TcAnnotation Name Expr
   | -- | @(x +)@
     ESectionL SectionTc Expr Name
   | -- | @(+ x)@
@@ -1737,35 +1699,35 @@ data Expr
   | -- | @let x = 1 in x@
     ELetDecls [Decl] Expr
   | -- | @case x of { Just y -> y }@
-    ECase (Maybe TcAnnotation) Expr [CaseAlt Expr]
+    ECase TcAnnotation Expr [CaseAlt Expr]
   | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@
-    EDo (Maybe TcAnnotation) [DoStmt Expr] DoFlavor
+    EDo TcAnnotation [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
-    EListComp (Maybe TcAnnotation) Expr [CompStmt]
+    EListComp TcAnnotation Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
-    EListCompParallel (Maybe TcAnnotation) Expr [[CompStmt]]
+    EListCompParallel TcAnnotation Expr [[CompStmt]]
   | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
-    EArithSeq (Maybe TcAnnotation) (Maybe Name) ArithSeq
+    EArithSeq TcAnnotation (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
     ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | -- | @r { x = 1 }@
     ERecordUpd Expr [RecordField Expr]
   | -- | @a.b@ under @OverloadedRecordDot@. The first name is @getField@.
-    EGetField (Maybe TcAnnotation) Name Expr Name
+    EGetField TcAnnotation Name Expr Name
   | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
     -- @getField@.
-    EGetFieldProjection (Maybe TcAnnotation) Name [Name]
+    EGetFieldProjection TcAnnotation Name [Name]
   | -- | @(expr :: ty)@
     ETypeSig SigTc Expr Type
   | -- | @(expr)@
     EParen Expr
   | -- | @[x, y]@. The first name is the list syntax. Under
     -- @OverloadedLists@, the second name is @fromListN@.
-    EList (Maybe TcAnnotation) Name (Maybe Name) [ListItem]
+    EList TcAnnotation Name (Maybe Name) [ListItem]
   | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
-    ETuple (Maybe TcAnnotation) Name TupleFlavor [Maybe Expr]
+    ETuple TcAnnotation Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
-    EUnboxedSum (Maybe TcAnnotation) Int Int Expr
+    EUnboxedSum TcAnnotation Int Int Expr
   | -- | @f \@Type@
     ETypeApp (Maybe TcAnnotation) Expr Type
   | -- | @f x@
@@ -1773,19 +1735,19 @@ data Expr
   | -- Template Haskell quotes
 
     -- | @[| expr |]@ or @[e| expr |]@
-    ETHExpQuote (Maybe TcAnnotation) Expr
+    ETHExpQuote TcAnnotation Pending.Expr
   | -- | @[|| expr ||]@ or @[e|| expr ||]@
-    ETHTypedQuote (Maybe TcAnnotation) Expr
+    ETHTypedQuote TcAnnotation Pending.Expr
   | -- | @[d| decls |]@
-    ETHDeclQuote (Maybe TcAnnotation) [Decl]
+    ETHDeclQuote TcAnnotation [Pending.Decl]
   | -- | @[t| type |]@
-    ETHTypeQuote (Maybe TcAnnotation) Type
+    ETHTypeQuote TcAnnotation Type
   | -- | @[p| pat |]@
-    ETHPatQuote (Maybe TcAnnotation) Pattern
+    ETHPatQuote TcAnnotation Pending.Pattern
   | -- | @'expr@ in the term namespace.
-    ETHNameQuote (Maybe TcAnnotation) Expr
+    ETHNameQuote TcAnnotation Pending.Expr
   | -- | @''Type@ in the type namespace.
-    ETHTypeNameQuote (Maybe TcAnnotation) Type
+    ETHTypeNameQuote TcAnnotation Type
   | -- Template Haskell splices
 
     -- | @$expr@ or @$(expr)@
@@ -1876,28 +1838,20 @@ emptyInfixTc = InfixTc Nothing emptyArgumentFit emptyArgumentFit
 -- | What the type checker found for an @if@ expression. A cast puts a
 -- part onto the type that the expression needs there.
 data IfTc = IfTc
-  { ifType :: !(Maybe TcAnnotation),
+  { ifType :: !TcAnnotation,
     ifConditionCast :: !(Maybe TcCastAnnotation),
     ifThenCast :: !(Maybe TcCastAnnotation),
     ifElseCast :: !(Maybe TcCastAnnotation)
   }
   deriving (Eq, Show)
 
--- | An @if@ expression with no type checker information.
-emptyIfTc :: IfTc
-emptyIfTc = IfTc Nothing Nothing Nothing Nothing
-
 -- | What the type checker found for a lambda.
 data LambdaTc = LambdaTc
-  { lambdaType :: !(Maybe TcAnnotation),
+  { lambdaType :: !TcAnnotation,
     -- | The cast of the body onto the result type of the lambda.
     lambdaBodyCast :: !(Maybe TcCastAnnotation)
   }
   deriving (Eq, Show)
-
--- | A lambda with no type checker information.
-emptyLambdaTc :: LambdaTc
-emptyLambdaTc = LambdaTc Nothing Nothing
 
 -- | What the type checker found for an expression with a signature. The
 -- cast is outside the type.
@@ -1917,15 +1871,11 @@ emptySigTc = SigTc Nothing Nothing emptyArgumentFit
 
 -- | What the type checker found for an operator section.
 data SectionTc = SectionTc
-  { sectionType :: !(Maybe TcAnnotation),
+  { sectionType :: !TcAnnotation,
     -- | How the operand fits the parameter type of the operator.
     sectionOperand :: !ArgumentFit
   }
   deriving (Eq, Show)
-
--- | An operator section with no type checker information.
-emptySectionTc :: SectionTc
-emptySectionTc = SectionTc Nothing emptyArgumentFit
 
 -- | An element of a list expression.
 data ListItem = ListItem

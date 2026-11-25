@@ -34,6 +34,8 @@ import Aihc.Tc.Syntax
     annotationSpan,
     sourceSpanSourceName,
   )
+import Aihc.Tc.Syntax.Pending qualified as Pending
+import Aihc.Tc.Syntax.Pending.Traverse qualified as PendingWalk
 import Aihc.Tc.Syntax.Traverse (Walk (..), collectAnnotations, idWalk, walk)
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, execState, get, modify', put)
@@ -173,28 +175,52 @@ placementWalk =
       walkInstanceDeclItem = placeAt (wrappedSpan peelInstanceItemOnce),
       walkCmd = placeAt (wrappedSpan peelCmdOnce),
       walkExportSpec = placeAt (wrappedSpan peelExportOnce),
-      walkImportItem = placeAt (wrappedSpan peelImportOnce)
+      walkImportItem = placeAt (wrappedSpan peelImportOnce),
+      walkPending = pendingPlacementWalk
     }
-  where
-    placeAt :: (node -> Maybe SourceSpan) -> (node -> State Placement node) -> node -> State Placement node
-    placeAt spanOf children node = do
-      placement <- get
-      let index = placementNext placement
-      put placement {placementNext = index + 1}
-      node' <- children node
-      modify' (place index (spanOf node))
-      pure node'
 
-    place index span' placement
-      | Map.null (placementPending placement) = placement
-      | otherwise =
-          case span' >>= \sp -> (,) sp <$> Map.lookup sp (placementPending placement) of
-            Nothing -> placement
-            Just (sp, diagnostics) ->
-              placement
-                { placementPending = Map.delete sp (placementPending placement),
-                  placementPlaced = reverse (map (index,) diagnostics) <> placementPlaced placement
-                }
+-- | The placement walk of a part that the type checker did not check.
+pendingPlacementWalk :: PendingWalk.Walk (State Placement)
+pendingPlacementWalk =
+  PendingWalk.idWalk
+    { PendingWalk.walkExpr = placeAt (wrappedSpan peelPendingExprOnce),
+      PendingWalk.walkPattern = placeAt (wrappedSpan peelPendingPatternOnce),
+      PendingWalk.walkType = placeAt (wrappedSpan peelPendingTypeOnce),
+      PendingWalk.walkDecl = placeAt (wrappedSpan peelPendingDeclOnce),
+      PendingWalk.walkDataConDecl = placeAt (wrappedSpan peelPendingDataConOnce),
+      PendingWalk.walkLiteral = placeAt (wrappedSpan peelPendingLiteralOnce),
+      PendingWalk.walkGuardQualifier = placeAt (wrappedSpan peelPendingGuardOnce),
+      PendingWalk.walkDoStmt = placeAt (wrappedSpan peelPendingDoOnce),
+      PendingWalk.walkCompStmt = placeAt (wrappedSpan peelPendingCompOnce),
+      PendingWalk.walkArithSeq = placeAt (wrappedSpan peelPendingArithSeqOnce),
+      PendingWalk.walkClassDeclItem = placeAt (wrappedSpan peelPendingClassItemOnce),
+      PendingWalk.walkInstanceDeclItem = placeAt (wrappedSpan peelPendingInstanceItemOnce),
+      PendingWalk.walkCmd = placeAt (wrappedSpan peelPendingCmdOnce)
+    }
+
+-- | Give a node its number before the walk of its children. Place the
+-- diagnostics of its span after the walk of the children.
+placeAt :: (node -> Maybe SourceSpan) -> (node -> State Placement node) -> node -> State Placement node
+placeAt spanOf children node = do
+  placement <- get
+  let index = placementNext placement
+  put placement {placementNext = index + 1}
+  node' <- children node
+  modify' (place index (spanOf node))
+  pure node'
+
+-- | Place the diagnostics of a span at a node.
+place :: Int -> Maybe SourceSpan -> Placement -> Placement
+place index span' placement
+  | Map.null (placementPending placement) = placement
+  | otherwise =
+      case span' >>= \sp -> (,) sp <$> Map.lookup sp (placementPending placement) of
+        Nothing -> placement
+        Just (sp, diagnostics) ->
+          placement
+            { placementPending = Map.delete sp (placementPending placement),
+              placementPlaced = reverse (map (index,) diagnostics) <> placementPlaced placement
+            }
 
 -- | The span of the leading wrappers of a node. A wrapper that holds a
 -- resolution, an error, or type checker information has no span, and the
@@ -274,6 +300,64 @@ peelImportOnce :: ImportItem -> Maybe ([Annotation], ImportItem)
 peelImportOnce (ImportAnn ann inner) = Just ([ann], inner)
 peelImportOnce (ImportItemError _ inner) = Just ([], inner)
 peelImportOnce _ = Nothing
+
+peelPendingExprOnce :: Pending.Expr -> Maybe ([Annotation], Pending.Expr)
+peelPendingExprOnce (Pending.EAnn ann inner) = Just ([ann], inner)
+peelPendingExprOnce _ = Nothing
+
+peelPendingPatternOnce :: Pending.Pattern -> Maybe ([Annotation], Pending.Pattern)
+peelPendingPatternOnce (Pending.PAnn ann inner) = Just ([ann], inner)
+peelPendingPatternOnce _ = Nothing
+
+peelPendingTypeOnce :: Pending.Type -> Maybe ([Annotation], Pending.Type)
+peelPendingTypeOnce (Pending.TAnn ann inner) = Just ([ann], inner)
+peelPendingTypeOnce _ = Nothing
+
+peelPendingDeclOnce :: Pending.Decl -> Maybe ([Annotation], Pending.Decl)
+peelPendingDeclOnce (Pending.DeclAnn ann inner) = Just ([ann], inner)
+peelPendingDeclOnce (Pending.DeclTc _ inner) = Just ([], inner)
+peelPendingDeclOnce (Pending.DeclError _ inner) = Just ([], inner)
+peelPendingDeclOnce _ = Nothing
+
+peelPendingDataConOnce :: Pending.DataConDecl -> Maybe ([Annotation], Pending.DataConDecl)
+peelPendingDataConOnce (Pending.DataConAnn ann inner) = Just ([ann], inner)
+peelPendingDataConOnce _ = Nothing
+
+peelPendingLiteralOnce :: Pending.Literal -> Maybe ([Annotation], Pending.Literal)
+peelPendingLiteralOnce (Pending.LitAnn ann inner) = Just ([ann], inner)
+peelPendingLiteralOnce (Pending.LitTc _ inner) = Just ([], inner)
+peelPendingLiteralOnce _ = Nothing
+
+peelPendingGuardOnce :: Pending.GuardQualifier -> Maybe ([Annotation], Pending.GuardQualifier)
+peelPendingGuardOnce (Pending.GuardAnn ann inner) = Just ([ann], inner)
+peelPendingGuardOnce _ = Nothing
+
+peelPendingDoOnce :: Pending.DoStmt body -> Maybe ([Annotation], Pending.DoStmt body)
+peelPendingDoOnce (Pending.DoAnn ann inner) = Just ([ann], inner)
+peelPendingDoOnce (Pending.DoRecKnot _ inner) = Just ([], inner)
+peelPendingDoOnce _ = Nothing
+
+peelPendingCompOnce :: Pending.CompStmt -> Maybe ([Annotation], Pending.CompStmt)
+peelPendingCompOnce (Pending.CompAnn ann inner) = Just ([ann], inner)
+peelPendingCompOnce _ = Nothing
+
+peelPendingArithSeqOnce :: Pending.ArithSeq -> Maybe ([Annotation], Pending.ArithSeq)
+peelPendingArithSeqOnce (Pending.ArithSeqAnn ann inner) = Just ([ann], inner)
+peelPendingArithSeqOnce _ = Nothing
+
+peelPendingClassItemOnce :: Pending.ClassDeclItem -> Maybe ([Annotation], Pending.ClassDeclItem)
+peelPendingClassItemOnce (Pending.ClassItemAnn ann inner) = Just ([ann], inner)
+peelPendingClassItemOnce (Pending.ClassItemError _ inner) = Just ([], inner)
+peelPendingClassItemOnce _ = Nothing
+
+peelPendingInstanceItemOnce :: Pending.InstanceDeclItem -> Maybe ([Annotation], Pending.InstanceDeclItem)
+peelPendingInstanceItemOnce (Pending.InstanceItemAnn ann inner) = Just ([ann], inner)
+peelPendingInstanceItemOnce (Pending.InstanceItemError _ inner) = Just ([], inner)
+peelPendingInstanceItemOnce _ = Nothing
+
+peelPendingCmdOnce :: Pending.Cmd -> Maybe ([Annotation], Pending.Cmd)
+peelPendingCmdOnce (Pending.CmdAnn ann inner) = Just ([ann], inner)
+peelPendingCmdOnce _ = Nothing
 
 spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =

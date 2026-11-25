@@ -65,16 +65,8 @@ import Aihc.Tc.Syntax
     arithSeqMethod,
     doBindMethodsNames,
     doRecMethodsNames,
-    emptyAppTc,
-    emptyIfTc,
-    emptyInfixTc,
-    emptyLambdaTc,
     emptyPatternTc,
-    emptySectionTc,
-    emptySigTc,
-    emptyVarTc,
     exprType,
-    listItem,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
@@ -82,7 +74,6 @@ import Aihc.Tc.Syntax
     moduleName,
     nPlusKMatchNames,
     patternTc,
-    setExprType,
     setPatternTc,
   )
 import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
@@ -192,11 +183,11 @@ labelWalk =
     -- labels of the part itself.
     exprLabels children node = do
       let (anns, _, base) = peelLeading peelExpr node
-          (ownInfos, partInfos, base') = exprOwn base
-          (syntaxInfos, base'') = exprSyntax base'
+          (ownInfos, partInfos) = exprOwn base
+          (syntaxInfos, base') = exprSyntax base
       addInfoLabels (spanFromAnnotations anns) (ownInfos <> syntaxInfos)
       mapM_ (\(part, infos) -> addInfoLabels (exprLeadingSpan part) infos) partInfos
-      _ <- children base''
+      _ <- children base'
       pure node
 
     -- The method names of a statement get the span of the statement,
@@ -248,30 +239,29 @@ exprLeadingSpan expr =
   let (anns, _, _) = peelLeading peelExpr expr
    in spanFromAnnotations anns
 
--- | The information of an expression node, the information of its parts
--- with the parts, and the node with no information.
-exprOwn :: Expr -> ([TcInfo], [(Expr, [TcInfo])], Expr)
+-- | The information of an expression node, and the information of its
+-- parts with the parts.
+exprOwn :: Expr -> ([TcInfo], [(Expr, [TcInfo])])
 exprOwn expr =
   case expr of
+    EVar (VarTc ty recursive) _ -> (types ty <> types recursive, [])
     EApp (AppTc ty function argument) left right ->
-      (types ty, [(left, functionInfos function), (right, argumentInfos argument)], EApp emptyAppTc left right)
-    EInfix (InfixTc ty leftFit rightFit) left operator right ->
-      (types ty, [(left, argumentInfos leftFit), (right, argumentInfos rightFit)], EInfix emptyInfixTc left operator right)
-    ETypeSig (SigTc cast ty inner) inner' sig ->
-      (map InfoCast (maybeToList cast) <> types ty, [(inner', argumentInfos inner)], ETypeSig emptySigTc inner' sig)
-    ESectionL (SectionTc ty operand) inner operator ->
-      (types ty, [(inner, argumentInfos operand)], ESectionL emptySectionTc inner operator)
-    ESectionR (SectionTc ty operand) operator inner ->
-      (types ty, [(inner, argumentInfos operand)], ESectionR emptySectionTc operator inner)
-    EIf (IfTc ty condition thenCast elseCast) method c t e ->
-      (types ty, [(c, casts condition), (t, casts thenCast), (e, casts elseCast)], EIf emptyIfTc method c t e)
-    ELambdaPats (LambdaTc ty bodyCast) pats body ->
-      (types ty, [(body, casts bodyCast)], ELambdaPats emptyLambdaTc pats body)
-    EVar (VarTc ty recursive) name ->
-      (types ty <> types recursive, [], EVar emptyVarTc name)
-    EList ty syntax method items ->
-      (types ty, [(item, casts cast) | ListItem cast item <- items], EList Nothing syntax method (map (listItem . listItemExpr) items))
-    _ -> (types (exprType expr), [], fromMaybe expr (setExprType Nothing expr))
+      (types ty, [(left, functionInfos function), (right, argumentInfos argument)])
+    EInfix (InfixTc ty leftFit rightFit) left _ right ->
+      (types ty, [(left, argumentInfos leftFit), (right, argumentInfos rightFit)])
+    ETypeSig (SigTc cast ty inner) inner' _ ->
+      (casts cast <> types ty, [(inner', argumentInfos inner)])
+    ESectionL (SectionTc ty operand) inner _ ->
+      ([InfoType ty], [(inner, argumentInfos operand)])
+    ESectionR (SectionTc ty operand) _ inner ->
+      ([InfoType ty], [(inner, argumentInfos operand)])
+    EIf (IfTc ty condition thenCast elseCast) _ c t e ->
+      ([InfoType ty], [(c, casts condition), (t, casts thenCast), (e, casts elseCast)])
+    ELambdaPats (LambdaTc ty bodyCast) _ body ->
+      ([InfoType ty], [(body, casts bodyCast)])
+    EList ty _ _ items ->
+      ([InfoType ty], [(item, casts cast) | ListItem cast item <- items])
+    _ -> (types (exprType expr), [])
   where
     types = map InfoType . maybeToList
     casts = map InfoCast . maybeToList
