@@ -409,7 +409,7 @@ referencesAvailable gen = do
 eqItems :: Gen -> [(DataConInfo, [TcType])] -> TcM [InstanceDeclItem]
 eqItems gen constructors = do
   matches <- mapM constructorMatch constructors
-  let fallback = [simpleMatch gen [atPattern gen PWildcard, atPattern gen PWildcard] (referenceExpr gen derivingFalse) | length constructors > 1]
+  let fallback = [simpleMatch gen [atPattern gen (PWildcard []), atPattern gen (PWildcard [])] (referenceExpr gen derivingFalse) | length constructors > 1]
   pure [methodBind gen "==" (matches <> fallback)]
   where
     constructorMatch (constructor, fieldTypes) = do
@@ -454,7 +454,7 @@ primitiveTest gen test =
     gen
     test
     [ (intHashPattern gen 0, referenceExpr gen derivingFalse),
-      (atPattern gen PWildcard, referenceExpr gen derivingTrue)
+      (atPattern gen (PWildcard []), referenceExpr gen derivingTrue)
     ]
 
 -- * Ord
@@ -493,22 +493,22 @@ ordItems gen constructors =
                     caseOf
                       gen
                       (less leftIndex rightIndex)
-                      [ (intHashPattern gen 0, caseOf gen (less rightIndex leftIndex) [(intHashPattern gen 0, referenceExpr gen derivingEQ), (atPattern gen PWildcard, referenceExpr gen derivingGT)]),
-                        (atPattern gen PWildcard, referenceExpr gen derivingLT)
+                      [ (intHashPattern gen 0, caseOf gen (less rightIndex leftIndex) [(intHashPattern gen 0, referenceExpr gen derivingEQ), (atPattern gen (PWildcard []), referenceExpr gen derivingGT)]),
+                        (atPattern gen (PWildcard []), referenceExpr gen derivingLT)
                       ]
-          pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar left), atPattern gen (PVar right)] body]]
+          pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar [] left), atPattern gen (PVar [] right)] body]]
     _ -> do
       left <- freshLocal gen "x"
       right <- freshLocal gen "y"
       alternatives <- mapM (outerAlternative right) (zip [0 :: Int ..] constructors)
-      pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar left), atPattern gen (PVar right)] (caseOf gen (localExpr gen left) alternatives)]]
+      pure [methodBind gen "compare" [simpleMatch gen [atPattern gen (PVar [] left), atPattern gen (PVar [] right)] (caseOf gen (localExpr gen left) alternatives)]]
   where
     lastIndex = length constructors - 1
     -- The threshold is the one at which a case selects its alternative from
     -- the constructor index.
     useIndices = length constructors >= 4
     constructorIndex value = applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen value]
-    bindIndex index value body = caseOf gen (constructorIndex value) [(atPattern gen (PVar index), body)]
+    bindIndex index value body = caseOf gen (constructorIndex value) [(atPattern gen (PVar [] index), body)]
     -- The constructors before this one compare greater, the same
     -- constructor compares its fields, and every later one compares less.
     outerAlternative right (index, (constructor, fieldTypes)) = do
@@ -519,15 +519,15 @@ ordItems gen constructors =
             | (other, _) <- take index constructors
             ]
           same = (constructorPattern gen constructor (map Just rights), compareFields (zip3 lefts rights fieldTypes))
-          later = [(atPattern gen PWildcard, referenceExpr gen derivingLT) | index < lastIndex]
+          later = [(atPattern gen (PWildcard []), referenceExpr gen derivingLT) | index < lastIndex]
           -- The other constructor is earlier when its index is less.
           different =
-            ( atPattern gen PWildcard,
+            ( atPattern gen (PWildcard []),
               caseOf
                 gen
                 (applyN gen (referenceExpr gen derivingIntLess) [constructorIndex right, intHashLiteral gen (toInteger index)])
                 [ (intHashPattern gen 0, referenceExpr gen derivingLT),
-                  (atPattern gen PWildcard, referenceExpr gen derivingGT)
+                  (atPattern gen (PWildcard []), referenceExpr gen derivingGT)
                 ]
             )
           others
@@ -555,13 +555,13 @@ ordItems gen constructors =
                   gen
                   (operator unliftedFieldEq)
                   [ (intHashPattern gen 0, referenceExpr gen derivingGT),
-                    (atPattern gen PWildcard, referenceExpr gen derivingEQ)
+                    (atPattern gen (PWildcard []), referenceExpr gen derivingEQ)
                   ]
            in caseOf
                 gen
                 (operator unliftedFieldLt)
                 [ (intHashPattern gen 0, orderingWhenNotLess),
-                  (atPattern gen PWildcard, referenceExpr gen derivingLT)
+                  (atPattern gen (PWildcard []), referenceExpr gen derivingLT)
                 ]
         Nothing -> methodApp gen "compare" [localExpr gen left, localExpr gen right]
 
@@ -575,7 +575,7 @@ showItems gen constructors = do
     constructorMatch (constructor, fieldTypes)
       | null (dciFields constructor) = do
           body <- showStringExpr (prefixConstructorText constructor)
-          pure (simpleMatch gen [atPattern gen PWildcard, constructorPattern gen constructor []] body)
+          pure (simpleMatch gen [atPattern gen (PWildcard []), constructorPattern gen constructor []] body)
       | otherwise = do
           precedence <- freshLocal gen "d"
           fields <- fieldLocals gen "a" constructor
@@ -598,7 +598,7 @@ showItems gen constructors = do
                           ]
                     )
                     [lambda gen tail' (foldr ($) (localExpr gen tail') pieces)]
-          pure (simpleMatch gen [atPattern gen (PVar precedence), constructorPattern gen constructor (map Just fields)] body)
+          pure (simpleMatch gen [atPattern gen (PVar [] precedence), constructorPattern gen constructor (map Just fields)] body)
     -- The pieces of the rendering, each applied to the rest of the output,
     -- with the precedence above which the whole needs parentheses.
     constructorPieces constructor fields =
@@ -637,7 +637,7 @@ showItems gen constructors = do
     showStringExpr text = do
       suffix <- freshLocal gen "s"
       pure (lambda gen suffix (showStringPiece text (localExpr gen suffix)))
-    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar character (T.pack (show character))), rest]
+    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar [] character (T.pack (show character))), rest]
     intersperseWith separator pieces =
       case pieces of
         [] -> []
@@ -776,7 +776,7 @@ readItems gen constructors = do
 -- | A string as an explicit list of characters, so the generated code needs
 -- no literal desugaring.
 stringExpr :: Gen -> Text -> Expr
-stringExpr gen text = at gen (listExpr gen [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
+stringExpr gen text = at gen (listExpr gen [at gen (EChar [] character (T.pack (show character))) | character <- T.unpack text])
 
 -- * Bounded
 
@@ -839,7 +839,7 @@ enumItems gen constructors
                   "fromEnum"
                   [ simpleMatch
                       gen
-                      [atPattern gen (PVar fromEnumValue)]
+                      [atPattern gen (PVar [] fromEnumValue)]
                       (applyN gen (referenceExpr gen derivingIntCon) [applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen fromEnumValue]])
                   ],
                 methodBind
@@ -847,7 +847,7 @@ enumItems gen constructors
                   "toEnum"
                   [ simpleMatch
                       gen
-                      [atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar toEnumTag)])]
+                      [atPattern gen (PCon [] (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar [] toEnumTag)])]
                       ( caseOf
                           gen
                           (localExpr gen toEnumTag)
@@ -862,7 +862,7 @@ enumItems gen constructors
                        "enumFrom"
                        [ simpleMatch
                            gen
-                           [atPattern gen (PVar fromValue)]
+                           [atPattern gen (PVar [] fromValue)]
                            (methodApp gen "enumFromTo" [localExpr gen fromValue, constructorExpr gen lastConstructor])
                        ],
                      methodBind
@@ -870,7 +870,7 @@ enumItems gen constructors
                        "enumFromThen"
                        [ simpleMatch
                            gen
-                           [atPattern gen (PVar thenFirst), atPattern gen (PVar thenSecond)]
+                           [atPattern gen (PVar [] thenFirst), atPattern gen (PVar [] thenSecond)]
                            ( caseOf
                                gen
                                ( applyN
@@ -943,7 +943,7 @@ ixItems gen constructors
                         gen
                         (less (intHashLiteral gen index) (localExpr gen upperIndex))
                         [ (intHashPattern gen 0, at gen (listExpr gen [])),
-                          (atPattern gen PWildcard, applyN gen (localExpr gen walk) [constructorExpr gen next])
+                          (atPattern gen (PWildcard []), applyN gen (localExpr gen walk) [constructorExpr gen next])
                         ]
                     ]
                 Nothing -> at gen (listExpr gen [constructorExpr gen constructor])
@@ -956,10 +956,11 @@ ixItems gen constructors
                   [ ( intHashPattern gen 0,
                       at gen $
                         ELetDecls
+                          []
                           [DeclValue (FunctionBind walk (zipWith walkMatch indexed (map Just (drop 1 constructors) <> [Nothing])))]
                           (applyN gen (localExpr gen walk) [localExpr gen rangeLower])
                     ),
-                    (atPattern gen PWildcard, at gen (listExpr gen []))
+                    (atPattern gen (PWildcard []), at gen (listExpr gen []))
                   ]
           indexBody =
             applyN
@@ -978,9 +979,9 @@ ixItems gen constructors
                         caseOf
                           gen
                           (less (localExpr gen inUpperIndex) (localExpr gen inValueIndex))
-                          [(intHashPattern gen 0, referenceExpr gen derivingTrue), (atPattern gen PWildcard, false)]
+                          [(intHashPattern gen 0, referenceExpr gen derivingTrue), (atPattern gen (PWildcard []), false)]
                       ),
-                      (atPattern gen PWildcard, false)
+                      (atPattern gen (PWildcard []), false)
                     ]
       pure
         ( Just
@@ -988,8 +989,8 @@ ixItems gen constructors
               methodBind
                 gen
                 "unsafeIndex"
-                [simpleMatch gen [atPattern gen (PTuple Boxed [atPattern gen (PVar indexLower), atPattern gen PWildcard]), atPattern gen (PVar indexValue)] indexBody],
-              methodBind gen "inRange" [simpleMatch gen [tuplePattern gen [inLower, inUpper], atPattern gen (PVar inValue)] inRangeBody]
+                [simpleMatch gen [atPattern gen (PTuple [] Boxed [atPattern gen (PVar [] indexLower), atPattern gen (PWildcard [])]), atPattern gen (PVar [] indexValue)] indexBody],
+              methodBind gen "inRange" [simpleMatch gen [tuplePattern gen [inLower, inUpper], atPattern gen (PVar [] inValue)] inRangeBody]
             ]
         )
   | [constructor] <- constructors = Just <$> productIxItems gen constructor
@@ -1000,7 +1001,7 @@ ixItems gen constructors
     indexed = zip [0 :: Integer ..] constructors
     less first second = applyN gen (referenceExpr gen derivingIntLess) [first, second]
     tag value = applyN gen (referenceExpr gen derivingDataToTag) [localExpr gen value]
-    bindIndex index value body = caseOf gen (tag value) [(atPattern gen (PVar index), body)]
+    bindIndex index value body = caseOf gen (tag value) [(atPattern gen (PVar [] index), body)]
 
 -- | The @Ix@ methods of a datatype with one constructor that has fields.
 --
@@ -1023,7 +1024,7 @@ productIxItems gen constructor = do
   inValues <- fieldLocals gen "i" constructor
   boxedParts <- mapM (const (freshLocal gen "a")) indexValues
   boxedSizes <- mapM (const (freshLocal gen "s")) indexValues
-  let bounds lowers uppers = atPattern gen (PTuple Boxed [constructorPattern gen constructor (map Just lowers), constructorPattern gen constructor (map Just uppers)])
+  let bounds lowers uppers = atPattern gen (PTuple [] Boxed [constructorPattern gen constructor (map Just lowers), constructorPattern gen constructor (map Just uppers)])
       valuePattern values = constructorPattern gen constructor (map Just values)
       fieldBounds lower upper = tupleExpr gen [localExpr gen lower, localExpr gen upper]
       -- [C i1 .. in | i1 <- range (l1, u1), ..., in <- range (ln, un)]
@@ -1040,7 +1041,7 @@ productIxItems gen constructor = do
       -- Unbox the index and the range size of each field, then combine
       -- them on Int#.
       unbox expression name body =
-        caseOf gen expression [(atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar name)]), body)]
+        caseOf gen expression [(atPattern gen (PCon [] (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar [] name)]), body)]
       fields = zip3 (zip indexLowers indexUppers) indexValues (zip boxedParts boxedSizes)
       combined =
         foldl
@@ -1094,7 +1095,7 @@ liftItems gen constructors = do
         -- An empty datatype has no constructor to match. As in GHC, @lift@
         -- takes its argument apart with an empty case.
         emptyValue <- freshLocal gen "x"
-        pure [simpleMatch gen [atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+        pure [simpleMatch gen [atPattern gen (PVar [] emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
       else mapM constructorMatch constructors
   value <- freshLocal gen "x"
   pure
@@ -1104,7 +1105,7 @@ liftItems gen constructors = do
         "liftTyped"
         [ simpleMatch
             gen
-            [atPattern gen (PVar value)]
+            [atPattern gen (PVar [] value)]
             (applyN gen (referenceExpr gen derivingLiftCodeCoerce) [methodApp gen "lift" [localExpr gen value]])
         ]
     ]
@@ -1167,7 +1168,7 @@ dataItems gen dataType = do
     if null constructors
       then do
         emptyValue <- freshLocal gen "x"
-        pure [simpleMatch gen [atPattern gen PWildcard, atPattern gen PWildcard, atPattern gen (PVar emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
+        pure [simpleMatch gen [atPattern gen (PWildcard []), atPattern gen (PWildcard []), atPattern gen (PVar [] emptyValue)] (caseOf gen (localExpr gen emptyValue) [])]
       else mapM gfoldlMatch constructors
   unfoldCombine <- freshLocal gen "k"
   unfoldWrap <- freshLocal gen "z"
@@ -1187,12 +1188,12 @@ dataItems gen dataType = do
             caseOf
               gen
               (applyN gen (dataReference dataConstrIndex) [localExpr gen description])
-              [ ( atPattern gen (PCon (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar tag)]),
+              [ ( atPattern gen (PCon [] (referenceSyntax gen derivingIntCon) [] [atPattern gen (PVar [] tag)]),
                   caseOf
                     gen
                     (localExpr gen tag)
                     ( [(intHashPattern gen index, unfold constructor) | (index, constructor) <- init indexed]
-                        <> [(atPattern gen PWildcard, unfold (last constructors))]
+                        <> [(atPattern gen (PWildcard []), unfold (last constructors))]
                     )
                 )
               ]
@@ -1211,14 +1212,15 @@ dataItems gen dataType = do
       dataTypeBody =
         at gen $
           ELetDecls
+            []
             [DeclValue (FunctionBind dataTypeBinder [simpleMatch gen [] (describeDataType dataTypeBinder)])]
             (localExpr gen dataTypeBinder)
   pure
     ( Just
         ( [ methodBind gen "gfoldl" gfoldlMatches,
-            methodBind gen "gunfold" [simpleMatch gen [atPattern gen (PVar unfoldCombine), atPattern gen (PVar unfoldWrap), atPattern gen (PVar description)] gunfoldBody],
-            methodBind gen "toConstr" [simpleMatch gen [atPattern gen (PVar value)] toConstrBody],
-            methodBind gen "dataTypeOf" [simpleMatch gen [atPattern gen PWildcard] dataTypeBody]
+            methodBind gen "gunfold" [simpleMatch gen [atPattern gen (PVar [] unfoldCombine), atPattern gen (PVar [] unfoldWrap), atPattern gen (PVar [] description)] gunfoldBody],
+            methodBind gen "toConstr" [simpleMatch gen [atPattern gen (PVar [] value)] toConstrBody],
+            methodBind gen "dataTypeOf" [simpleMatch gen [atPattern gen (PWildcard [])] dataTypeBody]
           ]
             <> castItems
         )
@@ -1239,7 +1241,7 @@ dataItems gen dataType = do
       pure
         ( simpleMatch
             gen
-            [atPattern gen (PVar combine), atPattern gen (PVar wrap), constructorPattern gen constructor (map Just fields)]
+            [atPattern gen (PVar [] combine), atPattern gen (PVar [] wrap), constructorPattern gen constructor (map Just fields)]
             body
         )
     describeDataType dataTypeBinder =
@@ -1269,7 +1271,7 @@ dataItems gen dataType = do
       | otherwise = pure []
     castItem name select = do
       function <- freshLocal gen "f"
-      pure [methodBind gen name [simpleMatch gen [atPattern gen (PVar function)] (applyN gen (dataReference select) [localExpr gen function])]]
+      pure [methodBind gen name [simpleMatch gen [atPattern gen (PVar [] function)] (applyN gen (dataReference select) [localExpr gen function])]]
     isLiftedTypeKind kind =
       case kind of
         KType -> True
@@ -1307,7 +1309,7 @@ functorItems gen constructors = do
       pure
         ( simpleMatch
             gen
-            [atPattern gen (PVar function), constructorPattern gen constructor (map Just fields)]
+            [atPattern gen (PVar [] function), constructorPattern gen constructor (map Just fields)]
             (applyN gen (constructorExpr gen constructor) mapped)
         )
     -- A position in a domain maps with the same code as a position in a
@@ -1350,8 +1352,8 @@ foldableItems gen constructors = do
       pure
         ( simpleMatch
             gen
-            [ atPattern gen (PVar function),
-              atPattern gen (PVar initial),
+            [ atPattern gen (PVar [] function),
+              atPattern gen (PVar [] initial),
               constructorPattern gen constructor (map Just fields)
             ]
             body
@@ -1396,7 +1398,7 @@ traversableItems gen constructors = do
       pure
         ( simpleMatch
             gen
-            [atPattern gen (PVar function), constructorPattern gen constructor (map Just fields)]
+            [atPattern gen (PVar [] function), constructorPattern gen constructor (map Just fields)]
             (foldl (\left right -> applyN gen (referenceExpr gen derivingApply) [left, right]) applied visited)
         )
     visitField function use value =
@@ -1439,11 +1441,11 @@ tupleLocals gen components =
 
 -- | A boxed tuple pattern of variables.
 tuplePattern :: Gen -> [UnqualifiedName] -> Pattern
-tuplePattern gen components = atPattern gen (PTuple Boxed (map (atPattern gen . PVar) components))
+tuplePattern gen components = atPattern gen (PTuple [] Boxed (map (atPattern gen . PVar []) components))
 
 -- | A boxed tuple expression.
 tupleExpr :: Gen -> [Expr] -> Expr
-tupleExpr gen components = at gen (ETuple (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
+tupleExpr gen components = at gen (ETuple [] (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that
@@ -1548,7 +1550,7 @@ genericItems gen mode dataType =
                 -- An empty datatype has no constructor to match. As in GHC,
                 -- @from@ takes its argument apart with an empty case.
                 value <- freshLocal gen "x"
-                pure [simpleMatch gen [atPattern gen (PVar value)] (applyN gen (genericExpr gen genericM1) [caseOf gen (localExpr gen value) []])]
+                pure [simpleMatch gen [atPattern gen (PVar [] value)] (applyN gen (genericExpr gen genericM1) [caseOf gen (localExpr gen value) []])]
               else mapM (genericFromMatch gen) (repTreePaths constructors)
           toItem <- genericToItem gen (genericMethodName mode "to") constructors
           pure (Just [equation, methodBind gen (genericMethodName mode "from") fromMatches, toItem])
@@ -1821,7 +1823,7 @@ genericToItem gen methodName constructors = do
         methodName
         [ simpleMatch
             gen
-            [atPattern gen (PVar representation)]
+            [atPattern gen (PVar [] representation)]
             (caseOf gen (unwrap (localExpr gen representation)) alternatives)
         ]
     )
@@ -1833,10 +1835,10 @@ genericToItem gen methodName constructors = do
       fieldValues <- zipWithM (\(_, fieldRep) local -> genericFieldTo fieldRep (unwrap (localExpr gen local))) fieldReps fields
       let fieldPattern =
             maybe
-              (atPattern gen PWildcard)
-              (foldRepTree pairPattern (atPattern gen . PVar))
+              (atPattern gen (PWildcard []))
+              (foldRepTree pairPattern (atPattern gen . PVar []))
               (repTree fields)
-          pairPattern left right = atPattern gen (PCon (referenceSyntax gen (genericProduct . derivingGeneric)) [] [left, right])
+          pairPattern left right = atPattern gen (PCon [] (referenceSyntax gen (genericProduct . derivingGeneric)) [] [left, right])
           body =
             caseOf
               gen
@@ -1848,7 +1850,7 @@ genericToItem gen methodName constructors = do
 -- the node there.
 sumPattern :: Gen -> UnqualifiedName -> [RepSide] -> Pattern
 sumPattern gen node =
-  foldr (\side inner -> atPattern gen (PCon (referenceSyntax gen (sideConstructor side)) [] [inner])) (atPattern gen (PVar node))
+  foldr (\side inner -> atPattern gen (PCon [] (referenceSyntax gen (sideConstructor side)) [] [inner])) (atPattern gen (PVar [] node))
 
 sideConstructor :: RepSide -> (DerivingReferences -> DerivingReference)
 sideConstructor side =
@@ -1961,16 +1963,17 @@ caseOf :: Gen -> Expr -> [(Pattern, Expr)] -> Expr
 caseOf gen scrutinee alternatives =
   at gen $
     ECase
+      []
       scrutinee
       [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] [] body Nothing}
       | (pat, body) <- alternatives
       ]
 
 lambda :: Gen -> UnqualifiedName -> Expr -> Expr
-lambda gen parameter body = at gen (ELambdaPats [atPattern gen (PVar parameter)] body)
+lambda gen parameter body = at gen (ELambdaPats [] [atPattern gen (PVar [] parameter)] body)
 
 applyN :: Gen -> Expr -> [Expr] -> Expr
-applyN gen = foldl (\function argument -> at gen (EApp function argument))
+applyN gen = foldl (\function argument -> at gen (EApp [] function argument))
 
 -- | A pattern variable for each field of a constructor.
 fieldLocals :: Gen -> Text -> DataConInfo -> TcM [UnqualifiedName]
@@ -1993,15 +1996,15 @@ freshLocal gen text = do
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
-localExpr gen = at gen . EVar . qualifyName Nothing
+localExpr gen = at gen . EVar [] . qualifyName Nothing
 
 -- | A constructor pattern whose fields are variables or wildcards.
 constructorPattern :: Gen -> DataConInfo -> [Maybe UnqualifiedName] -> Pattern
 constructorPattern gen constructor fields =
-  atPattern gen (PCon (constructorName gen constructor) [] (map (atPattern gen . maybe PWildcard PVar) fields))
+  atPattern gen (PCon [] (constructorName gen constructor) [] (map (atPattern gen . maybe (PWildcard []) (PVar [])) fields))
 
 constructorExpr :: Gen -> DataConInfo -> Expr
-constructorExpr gen constructor = at gen (EVar (constructorName gen constructor))
+constructorExpr gen constructor = at gen (EVar [] (constructorName gen constructor))
 
 -- | A resolved occurrence of a constructor.
 constructorName :: Gen -> DataConInfo -> Name
@@ -2014,7 +2017,7 @@ constructorName gen constructor =
 -- | A resolved occurrence of a method of the class being derived.
 methodExpr :: Gen -> Text -> Expr
 methodExpr gen name =
-  at gen $ EVar (resolvedName (genSpan gen) (PackageId packageId) moduleName' (variableNameType name) ResolutionNamespaceTerm name)
+  at gen $ EVar [] (resolvedName (genSpan gen) (PackageId packageId) moduleName' (variableNameType name) ResolutionNamespaceTerm name)
   where
     (packageId, moduleName') = genClassOrigin gen
 
@@ -2040,26 +2043,26 @@ referenceIdentityOf gen =
   referenceIdentity (genPrimPackage gen) (PackageId (fst (genClassOrigin gen)))
 
 referenceExpr :: Gen -> (DerivingReferences -> DerivingReference) -> Expr
-referenceExpr gen select = at gen (EVar (referenceSyntax gen select))
+referenceExpr gen select = at gen (EVar [] (referenceSyntax gen select))
 
 referenceExprOf :: Gen -> DerivingReference -> Expr
-referenceExprOf gen reference = at gen (EVar (referenceSyntaxOf gen reference))
+referenceExprOf gen reference = at gen (EVar [] (referenceSyntaxOf gen reference))
 
 referencePattern :: Gen -> (DerivingReferences -> DerivingReference) -> Pattern
-referencePattern gen select = atPattern gen (PCon (referenceSyntax gen select) [] [])
+referencePattern gen select = atPattern gen (PCon [] (referenceSyntax gen select) [] [])
 
 -- | A boxed @Int@ literal built from a primitive literal, so the value
 -- needs no numeric class.
 intLiteral :: Gen -> Integer -> Expr
-intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashLiteral gen value))
+intLiteral gen value = at gen (EApp [] (referenceExpr gen derivingIntCon) (intHashLiteral gen value))
 
 -- | An unboxed @Int#@ literal.
 intHashLiteral :: Gen -> Integer -> Expr
-intHashLiteral gen value = at gen (EInt (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
+intHashLiteral gen value = at gen (EInt [] (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
 
 -- | An ordinary list expression.
 listExpr :: Gen -> [Expr] -> Expr
-listExpr gen = EList (syntaxName gen "[]") Nothing
+listExpr gen = EList [] (syntaxName gen "[]") Nothing
 
 -- | The name of built-in list or tuple syntax. The type checker does not
 -- read its resolution, so the name has none.
@@ -2077,7 +2080,7 @@ intHashName gen =
 intHashPattern :: Gen -> Integer -> Pattern
 intHashPattern gen value =
   atPattern gen $
-    PLit (LiteralMatchPrimitive (intHashName gen)) (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
+    PLit [] (LiteralMatchPrimitive (intHashName gen)) (atLiteral gen (LitInt value TIntHash (T.pack (show value) <> "#")))
 
 -- | Place a generated literal at the deriving clause, because the checker
 -- attaches the literal type to the literal itself.

@@ -54,12 +54,16 @@ import Aihc.Tc.Syntax
     arithSeqMethod,
     doBindMethodsNames,
     doRecMethodsNames,
+    exprTc,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
     mapArithSeqMethod,
     moduleName,
     nPlusKMatchNames,
+    patternTc,
+    setExprTc,
+    setPatternTc,
   )
 import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Types
@@ -165,8 +169,8 @@ labelWalk =
     -- the span of the expression, after the information of its wrappers.
     exprLabels children node = do
       let (anns, infos, base) = peelLeading peelExpr node
-          (syntaxInfos, base') = exprSyntax base
-      addInfoLabels (spanFromAnnotations anns) (infos <> syntaxInfos)
+          (syntaxInfos, base') = exprSyntax (setExprTc [] base)
+      addInfoLabels (spanFromAnnotations anns) (infos <> exprTc base <> syntaxInfos)
       _ <- children base'
       pure node
 
@@ -197,10 +201,10 @@ labelWalk =
     patternLabels children node = do
       let (anns, infos, base) = peelLeading peelPattern node
           patternSpan = spanFromAnnotations anns
-          (matchInfos, base') = patternMatch base
-      addInfoLabels patternSpan (infos <> matchInfos)
+          (matchInfos, base') = patternMatch (setPatternTc [] base)
+      addInfoLabels patternSpan (infos <> patternTc base <> matchInfos)
       case base' of
-        PLit _ literal -> do
+        PLit _ _ literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
           addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
         _ -> void (children base')
@@ -211,14 +215,14 @@ labelWalk =
 patternMatch :: Pattern -> ([TcInfo], Pattern)
 patternMatch pat =
   case pat of
-    PLit match literal -> (literalInfos match, PLit (literalWithout match) literal)
-    PNegLit match literal -> (literalInfos match, PNegLit (literalWithout match) literal)
-    PNPlusK match name literal ->
+    PLit tc match literal -> (literalInfos match, PLit tc (literalWithout match) literal)
+    PNegLit tc match literal -> (literalInfos match, PNegLit tc (literalWithout match) literal)
+    PNPlusK tc match name literal ->
       ( concatMap nameTc (nPlusKMatchNames match),
-        PNPlusK (NPlusKMatch (without <$> nPlusKType match) (without (nPlusKFromInteger match)) (without (nPlusKGreaterEqual match)) (without (nPlusKMinus match))) name literal
+        PNPlusK tc (NPlusKMatch (without <$> nPlusKType match) (without (nPlusKFromInteger match)) (without (nPlusKGreaterEqual match)) (without (nPlusKMinus match))) name literal
       )
-    PList (Just match) items ->
-      (concatMap nameTc (listMatchNames match), PList (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
+    PList tc (Just match) items ->
+      (concatMap nameTc (listMatchNames match), PList tc (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
     _ -> ([], pat)
   where
     without name = name {nameTc = []}
@@ -296,19 +300,19 @@ instanceItemOwn item =
 exprSyntax :: Expr -> ([TcInfo], Expr)
 exprSyntax expr =
   case expr of
-    EInt syntax value numericType text -> (literalInfos syntax, EInt (literalWithout syntax) value numericType text)
-    EFloat syntax value floatType text -> (literalInfos syntax, EFloat (literalWithout syntax) value floatType text)
-    ECharHash ty value text -> (nameTc ty, ECharHash (without ty) value text)
-    EString conversion value text -> (foldMap nameTc conversion, EString (without <$> conversion) value text)
-    EStringHash ty value text -> (nameTc ty, EStringHash (without ty) value text)
-    EIf method condition thenExpr elseExpr -> (foldMap nameTc method, EIf (without <$> method) condition thenExpr elseExpr)
-    ENegate method inner -> (nameTc method, ENegate (without method) inner)
-    EArithSeq method sequence' -> (foldMap nameTc method, EArithSeq (without <$> method) sequence')
-    EGetField method record field -> (nameTc method, EGetField (without method) record field)
-    EGetFieldProjection method fields -> (nameTc method, EGetFieldProjection (without method) fields)
+    EInt tc syntax value numericType text -> (literalInfos syntax, EInt tc (literalWithout syntax) value numericType text)
+    EFloat tc syntax value floatType text -> (literalInfos syntax, EFloat tc (literalWithout syntax) value floatType text)
+    ECharHash tc ty value text -> (nameTc ty, ECharHash tc (without ty) value text)
+    EString tc conversion value text -> (foldMap nameTc conversion, EString tc (without <$> conversion) value text)
+    EStringHash tc ty value text -> (nameTc ty, EStringHash tc (without ty) value text)
+    EIf tc method condition thenExpr elseExpr -> (foldMap nameTc method, EIf tc (without <$> method) condition thenExpr elseExpr)
+    ENegate tc method inner -> (nameTc method, ENegate tc (without method) inner)
+    EArithSeq tc method sequence' -> (foldMap nameTc method, EArithSeq tc (without <$> method) sequence')
+    EGetField tc method record field -> (nameTc method, EGetField tc (without method) record field)
+    EGetFieldProjection tc method fields -> (nameTc method, EGetFieldProjection tc (without method) fields)
     -- The conversion of an overloaded list goes before the ordinary list.
-    EList syntax method items -> (foldMap nameTc method <> nameTc syntax, EList (without syntax) (without <$> method) items)
-    ETuple syntax flavor items -> (nameTc syntax, ETuple (without syntax) flavor items)
+    EList tc syntax method items -> (foldMap nameTc method <> nameTc syntax, EList tc (without syntax) (without <$> method) items)
+    ETuple tc syntax flavor items -> (nameTc syntax, ETuple tc (without syntax) flavor items)
     _ -> ([], expr)
   where
     without name = name {nameTc = []}
@@ -341,12 +345,10 @@ peelLeading peel =
 
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
-peelExpr (ETc info inner) = Just (Nothing, Just info, inner)
 peelExpr _ = Nothing
 
 peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
 peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
-peelPattern (PTc info inner) = Just (Nothing, Just info, inner)
 peelPattern _ = Nothing
 
 peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)

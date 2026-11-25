@@ -292,29 +292,28 @@ patternBinderNames :: Pattern -> [UnqualifiedName]
 patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
-    PTc _ inner -> patternBinderNames inner
-    PVar name -> [name]
-    PTypeBinder _ -> []
-    PTypeSyntax _ _ -> []
-    PWildcard -> []
-    PLit _ _ -> []
-    PQuasiQuote _ _ -> []
-    PTuple _ items -> concatMap patternBinderNames items
-    PUnboxedSum _ _ inner -> patternBinderNames inner
-    PList _ items -> concatMap patternBinderNames items
-    PCon _ _ pats -> concatMap patternBinderNames pats
-    PBuiltinCon _ _ pats -> concatMap patternBinderNames pats
-    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
-    PView _ inner -> patternBinderNames inner
-    PAs name inner -> name : patternBinderNames inner
-    PStrict inner -> patternBinderNames inner
-    PIrrefutable inner -> patternBinderNames inner
-    PNegLit _ _ -> []
-    PNPlusK _ name _ -> [name]
-    PParen inner -> patternBinderNames inner
-    PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
-    PTypeSig inner _ -> patternBinderNames inner
-    PSplice _ -> []
+    PVar _ name -> [name]
+    PTypeBinder _ _ -> []
+    PTypeSyntax _ _ _ -> []
+    PWildcard _ -> []
+    PLit _ _ _ -> []
+    PQuasiQuote _ _ _ -> []
+    PTuple _ _ items -> concatMap patternBinderNames items
+    PUnboxedSum _ _ _ inner -> patternBinderNames inner
+    PList _ _ items -> concatMap patternBinderNames items
+    PCon _ _ _ pats -> concatMap patternBinderNames pats
+    PBuiltinCon _ _ _ pats -> concatMap patternBinderNames pats
+    PInfix _ lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
+    PView _ _ inner -> patternBinderNames inner
+    PAs _ name inner -> name : patternBinderNames inner
+    PStrict _ inner -> patternBinderNames inner
+    PIrrefutable _ inner -> patternBinderNames inner
+    PNegLit _ _ _ -> []
+    PNPlusK _ _ name _ -> [name]
+    PParen _ inner -> patternBinderNames inner
+    PRecord _ _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
+    PTypeSig _ inner _ -> patternBinderNames inner
+    PSplice _ _ -> []
 
 -- | The variables that the statements of a recursive @do@ group bind, in
 -- source order and without repeats. The knot of the group is a tuple of

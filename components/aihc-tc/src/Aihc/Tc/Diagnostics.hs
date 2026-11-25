@@ -210,12 +210,10 @@ wrappedSpan peel =
 
 peelExprOnce :: Expr -> Maybe ([Annotation], Expr)
 peelExprOnce (EAnn ann inner) = Just ([ann], inner)
-peelExprOnce (ETc _ inner) = Just ([], inner)
 peelExprOnce _ = Nothing
 
 peelPatternOnce :: Pattern -> Maybe ([Annotation], Pattern)
 peelPatternOnce (PAnn ann inner) = Just ([ann], inner)
-peelPatternOnce (PTc _ inner) = Just ([], inner)
 peelPatternOnce _ = Nothing
 
 peelTypeOnce :: Type -> Maybe ([Annotation], Type)

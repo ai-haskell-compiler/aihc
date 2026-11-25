@@ -138,6 +138,7 @@ import Aihc.Tc.Syntax.Pending
     UnqualifiedName (..),
     ValueDecl (..),
     addDataConTc,
+    addExprTc,
     annotateDecl,
     annotateRhsCast,
     annotationSpan,
@@ -152,10 +153,12 @@ import Aihc.Tc.Syntax.Pending
     moduleName,
     nameResolved,
     nameText,
+    patternTc,
     peelClassDeclItemAnn,
     peelDeclAnn,
     peelInstanceDeclItemAnn,
     peelTypeHead,
+    prependExprTc,
     qualifyName,
     recordSelectorNames,
     tyVarBinderKind,
@@ -3455,7 +3458,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   else pure (patSynLayoutBuilderScheme layout)
               let builderSig = CheckedSig builderName builderScheme nameSpan [] False
                   withVoidArgument matches
-                    | voidBuilder = [match {matchPats = PWildcard : matchPats match} | match <- matches]
+                    | voidBuilder = [match {matchPats = PWildcard [] : matchPats match} | match <- matches]
                     | otherwise = matches
               (direction, sourceBuilder) <-
                 case patSynDeclDir patSyn of
@@ -3464,7 +3467,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   PatSynBidirectional ->
                     case patternToExpr pat of
                       Just expr ->
-                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] [] expr Nothing)])))
+                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] [] MatchHeadPrefix (map (PVar []) argBinders) (UnguardedRhs [] [] expr Nothing)])))
                       Nothing -> do
                         emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
                         pure (PatSynImplicitBidirectionalInfo, Nothing)
@@ -3813,7 +3816,7 @@ tcPatSynRecordSelectors sigs package moduleName' nameSpan layout args pat argBin
 -- return can have an ambiguous type.
 patSynUse :: Entity -> Text -> [UnqualifiedName] -> Pattern
 patSynUse key name argBinders =
-  PCon synonym [] (map PVar argBinders)
+  PCon [] synonym [] (map (PVar []) argBinders)
   where
     nameType'
       | ":" `T.isPrefixOf` name = NameConSym
@@ -3827,12 +3830,12 @@ patSynSelectorMatch pat argBinder =
     { matchAnns = [],
       matchTc = [],
       matchHeadForm = MatchHeadPrefix,
-      matchPats = [PVar scrutinee],
+      matchPats = [PVar [] scrutinee],
       matchRhs =
         UnguardedRhs
           []
           []
-          (ECase (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
+          (ECase [] (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
           Nothing
     }
   where
@@ -3858,26 +3861,25 @@ patternVarBinder target = go
   where
     go pat =
       case pat of
-        PVar name
+        PVar _ name
           | unqualifiedNameText name == target -> Just name
           | otherwise -> Nothing
-        PAs name inner
+        PAs _ name inner
           | unqualifiedNameText name == target -> Just name
           | otherwise -> go inner
         PAnn _ inner -> go inner
-        PTc _ inner -> go inner
-        PParen inner -> go inner
-        PStrict inner -> go inner
-        PIrrefutable inner -> go inner
-        PTypeSig inner _ -> go inner
-        PView _ inner -> go inner
-        PUnboxedSum _ _ inner -> go inner
-        PList _ items -> firstJust items
-        PTuple _ items -> firstJust items
-        PCon _ _ items -> firstJust items
-        PBuiltinCon _ _ items -> firstJust items
-        PInfix left _ right -> firstJust [left, right]
-        PRecord _ fields _ -> firstJust (map recordFieldValue fields)
+        PParen _ inner -> go inner
+        PStrict _ inner -> go inner
+        PIrrefutable _ inner -> go inner
+        PTypeSig _ inner _ -> go inner
+        PView _ _ inner -> go inner
+        PUnboxedSum _ _ _ inner -> go inner
+        PList _ _ items -> firstJust items
+        PTuple _ _ items -> firstJust items
+        PCon _ _ _ items -> firstJust items
+        PBuiltinCon _ _ _ items -> firstJust items
+        PInfix _ left _ right -> firstJust [left, right]
+        PRecord _ _ fields _ -> firstJust (map recordFieldValue fields)
         _ -> Nothing
     firstJust = listToMaybe . mapMaybe go
 
@@ -3893,7 +3895,7 @@ synthesizedLocal unique text =
     []
 
 localVar :: UnqualifiedName -> Expr
-localVar = EVar . qualifyName Nothing
+localVar = (EVar []) . qualifyName Nothing
 
 patSynMatcherMatch :: Pattern -> [UnqualifiedName] -> Match
 patSynMatcherMatch pat argBinders =
@@ -3901,15 +3903,15 @@ patSynMatcherMatch pat argBinders =
     { matchAnns = [],
       matchTc = [],
       matchHeadForm = MatchHeadPrefix,
-      matchPats = map PVar [scrutinee, continue, failure],
+      matchPats = map (PVar []) [scrutinee, continue, failure],
       matchRhs =
         UnguardedRhs
           []
           []
-          ( ECase
+          ( (ECase [])
               (localVar scrutinee)
               [ CaseAlt [] pat (UnguardedRhs [] [] success Nothing),
-                CaseAlt [] PWildcard (UnguardedRhs [] [] failed Nothing)
+                CaseAlt [] (PWildcard []) (UnguardedRhs [] [] failed Nothing)
               ]
           )
           Nothing
@@ -3921,9 +3923,9 @@ patSynMatcherMatch pat argBinders =
     -- Both continuations take a unit where they have no argument of their
     -- own, because the result of a matcher is representation-polymorphic
     -- and a binder of that type has no fixed representation.
-    success = foldl EApp (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
-    failed = EApp (localVar failure) unit
-    unit = ETuple (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
+    success = foldl (EApp []) (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
+    failed = EApp [] (localVar failure) unit
+    unit = ETuple [] (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
 
 -- | The checked pattern inside a checked matcher equation.
 matcherPattern :: Match -> Maybe Pattern
@@ -3935,10 +3937,9 @@ matcherPattern match =
     go expr =
       case expr of
         EAnn _ inner -> go inner
-        ETc _ inner -> go inner
-        EParen inner -> go inner
-        EPragma _ inner -> go inner
-        ECase _ (alt : _) -> Just (caseAltPattern alt)
+        EParen _ inner -> go inner
+        EPragma _ _ inner -> go inner
+        ECase _ _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
 -- | The pattern of an implicitly bidirectional pattern synonym as an
@@ -3950,24 +3951,31 @@ patternToExpr pat
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
-    PTc info inner -> ETc info <$> patternToExpr inner
-    PVar name -> Just (localVar name)
-    PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
+    -- The information of the pattern goes to the expression.
+    _ -> prependExprTc (patternTc pat) <$> patternNodeToExpr pat
+
+-- | A pattern node below its annotation wrappers as an expression, without
+-- the information of the node.
+patternNodeToExpr :: Pattern -> Maybe Expr
+patternNodeToExpr pat =
+  case pat of
+    PVar _ name -> Just (localVar name)
+    PTuple _ flavor items -> ETuple [] (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
     -- @toList@ of the match goes.
-    PList match items ->
-      EList (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
-    PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
-    PBuiltinCon (BuiltinTuple flavor arity) _ items
-      | length items == arity -> ETuple (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
-    PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
-    PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
+    PList _ match items ->
+      EList [] (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
+    PCon _ name _ items -> foldl (EApp []) (EVar [] name) <$> mapM patternToExpr items
+    PBuiltinCon _ (BuiltinTuple flavor arity) _ items
+      | length items == arity -> ETuple [] (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
+    PInfix _ left name right -> (EApp []) . (EApp []) (EVar [] name) <$> patternToExpr left <*> patternToExpr right
+    PUnboxedSum _ alt arity inner -> EUnboxedSum [] alt arity <$> patternToExpr inner
     -- A record pattern with a wildcard has no expression: the wildcard
     -- binds the names of the fields.
-    PRecord name fields False -> (\fields' -> ERecordCon name fields' False) <$> mapM recordField fields
-    PParen inner -> EParen <$> patternToExpr inner
-    PStrict inner -> patternToExpr inner
-    PTypeSig inner ty -> (`ETypeSig` ty) <$> patternToExpr inner
+    PRecord _ name fields False -> (\fields' -> ERecordCon [] name fields' False) <$> mapM recordField fields
+    PParen _ inner -> (EParen []) <$> patternToExpr inner
+    PStrict _ inner -> patternToExpr inner
+    PTypeSig _ inner ty -> (\inner' -> ETypeSig [] inner' ty) <$> patternToExpr inner
     _ -> Nothing
   where
     -- A punned field becomes a field with an explicit value, because the
@@ -3994,10 +4002,9 @@ literalPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
-        PLit match literal ->
+        PLit tc match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
-           in wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
+           in wrapAll (prependExprTc tc : wrappers <> literalWrappers) <$> literalMatchExpr match bare
         _ -> Nothing
 
 -- | An annotated negated literal pattern as an expression.
@@ -4012,16 +4019,15 @@ negatedLiteralPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
-        PNegLit match literal -> do
+        PNegLit tc match literal -> do
           let (literalWrappers, bare) = peelLiteralAnns literal
-          converted <- wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
+          converted <- wrapAll (prependExprTc tc : wrappers <> literalWrappers) <$> literalMatchExpr match bare
           -- Only an overloaded literal has a negate. Without one, the name
           -- has no resolution, as a negation without a resolved negate.
           let negation = case match of
                 LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
+          pure (ENegate [] (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
         _ -> Nothing
 
 -- | Apply wrappers to an expression, the first wrapper innermost.
@@ -4034,7 +4040,7 @@ peelLiteralAnns :: Literal -> ([Expr -> Expr], Literal)
 peelLiteralAnns literal =
   case literal of
     LitAnn ann inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [EAnn ann], bare)
-    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc info], bare)
+    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [addExprTc info], bare)
     _ -> ([], literal)
 
 -- | A bare literal of a literal pattern as an expression, with the names of
@@ -4044,16 +4050,16 @@ literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
 literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
-    LitTc info inner -> ETc info <$> literalMatchExpr match inner
-    LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
-    LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
-    LitChar value source -> Just (EChar value source)
-    LitCharHash value source -> (\typeName -> ECharHash typeName value source) <$> primitiveType
+    LitTc info inner -> addExprTc info <$> literalMatchExpr match inner
+    LitInt value numericType source -> (\syntax -> EInt [] syntax value numericType source) <$> numericSyntax
+    LitFloat value floatType source -> (\syntax -> EFloat [] syntax value floatType source) <$> numericSyntax
+    LitChar value source -> Just (EChar [] value source)
+    LitCharHash value source -> (\typeName -> ECharHash [] typeName value source) <$> primitiveType
     LitString value source ->
       case match of
-        LiteralMatchOverloaded overloaded -> Just (EString (Just (overloadedLiteralConversion overloaded)) value source)
-        _ -> Just (EString Nothing value source)
-    LitStringHash value source -> (\typeName -> EStringHash typeName value source) <$> primitiveType
+        LiteralMatchOverloaded overloaded -> Just (EString [] (Just (overloadedLiteralConversion overloaded)) value source)
+        _ -> Just (EString [] Nothing value source)
+    LitStringHash value source -> (\typeName -> EStringHash [] typeName value source) <$> primitiveType
   where
     numericSyntax =
       case match of
@@ -6731,10 +6737,9 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
 -- non-trivial patterns like tuples or constructors.
 -- The pair has the same order as 'binderBindingName'.
 patternBinderSyntaxName :: Pattern -> Maybe UnqualifiedName
-patternBinderSyntaxName (PVar n) = Just n
-patternBinderSyntaxName (PParen inner) = patternBinderSyntaxName inner
+patternBinderSyntaxName (PVar _ n) = Just n
+patternBinderSyntaxName (PParen _ inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName (PAnn _ inner) = patternBinderSyntaxName inner
-patternBinderSyntaxName (PTc _ inner) = patternBinderSyntaxName inner
 patternBinderSyntaxName _ = Nothing
 
 patternBinderName :: Pattern -> Maybe (Text, Text)
@@ -6758,14 +6763,13 @@ patternSpan :: Pattern -> Maybe SourceSpan
 patternSpan pat =
   case pat of
     PAnn ann inner -> annotationSpan ann <|> patternSpan inner
-    PTc _ inner -> patternSpan inner
-    PVar name -> sourceSpanFromAnns (unqualifiedNameAnns name)
-    PParen inner -> patternSpan inner
-    PAs name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)
-    PStrict inner -> patternSpan inner
-    PIrrefutable inner -> patternSpan inner
-    PCon name _ _ -> nameSpan name
-    PInfix _ name _ -> nameSpan name
+    PVar _ name -> sourceSpanFromAnns (unqualifiedNameAnns name)
+    PParen _ inner -> patternSpan inner
+    PAs _ name _ -> sourceSpanFromAnns (unqualifiedNameAnns name)
+    PStrict _ inner -> patternSpan inner
+    PIrrefutable _ inner -> patternSpan inner
+    PCon _ name _ _ -> nameSpan name
+    PInfix _ _ name _ -> nameSpan name
     _ -> Nothing
   where
     -- The resolver gives a constructor occurrence its span.
@@ -6795,9 +6799,9 @@ exprSpan expr =
   case expr of
     EAnn ann inner ->
       annotationSpan ann <|> exprSpan inner
-    EParen inner -> exprSpan inner
-    EPragma _ inner -> exprSpan inner
-    ETypeSig inner _ -> exprSpan inner
+    EParen _ inner -> exprSpan inner
+    EPragma _ _ inner -> exprSpan inner
+    ETypeSig _ inner _ -> exprSpan inner
     _ -> Nothing
 
 -- | Type-check a list of matches (equations for a function binding).

@@ -70,6 +70,7 @@ import Aihc.Tc.Syntax.Pending
     nameResolved,
     peelDeclAnn,
     peelDoStmtAnn,
+    prependPatternTc,
     unqualifiedNameText,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
@@ -279,17 +280,17 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
     -- instantiation of an operator.
     annotateExpr schemes expr =
       case expr of
-        EVar name -> do
+        EVar tc name -> do
           pending <- occurrencePending schemes name
           case pending of
             Nothing -> pure expr
             Just annotation ->
               pure $ case mapMaybe annotationSpan (nameAnns name) of
-                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (InfoType annotation) (EVar name))
-                [] -> ETc (InfoType annotation) (EVar name)
-        EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
-        ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
-        ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
+                sp : _ -> EAnn (mkSpanAnnotation sp) (EVar (tc <> [InfoType annotation]) name)
+                [] -> EVar (tc <> [InfoType annotation]) name
+        EInfix tc left operator right -> (\operator' -> EInfix tc left operator' right) <$> annotateOperator schemes operator
+        ESectionL tc left operator -> ESectionL tc left <$> annotateOperator schemes operator
+        ESectionR tc operator right -> (\operator' -> ESectionR tc operator' right) <$> annotateOperator schemes operator
         _ -> pure expr
 
     annotateOperator schemes name = do
@@ -333,7 +334,7 @@ declTermReferences decl = do
     collectUpdatedLabels = idWalk {walkExpr = \children expr -> collected (updatedLabels expr) *> children expr}
     updatedLabels expr =
       case expr of
-        ERecordUpd _ fields -> map (nameText . recordFieldName) fields
+        ERecordUpd _ _ fields -> map (nameText . recordFieldName) fields
         _ -> []
     -- The name of built-in list or tuple syntax is not a term.
     hasTermResolution name =
@@ -819,8 +820,7 @@ restrictedBinderKeys groups = do
     isVariablePattern pat =
       case pat of
         PAnn _ inner -> isVariablePattern inner
-        PTc _ inner -> isVariablePattern inner
-        PParen inner -> isVariablePattern inner
+        PParen _ inner -> isVariablePattern inner
         PVar {} -> True
         _ -> False
     restrictedKeys group =
@@ -939,9 +939,8 @@ strictBinderSignature sigs pat =
     strictPatternBinderName pattern' =
       case pattern' of
         PAnn _ inner -> strictPatternBinderName inner
-        PTc _ inner -> strictPatternBinderName inner
-        PParen inner -> strictPatternBinderName inner
-        PStrict inner -> patternBinderName inner
+        PParen _ inner -> strictPatternBinderName inner
+        PStrict _ inner -> patternBinderName inner
         _ -> Nothing
 
 -- | Infer a binding @!x = e@ where @x@ has a signature. The signature can
@@ -956,7 +955,7 @@ inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name sc
   instantiation <- instantiateWithArgs scheme
   forceCts <- mapM wantedForce (instPreds instantiation)
   let forcePending = pendingAnnotation (instType instantiation) (instTypeArgs instantiation) (map ctEvVar forceCts) []
-      pat' = PTc InfoPatternInstantiation (PTc (InfoType forcePending) pat)
+      pat' = prependPatternTc [InfoPatternInstantiation, InfoType forcePending] pat
       declPending = pendingAnnotation (schemeToType scheme) [] [] []
   pure (DeclTc (InfoType declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
   where
@@ -1197,9 +1196,8 @@ isStrictPatternBind decl =
     patternIsStrict pat =
       case pat of
         PAnn _ inner -> patternIsStrict inner
-        PTc _ inner -> patternIsStrict inner
-        PParen inner -> patternIsStrict inner
-        PStrict _ -> True
+        PParen _ inner -> patternIsStrict inner
+        PStrict _ _ -> True
         _ -> False
 
 isClosedVar :: Entity -> TcM Bool
@@ -1294,10 +1292,9 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
     extractSig _ = pure []
 
 patternBinderName :: Pattern -> Maybe UnqualifiedName
-patternBinderName (PVar n) = Just n
-patternBinderName (PParen inner) = patternBinderName inner
+patternBinderName (PVar _ n) = Just n
+patternBinderName (PParen _ inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
-patternBinderName (PTc _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set Entity)
@@ -1341,28 +1338,27 @@ freeVarsPattern :: Pattern -> TcM (Set.Set Entity)
 freeVarsPattern pat =
   case pat of
     PAnn _ inner -> freeVarsPattern inner
-    PTc _ inner -> freeVarsPattern inner
-    PParen inner -> freeVarsPattern inner
-    PAs _ inner -> freeVarsPattern inner
-    PStrict inner -> freeVarsPattern inner
-    PIrrefutable inner -> freeVarsPattern inner
-    PTypeSig inner _ -> freeVarsPattern inner
-    PList match items -> do
+    PParen _ inner -> freeVarsPattern inner
+    PAs _ _ inner -> freeVarsPattern inner
+    PStrict _ inner -> freeVarsPattern inner
+    PIrrefutable _ inner -> freeVarsPattern inner
+    PTypeSig _ inner _ -> freeVarsPattern inner
+    PList _ match items -> do
       itemVars <- Set.unions <$> mapM freeVarsPattern items
       foldM (flip insertSyntaxTermKey) itemVars (mapMaybe nameResolution (foldMap listMatchNames match))
-    PLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
-    PNegLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
-    PNPlusK match _ _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (nPlusKMatchNames match))
-    PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
-    PUnboxedSum _ _ inner -> freeVarsPattern inner
-    PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
-    PBuiltinCon _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
-    PInfix lhs name rhs -> Set.insert <$> resolvedTermKey name <*> (Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs)
+    PLit _ match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNegLit _ match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNPlusK _ match _ _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (nPlusKMatchNames match))
+    PTuple _ _ items -> Set.unions <$> mapM freeVarsPattern items
+    PUnboxedSum _ _ _ inner -> freeVarsPattern inner
+    PCon _ name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
+    PBuiltinCon _ _ _ subPats -> Set.unions <$> mapM freeVarsPattern subPats
+    PInfix _ lhs name rhs -> Set.insert <$> resolvedTermKey name <*> (Set.union <$> freeVarsPattern lhs <*> freeVarsPattern rhs)
     -- The head of a record pattern is a free variable like the head of a
     -- constructor pattern: a record pattern synonym has to be checked
     -- before the pattern that matches through it.
-    PRecord name fields _ -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields)
-    PView viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
+    PRecord _ name fields _ -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsPattern . recordFieldValue) fields)
+    PView _ viewExpr inner -> Set.union <$> freeVarsExpr viewExpr <*> freeVarsPattern inner
     _ -> pure Set.empty
 
 -- | The free variables of a right-hand side. The binders of its where block
@@ -1416,82 +1412,81 @@ freeVarsExpr expr = do
 exprSyntaxNames :: Expr -> [Name]
 exprSyntaxNames expr =
   case expr of
-    EInt syntax _ _ _ -> literalSyntaxNames syntax
-    EFloat syntax _ _ _ -> literalSyntaxNames syntax
-    ECharHash typeName _ _ -> [typeName]
-    EString conversion _ _ -> maybeToList conversion
-    EStringHash typeName _ _ -> [typeName]
-    EIf method _ _ _ -> maybeToList method
-    ENegate method _ -> [method]
-    EArithSeq method _ -> maybeToList method
-    EGetField method _ _ -> [method]
-    EGetFieldProjection method _ -> [method]
-    EList syntax method _ -> syntax : maybeToList method
-    ETuple syntax _ _ -> [syntax]
+    EInt _ syntax _ _ _ -> literalSyntaxNames syntax
+    EFloat _ syntax _ _ _ -> literalSyntaxNames syntax
+    ECharHash _ typeName _ _ -> [typeName]
+    EString _ conversion _ _ -> maybeToList conversion
+    EStringHash _ typeName _ _ -> [typeName]
+    EIf _ method _ _ _ -> maybeToList method
+    ENegate _ method _ -> [method]
+    EArithSeq _ method _ -> maybeToList method
+    EGetField _ method _ _ -> [method]
+    EGetFieldProjection _ method _ -> [method]
+    EList _ syntax method _ -> syntax : maybeToList method
+    ETuple _ syntax _ _ -> [syntax]
     _ -> []
 
 freeVarsExprChildren :: Expr -> TcM (Set.Set Entity)
 freeVarsExprChildren expr =
   case expr of
-    EVar name -> Set.singleton <$> resolvedTermKey name
+    EVar _ name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
-    ETc _ inner -> freeVarsExpr inner
-    EIf _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
-    EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
-    ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
-    ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
-    EViewPat view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
-    ELambdaPats pats body -> do
+    EIf _ _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EMultiWayIf _ alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
+    ELambdaCase _ alts -> Set.unions <$> mapM freeVarsAlt alts
+    ELambdaCases _ alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
+    EViewPat _ view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
+    ELambdaPats _ pats body -> do
       bodyVars <- freeVarsExpr body
       patVars <- Set.unions <$> mapM freeVarsPattern pats
       binders <- Set.unions <$> mapM patternBinderKeys pats
       pure (Set.difference (bodyVars <> patVars) binders)
-    EInfix lhs op rhs -> do
+    EInfix _ lhs op rhs -> do
       lhsVars <- freeVarsExpr lhs
       rhsVars <- freeVarsExpr rhs
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate _ inner -> freeVarsExpr inner
-    ESectionL inner op -> do
+    ENegate _ _ inner -> freeVarsExpr inner
+    ESectionL _ inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
-    ESectionR op inner -> do
+    ESectionR _ op inner -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
-    ELetDecls decls body -> do
+    ELetDecls _ decls body -> do
       declVars <- freeVarsDecls decls
       bodyVars <- freeVarsExpr body
       localBinders <- declBinderKeys decls
       pure (Set.difference (declVars <> bodyVars) localBinders)
-    ECase scrut alts -> do
+    ECase _ scrut alts -> do
       scrutVars <- freeVarsExpr scrut
       altVars <- Set.unions <$> mapM freeVarsAlt alts
       pure (scrutVars <> altVars)
-    ETypeApp inner _ -> freeVarsExpr inner
-    ETypeSig inner _ -> freeVarsExpr inner
-    EParen inner -> freeVarsExpr inner
-    EPragma _ inner -> freeVarsExpr inner
-    EList _ _ items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq _ arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
-    EApp f a -> do
+    ETypeApp _ inner _ -> freeVarsExpr inner
+    ETypeSig _ inner _ -> freeVarsExpr inner
+    EParen _ inner -> freeVarsExpr inner
+    EPragma _ _ inner -> freeVarsExpr inner
+    EList _ _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq _ _ arithSeq -> freeVarsArithSeq arithSeq
+    ETuple _ _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EApp _ f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
-    EDo stmts _ -> freeVarsDoStmts stmts
-    EListComp body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
-    EListCompParallel body branches -> do
+    EDo _ stmts _ -> freeVarsDoStmts stmts
+    EListComp _ body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
+    EListCompParallel _ body branches -> do
       bodyVars <- freeVarsExpr body
       branchVars <- mapM (\stmts -> freeVarsCompStmts stmts (pure Set.empty)) branches
       -- A parallel branch scopes over the body; its binders are removed
       -- from the body variables by the branches that bind them.
       binders <- Set.unions <$> mapM compStmtsBinderKeys branches
       pure (Set.unions branchVars <> Set.difference bodyVars binders)
-    ERecordCon name fields _ ->
+    ERecordCon _ name fields _ ->
       Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields)
-    ERecordUpd record fields -> do
+    ERecordUpd _ record fields -> do
       recordVars <- freeVarsExpr record
       fieldVars <- Set.unions <$> mapM (freeVarsExpr . recordFieldValue) fields
       -- A record update names field labels and no head, so nothing else
@@ -1499,8 +1494,8 @@ freeVarsExprChildren expr =
       -- to be checked first for the expansion to find the builder.
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
-    EGetField _ record _ -> freeVarsExpr record
-    EUnboxedSum _ _ inner -> freeVarsExpr inner
+    EGetField _ _ record _ -> freeVarsExpr record
+    EUnboxedSum _ _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 
 freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set Entity)

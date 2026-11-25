@@ -60,15 +60,19 @@ import Aihc.Tc.Syntax.Pending
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
+    addPatternTc,
     annotationSpan,
     infoHasType,
     infoIsPending,
     mkSpanAnnotation,
     nameText,
+    patternTc,
     peelDeclAnn,
     peelLiteralAnn,
     peelPatternAnn,
+    prependPatternTc,
     resolvedBinderEntity,
+    setPatternTc,
   )
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -91,29 +95,28 @@ patternBinderNames :: Pattern -> [UnqualifiedName]
 patternBinderNames pat =
   case pat of
     PAnn _ inner -> patternBinderNames inner
-    PTc _ inner -> patternBinderNames inner
-    PVar name -> [name]
-    PTypeBinder _ -> []
-    PTypeSyntax _ _ -> []
-    PWildcard -> []
-    PLit _ _ -> []
-    PQuasiQuote _ _ -> []
-    PTuple _ items -> concatMap patternBinderNames items
-    PUnboxedSum _ _ inner -> patternBinderNames inner
-    PList _ items -> concatMap patternBinderNames items
-    PCon _ _ pats -> concatMap patternBinderNames pats
-    PBuiltinCon _ _ pats -> concatMap patternBinderNames pats
-    PInfix lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
-    PView _ inner -> patternBinderNames inner
-    PAs name inner -> name : patternBinderNames inner
-    PStrict inner -> patternBinderNames inner
-    PIrrefutable inner -> patternBinderNames inner
-    PNegLit _ _ -> []
-    PNPlusK _ name _ -> [name]
-    PParen inner -> patternBinderNames inner
-    PRecord _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
-    PTypeSig inner _ -> patternBinderNames inner
-    PSplice _ -> []
+    PVar _ name -> [name]
+    PTypeBinder _ _ -> []
+    PTypeSyntax _ _ _ -> []
+    PWildcard _ -> []
+    PLit _ _ _ -> []
+    PQuasiQuote _ _ _ -> []
+    PTuple _ _ items -> concatMap patternBinderNames items
+    PUnboxedSum _ _ _ inner -> patternBinderNames inner
+    PList _ _ items -> concatMap patternBinderNames items
+    PCon _ _ _ pats -> concatMap patternBinderNames pats
+    PBuiltinCon _ _ _ pats -> concatMap patternBinderNames pats
+    PInfix _ lhs _ rhs -> patternBinderNames lhs <> patternBinderNames rhs
+    PView _ _ inner -> patternBinderNames inner
+    PAs _ name inner -> name : patternBinderNames inner
+    PStrict _ inner -> patternBinderNames inner
+    PIrrefutable _ inner -> patternBinderNames inner
+    PNegLit _ _ _ -> []
+    PNPlusK _ _ name _ -> [name]
+    PParen _ inner -> patternBinderNames inner
+    PRecord _ _ fields _ -> concatMap (patternBinderNames . recordFieldValue) fields
+    PTypeSig _ inner _ -> patternBinderNames inner
+    PSplice _ _ -> []
 
 -- | The variables that the statements of a recursive @do@ group bind, in
 -- source order and without repeats. The knot of the group is a tuple of
@@ -215,13 +218,12 @@ functionArgumentName :: Pattern -> Text
 functionArgumentName pat =
   case pat of
     PAnn _ inner -> functionArgumentName inner
-    PTc _ inner -> functionArgumentName inner
-    PVar name -> unqualifiedNameText name
-    PParen inner -> functionArgumentName inner
-    PAs name _ -> unqualifiedNameText name
-    PStrict inner -> functionArgumentName inner
-    PIrrefutable inner -> functionArgumentName inner
-    PTypeSig inner _ -> functionArgumentName inner
+    PVar _ name -> unqualifiedNameText name
+    PParen _ inner -> functionArgumentName inner
+    PAs _ name _ -> unqualifiedNameText name
+    PStrict _ inner -> functionArgumentName inner
+    PIrrefutable _ inner -> functionArgumentName inner
+    PTypeSig _ inner _ -> functionArgumentName inner
     _ -> "<pattern>"
 
 -- | Check patterns left to right. A view pattern's expression sees the
@@ -267,7 +269,7 @@ checkPattern sp pat scrutTy
       (body, typeArgs, predicates) <- instantiatePatternType scrutTy
       wanted <- mapM (predToCt sp "pattern") predicates
       check <- checkPattern sp pat body
-      let annotate = PTc InfoPatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
+      let annotate = addPatternTc InfoPatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
       pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
   where
     isSigmaType ty = case ty of
@@ -296,15 +298,14 @@ instantiatePatternType = go []
 patternNeedsInstantiation :: Pattern -> Bool
 patternNeedsInstantiation pattern' = case pattern' of
   PAnn _ inner -> patternNeedsInstantiation inner
-  PTc _ inner -> patternNeedsInstantiation inner
-  PParen inner -> patternNeedsInstantiation inner
+  PParen _ inner -> patternNeedsInstantiation inner
   PVar {} -> False
-  PWildcard -> False
-  PAs _ inner -> patternNeedsInstantiation inner
-  PIrrefutable inner -> patternNeedsInstantiation inner
+  PWildcard _ -> False
+  PAs _ _ inner -> patternNeedsInstantiation inner
+  PIrrefutable _ inner -> patternNeedsInstantiation inner
   -- A bang forces the value as it is: @f !_ = ..@ for an argument of type
   -- @forall x. C x => x -> x@ needs no @C@ instance.
-  PStrict inner -> patternNeedsInstantiation inner
+  PStrict _ inner -> patternNeedsInstantiation inner
   _ -> True
 
 checkPatternWithoutResultType :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
@@ -316,18 +317,19 @@ checkPatternWithoutResultType sp pat scrutTy =
         PAnn ann inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
           pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
-        PTc ann inner -> do
+        _
+          | tc@(_ : _) <- patternTc pat -> do
+              innerCheck <- checkPatternWithoutResultType sp (setPatternTc [] pat) scrutTy
+              pure innerCheck {pcPatterns = [prependPatternTc tc (checkedPattern innerCheck)]}
+        PParen tc inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
-          pure innerCheck {pcPatterns = [PTc ann (checkedPattern innerCheck)]}
-        PParen inner -> do
+          pure innerCheck {pcPatterns = [PParen tc (checkedPattern innerCheck)]}
+        PStrict tc inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
-          pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
-        PStrict inner -> do
+          pure innerCheck {pcPatterns = [PStrict tc (checkedPattern innerCheck)]}
+        PIrrefutable tc inner -> do
           innerCheck <- checkPatternWithoutResultType sp inner scrutTy
-          pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
-        PIrrefutable inner -> do
-          innerCheck <- checkPatternWithoutResultType sp inner scrutTy
-          pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
+          pure innerCheck {pcPatterns = [PIrrefutable tc (checkedPattern innerCheck)]}
         _ -> checkPatternCore sp pat scrutTy
 
 checkedPatternType :: Maybe SourceSpan -> TcType -> Pattern -> Pattern
@@ -338,46 +340,44 @@ checkedPatternType sp ty pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
 annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt Nothing pending = PTc (InfoType pending)
-annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (InfoType pending)
+annotatePendingPatternAt Nothing pending = addPatternTc (InfoType pending)
+annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . addPatternTc (InfoType pending)
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
   case pat of
     PAnn _ inner -> patternUsesBinderAnnotation inner
-    PTc _ inner -> patternUsesBinderAnnotation inner
-    PParen inner -> patternUsesBinderAnnotation inner
+    PParen _ inner -> patternUsesBinderAnnotation inner
     PVar {} -> True
     PAs {} -> True
-    PStrict inner -> patternUsesBinderAnnotation inner
-    PIrrefutable inner -> patternUsesBinderAnnotation inner
-    PTypeSig inner _ -> patternUsesBinderAnnotation inner
+    PStrict _ inner -> patternUsesBinderAnnotation inner
+    PIrrefutable _ inner -> patternUsesBinderAnnotation inner
+    PTypeSig _ inner _ -> patternUsesBinderAnnotation inner
     _ -> False
 
 patternNeedsCheckedType :: Pattern -> Bool
 patternNeedsCheckedType pat =
   case pat of
     PAnn _ inner -> patternNeedsCheckedType inner
-    PTc _ inner -> patternNeedsCheckedType inner
-    PParen inner -> patternNeedsCheckedType inner
+    PParen _ inner -> patternNeedsCheckedType inner
     PLit {} -> False
     PNegLit {} -> False
     PNPlusK {} -> False
-    PStrict inner -> patternNeedsCheckedType inner
-    PIrrefutable inner -> patternNeedsCheckedType inner
-    PTypeSig inner _ -> patternNeedsCheckedType inner
+    PStrict _ inner -> patternNeedsCheckedType inner
+    PIrrefutable _ inner -> patternNeedsCheckedType inner
+    PTypeSig _ inner _ -> patternNeedsCheckedType inner
     _ -> True
 
 patternHasPendingType :: Pattern -> Bool
 patternHasPendingType pat =
   case pat of
+    _ | any infoHasType (patternTc pat) -> True
     PAnn _ inner -> patternHasPendingType inner
-    PTc info inner -> infoHasType info || patternHasPendingType inner
-    PParen inner -> patternHasPendingType inner
-    PLit _ literal -> literalHasPendingType literal
-    PStrict inner -> patternHasPendingType inner
-    PIrrefutable inner -> patternHasPendingType inner
-    PTypeSig inner _ -> patternHasPendingType inner
+    PParen _ inner -> patternHasPendingType inner
+    PLit _ _ literal -> literalHasPendingType literal
+    PStrict _ inner -> patternHasPendingType inner
+    PIrrefutable _ inner -> patternHasPendingType inner
+    PTypeSig _ inner _ -> patternHasPendingType inner
     _ -> False
 
 literalHasPendingType :: Literal -> Bool
@@ -394,17 +394,16 @@ patternOwnSpan :: Pattern -> Maybe SourceSpan
 patternOwnSpan pat =
   case pat of
     PAnn ann inner -> annotationSpan ann <|> patternOwnSpan inner
-    PTc _ inner -> patternOwnSpan inner
-    PVar name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
-    PParen inner -> patternOwnSpan inner
-    PAs name _ -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
-    PStrict inner -> patternOwnSpan inner
-    PIrrefutable inner -> patternOwnSpan inner
-    PCon name _ _ -> sourceSpanFromAnnotations (nameAnns name)
-    PInfix _ name _ -> sourceSpanFromAnnotations (nameAnns name)
-    PRecord name _ _ -> sourceSpanFromAnnotations (nameAnns name)
-    PTypeSig inner _ -> patternOwnSpan inner
-    PView expr inner -> viewExprSpan expr <|> patternOwnSpan inner
+    PVar _ name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
+    PParen _ inner -> patternOwnSpan inner
+    PAs _ name _ -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
+    PStrict _ inner -> patternOwnSpan inner
+    PIrrefutable _ inner -> patternOwnSpan inner
+    PCon _ name _ _ -> sourceSpanFromAnnotations (nameAnns name)
+    PInfix _ _ name _ -> sourceSpanFromAnnotations (nameAnns name)
+    PRecord _ name _ _ -> sourceSpanFromAnnotations (nameAnns name)
+    PTypeSig _ inner _ -> patternOwnSpan inner
+    PView _ expr inner -> viewExprSpan expr <|> patternOwnSpan inner
     _ -> Nothing
 
 -- | The span of a view pattern function. The parser gives spans to names
@@ -413,29 +412,29 @@ viewExprSpan :: Expr -> Maybe SourceSpan
 viewExprSpan expr =
   case expr of
     EAnn ann inner -> annotationSpan ann <|> viewExprSpan inner
-    ETc _ inner -> viewExprSpan inner
-    EVar name -> sourceSpanFromAnnotations (nameAnns name)
-    EParen inner -> viewExprSpan inner
-    EPragma _ inner -> viewExprSpan inner
-    EApp function _ -> viewExprSpan function
+    EVar _ name -> sourceSpanFromAnnotations (nameAnns name)
+    EParen _ inner -> viewExprSpan inner
+    EPragma _ _ inner -> viewExprSpan inner
+    EApp _ function _ -> viewExprSpan function
     _ -> Nothing
 
 checkPatternCore :: Maybe SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore sp pat scrutTy =
   case pat of
-    PVar name ->
+    _
+      | tc@(_ : _) <- patternTc pat -> do
+          innerCheck <- checkPattern sp (setPatternTc [] pat) scrutTy
+          pure innerCheck {pcPatterns = [prependPatternTc tc (checkedPattern innerCheck)]}
+    PVar _ name ->
       pure (checkedOnly pat) {pcBindings = [(name, scrutTy)]}
     PAnn ann inner -> do
       innerCheck <- checkPattern sp inner scrutTy
       pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
-    PTc ann inner -> do
+    PParen tc inner -> do
       innerCheck <- checkPattern sp inner scrutTy
-      pure innerCheck {pcPatterns = [PTc ann (checkedPattern innerCheck)]}
-    PParen inner -> do
-      innerCheck <- checkPattern sp inner scrutTy
-      pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
+      pure innerCheck {pcPatterns = [PParen tc (checkedPattern innerCheck)]}
     PWildcard {} -> pure (checkedOnly pat)
-    PLit match lit
+    PLit tc match lit
       | isPrimitiveLiteral lit ->
           abortTc "primitive literal pattern has no primitive type name"
       | otherwise -> do
@@ -447,36 +446,36 @@ checkPatternCore sp pat scrutTy =
             -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              let castPattern = PTc (InfoCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit match (checkedLiteral literalTy lit))
+              let castPattern = addPatternTc (InfoCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit tc match (checkedLiteral literalTy lit))
               pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
-            Nothing -> pure (checkedOnly (PLit match (checkedLiteral scrutTy lit)))
-    PNegLit _ lit
+            Nothing -> pure (checkedOnly (PLit tc match (checkedLiteral scrutTy lit)))
+    PNegLit _ _ lit
       | isPrimitiveLiteral lit ->
           abortTc "primitive literal pattern has no primitive type name"
       | otherwise -> pure (checkedOnly pat)
-    PAs name inner -> do
+    PAs tc name inner -> do
       let innerSpan = patternOwnSpan inner <|> sp
       innerCheck <- checkPatternWithoutResultType innerSpan inner scrutTy
-      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
-    PStrict inner -> do
+      pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs tc name (checkedPattern innerCheck)]}
+    PStrict tc inner -> do
       innerCheck <- checkPattern sp inner scrutTy
-      pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
-    PTypeSig inner tyAnn -> checkTypeSigPattern sp inner tyAnn scrutTy
-    PIrrefutable inner -> do
+      pure innerCheck {pcPatterns = [PStrict tc (checkedPattern innerCheck)]}
+    PTypeSig _ inner tyAnn -> checkTypeSigPattern sp inner tyAnn scrutTy
+    PIrrefutable tc inner -> do
       innerCheck <- checkPattern sp inner scrutTy
-      pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
-    PCon name _typeArgs subPats ->
+      pure innerCheck {pcPatterns = [PIrrefutable tc (checkedPattern innerCheck)]}
+    PCon _ name _typeArgs subPats ->
       checkConPattern sp pat name subPats scrutTy
-    PInfix lhs op rhs ->
+    PInfix _ lhs op rhs ->
       checkConPattern sp pat op [lhs, rhs] scrutTy
-    PRecord name fields wildcard -> do
+    PRecord _ name fields wildcard -> do
       when wildcard $
         abortTc ("record wildcard patterns are not supported at " <> show (patternOwnSpan pat <|> sp))
       head' <- lookupRecordHead name
-      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ _ -> pure PWildcard)
-      checkConPattern sp (PCon name [] subPats) name subPats scrutTy
-    PList _ items -> checkListPattern sp items scrutTy
-    PView viewExpr inner -> do
+      subPats <- orderRecordFields (patternOwnSpan pat <|> sp) head' fields (\_ _ -> pure (PWildcard []))
+      checkConPattern sp (PCon [] name [] subPats) name subPats scrutTy
+    PList _ _ items -> checkListPattern sp items scrutTy
+    PView tc viewExpr inner -> do
       let viewSpan = viewExprSpan viewExpr <|> sp
       (viewExpr', viewTy, viewCts) <- inferExprAt viewSpan viewExpr
       innerTy <- freshMetaTv
@@ -497,15 +496,15 @@ checkPatternCore sp pat scrutTy =
       pure
         innerCheck
           { pcWantedCts = [eqCt | not solved] <> viewCts <> pcWantedCts innerCheck,
-            pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
+            pcPatterns = [PView tc viewExpr' (checkedPattern innerCheck)]
           }
-    PTuple flavor items -> checkTuplePattern sp flavor items scrutTy
+    PTuple _ flavor items -> checkTuplePattern sp flavor items scrutTy
     -- A prefix tuple constructor, @(,) a b@, checks like the @(a, b)@ form.
     -- The type arguments follow 'PCon', which ignores them.
-    PBuiltinCon (BuiltinTuple flavor arity) _typeArgs items
+    PBuiltinCon _ (BuiltinTuple flavor arity) _typeArgs items
       | length items == arity ->
           checkTuplePattern sp flavor items scrutTy
-    PUnboxedSum alternative arity inner -> do
+    PUnboxedSum tc alternative arity inner -> do
       types <- mapM (const freshMetaTv) [1 .. arity]
       sumType <- unboxedSumType types
       equality <- wantedEq sp scrutTy sumType
@@ -515,7 +514,7 @@ checkPatternCore sp pat scrutTy =
           pure
             checked
               { pcWantedCts = equality : pcWantedCts checked,
-                pcPatterns = [PUnboxedSum alternative arity (checkedPattern checked)]
+                pcPatterns = [PUnboxedSum tc alternative arity (checkedPattern checked)]
               }
         [] -> abortTc "invalid unboxed sum alternative"
     _ -> pure (checkedOnly pat)
@@ -560,7 +559,7 @@ checkTypeSigPattern sp inner tyAnn scrutTy = do
       innerCheck
         { pcWantedCts = [eqCt | not solved] <> pcWantedCts innerCheck,
           pcTyVars = boundTyVars <> pcTyVars innerCheck,
-          pcPatterns = [PTypeSig (checkedPattern innerCheck) tyAnn]
+          pcPatterns = [PTypeSig [] (checkedPattern innerCheck) tyAnn]
         }
 
 -- | A fresh type variable for a pattern signature to bind, and the meta
@@ -608,8 +607,8 @@ checkTuplePattern sp flavor items scrutTy = do
   let tupleTy = TcTyCon tupleTyCon elemTys
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
-  let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
-      castPattern = PTc (InfoCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
+  let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple [] flavor (pcPatterns itemChecks))
+      castPattern = addPatternTc (InfoCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
 
 -- | Whether a pattern contains a constructor pattern.
@@ -621,16 +620,15 @@ containsConstructorPattern pat =
     PInfix {} -> True
     PRecord {} -> True
     PAnn _ inner -> containsConstructorPattern inner
-    PTc _ inner -> containsConstructorPattern inner
-    PParen inner -> containsConstructorPattern inner
-    PAs _ inner -> containsConstructorPattern inner
-    PStrict inner -> containsConstructorPattern inner
-    PIrrefutable inner -> containsConstructorPattern inner
-    PView _ inner -> containsConstructorPattern inner
-    PTypeSig inner _ -> containsConstructorPattern inner
-    PUnboxedSum _ _ inner -> containsConstructorPattern inner
-    PTuple _ inner -> any containsConstructorPattern inner
-    PList _ inner -> any containsConstructorPattern inner
+    PParen _ inner -> containsConstructorPattern inner
+    PAs _ _ inner -> containsConstructorPattern inner
+    PStrict _ inner -> containsConstructorPattern inner
+    PIrrefutable _ inner -> containsConstructorPattern inner
+    PView _ _ inner -> containsConstructorPattern inner
+    PTypeSig _ inner _ -> containsConstructorPattern inner
+    PUnboxedSum _ _ _ inner -> containsConstructorPattern inner
+    PTuple _ _ inner -> any containsConstructorPattern inner
+    PList _ _ inner -> any containsConstructorPattern inner
     _ -> False
 
 checkedOnly :: Pattern -> PatternCheck
@@ -652,7 +650,7 @@ checkListPattern sp items scrutTy =
           { pcWantedCts = [scrutCt],
             pcGivenCts = predicateGivens,
             pcSkolems = skolems,
-            pcPatterns = [PList Nothing []]
+            pcPatterns = [PList [] Nothing []]
           }
     item : rest -> do
       (consCon, scheme) <- listConstructorScheme tcWiringConsDataCon
@@ -666,8 +664,8 @@ checkListPattern sp items scrutTy =
           predicateGivens <- mapM (constructorGiven sp (tyConName consCon)) predicates
           let nestedCheck = itemCheck <> tailCheck
               checkedTailItems = case checkedPattern tailCheck of
-                PAnn _ (PList _ patterns) -> patterns
-                PList _ patterns -> patterns
+                PAnn _ (PList _ _ patterns) -> patterns
+                PList _ _ patterns -> patterns
                 _ -> rest
               checkedItems = checkedPattern itemCheck : checkedTailItems
           pure
@@ -675,7 +673,7 @@ checkListPattern sp items scrutTy =
               { pcWantedCts = [scrutCt] <> pcWantedCts nestedCheck,
                 pcGivenCts = predicateGivens <> pcGivenCts nestedCheck,
                 pcSkolems = skolems <> pcSkolems nestedCheck,
-                pcPatterns = [PList Nothing checkedItems]
+                pcPatterns = [PList [] Nothing checkedItems]
               }
         _ -> abortTc "the wired list cons constructor has an invalid arity"
 
@@ -715,10 +713,10 @@ plainLiteralPatternType literal =
 literalPatternCheck :: Maybe SourceSpan -> Pattern -> TcType -> Maybe (TcM PatternCheck)
 literalPatternCheck sp pat scrutTy =
   case peelPatternAnn pat of
-    PNPlusK match name _ -> Just (checkNPlusKPattern sp pat match name scrutTy)
-    PList (Just match) items -> Just (checkOverloadedListPattern sp pat match items scrutTy)
-    PLit match _ -> literalCheck False match
-    PNegLit match _ -> literalCheck True match
+    PNPlusK _ match name _ -> Just (checkNPlusKPattern sp pat match name scrutTy)
+    PList _ (Just match) items -> Just (checkOverloadedListPattern sp pat match items scrutTy)
+    PLit _ match _ -> literalCheck False match
+    PNegLit _ match _ -> literalCheck True match
     _ -> Nothing
   where
     literalCheck isNegative match =
@@ -769,12 +767,11 @@ checkedLiteralPattern :: TcType -> Pattern -> Pattern
 checkedLiteralPattern ty pat =
   case pat of
     PAnn ann inner -> PAnn ann (checkedLiteralPattern ty inner)
-    PTc ann inner -> PTc ann (checkedLiteralPattern ty inner)
-    PParen inner -> PParen (checkedLiteralPattern ty inner)
-    PStrict inner -> PStrict (checkedLiteralPattern ty inner)
-    PIrrefutable inner -> PIrrefutable (checkedLiteralPattern ty inner)
-    PLit match lit -> PLit match (checkedLiteral ty lit)
-    PNegLit match lit -> PNegLit match (checkedLiteral ty lit)
+    PParen tc inner -> PParen tc (checkedLiteralPattern ty inner)
+    PStrict tc inner -> PStrict tc (checkedLiteralPattern ty inner)
+    PIrrefutable tc inner -> PIrrefutable tc (checkedLiteralPattern ty inner)
+    PLit tc match lit -> PLit tc match (checkedLiteral ty lit)
+    PNegLit tc match lit -> PNegLit tc match (checkedLiteral ty lit)
     _ -> pat
 
 -- | Check a literal pattern that a class method converts and equality tests.
@@ -822,8 +819,8 @@ checkOverloadedLiteralPattern sp pat match isNegative scrutTy = do
   where
     setLiteralMatch match' base =
       case base of
-        PLit _ literal -> PLit match' literal
-        PNegLit _ literal -> PNegLit match' literal
+        PLit tc _ literal -> PLit tc match' literal
+        PNegLit tc _ literal -> PNegLit tc match' literal
         _ -> base
 
 -- | Check a list pattern under OverloadedLists. As in GHC, the pattern
@@ -837,9 +834,9 @@ checkOverloadedListPattern sp pat match items scrutTy = do
   (toList', methodCts) <- checkPatternMethod sp (listMatchToList match) methodTy methodTy
   listCheck <- checkListPattern sp items listTy
   let checkedItems = case peelPatternAnn (checkedPattern listCheck) of
-        PList _ patterns -> patterns
+        PList _ _ patterns -> patterns
         _ -> items
-      pat' = mapPatternBase (const (PList (Just match {listMatchToList = toList'}) checkedItems)) pat
+      pat' = mapPatternBase (\base -> PList (patternTc base) (Just match {listMatchToList = toList'}) checkedItems) pat
   pure listCheck {pcWantedCts = methodCts <> pcWantedCts listCheck, pcPatterns = [pat']}
 
 -- | Check an n+k pattern.
@@ -878,7 +875,7 @@ checkNPlusKPattern sp pat match name scrutTy = do
   where
     setMatch match' base =
       case base of
-        PNPlusK _ binder literal -> PNPlusK match' binder literal
+        PNPlusK tc _ binder literal -> PNPlusK tc match' binder literal
         _ -> base
 
 -- | Change the node below the annotation wrappers of a pattern.
@@ -886,7 +883,6 @@ mapPatternBase :: (Pattern -> Pattern) -> Pattern -> Pattern
 mapPatternBase f pat =
   case pat of
     PAnn ann inner -> PAnn ann (mapPatternBase f inner)
-    PTc info inner -> PTc info (mapPatternBase f inner)
     _ -> f pat
 
 -- | Check a syntax term that the match of a pattern uses. The result is
@@ -979,22 +975,21 @@ mapPatternBinderNames annotateBinder =
     go pat =
       case pat of
         PAnn ann inner -> PAnn ann (go inner)
-        PTc ann inner -> PTc ann (go inner)
-        PVar name -> PVar (annotateBinder name)
-        PNPlusK match name literal -> PNPlusK match (annotateBinder name) literal
-        PParen inner -> PParen (go inner)
-        PAs name inner -> PAs (annotateBinder name) (go inner)
-        PStrict inner -> PStrict (go inner)
-        PIrrefutable inner -> PIrrefutable (go inner)
-        PList match items -> PList match (map go items)
-        PTuple flavor items -> PTuple flavor (map go items)
-        PUnboxedSum alt arity inner -> PUnboxedSum alt arity (go inner)
-        PInfix lhs op rhs -> PInfix (go lhs) op (go rhs)
-        PView expr inner -> PView expr (go inner)
-        PCon name typeArgs subPats -> PCon name typeArgs (map go subPats)
-        PRecord name fields wildcard -> PRecord name (map annotateRecordField fields) wildcard
-        PTypeSig inner type' -> PTypeSig (go inner) type'
-        PSplice expr -> PSplice expr
+        PVar tc name -> PVar tc (annotateBinder name)
+        PNPlusK tc match name literal -> PNPlusK tc match (annotateBinder name) literal
+        PParen tc inner -> PParen tc (go inner)
+        PAs tc name inner -> PAs tc (annotateBinder name) (go inner)
+        PStrict tc inner -> PStrict tc (go inner)
+        PIrrefutable tc inner -> PIrrefutable tc (go inner)
+        PList tc match items -> PList tc match (map go items)
+        PTuple tc flavor items -> PTuple tc flavor (map go items)
+        PUnboxedSum tc alt arity inner -> PUnboxedSum tc alt arity (go inner)
+        PInfix tc lhs op rhs -> PInfix tc (go lhs) op (go rhs)
+        PView tc expr inner -> PView tc expr (go inner)
+        PCon tc name typeArgs subPats -> PCon tc name typeArgs (map go subPats)
+        PRecord tc name fields wildcard -> PRecord tc name (map annotateRecordField fields) wildcard
+        PTypeSig tc inner type' -> PTypeSig tc (go inner) type'
+        PSplice tc expr -> PSplice tc expr
         _ -> pat
 
     annotateRecordField :: RecordField Pattern -> RecordField Pattern
@@ -1050,7 +1045,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcTyVars = boundTyVars <> pcTyVars subCheck,
-            pcPatterns = [PTc (InfoCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
+            pcPatterns = [addPatternTc (InfoCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
@@ -1201,10 +1196,10 @@ predTyVars predicate =
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =
   case pat of
-    PCon name typeArgs _ -> PCon name typeArgs subPats
-    PInfix _ op _ ->
+    PCon tc name typeArgs _ -> PCon tc name typeArgs subPats
+    PInfix tc _ op _ ->
       case subPats of
-        [lhs, rhs] -> PInfix lhs op rhs
+        [lhs, rhs] -> PInfix tc lhs op rhs
         _ -> pat
     _ -> pat
 
@@ -1222,7 +1217,7 @@ splitConTy n result = do
 patternTypeArguments :: Pattern -> [Type]
 patternTypeArguments pat =
   case pat of
-    PCon _ typeArguments _ -> typeArguments
+    PCon _ _ typeArguments _ -> typeArguments
     _ -> []
 
 -- | Check the explicit type arguments of a constructor pattern against the
@@ -1285,22 +1280,21 @@ patternCanFail :: Pattern -> TcM Bool
 patternCanFail pat =
   case pat of
     PAnn _ inner -> patternCanFail inner
-    PTc _ inner -> patternCanFail inner
-    PParen inner -> patternCanFail inner
-    PAs _ inner -> patternCanFail inner
-    PStrict inner -> patternCanFail inner
-    PTypeSig inner _ -> patternCanFail inner
-    PView _ inner -> patternCanFail inner
+    PParen _ inner -> patternCanFail inner
+    PAs _ _ inner -> patternCanFail inner
+    PStrict _ inner -> patternCanFail inner
+    PTypeSig _ inner _ -> patternCanFail inner
+    PView _ _ inner -> patternCanFail inner
     PVar {} -> pure False
-    PWildcard -> pure False
+    PWildcard _ -> pure False
     PIrrefutable {} -> pure False
     PTypeBinder {} -> pure False
     PTypeSyntax {} -> pure False
-    PTuple _ items -> anyCanFail items
-    PBuiltinCon (BuiltinTuple _ _) _ items -> anyCanFail items
-    PCon name _ subPats -> constructorCanFail name subPats
-    PInfix lhs op rhs -> constructorCanFail op [lhs, rhs]
-    PRecord name fields _ -> constructorCanFail name (map recordFieldValue fields)
+    PTuple _ _ items -> anyCanFail items
+    PBuiltinCon _ (BuiltinTuple _ _) _ items -> anyCanFail items
+    PCon _ name _ subPats -> constructorCanFail name subPats
+    PInfix _ lhs op rhs -> constructorCanFail op [lhs, rhs]
+    PRecord _ name fields _ -> constructorCanFail name (map recordFieldValue fields)
     _ -> pure True
   where
     anyCanFail [] = pure False

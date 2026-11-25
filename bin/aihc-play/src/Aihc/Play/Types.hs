@@ -94,7 +94,7 @@ patternBinders =
   where
     binders children pat =
       case pat of
-        PVar name -> collected [unqualifiedNameText name] *> children pat
+        PVar _ name -> collected [unqualifiedNameText name] *> children pat
         _ -> children pat
 
 -- | The source with a signature line above each binding.

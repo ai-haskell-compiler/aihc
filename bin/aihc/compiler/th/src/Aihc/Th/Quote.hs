@@ -218,7 +218,7 @@ quotedModuleNames package home modu
     select :: Tc.Expr -> Maybe (ResolutionNamespace, Text)
     select expr =
       case expr of
-        Tc.EApp (Tc.EApp (Tc.EApp function packageText) homeText) nameText
+        Tc.EApp _ (Tc.EApp _ (Tc.EApp _ function packageText) homeText) nameText
           | Just namespace <- boundNameNamespace (bare function),
             Just package' <- stringValue packageText,
             Just home' <- stringValue homeText,
@@ -231,7 +231,7 @@ quotedModuleNames package home modu
     -- Thus, compare only the qualifier and the text of the name.
     boundNameNamespace function =
       case function of
-        Tc.EVar name
+        Tc.EVar _ name
           | Tc.nameQualifier name == Just quoteAlias,
             Tc.nameText name `elem` ["mkNameG_v", "mkNameG_d"] ->
               Just ResolutionNamespaceTerm
@@ -241,13 +241,12 @@ quotedModuleNames package home modu
         _ -> Nothing
     stringValue expr =
       case bare expr of
-        Tc.EString _ value _ -> Just value
+        Tc.EString _ _ value _ -> Just value
         _ -> Nothing
     bare expr =
       case expr of
         Tc.EAnn _ inner -> bare inner
-        Tc.ETc _ inner -> bare inner
-        Tc.EParen inner -> bare inner
+        Tc.EParen _ inner -> bare inner
         _ -> expr
 
 -- | Change each quote of a syntax tree that is in the subset, as
