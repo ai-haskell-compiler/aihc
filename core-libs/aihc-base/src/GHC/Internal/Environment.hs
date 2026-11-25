@@ -20,6 +20,7 @@ import GHC.IO (IO (..))
 import GHC.IO.Exception (IOErrorType (..), ioError)
 import GHC.IO.Runtime (readMemoryByte, writeMemoryByte)
 import GHC.Int (Int (..))
+import GHC.Internal.Environment.Host (hostSetEnv, hostUnsetEnv)
 import GHC.Internal.Utf8 (decodeUtf8, encodeUtf8)
 import GHC.Prim (Addr#, ByteArray#, Int#, MutableByteArray#, RealWorld, State#, keepAlive#, mutableByteArrayContents#, newPinnedByteArray#, unsafeFreezeByteArray#)
 import System.IO.Error (mkIOError)
@@ -73,9 +74,23 @@ setFullArgs :: [String] -> IO ()
 setFullArgs = replaceStrings "setArgs" setProgramArguments#
 
 -- | Replace every environment entry of the process with @NAME=VALUE@
--- strings. Only the copy in the runtime changes.
+-- strings. The copy in the runtime changes, and then the C environment gets
+-- the same changes. A child process thus sees the new environment, as in GHC.
 setFullEnvironment :: [String] -> IO ()
-setFullEnvironment = replaceStrings "setEnv" setProgramEnvironment#
+setFullEnvironment entries = do
+  previous <- getFullEnvironment
+  replaceStrings "setEnv" setProgramEnvironment# entries
+  let previousPairs = map splitEntry previous
+      pairs = map splitEntry entries
+  mapM_ hostUnsetEnv [name | (name, _) <- previousPairs, lookup name pairs == Nothing]
+  mapM_ (\(name, value) -> hostSetEnv name value) [pair | pair@(name, value) <- pairs, lookup name previousPairs /= Just value]
+
+-- | Split a @NAME=VALUE@ entry at its first equals sign.
+splitEntry :: String -> (String, String)
+splitEntry entry =
+  case break (== '=') entry of
+    (name, '=' : value) -> (name, value)
+    (name, _) -> (name, "")
 
 replaceStrings ::
   String ->

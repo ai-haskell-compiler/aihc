@@ -88,6 +88,7 @@ import GHC.Prim
     gtFloat#,
     int2Double#,
     int2Float#,
+    int2Word#,
     logDouble#,
     logFloat#,
     ltFloat#,
@@ -108,6 +109,7 @@ import GHC.Prim
     tanhDouble#,
     tanhFloat#,
     timesFloat#,
+    uncheckedShiftL#,
     uncheckedShiftRL#,
     word2Int#,
     word32ToWord#,
@@ -116,6 +118,7 @@ import GHC.Prim
     wordToWord64#,
     (*##),
     (**##),
+    (+#),
     (+##),
     (-#),
     (-##),
@@ -304,7 +307,8 @@ instance Num Float where
   negate (F# value) = F# (negateFloat# value)
   abs (F# value) = F# (fabsFloat# value)
   signum (F# value) = F# (floatSignum value)
-  fromInteger value = F# (int2Float# (integerToInt# value))
+  fromInteger (IS value) = F# (int2Float# value)
+  fromInteger value = integerToFloat value
 
 instance Eq Double where
   D# left == D# right = isTrue ((==##) left right)
@@ -341,29 +345,128 @@ instance Num Double where
   negate (D# value) = D# (negateDouble# value)
   abs (D# value) = D# (fabsDouble# value)
   signum (D# value) = D# (doubleSignum value)
-  fromInteger value = D# (int2Double# (integerToInt# value))
+  fromInteger (IS value) = D# (int2Double# value)
+  fromInteger value = integerToDouble value
+
+-- Conversions from Integer and Rational round to the nearest value, with ties
+-- to even, like GHC. They do not go through the machine integer, so a large
+-- value does not wrap.
+
+-- | The number of bits in a nonnegative Integer.
+integerBitLength :: Integer -> Int
+integerBitLength = go 0
+  where
+    go count value
+      | value >= 4294967296 = go (count + 32) (value `quot` 4294967296)
+      | value > 0 = go (count + 1) (value `quot` 2)
+      | otherwise = count
+
+-- | The Double for two to the power of an exponent from -1022 to 1023.
+powerOfTwo :: Int -> Double
+powerOfTwo (I# exponent') =
+  D# (castWord64ToDouble# (wordToWord64# (uncheckedShiftL# (int2Word# ((+#) exponent' 1023#)) 52#)))
+
+-- | Multiply by two to the power of an exponent. Each step is exact until
+-- the result overflows or becomes subnormal.
+scaleDouble :: Double -> Int -> Double
+scaleDouble value exponent'
+  | exponent' > 1000 = scaleDouble (value * powerOfTwo 1000) (exponent' - 1000)
+  | exponent' < -1000 = scaleDouble (value * powerOfTwo (-1000)) (exponent' + 1000)
+  | otherwise = value * powerOfTwo exponent'
+
+-- | Round a positive ratio to a value with the given number of mantissa bits
+-- and the given minimum exponent. The result is in the Double range of exponents.
+-- The mantissa is less than two to the power of the bits plus one, so the
+-- conversion of the mantissa is exact, and so is the scaling, unless it overflows.
+roundRatio :: Int -> Int -> Integer -> Integer -> Double
+roundRatio digits minimumExponent numerator' denominator' =
+  let estimate = integerBitLength numerator' - integerBitLength denominator' - digits
+      quotientAt exponent'
+        | exponent' >= 0 = quotRem numerator' (denominator' * 2 ^ exponent')
+        | otherwise = quotRem (numerator' * 2 ^ negate exponent') denominator'
+      exponent0 = max minimumExponent estimate
+      tooLarge = case quotientAt exponent0 of
+        (quotient0, _) -> quotient0 >= 2 ^ digits
+      exponent1 =
+        if exponent0 == estimate && tooLarge
+          then exponent0 + 1
+          else exponent0
+      divisor = if exponent1 >= 0 then denominator' * 2 ^ exponent1 else denominator'
+      (quotient, remainder) = quotientAt exponent1
+      -- Round to the nearest value, with ties to even.
+      mantissa = case compare (2 * remainder) divisor of
+        LT -> quotient
+        EQ -> if even quotient then quotient else quotient + 1
+        GT -> quotient + 1
+   in scaleDouble (D# (int2Double# (integerToInt# mantissa))) exponent1
+
+-- | Convert the ratio of two Integers with a rounding to the given precision.
+ratioToDouble :: Int -> Int -> Integer -> Integer -> Double
+ratioToDouble digits minimumExponent numerator' denominator'
+  | denominator' < 0 = ratioToDouble digits minimumExponent (negate numerator') (negate denominator')
+  | denominator' == 0 = D# (int2Double# (integerToInt# (signum numerator'))) / D# (int2Double# 0#)
+  | numerator' == 0 = D# (int2Double# 0#)
+  | numerator' < 0 = negate (roundRatio digits minimumExponent (negate numerator') denominator')
+  | otherwise = roundRatio digits minimumExponent numerator' denominator'
+
+-- | Convert a ratio to a Double, rounded to 53 bits.
+ratioDouble :: Integer -> Integer -> Double
+ratioDouble = ratioToDouble 53 (-1074)
+
+-- | Convert a ratio to a Float, rounded to 24 bits. The Double result is
+-- exactly a Float value, or a value that is out of the Float range.
+ratioFloat :: Integer -> Integer -> Float
+ratioFloat numerator' denominator' =
+  case ratioToDouble 24 (-149) numerator' denominator' of
+    D# value -> F# (double2Float# value)
+
+integerToDouble :: Integer -> Double
+integerToDouble value = ratioDouble value 1
+
+integerToFloat :: Integer -> Float
+integerToFloat value = ratioFloat value 1
+
+-- | The encodeFloat of GHC for Double. GHC rounds a mantissa in the machine
+-- integer range to 53 bits, but it truncates a larger mantissa toward zero.
+-- Then it multiplies by two to the power of the exponent, with one rounding.
+encodeDouble :: Integer -> Int -> Double
+encodeDouble (IS mantissa) exponent' = scaleDouble (D# (int2Double# mantissa)) (clampExponent exponent')
+encodeDouble mantissa exponent' =
+  let extra = integerBitLength (abs mantissa) - 53
+      truncated = mantissa `quot` 2 ^ extra
+   in scaleDouble (D# (int2Double# (integerToInt# truncated))) (clampExponent exponent' + extra)
+
+-- | Limit an exponent so that the scaling stops soon. The limit gives
+-- infinity or zero for each mantissa.
+clampExponent :: Int -> Int
+clampExponent exponent' = max (-2200) (min 2200 exponent')
+
+-- | The encodeFloat of GHC for Float goes through the Double result.
+encodeFloatValue :: Integer -> Int -> Float
+encodeFloatValue mantissa exponent' =
+  case encodeDouble mantissa exponent' of
+    D# value -> F# (double2Float# value)
 
 -- The Fractional, Floating, Real, RealFrac, and RealFloat instances of the
--- floating point types. Truncation goes through the machine integer, so a
--- value outside the Int range wraps; that is a limit of the standin.
+-- floating point types.
 
 instance Fractional Float where
   F# left / F# right = F# (divideFloat# left right)
   recip (F# value) = F# (divideFloat# (int2Float# 1#) value)
-  fromRational value = fromInteger (numerator value) / fromInteger (denominator value)
+  fromRational value = ratioFloat (numerator value) (denominator value)
 
 -- | The 'Float' nearest to a numerator divided by a denominator.
 rationalToFloat :: Integer -> Integer -> Float
-rationalToFloat numerator' denominator' = fromInteger numerator' / fromInteger denominator'
+rationalToFloat = ratioFloat
 
 -- | The 'Double' nearest to a numerator divided by a denominator.
 rationalToDouble :: Integer -> Integer -> Double
-rationalToDouble numerator' denominator' = fromInteger numerator' / fromInteger denominator'
+rationalToDouble = ratioDouble
 
 instance Fractional Double where
   D# left / D# right = D# ((/##) left right)
   recip (D# value) = D# ((/##) (int2Double# 1#) value)
-  fromRational value = fromInteger (numerator value) / fromInteger (denominator value)
+  fromRational value = ratioDouble (numerator value) (denominator value)
 
 instance Floating Float where
   pi = F# (castWord32ToFloat# (wordToWord32# 0x40490FDB##))
@@ -425,7 +528,7 @@ decodeDouble (D# value) =
         True ->
           case isTrue (eqWord# mantissaField 0##) of
             True -> (IS 0#, 0)
-            False -> (signed (word2Int# mantissaField), -1074)
+            False -> normalizeDecoded 4503599627370496 (signed (word2Int# mantissaField), -1074)
         False -> (signed (word2Int# (or# mantissaField 0x10000000000000##)), I# ((-#) exponentField 1075#))
 
 -- | The mantissa and the exponent of a float, like decodeFloat.
@@ -440,8 +543,15 @@ decodeFloatValue (F# value) =
         True ->
           case isTrue (eqWord# mantissaField 0##) of
             True -> (IS 0#, 0)
-            False -> (signed (word2Int# mantissaField), -149)
+            False -> normalizeDecoded 8388608 (signed (word2Int# mantissaField), -149)
         False -> (signed (word2Int# (or# mantissaField 0x800000##)), I# ((-#) exponentField 150#))
+
+-- | Shift a denormalized mantissa up to the given lowest normal mantissa,
+-- like the decodeFloat of GHC.
+normalizeDecoded :: Integer -> (Integer, Int) -> (Integer, Int)
+normalizeDecoded lowest (mantissa, exponent')
+  | abs mantissa < lowest = normalizeDecoded lowest (mantissa * 2, exponent' - 1)
+  | otherwise = (mantissa, exponent')
 
 rationalFromDecoded :: (Integer, Int) -> Rational
 rationalFromDecoded (mantissa, exponent')
@@ -474,11 +584,22 @@ instance Real Float where
 instance Real Double where
   toRational value = rationalFromDecoded (decodeDouble value)
 
+-- | Truncate toward zero. A value outside the machine integer range goes
+-- through the mantissa and the exponent.
 truncateDouble :: Double -> Integer
-truncateDouble (D# value) = IS (double2Int# value)
+truncateDouble whole@(D# value)
+  | abs whole < 4611686018427387904 = IS (double2Int# value)
+  | otherwise = truncateDecoded (decodeDouble whole)
 
 truncateFloat :: Float -> Integer
-truncateFloat (F# value) = IS (float2Int# value)
+truncateFloat whole@(F# value)
+  | abs whole < 4611686018427387904 = IS (float2Int# value)
+  | otherwise = truncateDecoded (decodeFloatValue whole)
+
+truncateDecoded :: (Integer, Int) -> Integer
+truncateDecoded (mantissa, exponent')
+  | exponent' >= 0 = mantissa * 2 ^ exponent'
+  | otherwise = mantissa `quot` 2 ^ negate exponent'
 
 -- | Round half to even, like GHC.
 roundFromTruncation :: (RealFrac a) => (a -> Integer) -> a -> Integer
@@ -536,7 +657,7 @@ instance RealFloat Float where
   floatDigits _ = 24
   floatRange _ = (-125, 128)
   decodeFloat = decodeFloatValue
-  encodeFloat mantissa exponent' = fromInteger mantissa * (2 ^^ exponent')
+  encodeFloat = encodeFloatValue
   exponent value =
     case decodeFloatValue value of
       (mantissa, exponent') -> if mantissa == 0 then 0 else exponent' + floatDigits value
@@ -558,7 +679,7 @@ instance RealFloat Double where
   floatDigits _ = 53
   floatRange _ = (-1021, 1024)
   decodeFloat = decodeDouble
-  encodeFloat mantissa exponent' = fromInteger mantissa * (2 ^^ exponent')
+  encodeFloat = encodeDouble
   exponent value =
     case decodeDouble value of
       (mantissa, exponent') -> if mantissa == 0 then 0 else exponent' + floatDigits value
