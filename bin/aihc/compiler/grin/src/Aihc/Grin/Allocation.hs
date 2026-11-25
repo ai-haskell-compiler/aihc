@@ -128,7 +128,7 @@ storeArguments program
     calls = MonoidMap.fromListWith (flip (<>)) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
     positions :: MonoidMap FunctionName (Map Int GrinNodeTag)
     positions =
-      MonoidMap.fromMap . Map.filter (not . Map.null) $
+      MonoidMap.fromMap $
         Map.fromList
           [ (grinFunctionName function, qualified)
           | function <- functions,
