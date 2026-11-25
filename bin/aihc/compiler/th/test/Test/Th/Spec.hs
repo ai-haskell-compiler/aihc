@@ -637,7 +637,8 @@ spliceModuleTest = do
             spliceRequestSplices = moduleSplices modu,
             spliceRequestOwnResults = [],
             spliceRequestSourceFile = "Main.hs",
-            spliceRequestSpans = []
+            spliceRequestSpans = [],
+            spliceRequestNative = False
           }
   assertEqual
     "one closure for each splice"

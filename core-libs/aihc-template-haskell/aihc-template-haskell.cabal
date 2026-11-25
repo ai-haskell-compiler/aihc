@@ -42,6 +42,18 @@ library
 
   default-language: GHC2021
 
+  -- The main loop of a native splice program. A WebAssembly image gets
+  -- these functions from the driver of the engine.
+  if !os(wasi)
+    exposed-modules: Aihc.TH.NativeEngine
+    c-sources: cbits/aihc_native_engine.c
+    cc-options:
+      -O2
+      -std=c11
+      -Wall
+      -Wextra
+      -Werror
+
 test-suite public-api-fixture
   type: exitcode-stdio-1.0
   main-is: Main.hs
