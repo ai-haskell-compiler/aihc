@@ -237,7 +237,7 @@ await expect("Count.hs prints 2000 lines", result.count, { exitCode: 0, stdout: 
 // With the slow timers of jco, each line took 16 ms and the run took 32 seconds.
 await expect("Count.hs prints its lines in less than 10 seconds", result.countSeconds < 10, true);
 await expect("the browser cache has all the files after the test", result.sizeAfter.missing, 0);
-await expect("the download size is the size of the glue, the compiler, and the linker", result.sizeBefore.total, manifest.files.filter((file) => file.group !== "doc").reduce((sum, file) => sum + file.bytes, 0));
+await expect("the download size is the size of the glue, the compiler, and the linker", result.sizeBefore.total, manifest.files.filter((file) => ["glue", "compiler", "linker"].includes(file.group)).reduce((sum, file) => sum + file.bytes, 0));
 await cleanUp();
 console.log("The smoke test passed.");
 process.exit(0);

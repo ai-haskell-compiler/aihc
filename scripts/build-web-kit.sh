@@ -33,6 +33,7 @@
 # are the cabal builds of exe:aihc and exe:aihc-dev.
 # The helper reads core.bundle.gz for name resolution and type checks.
 # The browser linker reads the runtime objects and core archives.
+# th-image.wasm.gz is the image that runs Template Haskell splices.
 set -euo pipefail
 
 output=""
@@ -144,6 +145,24 @@ echo "=== Compiling the core libraries for the browser linker ==="
 "$aihc" install "$root/core-libs/aihc-base" \
   --immutable --target wasm32-wasip3 --store "$store" \
   --build-root "$work/runtime-build" -O 1
+
+echo "=== Compiling the Template Haskell library ==="
+# The bundle, the browser linker, and the splice image use the same store
+# entries. Thus the facts of the bundle agree with the code of the image.
+"$aihc" install "$root/core-libs/aihc-template-haskell" \
+  --immutable --target wasm32-wasip3 --store "$store" \
+  --build-root "$work/th-build" -O 1
+
+echo "=== Linking the Template Haskell image ==="
+# The image runs the splices of a module in the browser. It is the guest
+# program of Aihc.Wasm.Engine with the core libraries and the Template
+# Haskell library. A splice module loads into the image as a shared module.
+"$aihc" build "$root/bin/aihc/compiler/wasm/runtime/Guest.hs" \
+  -p aihc-template-haskell \
+  --wasm-image --target wasm32-wasip3 --store "$store" \
+  --build-root "$work/th-image-build" -O 1 \
+  --output "$work/th-image.wasm"
+gzip -9 -n -c "$work/th-image.wasm" > "$output/th-image.wasm.gz"
 
 echo "=== Writing the bundle of the core libraries ==="
 "$aihc_dev" play-bundle --store "$store/wasm32-wasip3" --output "$work/core.bundle"
