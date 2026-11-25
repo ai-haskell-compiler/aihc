@@ -4036,8 +4036,11 @@ const AihcResume *aihc_throw_to(AihcCapability *capability, AihcThread *target,
   message->value = (AihcSlot)(uintptr_t)exception;
   message->next = NULL;
   message->epoch = current->wait_epoch;
-  aihc_write_barrier(capability, (AihcValue *)message);
+  /* The top comes first. During a gen2 cycle, the barrier shades the
+     message at once, and the shade deletes a frame that is not the top of
+     the stack of the sender. */
   aihc_stack_note_top(continuation);
+  aihc_write_barrier(capability, (AihcValue *)message);
   aihc_thread_pause(capability, continuation);
   AihcMachine *machine = capability->machine;
   aihc_object_lock(machine);

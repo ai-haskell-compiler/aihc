@@ -225,6 +225,9 @@ Each `AihcThread` has these fields:
   names the frame of the wait. The thread pops that frame, and a different
   stack can take the chunk. Thus each visit of a record deletes a frame that
   is not the top frame of the stack of a thread with the same epoch.
+  Thus a wait notes its frame as the top of the stack before the write
+  barrier of its record. During a gen2 cycle, the barrier visits the record
+  at once.
 - `pending_head` and `pending_tail`: the queue of throwTo messages. A
   message is an MVar waiter record: the sender, its continuation, and the
   exception.

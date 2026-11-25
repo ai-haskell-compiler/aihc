@@ -38,7 +38,7 @@
   # ticker, so they do not run there. stm-retry-timer-wake needs a commit to
   # end an STM wait that has a timer. The wasm32-wasip3 host cannot stop a
   # timer that it started, so that example does not run there either.
-  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "thread-status" "workers"];
+  threadedExampleNames = ["busy-capability" "exceptions-async" "exceptions-async-workers" "fork-race" "no-duplicate" "parallel" "safe-foreign-calls" "stm-retry" "stm-retry-timer-wake" "thread-status" "throwto-during-mark" "workers"];
   # WASI has no call that duplicates a descriptor, so this example does not
   # run on wasm32-wasip3.
   descriptorExampleNames = ["system-io-duplicate"];
