@@ -250,7 +250,7 @@ data SolverConfig = SolverConfig
     -- | The sub-libraries of each package that other packages of the plan
     -- depend on. Their dependencies are dependencies of the package. A
     -- caller gives an empty map, and 'solve' and 'verifySolution' fill it.
-    configSubLibraries :: !(Map PackageName (Set Text)),
+    configSubLibraries :: !(MonoidMap PackageName (Set Text)),
     -- | Give up after this many conflicts. A normal solve resolves a few
     -- conflicts at most, so the limit is a guard against a search that
     -- does not end.
@@ -270,7 +270,7 @@ data Assignment = Assignment
     assignmentDependencies :: !(Map PackageName VersionRange),
     -- | The sub-libraries of other packages that it depends on, after
     -- aliasing.
-    assignmentUsedSubLibraries :: !(Map PackageName (Set Text)),
+    assignmentUsedSubLibraries :: !(MonoidMap PackageName (Set Text)),
     -- | Its sub-libraries that other packages of the plan depend on.
     assignmentSubLibraries :: !(Set Text)
   }
@@ -1423,10 +1423,9 @@ candidateDependencies platform aliases flags demanded root gpd =
 
 -- | The sub-libraries of other packages that a candidate depends on under
 -- one flag assignment, after aliasing.
-usedSubLibraries :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> Map PackageName (Set Text)
+usedSubLibraries :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> MonoidMap PackageName (Set Text)
 usedSubLibraries platform aliases flags demanded root gpd =
-  Map.fromListWith
-    Set.union
+  MonoidMap.fromList
     [ (resolved, Set.singleton library)
     | build <- contributingBuildInfos platform flags demanded root gpd,
       Dependency packageName _ libraries <- dependencies build,
@@ -1441,7 +1440,7 @@ usedSubLibraries platform aliases flags demanded root gpd =
 -- | The sub-libraries of a package that the configuration says other
 -- packages depend on.
 demandedSubLibraries :: SolverConfig -> PackageName -> Set Text
-demandedSubLibraries config name = Map.findWithDefault Set.empty name (configSubLibraries config)
+demandedSubLibraries config name = MonoidMap.get name (configSubLibraries config)
 
 -- | The configuration with the sub-libraries that the packages of a
 -- solution use added, or 'Nothing' when the configuration has them all. A
@@ -1450,11 +1449,10 @@ demandedSubLibraries config name = Map.findWithDefault Set.empty name (configSub
 -- grows and a package has a finite number of sub-libraries, so this ends.
 withUsedSubLibraries :: SolverConfig -> Solution -> Maybe SolverConfig
 withUsedSubLibraries config solution
-  | demanded == configSubLibraries config = Nothing
-  | otherwise = Just config {configSubLibraries = demanded}
+  | used `MonoidMap.isSubmapOf` configSubLibraries config = Nothing
+  | otherwise = Just config {configSubLibraries = configSubLibraries config <> used}
   where
-    used = Map.unionsWith Set.union (map assignmentUsedSubLibraries (Map.elems solution))
-    demanded = Map.unionWith Set.union (configSubLibraries config) used
+    used = foldMap assignmentUsedSubLibraries solution
 
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
