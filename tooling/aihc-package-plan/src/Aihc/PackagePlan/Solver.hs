@@ -1450,10 +1450,9 @@ demandedSubLibraries config name = MonoidMap.get name (configSubLibraries config
 withUsedSubLibraries :: SolverConfig -> Solution -> Maybe SolverConfig
 withUsedSubLibraries config solution
   | used `MonoidMap.isSubmapOf` configSubLibraries config = Nothing
-  | otherwise = Just config {configSubLibraries = demanded}
+  | otherwise = Just config {configSubLibraries = configSubLibraries config <> used}
   where
     used = foldMap assignmentUsedSubLibraries solution
-    demanded = configSubLibraries config <> used
 
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
