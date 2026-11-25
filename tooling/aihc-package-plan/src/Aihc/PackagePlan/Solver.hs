@@ -1453,7 +1453,7 @@ withUsedSubLibraries config solution
   | otherwise = Just config {configSubLibraries = demanded}
   where
     used = foldMap assignmentUsedSubLibraries solution
-    demanded = MonoidMap.unionWith Set.union (configSubLibraries config) used
+    demanded = configSubLibraries config <> used
 
 -- | The build tools the contributing components ask for that the host
 -- cannot run. Tools run on the build host, so they are checked against the
