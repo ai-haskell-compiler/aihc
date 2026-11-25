@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Add new Hackage packages to the survey of docs/hackage-survey.md. The script
 # compiles each new package with GHC first. If GHC compiles it, the script
-# compiles it with aihc too.
+# compiles it with aihc too. Then, the script runs the test suites of the
+# package with GHC, and with aihc when they pass with GHC.
 set -euo pipefail
 
 usage() {
@@ -21,13 +22,25 @@ Usage: scripts/hackage-survey.sh [OPTION]... [PACKAGE]...
   --log-dir DIR   Keep the GHC and aihc logs of each package in DIR
   --timeout SECONDS
                   Stop one compile after SECONDS (default: 1800)
+  --no-tests      Do not run the test suites of the packages
+  --tests-only    Do not survey new packages. Run the test suites of the
+                  packages that compile with aihc and have no test result.
+                  --count and PACKAGE arguments select these packages.
   --help          Show this message
 
 The aihc executable is taken from $AIHC, and defaults to `aihc` on PATH.
-It runs with the GHC runtime options of $AIHC_GHCRTS. GHC and cabal are taken from PATH. The survey file has two tables. The first
-table lists the packages that compile with GHC, with the aihc result. The
-second table lists the packages that do not compile with GHC, with one line
-of the error. A package that is in a table is not compiled again.
+It runs with the GHC runtime options of $AIHC_GHCRTS. GHC and cabal are taken
+from PATH. The survey file has two tables. The first table lists the packages
+that compile with GHC, with the aihc result and the test result. The second
+table lists the packages that do not compile with GHC, with one line of the
+error. A package that is in a table is not compiled again.
+
+The test result is one of these values:
+  pass      All test suites pass with GHC and with aihc.
+  fail      All test suites pass with GHC, and a test suite fails with aihc.
+  ghc fail  A test suite fails with GHC, so aihc does not run them.
+  none      The package has no test suite.
+  -         The script did not run the test suites.
 USAGE
 }
 
@@ -38,6 +51,8 @@ level="0"
 store=""
 log_dir=""
 compile_timeout="1800"
+run_tests="yes"
+tests_only="no"
 requested=()
 
 while [ "$#" -gt 0 ]; do
@@ -73,6 +88,14 @@ while [ "$#" -gt 0 ]; do
 	--timeout)
 		compile_timeout="${2:?--timeout needs a number of seconds}"
 		shift 2
+		;;
+	--no-tests)
+		run_tests="no"
+		shift
+		;;
+	--tests-only)
+		tests_only="yes"
+		shift
 		;;
 	--help)
 		usage
@@ -120,7 +143,8 @@ fi
 mkdir -p "$store"
 
 # The rows of the two tables, as tab separated lines. The GHC table has the
-# columns "name version aihc error". The other table has "name version error".
+# columns "name version aihc tests error". The other table has
+# "name version error".
 ghc_rows="$work_directory/ghc.tsv"
 no_ghc_rows="$work_directory/no-ghc.tsv"
 : >"$ghc_rows"
@@ -128,7 +152,9 @@ no_ghc_rows="$work_directory/no-ghc.tsv"
 
 # Read the rows of each table of the survey. The heading before a table tells
 # which table it is. The header row and its separator are not rows. An
-# escaped "\|" in an error is not a column separator.
+# escaped "\|" in an error is not a column separator. A GHC table without a
+# Tests column comes from an older script, and its rows get the test
+# result "-".
 if [ -f "$output" ]; then
 	awk -v ghc="$ghc_rows" -v no_ghc="$no_ghc_rows" '
 		function trim(s) {
@@ -155,13 +181,15 @@ if [ -f "$output" ]; then
 			next
 		}
 		/^\|/ && table != "" {
-			split_row($0, cell)
+			n = split_row($0, cell)
 			name = trim(cell[2])
 			if (name == "Package" || name ~ /^-+$/) {
 				next
 			}
-			if (table == ghc) {
-				print name "\t" trim(cell[3]) "\t" trim(cell[4]) "\t" trim(cell[5]) >>table
+			if (table == ghc && n >= 7) {
+				print name "\t" trim(cell[3]) "\t" trim(cell[4]) "\t" trim(cell[5]) "\t" trim(cell[6]) >>table
+			} else if (table == ghc) {
+				print name "\t" trim(cell[3]) "\t" trim(cell[4]) "\t-\t" trim(cell[5]) >>table
 			} else {
 				print name "\t" trim(cell[3]) "\t" trim(cell[4]) >>table
 			}
@@ -179,7 +207,34 @@ ghc_only_packages=" base ghc ghc-bignum ghc-boot ghc-boot-th ghc-experimental gh
 
 # The packages to survey, one "name" or "name-version" per line.
 packages=()
-if [ "${#requested[@]}" -gt 0 ]; then
+if [ "$tests_only" = "yes" ]; then
+	if [ "$run_tests" = "no" ]; then
+		echo "--tests-only and --no-tests do not agree." >&2
+		exit 2
+	fi
+	# The packages that compile with aihc and have no test result. A
+	# PACKAGE argument selects its row. The table gives the version.
+	while IFS=$'\t' read -r name version aihc_status tests _; do
+		if [ "${#requested[@]}" -eq 0 ] && [ "${#packages[@]}" -ge "$count" ]; then
+			break
+		fi
+		if [ "$aihc_status" != "pass" ] || [ "$tests" != "-" ]; then
+			continue
+		fi
+		if [ "${#requested[@]}" -gt 0 ]; then
+			selected="no"
+			for package in "${requested[@]}"; do
+				if [ "$(sed -E 's/-[0-9]+(\.[0-9]+)*$//' <<<"$package")" = "$name" ]; then
+					selected="yes"
+				fi
+			done
+			if [ "$selected" = "no" ]; then
+				continue
+			fi
+		fi
+		packages+=("$name-$version")
+	done <"$ghc_rows"
+elif [ "${#requested[@]}" -gt 0 ]; then
 	for package in "${requested[@]}"; do
 		name="$(sed -E 's/-[0-9]+(\.[0-9]+)*$//' <<<"$package")"
 		if is_known "$name"; then
@@ -208,6 +263,10 @@ else
 fi
 
 if [ "${#packages[@]}" -eq 0 ]; then
+	if [ "$tests_only" = "yes" ]; then
+		echo "No packages without a test result to test."
+		exit 0
+	fi
 	echo "No new packages to survey."
 	exit 0
 fi
@@ -325,8 +384,92 @@ if [ "${#shipped_constraints[@]}" -eq 0 ]; then
 	exit 1
 fi
 
-# Compile one package with GHC and then with aihc, and add its row to the
-# table that gives its result.
+# Put a row in the GHC table in place of the old row of the same package.
+# The arguments are the columns: name, version, aihc, tests and error.
+set_ghc_row() {
+	awk -F'\t' -v name="$1" '$1 != name' "$ghc_rows" >"$ghc_rows.new"
+	mv "$ghc_rows.new" "$ghc_rows"
+	printf '%s\t%s\t%s\t%s\t%s\n' "$@" >>"$ghc_rows"
+}
+
+# Tell whether the Cabal file in the directory $1 has a test suite.
+has_test_suite() {
+	grep -Eqi '^[[:space:]]*test-suite[[:space:]]' "$1"/*.cabal
+}
+
+# One short line that tells why the test suites failed with aihc. When a test
+# suite ran and failed, the line names it. Otherwise, the build failed, and the
+# line is the reason of failure_reason.
+test_failure_reason() {
+	local status="$1"
+	local log="$2"
+	local line
+	if [ "$status" -ne 124 ]; then
+		line="$(grep -m1 -E '^Test suite .*: FAIL' "$log" || true)"
+		if [ -n "$line" ]; then
+			printf '%s\n' "$line" | cut -c1-160 | sed 's/|/\\|/g'
+			return
+		fi
+	fi
+	failure_reason "$status" "$log"
+}
+
+# Run the test suites of a package with GHC and then with aihc. The
+# arguments are the name, the version and the source directory. The function
+# sets tests to the test result and test_error to the reason of a failure
+# with aihc. aihc runs the test suites only when they pass with GHC, because
+# a failure with GHC does not tell about aihc.
+test_package() {
+	local name="$1"
+	local version="$2"
+	local source_directory="$3"
+	local status ghc_test_log aihc_test_log
+	tests="-"
+	test_error=""
+	if [ "$run_tests" = "no" ]; then
+		return
+	fi
+	if ! has_test_suite "$source_directory"; then
+		echo "  $name-$version has no test suite"
+		tests="none"
+		return
+	fi
+	ghc_test_log="$log_dir/$name.ghc-test.log"
+	aihc_test_log="$log_dir/$name.aihc-test.log"
+
+	echo "Running the test suites of $name-$version with GHC"
+	status=0
+	(cd "$source_directory" && run_with_timeout cabal test -v1 \
+		--enable-tests --disable-benchmarks --disable-documentation \
+		"${shipped_constraints[@]}") \
+		>"$ghc_test_log" 2>&1 || status=$?
+	if [ "$status" -ne 0 ]; then
+		echo "  failed, last lines of the log:"
+		tail -n 10 "$ghc_test_log" | sed 's/^/  /'
+		tests="ghc fail"
+		return
+	fi
+	echo "  ok"
+
+	echo "Running the test suites of $name-$version with aihc"
+	status=0
+	GHCRTS="${AIHC_GHCRTS:-}" run_with_timeout "$aihc" test "$source_directory" --ignore-project \
+		--store "$store" --lint --target "$target" -O "$level" \
+		>"$aihc_test_log" 2>&1 || status=$?
+	if [ "$status" -eq 0 ]; then
+		echo "  ok"
+		tests="pass"
+	else
+		echo "  failed, last lines of the log:"
+		tail -n 10 "$aihc_test_log" | sed 's/^/  /'
+		tests="fail"
+		test_error="$(test_failure_reason "$status" "$aihc_test_log")"
+	fi
+}
+
+# Compile one package with GHC and then with aihc, run its test suites, and
+# add its row to the table that gives its result. With --tests-only, the
+# package is in the GHC table, and only its test result changes.
 survey_package() {
 	local package="$1"
 	local name version status source_directory ghc_log aihc_log
@@ -339,16 +482,27 @@ survey_package() {
 	if ! cabal get "$package" --destdir "$sources" >>"$ghc_log" 2>&1; then
 		echo "  failed to fetch:"
 		tail -n 5 "$ghc_log" | sed 's/^/  /'
-		printf '%s\t%s\t%s\n' "$name" "-" "$(failure_reason 1 "$ghc_log")" >>"$no_ghc_rows"
+		if [ "$tests_only" = "no" ]; then
+			printf '%s\t%s\t%s\n' "$name" "-" "$(failure_reason 1 "$ghc_log")" >>"$no_ghc_rows"
+		fi
 		return
 	fi
 	source_directory="$(find "$sources" -mindepth 1 -maxdepth 1 -type d -name "$name-[0-9]*" | head -n 1)"
 	if [ -z "$source_directory" ]; then
 		echo "  failed to fetch: no $name directory after cabal get"
-		printf '%s\t%s\t%s\n' "$name" "-" "no $name directory after cabal get" >>"$no_ghc_rows"
+		if [ "$tests_only" = "no" ]; then
+			printf '%s\t%s\t%s\n' "$name" "-" "no $name directory after cabal get" >>"$no_ghc_rows"
+		fi
 		return
 	fi
 	version="${source_directory##*/"$name"-}"
+
+	if [ "$tests_only" = "yes" ]; then
+		test_package "$name" "$version" "$source_directory"
+		set_ghc_row "$name" "$version" "pass" "$tests" "$test_error"
+		rm -rf "$source_directory"
+		return
+	fi
 
 	echo "Compiling $name-$version with GHC"
 	status=0
@@ -364,7 +518,6 @@ survey_package() {
 		return
 	fi
 	echo "  ok"
-	rm -rf "$source_directory"
 
 	echo "Compiling $name-$version with aihc"
 	status=0
@@ -374,25 +527,32 @@ survey_package() {
 	GHCRTS="${AIHC_GHCRTS:-}" run_with_timeout "$aihc" install "$name-$version" --ignore-project \
 		--store "$store" --lint --target "$target" -O "$level" \
 		>"$aihc_log" 2>&1 || status=$?
-	if [ "$status" -eq 0 ]; then
-		echo "  ok"
-		printf '%s\t%s\tpass\t\n' "$name" "$version" >>"$ghc_rows"
-	else
+	if [ "$status" -ne 0 ]; then
 		echo "  failed, last lines of the log:"
 		tail -n 10 "$aihc_log" | sed 's/^/  /'
-		printf '%s\t%s\tfail\t%s\n' "$name" "$version" "$(failure_reason "$status" "$aihc_log")" >>"$ghc_rows"
+		set_ghc_row "$name" "$version" "fail" "-" "$(failure_reason "$status" "$aihc_log")"
+		rm -rf "$source_directory"
+		return
 	fi
+	echo "  ok"
+
+	test_package "$name" "$version" "$source_directory"
+	set_ghc_row "$name" "$version" "pass" "$tests" "$test_error"
+	rm -rf "$source_directory"
 }
 
 # Sort the rows of each table by package name and write the survey file.
 write_survey() {
-	local name version aihc_status error
+	local name version aihc_status tests error
 	sort -t$'\t' -k1,1 -o "$ghc_rows" "$ghc_rows"
 	sort -t$'\t' -k1,1 -o "$no_ghc_rows" "$no_ghc_rows"
 
 	ghc_count="$(wc -l <"$ghc_rows" | tr -d ' ')"
 	aihc_count="$(awk -F'\t' '$3 == "pass"' "$ghc_rows" | wc -l | tr -d ' ')"
 	no_ghc_count="$(wc -l <"$no_ghc_rows" | tr -d ' ')"
+	test_pass_count="$(awk -F'\t' '$4 == "pass"' "$ghc_rows" | wc -l | tr -d ' ')"
+	test_fail_count="$(awk -F'\t' '$4 == "fail"' "$ghc_rows" | wc -l | tr -d ' ')"
+	test_ghc_fail_count="$(awk -F'\t' '$4 == "ghc fail"' "$ghc_rows" | wc -l | tr -d ' ')"
 
 	mkdir -p "$(dirname "$output")"
 	{
@@ -404,12 +564,23 @@ write_survey() {
 	On each run, the script takes the most downloaded Hackage packages that are
 	not in the tables. For each new package, the script compiles the latest
 	release with `cabal build` and GHC. If GHC compiles it, the script compiles
-	the same release with `aihc install NAME-VERSION --lint`.
+	the same release with `aihc install NAME-VERSION --lint`. Then, the script
+	runs the test suites of the release with `cabal test`. If they pass with
+	GHC, the script runs them with `aihc test DIR --lint`.
+
+	The Tests column gives one of these values:
+
+	- `pass`: all test suites pass with GHC and with aihc.
+	- `fail`: all test suites pass with GHC, and a test suite fails with aihc.
+	- `ghc fail`: a test suite fails with GHC, and aihc does not run them.
+	- `none`: the package has no test suite.
+	- `-`: the script did not run the test suites.
 
 	Run the script with `nix run .#hackage-survey`. Give the names of packages
 	as arguments to survey those packages instead of the download list.
 	The script does not compile a package that is in a table again. To compile
-	a package again, remove its row.
+	a package again, remove its row. To run only the test suites of the
+	packages with the Tests value `-`, give the option `--tests-only`.
 
 	HEADER
 		echo "## Summary"
@@ -417,13 +588,16 @@ write_survey() {
 		echo "- Packages that compile with GHC: $ghc_count"
 		echo "- Packages that compile with aihc: $aihc_count"
 		echo "- Packages that do not compile with GHC: $no_ghc_count"
+		echo "- Packages whose test suites pass with aihc: $test_pass_count"
+		echo "- Packages whose test suites fail with aihc: $test_fail_count"
+		echo "- Packages whose test suites fail with GHC: $test_ghc_fail_count"
 		echo
 		echo "## Packages that compile with GHC"
 		echo
-		echo "| Package | Version | AIHC | Error |"
-		echo "| ------- | ------- | ---- | ----- |"
-		while IFS=$'\t' read -r name version aihc_status error; do
-			echo "| $name | $version | $aihc_status | $error |"
+		echo "| Package | Version | AIHC | Tests | Error |"
+		echo "| ------- | ------- | ---- | ----- | ----- |"
+		while IFS=$'\t' read -r name version aihc_status tests error; do
+			echo "| $name | $version | $aihc_status | $tests | $error |"
 		done <"$ghc_rows"
 		echo
 		echo "## Packages that do not compile with GHC"
@@ -442,4 +616,4 @@ for package in "${packages[@]}"; do
 	write_survey
 done
 
-echo "Wrote $output. GHC pass: $ghc_count. aihc pass: $aihc_count. GHC fail: $no_ghc_count."
+echo "Wrote $output. GHC pass: $ghc_count. aihc pass: $aihc_count. GHC fail: $no_ghc_count. Tests pass with aihc: $test_pass_count."
