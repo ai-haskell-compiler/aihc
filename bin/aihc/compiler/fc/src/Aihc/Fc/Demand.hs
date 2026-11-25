@@ -397,9 +397,14 @@ takenApart env0 name con = go env0 (Set.singleton name)
     goCall env aliases expr =
       let (function, arguments) = castedSpine expr
           values = rights arguments
+          -- The signature of a local function is lazy, and its computation
+          -- walks the body of the function again. The test of the
+          -- arguments comes first, so that a call without the variable
+          -- does not compute the signature.
           given = case function of
             ExVar callee
-              | Just signature <- Map.lookup callee (envSignatures env),
+              | any (isAlias aliases) values,
+                Just signature <- Map.lookup callee (envSignatures env),
                 length values >= length (signatureDemands signature) ->
                   or [isProduct demand && isAlias aliases value | (value, demand) <- zip values (signatureDemands signature)]
             _ -> False
