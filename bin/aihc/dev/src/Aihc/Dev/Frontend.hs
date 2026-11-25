@@ -213,6 +213,7 @@ runFrontend options = do
             compileProgress = quietProgress stderr,
             compileObserver = Nothing,
             compileSplices = Nothing,
+            compileNativeSplicePackages = [],
             compileNativeSplices = False
           }
   (_, totals) <-

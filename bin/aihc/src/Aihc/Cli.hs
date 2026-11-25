@@ -7,14 +7,15 @@ where
 import Aihc.Cli.Build (runBuildWith)
 import Aihc.Cli.Install (runInstallWith)
 import Aihc.Cli.Link (runLinkExe)
-import Aihc.Cli.Options (Command (..), SpliceMode (..), parseCommandIO)
+import Aihc.Cli.Options (Command (..), NativeSplicePackage, parseCommandIO)
 import Aihc.Cli.Plan (runPlan)
 import Aihc.Cli.Repl (runReplWith)
-import Aihc.Cli.Splice (withSplices, withSplicesFor)
+import Aihc.Cli.Splice (withNativeSplices, withSplices)
 import Aihc.Cli.Test (runTest)
+import Aihc.Hackage.Package (showVersion, unPackageName)
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Exception (IOException, displayException, try)
-import Control.Monad (void, when)
+import Control.Monad (forM_, void)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (hPutStrLn, stderr)
 import System.Posix.Signals (Handler (..), installHandler, sigTERM)
@@ -40,15 +41,15 @@ stopOnTerminate = do
   void (installHandler sigTERM (Catch (throwTo mainThread (ExitFailure 143))) Nothing)
 
 runCommand :: Command -> IO ()
-runCommand (CmdBuild mode opts) = warnNativeSplices mode >> runBuildWith (withSplicesFor mode) opts
-runCommand (CmdInstall mode opts) = warnNativeSplices mode >> runInstallWith (withSplicesFor mode) opts
+runCommand (CmdBuild packages opts) = warnNativeSplices packages >> runBuildWith (withNativeSplices packages) opts
+runCommand (CmdInstall packages opts) = warnNativeSplices packages >> runInstallWith (withNativeSplices packages) opts
 runCommand (CmdLinkExe opts) = runLinkExe opts
 runCommand (CmdPlan opts) = runPlan opts
 runCommand (CmdRepl opts) = runReplWith withSplices opts
 runCommand (CmdTest opts) = runTest opts
 
--- | Tell the user that the splices have no sandbox.
-warnNativeSplices :: SpliceMode -> IO ()
-warnNativeSplices mode =
-  when (mode == NativeSplices) $
-    hPutStrLn stderr "warning: --unsafe-disable-th-sandbox runs Template Haskell splices as native code with all the access of the user. Use it only for packages that you trust."
+-- | Tell the user that the splices of the packages have no sandbox.
+warnNativeSplices :: [NativeSplicePackage] -> IO ()
+warnNativeSplices packages =
+  forM_ packages $ \(name, version) ->
+    hPutStrLn stderr ("warning: --unsafe-disable-th-sandbox runs the Template Haskell splices of " <> unPackageName name <> maybe "" (("-" <>) . showVersion) version <> " as native code with all the access of the user. Use it only for packages that you trust.")

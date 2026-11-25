@@ -144,7 +144,7 @@ import Aihc.Fc.Imports (declTopReferences)
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cpp (cabalMacrosHeader)
-import Aihc.Hackage.Package (Arch, OS, buildArch, buildOS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
+import Aihc.Hackage.Package (Arch, OS, PackageName, Version, buildArch, buildOS, mkPackageName, packageNameOf, parsePackageIdentifier, parseVersionString, showVersion, unFlagAssignment, unFlagName, unPackageName)
 import Aihc.Hackage.Package qualified as HackagePackage
 import Aihc.Hackage.Preprocessor (Preprocessor (..), c2hsImports, preprocessorEnvironmentVariable, preprocessorToolName)
 import Aihc.Hackage.Source (HackageSource)
@@ -578,10 +578,14 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- order and gives the module with their results. "Aihc.Cli.Splice"
     -- supplies it. Without it, the build does not run splices.
     compileSplices :: !(Maybe (SpliceRequest -> (RunSplice -> IO Module) -> IO Module)),
-    -- | The splices run in a native program with no sandbox
-    -- (@--unsafe-disable-th-sandbox@). Such a splice can give a result that
-    -- the sandbox does not allow, so the packages get store keys of their
-    -- own.
+    -- | The packages whose splices run in a native program with no
+    -- sandbox (@--unsafe-disable-th-sandbox@). A package without a version
+    -- names each version.
+    compileNativeSplicePackages :: ![(PackageName, Maybe Version)],
+    -- | The splices of this package run with no sandbox. Such a splice can
+    -- give a result that the sandbox does not allow, so the package gets a
+    -- store key of its own. 'slotConfig' sets it from
+    -- 'compileNativeSplicePackages'.
     compileNativeSplices :: !Bool
   }
 
@@ -811,6 +815,7 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileProgress = quietProgress stdout,
         compileObserver = Nothing,
         compileSplices = Nothing,
+        compileNativeSplicePackages = [],
         compileNativeSplices = False
       }
 
@@ -1167,9 +1172,22 @@ installGraph config locations plans components = do
 
 -- | The config a package of the graph compiles with.
 slotConfig :: InstallShared -> PackageSlot -> ModuleCompileConfig
-slotConfig shared slot
-  | slotRoot slot = sharedConfig shared
-  | otherwise = dependencyCompileConfig (sharedConfig shared)
+slotConfig shared slot =
+  selectNativeSplices (planName plan) (Just (Cabal.packageVersion (planDescription plan))) $
+    if slotRoot slot
+      then sharedConfig shared
+      else dependencyCompileConfig (sharedConfig shared)
+  where
+    plan = slotPlan slot
+
+-- | Set 'compileNativeSplices' for the package with the name and the
+-- version. An executable has no version, so only a name without a version
+-- selects it.
+selectNativeSplices :: PackageName -> Maybe Version -> ModuleCompileConfig -> ModuleCompileConfig
+selectNativeSplices name version config =
+  config {compileNativeSplices = any selects (compileNativeSplicePackages config)}
+  where
+    selects (selected, selectedVersion) = selected == name && maybe True ((== version) . Just) selectedVersion
 
 -- | The slot of a package, made after the slots of its dependencies, with
 -- its prepare task in the graph.
@@ -1286,8 +1304,14 @@ executableSlot shared graph order (component, dependencies) = do
 -- it, as the packages of an install see their dependencies.
 prepareExecutable :: InstallShared -> TaskGraph -> ExecutableSlot -> IO ()
 prepareExecutable shared graph slot = do
-  let config = sharedConfig shared
-      component = executableSlotComponent slot
+  let component = executableSlotComponent slot
+      -- The user names an executable as the progress names it. Each
+      -- main module has the package name @exe@, so that name is not useful.
+      executableName = case componentItem component of
+        ItemExecutable name -> name
+        ItemTestSuite name -> name
+        ItemPackage name -> name
+      config = selectNativeSplices (mkPackageName (T.unpack executableName)) Nothing (sharedConfig shared)
       closure = executableSlotClosure slot
       package = componentPackage component
       outputRoot = componentOutputRoot component
@@ -2088,7 +2112,8 @@ moduleSpliceRequest shared build file source =
                   spliceRequestUnavailableImports = [],
                   spliceRequestSplices = [],
                   spliceRequestSourceFile = makeRelative (moduleBuildPackageRoot build) (HackageCabal.fileInfoPath file),
-                  spliceRequestSpans = []
+                  spliceRequestSpans = [],
+                  spliceRequestNative = compileNativeSplices (moduleBuildConfig build)
                 }
     _ -> pure Nothing
   where

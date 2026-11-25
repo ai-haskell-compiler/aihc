@@ -17,6 +17,7 @@ import Aihc.Cli.Test (TestSuiteResult (..), buildTests, renderTestSummary, runTe
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Package (mkPackageName)
 import Aihc.Hackage.Release (BootLibrary (..), emulatedGhc, lookupBootLibrary)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), PositionIndependence (..), backendArchiver, backendCompiler, executableLinkArguments, hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.PackagePlan (CoreProvider (..), coreProviderSourcePath, coreProviders)
@@ -804,9 +805,9 @@ test_buildSplices getStore getEngineStore = do
       assertEqual "stdout" "42\n-6\nababab\n4\n10\n42\n0\n('a',[1,2])\n42\n-5\nnegate Maybe\n7\n1\n2 Left/1 Right/1 True Maybe Char\n[\"Circle\",\"Square\"]\nCircle 3\n2\n(True,False,False)\nLamE [VarP x] (TupE [Just (VarE x),Just (LitE (CharL 'c')),Just (LitE (StringL \"s\"))])\nLamE [VarP y] (VarE y)\nCaseE (UnboundVarE _) [Match (LitP (StringL \"a\")) (NormalB (UnboundVarE missing)) [],Match WildP (NormalB (LitE (CharL 'c'))) []]\nUnboundVarE Missing\n7\nCircle Square\nFast Slow\nTrue\nTrue\n([PhantomR,RepresentationalR],[RepresentationalR])\n([DecidedStrict,DecidedLazy,DecidedUnpack],[DecidedLazy])\n(Just (Fixity 6 InfixR),Just (Fixity 5 InfixR),Nothing)\n(0,2,2,True)\n(4,\"4\")\nTrue\nTrue\nTrue\nTrue\n-9223372036854775808\nProxy\nProxy\nShape\n42\nCircle 7\n9\n1\n5\n1\n2\nLamE [VarP z] (TupE [Just (AppE (VarE f) (LitE (StringL \"s\"))),Nothing])\n(True,True)\nMain.hs Main (366,12) (366,177)\n(True,1,[(\"FamInt\",2)])\n42\n(1,5)\nTrue\n(2,True)\n[1,2,255]\n(True,True,True,Nothing)\n(Nothing,Just 'j',Left 3)\n0.5\n0.25\n(True,False)\nTrue\n(-37,42)\nColour!\n42\n5\np\n\"\"\n" out
       assertEqual "stderr" "" err
 
--- | With @--unsafe-disable-th-sandbox@, a build runs the splices of a
--- program in a native program for the host, not in the WebAssembly
--- engine. The splices thus have the word size of the host. The output of
+-- | With @--unsafe-disable-th-sandbox=program@, a build runs the splices
+-- of the executable @program@ in a native program for the host, not in the
+-- WebAssembly engine. The splices thus have the word size of the host. The output of
 -- a splice does not go into the protocol of the engine. The test needs no
 -- WebAssembly tools.
 test_buildNativeSplices :: IO SeedStore -> Assertion
@@ -823,7 +824,7 @@ test_buildNativeSplices getStore =
             buildPackageConstraints = buildPackageConstraints options <> ["template-haskell"],
             buildOutput = Just output
           }
-        withNativeSplices
+        (withNativeSplices [(mkPackageName "program", Nothing)])
     (status, out, err) <- readProcessWithExitCode output [] ""
     assertEqual "exit status" ExitSuccess status
     assertEqual "stdout" "64\n3\n" out

@@ -32,9 +32,9 @@
 -- artifacts of the packages that the splice package depends on, in the
 -- store.
 --
--- With @--unsafe-disable-th-sandbox@, the splices run in a native program
--- with no sandbox, not in the WebAssembly engine. 'withNativeSplices' sets
--- this. The splice package then also has an executable, which gives the
+-- The user can trust a package with @--unsafe-disable-th-sandbox=PACKAGE@.
+-- The splices of that package then run in a native program with no
+-- sandbox, not in the WebAssembly engine. 'withNativeSplices' sets this. The splice package then also has an executable, which gives the
 -- closures of the splices to "Aihc.TH.NativeEngine". The build installs the
 -- package and builds the executable for a native target, with the same
 -- store as the build of the module. Thus, the packages that the module
@@ -44,7 +44,6 @@
 module Aihc.Cli.Splice
   ( withSplices,
     withNativeSplices,
-    withSplicesFor,
     runSplices,
   )
 where
@@ -52,11 +51,12 @@ where
 import Aihc.Cli.Build (buildWithConfig)
 import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
 import Aihc.Cli.ModuleProvider (moduleNameDirectory, readTypeArtifactFile)
-import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), SpliceMode (..), defaultPlanOptions)
+import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), defaultPlanOptions)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.Progress (quietProgress)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..))
+import Aihc.Hackage.Package (PackageName, Version)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (OperatorFixity)
@@ -90,24 +90,28 @@ import System.IO.Error (ioeGetErrorString, isUserError)
 -- that 'runSplices' starts do the same, so a package of the image can also
 -- have splices.
 withSplices :: ModuleCompileConfig -> ModuleCompileConfig
-withSplices = spliceConfig WasmEngine Nothing
+withSplices = withNativeSplices []
 
--- | 'withSplices' with a native program with no sandbox in place of the
--- WebAssembly engine. The program is for the target of the build if the
--- host can run that target. Otherwise, it is for the target of the host.
-withNativeSplices :: ModuleCompileConfig -> ModuleCompileConfig
-withNativeSplices config =
-  case nativeEngineTarget (compileTarget config) of
-    Just target -> spliceConfig (NativeEngine target) Nothing config
-    -- The build fails at the first module with a splice.
-    Nothing -> config {compileSplices = Just (\_ _ -> ioError (userError "--unsafe-disable-th-sandbox needs a native target for this host, and aihc does not support this host")), compileNativeSplices = True}
+-- | 'withSplices' that runs the splices of the packages in the list in a
+-- native program with no sandbox, in place of the WebAssembly engine. A
+-- package without a version names each version. The program is for the
+-- target of the build if the host can run that target. Otherwise, it is
+-- for the target of the host.
+withNativeSplices :: [(PackageName, Maybe Version)] -> ModuleCompileConfig -> ModuleCompileConfig
+withNativeSplices packages config =
+  spliceConfig
+    SpliceSettings {settingsNativeTarget = nativeEngineTarget (compileTarget config), settingsNativePackages = packages}
+    Nothing
+    config
 
--- | 'withSplices' or 'withNativeSplices', as the mode tells.
-withSplicesFor :: SpliceMode -> ModuleCompileConfig -> ModuleCompileConfig
-withSplicesFor mode =
-  case mode of
-    SandboxedSplices -> withSplices
-    NativeSplices -> withNativeSplices
+-- | What the builds that run splices have in common: the packages whose
+-- splices run as native code, and the target of that code.
+data SpliceSettings = SpliceSettings
+  { -- | The target of the native program. A host that aihc does not
+    -- support has no target.
+    settingsNativeTarget :: !(Maybe NativeTarget),
+    settingsNativePackages :: ![(PackageName, Maybe Version)]
+  }
 
 -- | Where the splices of a module run.
 data SpliceEngine
@@ -132,22 +136,20 @@ engineTarget engine =
     WasmEngine -> Wasm32Wasip3
     NativeEngine target -> target
 
--- | Make a build run splices in the engine. A splice package of the origin
--- gets the results of the build of the original package.
-spliceConfig :: SpliceEngine -> Maybe SpliceOrigin -> ModuleCompileConfig -> ModuleCompileConfig
-spliceConfig engine origin config =
+-- | Make a build run splices with the settings. A splice package of the
+-- origin gets the results of the build of the original package.
+spliceConfig :: SpliceSettings -> Maybe SpliceOrigin -> ModuleCompileConfig -> ModuleCompileConfig
+spliceConfig settings origin config =
   config
-    { compileSplices = Just (runSplicesFor engine origin),
-      compileNativeSplices = case engine of
-        WasmEngine -> False
-        NativeEngine _ -> True
+    { compileSplices = Just (runSplicesFor settings origin),
+      compileNativeSplicePackages = settingsNativePackages settings
     }
 
 -- | Prepare the splices of a request, and give a function that runs one
 -- splice to the action. The action runs the splices in the order of the
 -- request.
 runSplices :: SpliceRequest -> (RunSplice -> IO a) -> IO a
-runSplices = runSplicesFor WasmEngine Nothing
+runSplices = runSplicesFor SpliceSettings {settingsNativeTarget = Nothing, settingsNativePackages = []} Nothing
 
 -- | The original package of a splice package. The splice package has
 -- copies of modules of the original package.
@@ -161,7 +163,10 @@ data SpliceOrigin = SpliceOrigin
     originPackageId :: !Text,
     -- | The file with the splice results of each copied module that has
     -- splices, from the build of the original package.
-    originResults :: !(Map Text FilePath)
+    originResults :: !(Map Text FilePath),
+    -- | The engine of the original package. A copy runs its splices in the
+    -- same engine.
+    originEngine :: !SpliceEngine
   }
 
 -- | 'runSplices' for the build of a splice package. A request of the
@@ -169,8 +174,8 @@ data SpliceOrigin = SpliceOrigin
 -- of the original package ran the splices of the module, the copy gets
 -- the same results. Thus, the copy does not make a splice package of its
 -- own, and splice packages do not go in each other.
-runSplicesFor :: SpliceEngine -> Maybe SpliceOrigin -> SpliceRequest -> (RunSplice -> IO a) -> IO a
-runSplicesFor engine origin given action =
+runSplicesFor :: SpliceSettings -> Maybe SpliceOrigin -> SpliceRequest -> (RunSplice -> IO a) -> IO a
+runSplicesFor settings origin given action =
   run `catch` \failure ->
     ioError (userError ("Template Haskell failed in module " <> T.unpack (spliceRequestModule request) <> ": " <> describeFailure failure <> unavailableNote))
   where
@@ -178,6 +183,14 @@ runSplicesFor engine origin given action =
       Just found | spliceRequestPackage given == originSplicePackage found -> Just found
       _ -> Nothing
     request = maybe given (\found -> given {spliceRequestPackageRoot = originPackageRoot found}) ownOrigin
+    -- The engine of the request: the engine of the original package for a
+    -- copy, and a native program for a package that the user trusts.
+    chosenEngine =
+      case ownOrigin of
+        Just found -> Right (originEngine found)
+        Nothing
+          | spliceRequestNative request -> maybe (Left "--unsafe-disable-th-sandbox needs a native target for this host, and aihc does not support this host") (Right . NativeEngine) (settingsNativeTarget settings)
+          | otherwise -> Right WasmEngine
     root = spliceRequestBuildRoot request
     resultsPath = spliceResultsPath request
     -- A splice cannot use a module of the same dependency cycle. A failure
@@ -218,6 +231,7 @@ runSplicesFor engine origin given action =
     spliceAt index =
       maybe (ioError (userError ("The request has no splice " <> show index <> "."))) pure (lookup index (zip [0 ..] (spliceRequestSplices request)))
     runEngine results = do
+      engine <- either (ioError . userError) pure chosenEngine
       absolute <- absoluteRequest request
       createDirectoryIfMissing True (packageDirectory </> "src")
       writeFile (packageDirectory </> T.unpack package <> ".cabal") (splicePackageDescription engine absolute)
@@ -234,16 +248,17 @@ runSplicesFor engine origin given action =
               { originSplicePackage = package,
                 originPackageRoot = packageRoot,
                 originPackageId = spliceRequestPackageId request,
-                originResults = Map.fromList (spliceRequestOwnResults absolute)
+                originResults = Map.fromList (spliceRequestOwnResults absolute),
+                originEngine = engine
               }
-          withOriginalFiles = spliceConfig engine (Just nested)
+          withOriginalFiles = spliceConfig settings (Just nested)
       installed <- installWithConfig (quietProgress stdout) (packageOptions engine request packageDirectory) withOriginalFiles
       packages <- packageDirectories (spliceRequestStoreRoot request </> nativeTargetStoreDirectory (engineTarget engine)) (installStorePath installed)
       storeFacts <- newReifier (Map.map snd packages)
       storeFixity <- newFixityReader (Map.map snd packages)
       let fromGuest = fromSplice packageIds (primPackageId packages)
           toGuest = toSplice packageIds
-      withSpliceEngine engine request packageDirectory packageRoot installed withOriginalFiles $ \runIndex ->
+      withSpliceEngine engine settings request packageDirectory packageRoot installed withOriginalFiles $ \runIndex ->
         action $ \index lookupName localFacts localFixity -> do
           splice <- spliceAt index
           let reify answer global = localFacts answer global >>= maybe (storeFacts answer global) pure
@@ -275,6 +290,7 @@ runSplicesFor engine origin given action =
 -- original package.
 withSpliceEngine ::
   SpliceEngine ->
+  SpliceSettings ->
   SpliceRequest ->
   FilePath ->
   FilePath ->
@@ -282,10 +298,10 @@ withSpliceEngine ::
   (ModuleCompileConfig -> ModuleCompileConfig) ->
   (((ByteString -> IO ByteString) -> Int -> IO [ByteString]) -> IO a) ->
   IO a
-withSpliceEngine engine request packageDirectory packageRoot installed adjust action =
+withSpliceEngine engine settings request packageDirectory packageRoot installed adjust action =
   case engine of
     WasmEngine -> do
-      image <- buildImage request
+      image <- buildImage settings request
       let shared = spliceRequestBuildRoot request </> "splices.wasm"
       linkSharedModule shared [] [installStorePath installed </> "lib" </> "lib" <> T.unpack (splicePackageName request) <> ".a"]
       withEngine (Just packageRoot) image $ \running -> do
@@ -571,9 +587,10 @@ newFixityReader packages = do
           Nothing -> Left ("The package " <> packageIdText (globalNamePackage global) <> " has no resolve facts of the module " <> globalNameModule global <> ".")
           Just found -> Right (exportedFixity (resolveArtifactExports found) global)
 
--- | Build the image of a request and give its path.
-buildImage :: SpliceRequest -> IO FilePath
-buildImage request = do
+-- | Build the image of a request and give its path. A package of the
+-- image that the user trusts runs its splices as native code.
+buildImage :: SpliceSettings -> SpliceRequest -> IO FilePath
+buildImage settings request = do
   guest <- engineGuestPath
   images <-
     buildWithConfig
@@ -606,7 +623,7 @@ buildImage request = do
           buildExecutables = [],
           buildPlanOptions = splicePlanOptions
         }
-      withSplices
+      (spliceConfig settings Nothing)
   case images of
     [image] -> pure image
     _ -> ioError (userError "the image build gave no image")
