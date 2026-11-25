@@ -28,6 +28,9 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runSta
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -167,10 +170,11 @@ mergeFrameContinuations frames globals functions continuations =
   )
   where
     byName = Map.fromList [(grinFunctionName function, function) | function <- functions]
+    references :: MonoidMap FunctionName (Sum Int)
     references =
-      Map.fromListWith
+      MonoidMap.fromListWith
         (+)
-        ( [(name, 1 :: Int) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+        ( [(name, 1) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
             <> [(name, 1) | global <- globals, name <- grinNodeFunctionNames (grinGlobalNode global)]
         )
     merges =
@@ -181,7 +185,7 @@ mergeFrameContinuations frames globals functions continuations =
           GrinCall rep callee arguments <- [grinFunctionBody function],
           callee /= grinFunctionName function,
           Set.notMember callee frames,
-          Map.lookup callee references == Just 1,
+          MonoidMap.get callee references == 1,
           Just target <- [Map.lookup callee byName],
           grinFunctionResultRep target == rep,
           grinFunctionResultRep function == rep,
