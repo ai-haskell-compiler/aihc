@@ -744,25 +744,23 @@ static AihcMachine aihc_machine;
    that address reads a word that is not a header. Thus a stale frame is
    deleted from the record here.
 
-   The frame of a wait that is not cancelled is the top of the stack of its
-   thread. The stack of the thread keeps the thread record, so the read of
-   the epoch is safe after the compare of the thread. Another capability
-   can release the stack of a stale frame, and a release holds the heap
-   lock, so this test holds it too. A continuation that is not a frame is an
-   ordinary value. */
+   A record is stale only when its epoch is not the epoch of its thread. The
+   wakers use the same rule. The epoch only increases, so a stale record
+   cannot become current again. Do not compare the frame with the top of the
+   stack: a collection can visit the record of a current wait after a
+   different capability woke the thread and the thread suspended again at a
+   different frame. The deletion of that frame makes the wake resume the
+   thread with no frame. The record keeps its thread, and a thread record
+   does not move, so the read of the epoch is safe. A continuation that is
+   not a frame is an ordinary value. */
 static int aihc_waiter_frame_current(const AihcThread *thread,
                                      const AihcValue *continuation,
                                      uint64_t epoch) {
-  if (continuation == NULL ||
+  if (continuation == NULL || thread == NULL ||
       aihc_region_kind(continuation) != AIHC_REGION_STACK) {
     return 1;
   }
-  aihc_heap_lock(&aihc_machine);
-  const AihcStack *stack = aihc_stack_of(continuation);
-  int current = stack != NULL && thread != NULL && stack->thread == thread &&
-                stack->top == continuation && thread->wait_epoch == epoch;
-  aihc_heap_unlock(&aihc_machine);
-  return current;
+  return __atomic_load_n(&thread->wait_epoch, __ATOMIC_ACQUIRE) == epoch;
 }
 
 /* Trace native records through their C layouts on both target word sizes. */
