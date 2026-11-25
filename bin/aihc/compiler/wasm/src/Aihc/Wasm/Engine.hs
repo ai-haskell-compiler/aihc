@@ -8,7 +8,10 @@
 -- into that instance, and each shared module can use the symbols of the
 -- image and of the shared modules before it.
 --
--- The engine is a Node.js process that runs @driver.mjs@. The instance has
+-- An engine sends commands as lines of text and reads the replies as lines
+-- of text. 'lineEngine' makes an engine from two functions that send and
+-- read the lines. 'withEngine' makes an engine that is a Node.js process
+-- that runs @driver.mjs@. The instance has
 -- no access to the host: the driver denies each import of the image, apart
 -- from a clock that gives a fixed time. As an option, the instance can read
 -- the files of one directory. It cannot write to that directory. As a
@@ -24,6 +27,7 @@ module Aihc.Wasm.Engine
     EngineStream (..),
     EngineValue (..),
     engineDriverPath,
+    lineEngine,
     engineGuestPath,
     engineNodeCommand,
     linkImage,
@@ -60,8 +64,11 @@ import Text.Read (readMaybe)
 
 -- | A running driver with one instance of an image.
 data Engine = Engine
-  { engineInput :: !Handle,
-    engineOutput :: !Handle,
+  { -- | Send one line to the engine. The line has no line break.
+    engineSend :: !(String -> IO ()),
+    -- | Read one line from the engine, without its line break. The result
+    -- is 'Nothing' when the engine stopped.
+    engineReceive :: !(IO (Maybe String)),
     -- | The function that gets the bytes that the instance writes to a
     -- standard stream. An engine without this function denies the writes.
     engineStreams :: !(Maybe (EngineStream -> ByteString -> IO ()))
@@ -78,6 +85,14 @@ data EngineValue
   = EngineI32 !Integer
   | EngineI64 !Integer
   deriving (Eq, Show)
+
+-- | An engine that sends and reads the lines of its protocol with the two
+-- functions. The engine must already have sent its first reply, which
+-- shows that its instance is ready. The last argument gets the bytes of
+-- each write of the instance to its standard output or to its standard
+-- error. An engine without this function denies the writes.
+lineEngine :: (String -> IO ()) -> IO (Maybe String) -> Maybe (EngineStream -> ByteString -> IO ()) -> Engine
+lineEngine = Engine
 
 -- | The driver script that the Node.js process runs.
 engineDriverPath :: IO FilePath
@@ -201,24 +216,27 @@ withNativeEngine directory program = withEngineProcess Nothing (proc program [])
 -- action, and stop the process. The process writes one reply when it is
 -- ready.
 withEngineProcess :: Maybe (EngineStream -> ByteString -> IO ()) -> CreateProcess -> (Engine -> IO value) -> IO value
-withEngineProcess engineStreams command action = bracket start stop (\(engine, _) -> action engine)
+withEngineProcess engineStreams command action = bracket start stop (\(_, engine, _) -> action engine)
   where
     start = do
       (input, output, _, process) <-
         createProcess command {std_in = CreatePipe, std_out = CreatePipe}
       case (input, output) of
-        (Just engineInput, Just engineOutput) -> do
-          hSetBuffering engineInput LineBuffering
-          let engine = Engine {engineInput, engineOutput, engineStreams}
+        (Just input', Just output') -> do
+          hSetBuffering input' LineBuffering
+          let engine = lineEngine (hPutStrLn input') (readLine output') engineStreams
           -- The driver writes one reply after it makes the instance.
-          void (readReply engine) `onException` (hClose engineInput >> waitForProcess process)
-          pure (engine, process)
+          void (readReply engine) `onException` (hClose input' >> waitForProcess process)
+          pure ((input', output'), engine, process)
         _ -> ioError (userError "the engine process has no pipes")
-    stop :: (Engine, ProcessHandle) -> IO ()
-    stop (engine, process) = do
-      hClose (engineInput engine)
+    stop :: ((Handle, Handle), Engine, ProcessHandle) -> IO ()
+    stop ((input', output'), _, process) = do
+      hClose input'
       void (waitForProcess process)
-      hClose (engineOutput engine)
+      hClose output'
+    readLine handle = do
+      end <- hIsEOF handle
+      if end then pure Nothing else Just <$> hGetLine handle
 
 -- | Load a shared module into the instance.
 loadSharedModule :: Engine -> FilePath -> IO ()
@@ -251,7 +269,7 @@ startGuest engine = void (request engine "start")
 -- that runs gives the error of the driver for an unknown closure.
 guestIsRunning :: Engine -> IO Bool
 guestIsRunning engine = do
-  hPutStrLn (engineInput engine) "run ?"
+  engineSend engine "run ?"
   outcome <- readOutcomeWith (\_ -> ioError (userError "the engine sent a request that the command does not accept")) engine
   pure (either ("unknown closure" `isPrefixOf`) (const False) outcome)
 
@@ -285,7 +303,7 @@ runIndexedClosure engine answer index =
 -- closure.
 tryRunCommand :: Engine -> (ByteString -> IO ByteString) -> String -> IO (Either String [ByteString])
 tryRunCommand engine answer argument = do
-  hPutStrLn (engineInput engine) ("run " <> argument)
+  engineSend engine ("run " <> argument)
   outcome <- readOutcomeWith answerRequest engine
   case outcome of
     Left failure -> pure (Left failure)
@@ -313,7 +331,7 @@ encodeHexadecimal = concatMap byte . BS.unpack
 -- @ok@.
 request :: Engine -> String -> IO String
 request engine command = do
-  hPutStrLn (engineInput engine) command
+  engineSend engine command
   readReply engine
 
 -- | Read the reply of a command that cannot send a request.
@@ -330,16 +348,15 @@ readReplyWith answer engine =
 -- | 'readReplyWith' with the error of the command as a value.
 readOutcomeWith :: (String -> IO String) -> Engine -> IO (Either String String)
 readOutcomeWith answer engine = do
-  end <- hIsEOF (engineOutput engine)
-  if end
-    then ioError (userError "the engine stopped")
-    else do
-      line <- hGetLine (engineOutput engine)
+  received <- engineReceive engine
+  case received of
+    Nothing -> ioError (userError "the engine stopped")
+    Just line ->
       case (words line, engineStreams engine) of
         ("ok" : _, _) -> pure (Right (drop 3 line))
         ("request" : payload, _) -> do
           reply <- answer (concat payload)
-          hPutStrLn (engineInput engine) ("reply " <> reply)
+          engineSend engine ("reply " <> reply)
           readOutcomeWith answer engine
         ([stream, payload], Just write)
           | Just target <- lookup stream [("stdout", EngineStdout), ("stderr", EngineStderr)],

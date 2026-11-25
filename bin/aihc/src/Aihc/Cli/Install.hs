@@ -263,7 +263,7 @@ import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Quote (bindSpliceNameQuotes, desugarModuleQuotes, desugarSpliceBody, localBinderNames, moduleHasQuote, quoteImports, quotedModuleNames, renameQuotedPackage)
 import Aihc.Th.Reify (exportedFixity)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), SpliceResult (..), firstSplicePosition, moduleSpliceSpans, moduleSplices, replaceFirstSplice, splicePackageId, spliceResultsPath)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, Splice (..), SpliceRequest (..), expandSplices, moduleSpliceSpans, moduleSplices, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -3257,30 +3257,18 @@ expandUnitSplices context runtimes unit availableExports sources modules =
                          ] of
                       key : _ -> Just (lookupModuleExport key availableExports >>= (`exportedFixity` global))
                       [] -> Nothing
-              loop runSplice index boundary modu
-                | index >= length splices = pure modu
-                | otherwise =
-                    case firstSplicePosition modu of
-                      Nothing -> pure modu
-                      Just (position, isDeclaration) -> do
-                        let prefix = take (if isDeclaration then position else boundary) (Syntax.moduleDecls modu)
-                        -- A name from @mkName@ is in the scope of the
-                        -- module as it is at the splice, with the results
-                        -- of the splices above it.
-                        let lookupName = moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = modu}
-                        result <- runSplice index lookupName (facts prefix) (pure . fixities prefix)
-                        let boundary'
-                              | isDeclaration = position + resultLength result
-                              | otherwise = boundary
-                        loop runSplice (index + 1) boundary' (replaceFirstSplice result modu)
-          expanded <- withMVar (taskSpliceLock context) (\() -> run request (\runSplice -> loop runSplice (0 :: Int) 0 bound))
+              -- A name from @mkName@ is in the scope of the module as it is
+              -- at the splice, with the results of the splices above it.
+              expandWith runSplice =
+                expandSplices
+                  (length splices)
+                  ( \index prefix modu ->
+                      let lookupName = moduleTopLevelName (builtinFunctionScope resolvePackage availableExports) availableExports moduleUnit {moduleUnitAst = modu}
+                       in runSplice index lookupName (facts prefix) (pure . fixities prefix)
+                  )
+                  bound
+          expanded <- withMVar (taskSpliceLock context) (\() -> run request expandWith)
           pure moduleUnit {moduleUnitAst = expanded}
-    resultLength result =
-      case result of
-        DeclarationResult decls -> length decls
-        ExpressionResult _ -> 0
-        TypeResult _ -> 0
-        PatternResult _ -> 0
     -- The declarations above a splice as a module of their own, with no
     -- export list: the export list can name a declaration below.
     prefixModuleUnit moduleUnit modu prefix =
