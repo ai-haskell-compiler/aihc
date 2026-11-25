@@ -132,7 +132,13 @@ export function createImports(host) {
     },
   });
   return {
-    "wasi:cli/environment": { getArguments: () => host.arguments ?? ["program"], getInitialCwd: () => undefined },
+    // A program in the browser has no environment variables. The run-time
+    // system asks for them when the program starts.
+    "wasi:cli/environment": {
+      getEnvironment: () => [],
+      getArguments: () => host.arguments ?? ["program"],
+      getInitialCwd: () => undefined,
+    },
     "wasi:cli/exit": {
       exit: (status) => { throw new ProgramExit(status.tag === "ok" ? 0 : 1); },
       exitWithCode: (code) => { throw new ProgramExit(code); },
