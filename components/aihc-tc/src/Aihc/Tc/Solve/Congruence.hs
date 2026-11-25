@@ -93,7 +93,8 @@ proveFromEqualitiesDirect equalities left right
       kindEnv <- getKindLookup
       let context = KindContext kinds kindEnv
           closed = closeGraph context pairs (concat projections) graph
-      case findProof closed left right of
+          closedComponents = components closed
+      case connectedProof closed closedComponents left right of
         Just proof -> pure (Just proof)
         Nothing -> do
           -- The closure can find an equality of a variable that no given
@@ -106,7 +107,7 @@ proveFromEqualitiesDirect equalities left right
                 | variable@(TcTyVar _) <- vertices,
                   other <- vertices,
                   not (isVariable other),
-                  Just proof <- [findProof closed variable other]
+                  Just proof <- [componentProof closedComponents variable other]
                 ]
               isVariable ty = case ty of
                 TcTyVar _ -> True
@@ -116,7 +117,8 @@ proveFromEqualitiesDirect equalities left right
               expandedVertices = Map.elems (Map.unions (map subterms (vertices <> concat [[a, b] | (a, b, _) <- reductions])))
               expandedPairs = [(a, b) | a : rest <- List.tails expandedVertices, b <- rest]
           expandedProjections <- traverse projection expandedPairs
-          pure (findProof (closeGraph context expandedPairs (concat expandedProjections) expanded) left right)
+          let expandedClosed = closeGraph context expandedPairs (concat expandedProjections) expanded
+          pure (connectedProof expandedClosed (components expandedClosed) left right)
     projection (a, b) = case (a, b) of
       (TcTyCon {}, TcTyCon {}) -> project a b
       (TcFunTy {}, TcFunTy {}) -> project a b
@@ -506,6 +508,57 @@ addProof left right proof =
   MonoidMap.adjust ((right, proof) :) (typeShape left)
     . MonoidMap.adjust ((left, Sym proof) :) (typeShape right)
 
+-- | The components of a proof graph. Each vertex that has an edge maps
+-- to the root of its component and to a proof of @vertex ~ root@.
+type Components = Map TypeShape (TypeShape, Coercion)
+
+components :: ProofGraph -> Components
+components graph = List.foldl' start Map.empty [vertex | (_, edges) <- MonoidMap.toList graph, (vertex, _) <- edges]
+  where
+    start found root
+      | Map.member rootShape found = found
+      | otherwise = visit (Map.insert rootShape (rootShape, Refl root) found) [(root, Refl root)]
+      where
+        rootShape = typeShape root
+        -- The proof of each new vertex goes back along its edge to the
+        -- vertex that found it.
+        visit found' [] = found'
+        visit found' ((current, toRoot) : queue) =
+          let step (known, fresh) (vertex, edge)
+                | Map.member shape known = (known, fresh)
+                | otherwise = (Map.insert shape (rootShape, proof) known, (vertex, proof) : fresh)
+                where
+                  shape = typeShape vertex
+                  proof = compose (symmetric edge) toRoot
+              (found'', next) = List.foldl' step (found', []) (MonoidMap.get (typeShape current) graph)
+           in visit found'' (next <> queue)
+
+-- | Whether two types are one vertex or are in one component.
+connected :: Components -> TcType -> TcType -> Bool
+connected found left right = isJust (componentProof found left right)
+
+-- | A proof of @left ~ right@ through the root of their component. This
+-- proof can be longer than the shortest one, but it needs no walk of the
+-- graph.
+componentProof :: Components -> TcType -> TcType -> Maybe Coercion
+componentProof found left right
+  | leftShape == rightShape = Just (Refl left)
+  | otherwise = case (Map.lookup leftShape found, Map.lookup rightShape found) of
+      (Just (leftRoot, leftProof), Just (rightRoot, rightProof))
+        | leftRoot == rightRoot -> Just (compose leftProof (symmetric rightProof))
+      _ -> Nothing
+  where
+    leftShape = typeShape left
+    rightShape = typeShape right
+
+-- | The shortest proof of @left ~ right@ in the graph. The components
+-- tell first whether a proof exists, because a walk of the graph that
+-- finds no proof visits the full component.
+connectedProof :: ProofGraph -> Components -> TcType -> TcType -> Maybe Coercion
+connectedProof graph found left right
+  | connected found left right = findProof graph left right
+  | otherwise = Nothing
+
 findProof :: ProofGraph -> TcType -> TcType -> Maybe Coercion
 findProof graph source target = go (Set.singleton (typeShape source)) [(source, Refl source)]
   where
@@ -518,45 +571,61 @@ findProof graph source target = go (Set.singleton (typeShape source)) [(source, 
               visited' = Set.union visited (Set.fromList (map (typeShape . fst) edges))
            in go visited' (rest <> edges)
 
-    compose (Refl _) proof = proof
-    compose proof (Refl _) = proof
-    compose first second = Trans first second
+compose :: Coercion -> Coercion -> Coercion
+compose (Refl _) proof = proof
+compose proof (Refl _) = proof
+compose first second = Trans first second
+
+symmetric :: Coercion -> Coercion
+symmetric proof = case proof of
+  Refl {} -> proof
+  Sym inner -> inner
+  _ -> Sym proof
 
 -- | The kinds that congruence needs to find the implicit kind arguments
 -- of a type constructor application.
 data KindContext = KindContext TcKinds KindLookup
 
+-- | Add the congruences and the projections of the pairs until no edge
+-- joins two components. A round compares each pair with the components
+-- at the start of the round. The edges that a round adds join two
+-- components, so the number of rounds is at most the number of vertices.
+-- A walk of the graph for each pair was too slow: the givens @a ~ a2,
+-- ..., a ~ a9@ of the tuple instances of @Control.Lens.At@ make a dense
+-- graph.
 closeGraph :: KindContext -> [(TcType, TcType)] -> [(TcType, TcType, Coercion -> Coercion, TcType, TcType)] -> ProofGraph -> ProofGraph
 closeGraph context pairs projections graph =
   case List.foldl' project (List.foldl' extend (False, graph) pairs) projections of
     (False, _) -> graph
     (True, graph') -> closeGraph context pairs projections graph'
   where
+    found = components graph
+    proof = connectedProof graph found
     project (changed, current) (outerLeft, outerRight, select, left, right)
-      | isJust (findProof current left right) = (changed, current)
-      | otherwise = case findProof current outerLeft outerRight of
+      | connected found left right = (changed, current)
+      | otherwise = case proof outerLeft outerRight of
           Nothing -> (changed, current)
-          Just proof -> (True, addProof left right (select proof) current)
+          Just outerProof -> (True, addProof left right (select outerProof) current)
     extend (changed, current) (left, right)
-      | isJust (findProof current left right) = (changed, current)
+      | connected found left right = (changed, current)
       | otherwise =
-          case congruence context current left right of
+          case congruence context proof left right of
             Nothing -> (changed, current)
-            Just proof -> (True, addProof left right proof current)
+            Just congruent -> (True, addProof left right congruent current)
 
 -- | Congruence permits equality under a family as well as under a data type.
 -- This rule does not project equality out of a family application.
-congruence :: KindContext -> ProofGraph -> TcType -> TcType -> Maybe Coercion
-congruence context graph left right =
+congruence :: KindContext -> (TcType -> TcType -> Maybe Coercion) -> TcType -> TcType -> Maybe Coercion
+congruence context prove left right =
   case (left, right) of
     (TcFunTy a b, TcFunTy c d) ->
-      FunCo <$> findProof graph a c <*> findProof graph b d
+      FunCo <$> prove a c <*> prove b d
     (TcTyCon leftCon leftArgs, TcTyCon rightCon rightArgs)
       | leftCon == rightCon,
         length leftArgs == length rightArgs ->
           ( TyConAppCo leftCon leftArgs
-              <$> traverse (uncurry (findProof graph)) (zip leftArgs rightArgs)
-              <*> pure (kindArgumentProofs context graph leftCon leftArgs rightArgs)
+              <$> traverse (uncurry prove) (zip leftArgs rightArgs)
+              <*> pure (kindArgumentProofs context prove leftCon leftArgs rightArgs)
           )
             <|> applicationCongruence
     _ -> applicationCongruence
@@ -565,13 +634,13 @@ congruence context graph left right =
     applicationCongruence = do
       (leftFunction, leftArgument) <- application left
       (rightFunction, rightArgument) <- application right
-      AppCo <$> functionProof leftFunction rightFunction <*> findProof graph leftArgument rightArgument
+      AppCo <$> functionProof leftFunction rightFunction <*> prove leftArgument rightArgument
     -- A bare constructor and the same constructor with its kind arguments
     -- have one shape. The reflexive proof keeps the kind arguments, because
     -- the bare constructor of a partial application, as the @M1@ of @M1 D@,
     -- does not determine them.
     functionProof leftFunction rightFunction =
-      case findProof graph leftFunction rightFunction of
+      case prove leftFunction rightFunction of
         Just (Refl _)
           | TcKindedTyCon {} <- rightFunction -> Just (Refl rightFunction)
         found -> found
@@ -582,8 +651,8 @@ congruence context graph left right =
 -- arguments, as in @a ~~ a@ and @a ~~ b@ with @a :: k0@ and @b :: k1@.
 -- A proof of @k0 ~ k1@ from the graph then relates the kind arguments.
 -- When the kind arguments are equal, the list is empty.
-kindArgumentProofs :: KindContext -> ProofGraph -> TyCon -> [TcType] -> [TcType] -> [Coercion]
-kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
+kindArgumentProofs :: KindContext -> (TcType -> TcType -> Maybe Coercion) -> TyCon -> [TcType] -> [TcType] -> [Coercion]
+kindArgumentProofs (KindContext kinds kindEnv) prove tyCon leftArgs rightArgs =
   case (kindEnv (tyConKey tyCon), kindArguments leftArgs, kindArguments rightArgs) of
     (Just (ForAll quantified _ _), Right leftKinds, Right rightKinds)
       | any (differs leftKinds rightKinds) quantified ->
@@ -607,7 +676,7 @@ kindArgumentProofs (KindContext kinds kindEnv) graph tyCon leftArgs rightArgs =
     -- the kind arguments had proofs.
     proof leftKinds rightKinds tyVar =
       case (Map.lookup (tvUnique tyVar) leftKinds, Map.lookup (tvUnique tyVar) rightKinds) of
-        (Just leftKind, Just rightKind) -> fromMaybe (Refl leftKind) (findProof graph leftKind rightKind)
+        (Just leftKind, Just rightKind) -> fromMaybe (Refl leftKind) (prove leftKind rightKind)
         (Just leftKind, Nothing) -> Refl leftKind
         (Nothing, Just rightKind) -> Refl rightKind
         _ -> Refl (TcTyVar tyVar)

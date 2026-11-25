@@ -37,7 +37,7 @@ annotated:
   instance (Idx r (s ': rs) ~ 'S i, Elem r r' rs rs' i) => Elem r r' (s ': rs) (s ': rs') ('S i) where
   └─ $fElemrr':srs:srs'Si ∷ ∀ k0 i r s rs r' rs'. ((Idx r (': s rs)) ~ ('S i), Elem r r' rs rs' i) ⇒ Elem r r' (': s rs) (': s rs') ('S i) [superclasses: sym (given Idx r (': s rs) ~ 'S i)]
     lensC f (x :& xs) = fmap (x :&) (lensC f xs)
-    │     │  │ │  │     │    │  │    └─ type: (f r → g (f r')) → Rec f rs → g (Rec f rs'); type-args: k0, r, r', rs, rs', Idx r rs, g, f; evidence: cast(cast(given Elem r r' rs rs' i, sym (Elem refl r refl r' refl rs refl rs' sym (super[0](given Elem r r' rs rs' i)))), sym (Elem refl r refl r' sym (nth[0](given ': s rs ~ ': r rs)) refl rs' Idx refl r sym (nth[0](given ': s rs ~ ': r rs)))), given Functor g
+    │     │  │ │  │     │    │  │    └─ type: (f r → g (f r')) → Rec f rs → g (Rec f rs'); type-args: k0, r, r', rs, rs', Idx r rs, g, f; evidence: cast(cast(given Elem r r' rs rs' i, Elem refl r refl r' nth[0](given ': s rs ~ ': r rs) refl rs' refl i), sym (Elem refl r refl r' refl rs refl rs' trans (sym (Idx refl r nth[0](given ': s rs ~ ': r rs))) (trans (sym (super[0](given Elem r r' rs rs' i))) (refl i)))), given Functor g
     │     │  │ │  │     │    │  └─ type: f r → Rec f rs' → Rec f ('GHC.Types.: r rs'); type-args: k0, f, ': r rs', rs', r; evidence: refl ': r rs'
     │     │  │ │  │     │    └─ type: Rec f rs' → Rec f ('GHC.Types.: r rs'); term-args: Rec f rs'
     │     │  │ │  │     └─ type: (Rec f rs' → Rec f ('GHC.Types.: r rs')) → g (Rec f rs') → g (Rec f ('GHC.Types.: r rs')); type-args: g, Rec f rs', Rec f (': r rs'); evidence: given Functor g
