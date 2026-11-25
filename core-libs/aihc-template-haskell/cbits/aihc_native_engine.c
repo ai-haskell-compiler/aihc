@@ -18,6 +18,7 @@
    can write "request BYTES" lines. The next line from the compiler is then
    "reply BYTES". */
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _POSIX_C_SOURCE 200809L
 
 #include <fcntl.h>
