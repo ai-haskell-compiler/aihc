@@ -257,7 +257,7 @@ configFor roots =
       configGoals = [],
       configUnsupported = Map.empty,
       configPkgConfigModules = Nothing,
-      configSubLibraries = Map.empty,
+      configSubLibraries = mempty,
       configMaxConflicts = 100
     }
 
