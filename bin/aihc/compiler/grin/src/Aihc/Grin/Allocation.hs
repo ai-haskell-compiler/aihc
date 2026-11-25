@@ -7,6 +7,7 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad.Trans.State.Strict (evalState, state)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -248,7 +249,7 @@ rawCalls expression =
 
 -- | How many times each variable occurs in an expression.
 useCounts :: GrinExpr -> MonoidMap GrinVar (Sum Int)
-useCounts expression = MonoidMap.fromListWith (+) [(var, 1) | var <- occurrences expression]
+useCounts expression = Occurrences.count (occurrences expression)
   where
     occurrences current =
       case current of

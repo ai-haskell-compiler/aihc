@@ -22,6 +22,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', put, runStateT)
@@ -172,10 +173,9 @@ mergeFrameContinuations frames globals functions continuations =
     byName = Map.fromList [(grinFunctionName function, function) | function <- functions]
     references :: MonoidMap FunctionName (Sum Int)
     references =
-      MonoidMap.fromListWith
-        (+)
-        ( [(name, 1) | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
-            <> [(name, 1) | global <- globals, name <- grinNodeFunctionNames (grinGlobalNode global)]
+      Occurrences.count
+        ( [name | function <- functions, name <- grinExprFunctionNames (grinFunctionBody function)]
+            <> [name | global <- globals, name <- grinNodeFunctionNames (grinGlobalNode global)]
         )
     merges =
       Map.fromList
