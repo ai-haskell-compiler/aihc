@@ -133,7 +133,6 @@ storeArguments program
         | function <- functions,
           Set.notMember (grinFunctionName function) named,
           let sites = MonoidMap.get (grinFunctionName function) calls,
-          not (null sites),
           let arity = length (grinFunctionParameters function)
               qualified =
                 Map.fromList
