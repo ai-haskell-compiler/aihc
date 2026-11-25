@@ -1,0 +1,40 @@
+annotated:
+- |-
+  module Test where
+  class Conv a where
+  └─ class methods: conv ∷ ∀ a. (Conv a) ⇒ a → a
+    conv :: a -> a
+  data A = A
+       │   └─ type: A
+       └─ type: Type
+  instance Conv A where
+  └─ $fConvA ∷ () ⇒ Conv A
+    conv x = x
+    │    └─ type: A
+    └─ conv ∷ A → A
+  value :: A
+  value = c A
+  │       └─ type: A → A; type-args: A; evidence: $fConvA
+  └─ type: A
+    where
+      c x = conv (conv x)
+      │ │   │     └─ type: a → a; type-args: a; evidence: given Conv a
+      │ │   └─ type: a → a; type-args: a; evidence: given Conv a
+      │ └─ type: a
+      └─ type: ∀ a. (Conv a) ⇒ a → a
+extensions: []
+modules:
+- |
+  module Test where
+  class Conv a where
+    conv :: a -> a
+  data A = A
+  instance Conv A where
+    conv x = x
+  value :: A
+  value = c A
+    where
+      c x = conv (conv x)
+status: pass
+reason: A local binding uses one class constraint two times. The binding
+  must abstract over one dictionary for the constraint, not over two.

@@ -250,6 +250,7 @@ parsePass value =
     Y.String "call-patterns" -> pure (PassCallPatterns 0 (policySiteLimit growPolicy))
     Y.String "demand" -> pure (PassDemand StrictLetsAndArguments)
     Y.Object obj | Just (Y.String "lets") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsOnly)
+    Y.Object obj | Just (Y.String "loop-arguments") <- KeyMap.lookup "demand" obj -> pure (PassDemand StrictLetsAndLoopArguments)
     Y.String "simplify" -> pure (PassSimplify 0)
     Y.Object obj | Just simplify <- KeyMap.lookup "simplify" obj -> do
       phase <- Y.parseJSON simplify

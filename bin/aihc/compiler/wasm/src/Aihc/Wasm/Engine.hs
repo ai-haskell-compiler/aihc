@@ -15,6 +15,10 @@
 -- second option, the instance can write to its standard output and to its
 -- standard error, and the engine gives the bytes to a function of the
 -- caller.
+--
+-- A native engine is a native program that speaks the same protocol. It
+-- runs the closures of a list, by index, and it has no sandbox. See
+-- 'withNativeEngine'.
 module Aihc.Wasm.Engine
   ( Engine,
     EngineStream (..),
@@ -26,12 +30,14 @@ module Aihc.Wasm.Engine
     linkSharedModule,
     withEngine,
     withOutputEngine,
+    withNativeEngine,
     loadSharedModule,
     callFunction,
     startGuest,
     guestIsRunning,
     runClosure,
     tryRunClosure,
+    runIndexedClosure,
   )
 where
 
@@ -174,13 +180,32 @@ withOutputEngine :: (EngineStream -> ByteString -> IO ()) -> Maybe FilePath -> F
 withOutputEngine = withEngineStreams . Just
 
 withEngineStreams :: Maybe (EngineStream -> ByteString -> IO ()) -> Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
-withEngineStreams engineStreams readable image action = bracket start stop (\(engine, _) -> action engine)
+withEngineStreams engineStreams readable image action = do
+  node <- engineNodeCommand
+  driver <- engineDriverPath
+  withEngineProcess engineStreams (proc node ([driver, image] <> maybe [] pure readable <> ["--output" | isJust engineStreams])) action
+
+-- | Start a native engine, run the action, and stop the engine. The
+-- engine is a native program that gives the protocol of the driver to a
+-- list of closures, such as a program that calls
+-- @Aihc.TH.NativeEngine.serveSplices@. Run its closures with
+-- 'runIndexedClosure'. If the first argument has a directory, the program
+-- runs in that directory.
+--
+-- The program has no sandbox: it has all the access of the user. The
+-- standard error of the program is the standard error of the caller.
+withNativeEngine :: Maybe FilePath -> FilePath -> (Engine -> IO value) -> IO value
+withNativeEngine directory program = withEngineProcess Nothing (proc program []) {cwd = directory}
+
+-- | Start a process that speaks the protocol of the driver, run the
+-- action, and stop the process. The process writes one reply when it is
+-- ready.
+withEngineProcess :: Maybe (EngineStream -> ByteString -> IO ()) -> CreateProcess -> (Engine -> IO value) -> IO value
+withEngineProcess engineStreams command action = bracket start stop (\(engine, _) -> action engine)
   where
     start = do
-      node <- engineNodeCommand
-      driver <- engineDriverPath
       (input, output, _, process) <-
-        createProcess (proc node ([driver, image] <> maybe [] pure readable <> ["--output" | isJust engineStreams])) {std_in = CreatePipe, std_out = CreatePipe}
+        createProcess command {std_in = CreatePipe, std_out = CreatePipe}
       case (input, output) of
         (Just engineInput, Just engineOutput) -> do
           hSetBuffering engineInput LineBuffering
@@ -247,8 +272,20 @@ runClosure engine answer package moduleName name =
 -- is the text of the exception that the closure raised, or the text of a
 -- trap. After a trap, the guest does not run.
 tryRunClosure :: Engine -> (ByteString -> IO ByteString) -> Text -> Text -> Text -> IO (Either String [ByteString])
-tryRunClosure engine answer package moduleName name = do
-  hPutStrLn (engineInput engine) ("run " <> T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
+tryRunClosure engine answer package moduleName name =
+  tryRunCommand engine answer (T.unpack (renderLinkedGlobalSymbol (T.intercalate "\0" [package, moduleName, name])))
+
+-- | 'runClosure' for a native engine. The closure is the closure at the
+-- index in the list of the program.
+runIndexedClosure :: Engine -> (ByteString -> IO ByteString) -> Int -> IO [ByteString]
+runIndexedClosure engine answer index =
+  tryRunCommand engine answer (show index) >>= either (ioError . userError . ("the engine failed: " <>)) pure
+
+-- | Send a @run@ command with the argument, and read the messages of the
+-- closure.
+tryRunCommand :: Engine -> (ByteString -> IO ByteString) -> String -> IO (Either String [ByteString])
+tryRunCommand engine answer argument = do
+  hPutStrLn (engineInput engine) ("run " <> argument)
   outcome <- readOutcomeWith answerRequest engine
   case outcome of
     Left failure -> pure (Left failure)

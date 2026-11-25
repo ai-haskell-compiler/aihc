@@ -262,8 +262,13 @@ renderAnnotatedResolveResult sources resolved =
 -- syntax that it resolves:
 --
 -- * A name or a binder: the span of its annotations.
--- * A wrapper constructor, such as 'R.EResolved': the first span of the
+-- * A wrapper constructor, such as 'R.TResolved': the first span of the
 --   chain of wrappers around the same node.
+-- * A syntax name of an expression, such as @fromInteger@ for @1@: the
+--   first span of the chain of wrappers around the expression.
+-- * A name of the match of a pattern, such as @fromInteger@ for @1@: the
+--   first span of the chain of wrappers around the pattern. The parser can
+--   give a pattern two spans, such as @-1@ and @1@ for @-1@.
 -- * An import declaration or a rule: the span of its annotations.
 moduleLabels :: R.Module -> [(SourceSpan, Doc ann)]
 moduleLabels modu =
@@ -279,8 +284,8 @@ labelWalk =
         RWalk.collected (resultLabels (R.nameAnns name) (R.nameResolution name)) *> children name,
       RWalk.walkUnqualifiedName = \children name ->
         RWalk.collected (resultLabels (R.unqualifiedNameAnns name) (R.unqualifiedNameResolution name)) *> children name,
-      RWalk.walkExpr = wrapped peelExpr,
-      RWalk.walkPattern = wrapped peelPattern,
+      RWalk.walkExpr = wrappedWith exprSyntax peelExpr,
+      RWalk.walkPattern = wrappedWith patternMatch peelPattern,
       RWalk.walkType = wrapped peelType,
       RWalk.walkDecl = \children decl -> wrapped peelDecl (\base -> ruleLabels base *> children base) decl,
       RWalk.walkDataConDecl = wrapped peelDataCon,
@@ -316,14 +321,25 @@ data Wrapper
 -- | Label the chain of wrappers around a node at the first span of the
 -- chain. Then walk the children of the node below the chain.
 wrapped :: (node -> Maybe (Wrapper, node)) -> (node -> RWalk.Collect (SourceSpan, Doc ann) node) -> node -> RWalk.Collect (SourceSpan, Doc ann) node
-wrapped peel children node =
-  case peelAll [] node of
-    ([], _) -> children node
-    (wrappers, base) ->
+wrapped = wrappedWith (\node -> ([], node))
+
+-- | Like 'wrapped'. The first function gives the results that the node
+-- below the chain holds for the chain, and the node without them.
+wrappedWith ::
+  (node -> ([ResolutionResult], node)) ->
+  (node -> Maybe (Wrapper, node)) ->
+  (node -> RWalk.Collect (SourceSpan, Doc ann) node) ->
+  node ->
+  RWalk.Collect (SourceSpan, Doc ann) node
+wrappedWith own peel children node =
+  case (peelAll [] node, own base) of
+    (([], _), ([], _)) -> children node
+    ((wrappers, _), (results, base')) ->
       let anns = [ann | WrapperAnnotation ann <- wrappers]
-          docs = concatMap wrapperDoc wrappers
-       in RWalk.collected (labelsAt (spanFromAnnotations anns) docs) *> (node <$ children base)
+          docs = concatMap wrapperDoc wrappers <> map resultDoc results
+       in RWalk.collected (labelsAt (spanFromAnnotations anns) docs) *> (node <$ children base')
   where
+    base = snd (peelAll [] node)
     peelAll wrappers current =
       case peel current of
         Just (wrapper, inner) -> peelAll (wrapper : wrappers) inner
@@ -339,14 +355,63 @@ peelExpr :: R.Expr -> Maybe (Wrapper, R.Expr)
 peelExpr expr =
   case expr of
     R.EAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.EResolved result inner -> Just (WrapperResult result, inner)
     _ -> Nothing
+
+-- | The results of the syntax names of an expression, and the expression
+-- with no results in these names.
+exprSyntax :: R.Expr -> ([ResolutionResult], R.Expr)
+exprSyntax expr =
+  case expr of
+    R.EInt syntax value numericType text -> (results (R.literalSyntaxNames syntax), R.EInt (unresolvedSyntax syntax) value numericType text)
+    R.EFloat syntax value floatType text -> (results (R.literalSyntaxNames syntax), R.EFloat (unresolvedSyntax syntax) value floatType text)
+    R.ECharHash ty value text -> (results [ty], R.ECharHash (unresolved ty) value text)
+    R.EString conversion value text -> (results (maybeToList conversion), R.EString (unresolved <$> conversion) value text)
+    R.EStringHash ty value text -> (results [ty], R.EStringHash (unresolved ty) value text)
+    R.EIf method condition thenExpr elseExpr -> (results (maybeToList method), R.EIf (unresolved <$> method) condition thenExpr elseExpr)
+    R.ENegate method inner -> (results [method], R.ENegate (unresolved method) inner)
+    R.EArithSeq method sequence' -> (results (maybeToList method), R.EArithSeq (unresolved <$> method) sequence')
+    R.EGetField method record field -> (results [method], R.EGetField (unresolved method) record field)
+    R.EGetFieldProjection method fields -> (results [method], R.EGetFieldProjection (unresolved method) fields)
+    -- The conversion of an overloaded list goes before the list syntax.
+    R.EList syntax method items -> (results (maybeToList method <> [syntax]), R.EList (unresolved syntax) (unresolved <$> method) items)
+    R.ETuple syntax flavor items -> (results [syntax], R.ETuple (unresolved syntax) flavor items)
+    _ -> ([], expr)
+  where
+    results = mapMaybe R.nameResolution
+    unresolved name = name {R.nameResolution = Nothing}
+    unresolvedSyntax syntax =
+      case syntax of
+        R.LiteralSyntaxPrimitive ty -> R.LiteralSyntaxPrimitive (unresolved ty)
+        R.LiteralSyntaxOverloaded ty conversion -> R.LiteralSyntaxOverloaded (unresolved <$> ty) (unresolved conversion)
+
+-- | The results of the names of the match of a pattern, and the pattern
+-- with no results in these names.
+patternMatch :: R.Pattern -> ([ResolutionResult], R.Pattern)
+patternMatch pat =
+  case pat of
+    R.PLit match literal -> (results (R.literalMatchNames match), R.PLit (unresolvedLiteral match) literal)
+    R.PNegLit match literal -> (results (R.literalMatchNames match), R.PNegLit (unresolvedLiteral match) literal)
+    R.PNPlusK match@(R.NPlusKMatch ty conversion comparison minus) name literal ->
+      ( results (R.nPlusKMatchNames match),
+        R.PNPlusK (R.NPlusKMatch (unresolved <$> ty) (unresolved conversion) (unresolved comparison) (unresolved minus)) name literal
+      )
+    R.PList (Just match@(R.ListMatch toList fromListN)) items ->
+      (results (R.listMatchNames match), R.PList (Just (R.ListMatch (unresolved toList) (unresolved fromListN))) items)
+    _ -> ([], pat)
+  where
+    results = mapMaybe R.nameResolution
+    unresolved name = name {R.nameResolution = Nothing}
+    unresolvedLiteral match =
+      case match of
+        R.LiteralMatchFixed -> R.LiteralMatchFixed
+        R.LiteralMatchPrimitive ty -> R.LiteralMatchPrimitive (unresolved ty)
+        R.LiteralMatchOverloaded (R.OverloadedLiteralMatch ty conversion negation equality) ->
+          R.LiteralMatchOverloaded (R.OverloadedLiteralMatch (unresolved <$> ty) (unresolved conversion) (unresolved <$> negation) (unresolved equality))
 
 peelPattern :: R.Pattern -> Maybe (Wrapper, R.Pattern)
 peelPattern pat =
   case pat of
     R.PAnn ann inner -> Just (WrapperAnnotation ann, inner)
-    R.PResolved result inner -> Just (WrapperResult result, inner)
     _ -> Nothing
 
 peelType :: R.Type -> Maybe (Wrapper, R.Type)

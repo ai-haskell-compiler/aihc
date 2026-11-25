@@ -116,8 +116,7 @@ simplifyGrinProgram program00 =
     program0 = distributeKnownCases (inlineLeafCalls program00)
     workers = boxWorkers program0
     -- The new workers join the program. A worker that no call names goes
-    -- in the sweep that follows. A program that an earlier run made has
-    -- its workers already.
+    -- in the sweep that follows.
     existing = Set.fromList (map grinFunctionName (grinFunctions program0))
     added = [function | worker <- Map.elems workers, let function = boxWorkerFunction worker, Set.notMember (grinFunctionName function) existing]
     program = program0 {grinFunctions = grinFunctions program0 <> added}
@@ -443,6 +442,13 @@ fieldTails env constructor var expression0 = fst <$> go (envKnown env) (0 :: Int
 -- @BS.index@ does, allocated the box only for the caller to fetch the
 -- byte. The function itself stays, because a thunk node names it and
 -- its update needs the box.
+--
+-- Each run makes its workers from the present bodies. A worker that an
+-- earlier run made is correct only for the calls that it has now. A later
+-- pass can change it for those calls. For example, the points-to analysis
+-- of GRIN removes an @eval@ of a parameter when each of these calls gives a
+-- value. A new call of the function can give a thunk. Thus a new worker
+-- gets a name that no function has.
 boxWorkers :: GrinProgram -> Map FunctionName BoxWorker
 boxWorkers program =
   Map.fromList
@@ -450,9 +456,6 @@ boxWorkers program =
     | function <- grinFunctions program,
       grinFunctionResultRep function == liftedResultRep,
       Just (constructor, fieldRep) <- [boxResult (grinFunctionBody function)],
-      -- A function of the worker's name from an earlier run must be that
-      -- worker.
-      maybe True ((== ResultRep fieldRep) . grinFunctionResultRep) (Map.lookup (workerName function) functions),
       let worker =
             BoxWorker
               { boxWorkerConstructor = constructor,
@@ -466,8 +469,13 @@ boxWorkers program =
               }
     ]
   where
-    functions = Map.fromList [(grinFunctionName function, function) | function <- grinFunctions program]
-    workerName function = FunctionName (unFunctionName (grinFunctionName function) <> "_unboxed")
+    names = Set.fromList (map grinFunctionName (grinFunctions program))
+    -- A candidate name is the name of the function, then "_unboxed", and
+    -- then a number or nothing. Thus two workers do not get the same name.
+    workerName function =
+      let base = unFunctionName (grinFunctionName function) <> "_unboxed"
+          candidate i = FunctionName (if i == 1 then base else base <> Text.pack (show i))
+       in candidate (until (\i -> Set.notMember (candidate i) names) (+ 1) (1 :: Int))
     layouts = Map.fromList [(grinConstructorName c, grinConstructorLayouts c) | c <- grinConstructors program]
     diverging = divergingFunctions program
     -- The constructor and the field representation of the boxes the body

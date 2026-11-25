@@ -1,53 +1,25 @@
 -- | Extract package interfaces with direct calls to GHC.
 module Aihc.Dev.ExtractHi
   ( extractPackage,
-    extractSourcePackage,
   )
 where
 
-import Aihc.Cabal (Component (..), ComponentKind (..), LibraryTarget (..), Package, exposedModules, packageComponents, unconditional)
 import Aihc.Dev.ExtractHi.Ghc (GhcInterface (..), readGhcBuiltins, readGhcInterface, readGhcModule, unqualify)
 import Aihc.Dev.ExtractHi.Types
-import Aihc.Hackage.Package (parsePackageDescription)
-import Aihc.Hackage.Util (moduleNameFilePath)
-import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Pretty (prettyType)
+import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Parser.Syntax
-  ( BinderHead (..),
-    ClassDecl (..),
-    ClassDeclItem (..),
-    DataConDecl (..),
+  ( DataConDecl (..),
     DataDecl (..),
     Decl (..),
-    ExportSpec (..),
     FieldDecl (..),
-    FixityAssoc,
-    ForeignDecl (..),
-    ForeignDirection (..),
     GadtBody (..),
-    IEBundledMember (..),
-    IEEntityNamespace (..),
-    ImportDecl (..),
-    ImportItem (..),
-    ImportSpec (..),
     Module (..),
     NewtypeDecl (..),
-    Pattern (..),
-    Type (..),
-    TypeFamilyDecl (..),
-    TypeSynDecl (..),
-    UnqualifiedName,
-    ValueDecl (..),
-    moduleExports,
-    peelClassDeclItemAnn,
     peelDataConAnn,
     peelDeclAnn,
-    renderName,
     renderUnqualifiedName,
   )
-import Aihc.Parser.Syntax qualified as Syntax
 import Control.Applicative ((<|>))
-import Data.ByteString qualified as BS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (nub)
 import Data.Map.Strict (Map)
@@ -55,12 +27,9 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
-import Prettyprinter (defaultLayoutOptions, layoutPretty)
-import Prettyprinter.Render.String (renderString)
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
+import System.FilePath (takeDirectory, (<.>), (</>))
 import System.Process (readProcess, readProcessWithExitCode)
 
 -- | Extract the interface of an installed package with direct GHC calls.
@@ -74,17 +43,6 @@ extractPackage pkgName = do
   let extraction = Extraction cache builtinCache directories
   modules <- mapM (extractInstalledModule extraction builtins importDir) exposedMods
   pure (PackageInterface (T.pack pkgId) modules)
-
-extractSourcePackage :: FilePath -> String -> IO PackageInterface
-extractSourcePackage root pkgName = do
-  exposedMods <- exposedSourceModules root
-  cache <- newIORef Map.empty
-  modules <- mapM (extractSourceModule (root </> "src") cache [] . T.pack . map pathSepToDot) exposedMods
-  pure
-    PackageInterface
-      { piPackage = T.pack pkgName,
-        piModules = modules
-      }
 
 type InterfaceCache = IORef (Map String GhcInterface)
 
@@ -331,389 +289,6 @@ removeUnpackCoercions text = case T.breakOn "{-# UNPACK #-}" text of
             result = T.snoc prefix char
          in if next == 0 then (result, rest) else go next result rest
 
-exposedSourceModules :: FilePath -> IO [String]
-exposedSourceModules root = do
-  cabalFiles <- filter ((".cabal" ==) . takeExtension) <$> listDirectory root
-  case cabalFiles of
-    cabalFile : _ -> do
-      contents <- BS.readFile (root </> cabalFile)
-      case parsePackageDescription contents of
-        Right gpd -> pure (genericPackageExposedModules gpd)
-        Left errors -> ioError (userError ("could not parse " <> cabalFile <> ": " <> errors))
-    [] -> ioError (userError ("no Cabal file found under " <> root))
-
-genericPackageExposedModules :: Package -> [String]
-genericPackageExposedModules gpd =
-  [ moduleNameFilePath modName
-  | Component (Library MainLibrary) libTree <- packageComponents gpd,
-    modName <- exposedModules (unconditional libTree)
-  ]
-
--- | The export interface of a source module.
---
--- A module can export names that it imports from other modules of the same
--- source package, with an explicit export item or with a @module M@ export.
--- The interface contains these names. Names that come from other packages
--- are not in the interface.
-extractSourceModule :: FilePath -> IORef (Map Text ModuleInterface) -> [Text] -> Text -> IO ModuleInterface
-extractSourceModule srcRoot cache visiting modName = do
-  cached <- Map.lookup modName <$> readIORef cache
-  case cached of
-    Just iface -> pure iface
-    Nothing -> do
-      modu <- parseSourceModule srcRoot modName
-      local <- sourceModuleInterface modName modu
-      reexported <- case moduleExports modu of
-        Nothing -> pure []
-        Just specs -> concat <$> mapM (importReexports specs) (moduleImports modu)
-      let iface = unionInterfaces local reexported
-      modifyIORef' cache (Map.insert modName iface)
-      pure iface
-  where
-    importReexports specs importDecl = do
-      let imported = importDeclModule importDecl
-      known <- doesFileExist (sourceModulePath srcRoot imported)
-      if not known || imported == modName || imported `elem` visiting
-        then pure []
-        else do
-          iface <- extractSourceModule srcRoot cache (modName : visiting) imported
-          let visible = applyImportSpec (importDeclSpec importDecl) iface
-              alias = fromMaybe imported (importDeclAs importDecl)
-              unqualified = not (importDeclQualified importDecl || importDeclQualifiedPost importDecl)
-              wholeModule = unqualified && alias `elem` exportedModuleNames specs
-          pure [if wholeModule then visible else restrictInterface (exportFilter specs) visible]
-
-sourceModulePath :: FilePath -> Text -> FilePath
-sourceModulePath srcRoot modName =
-  srcRoot </> map dotToSlash (T.unpack modName) <.> "hs"
-
-parseSourceModule :: FilePath -> Text -> IO Module
-parseSourceModule srcRoot modName = do
-  let sourcePath = sourceModulePath srcRoot modName
-  exists <- doesFileExist sourcePath
-  if not exists
-    then ioError (userError ("source module " <> T.unpack modName <> " not found at " <> sourcePath))
-    else do
-      source <- TE.decodeUtf8 <$> BS.readFile sourcePath
-      let (errs, parsed) =
-            parseModule
-              (defaultConfig {parserSourceName = sourcePath})
-              source
-      if null errs
-        then pure parsed
-        else ioError (userError ("source module " <> T.unpack modName <> " parse failed: " <> show errs))
-
--- | Add the re-exported names to the interface. A local name has priority.
-unionInterfaces :: ModuleInterface -> [ModuleInterface] -> ModuleInterface
-unionInterfaces local others =
-  local
-    { miTypes = unionBy etName (miTypes local : map miTypes others),
-      miValues = unionBy evName (miValues local : map miValues others),
-      miClasses = unionBy ecName (miClasses local : map miClasses others),
-      miFixities = unionBy fiName (miFixities local : map miFixities others)
-    }
-  where
-    unionBy key groups = Map.elems (Map.fromListWith (\_ older -> older) [(key item, item) | item <- concat groups])
-
-sourceModuleInterface :: Text -> Module -> IO ModuleInterface
-sourceModuleInterface fallbackName modu =
-  let iface =
-        applySourceExports modu $
-          ModuleInterface
-            { miModule = fromMaybe fallbackName (Syntax.moduleName modu),
-              miTypes = sourceTypes kindSigs decls,
-              miValues = sourceValues decls,
-              miClasses = sourceClasses decls,
-              miFixities = sourceFixities decls
-            }
-   in case missingExportedValueSignatures modu decls iface of
-        [] -> pure iface
-        missing ->
-          ioError
-            ( userError
-                ( "source module "
-                    <> T.unpack (miModule iface)
-                    <> " has exported value(s) without type signatures: "
-                    <> T.unpack (T.intercalate ", " missing)
-                )
-            )
-  where
-    decls = map peelDeclAnn (moduleDecls modu)
-    kindSigs = Map.fromList [(renderUnqualifiedName name, renderSourceType kind) | DeclStandaloneKindSig name kind <- decls]
-
-sourceValues :: [Decl] -> [ExportedValue]
-sourceValues decls =
-  Map.elems $
-    Map.fromList
-      [ (name, ExportedValue name (renderSourceType ty))
-      | (name, ty) <- concatMap declaredValueTypes decls
-      ]
-  where
-    declaredValueTypes decl =
-      case decl of
-        DeclTypeSig names ty -> [(renderUnqualifiedName name, ty) | name <- names]
-        DeclForeign foreignDecl
-          | foreignDirection foreignDecl == ForeignImport ->
-              [(renderUnqualifiedName (foreignName foreignDecl), foreignType foreignDecl)]
-        _ -> []
-
-missingExportedValueSignatures :: Module -> [Decl] -> ModuleInterface -> [Text]
-missingExportedValueSignatures modu decls iface =
-  [ name
-  | name <- candidateNames,
-    Map.notMember name typedValues
-  ]
-  where
-    typedValues = Map.fromList [(evName value, ()) | value <- miValues iface]
-    declaredValues =
-      Map.fromList [(name, ()) | DeclValue valueDecl <- decls, name <- valueDeclNames valueDecl]
-    candidateNames =
-      case moduleExports modu of
-        Nothing -> Map.keys declaredValues
-        Just specs ->
-          [ name
-          | name <- concatMap exportValueNames specs,
-            Map.member name declaredValues
-          ]
-
-valueDeclNames :: ValueDecl -> [Text]
-valueDeclNames valueDecl =
-  case valueDecl of
-    FunctionBind name _ -> [renderUnqualifiedName name]
-    PatternBind _ pat _ -> patternBinderNames pat
-
-patternBinderNames :: Pattern -> [Text]
-patternBinderNames pat =
-  case pat of
-    PAnn _ inner -> patternBinderNames inner
-    PVar name -> [renderUnqualifiedName name]
-    _ -> []
-
-sourceTypes :: Map Text Text -> [Decl] -> [ExportedType]
-sourceTypes kindSigs =
-  mapMaybe go
-  where
-    go decl =
-      case decl of
-        DeclTypeSyn syn ->
-          let name = binderHeadName (typeSynHead syn)
-           in Just (ExportedType name (sourceTypeKind kindSigs name) [])
-        DeclTypeData dataDecl -> Just (sourceDataType kindSigs dataDecl)
-        DeclData dataDecl -> Just (sourceDataType kindSigs dataDecl)
-        DeclNewtype newtypeDecl -> Just (sourceNewtype kindSigs newtypeDecl)
-        DeclTypeFamilyDecl familyDecl ->
-          let name = sourceTypeFamilyName familyDecl
-           in Just (ExportedType name (sourceTypeKind kindSigs name) [])
-        _ -> Nothing
-
-sourceDataType :: Map Text Text -> DataDecl -> ExportedType
-sourceDataType kindSigs dataDecl =
-  ExportedType
-    { etName = name,
-      etKind = sourceTypeKind kindSigs name,
-      etConstructors = concatMap dataConNames (dataDeclConstructors dataDecl)
-    }
-  where
-    name = binderHeadName (dataDeclHead dataDecl)
-
-sourceNewtype :: Map Text Text -> NewtypeDecl -> ExportedType
-sourceNewtype kindSigs newtypeDecl =
-  ExportedType
-    { etName = name,
-      etKind = sourceTypeKind kindSigs name,
-      etConstructors = maybe [] dataConNames (newtypeDeclConstructor newtypeDecl)
-    }
-  where
-    name = binderHeadName (newtypeDeclHead newtypeDecl)
-
--- | The full kind of a source type: only a standalone kind signature states
--- it. A kind annotation on a declaration head gives just the result kind,
--- which is not comparable with the kinds extracted from interface files.
-sourceTypeKind :: Map Text Text -> Text -> Text
-sourceTypeKind kindSigs name =
-  Map.findWithDefault unspecifiedSourceKind name kindSigs
-
-sourceClasses :: [Decl] -> [ExportedClass]
-sourceClasses decls =
-  [ ExportedClass
-      { ecName = binderHeadName (classDeclHead classDecl),
-        ecMethods = sourceClassMethods classDecl
-      }
-  | DeclClass classDecl <- decls
-  ]
-
-sourceClassMethods :: ClassDecl -> [ClassMethod]
-sourceClassMethods classDecl =
-  [ ClassMethod (renderUnqualifiedName name) (renderSourceType ty)
-  | item <- map peelClassDeclItemAnn (classDeclItems classDecl),
-    ClassItemTypeSig names ty <- [item],
-    name <- names
-  ]
-
-sourceFixities :: [Decl] -> [FixityInfo]
-sourceFixities decls =
-  [ FixityInfo
-      { fiName = renderUnqualifiedName op,
-        fiDirection = sourceFixityDirection assoc,
-        fiPrecedence = fromMaybe 9 mPrec
-      }
-  | DeclFixity assoc _ mPrec ops <- decls,
-    op <- ops
-  ]
-
-sourceFixityDirection :: FixityAssoc -> FixityDirection
-sourceFixityDirection assoc =
-  case assoc of
-    Syntax.InfixL -> Aihc.Dev.ExtractHi.Types.InfixL
-    Syntax.InfixR -> Aihc.Dev.ExtractHi.Types.InfixR
-    Syntax.Infix -> Aihc.Dev.ExtractHi.Types.InfixN
-
-applySourceExports :: Module -> ModuleInterface -> ModuleInterface
-applySourceExports modu iface =
-  case moduleExports modu of
-    Nothing -> iface
-    Just specs
-      | miModule iface `elem` exportedModuleNames specs -> iface
-      | otherwise -> restrictInterface (exportFilter specs) iface
-
--- | The names that an export list or an import list gives.
--- A type name maps to its member names. 'Nothing' means no members.
--- An empty list means all members.
-data NameFilter = NameFilter
-  { nfValues :: Map Text (),
-    nfTypes :: Map Text (Maybe [Text])
-  }
-
-exportFilter :: [ExportSpec] -> NameFilter
-exportFilter specs =
-  NameFilter
-    { nfValues = Map.fromList [(name, ()) | name <- concatMap exportValueNames specs],
-      nfTypes = Map.fromList [(name, exportMembers spec) | spec <- specs, name <- exportTypeNames spec]
-    }
-
-exportedModuleNames :: [ExportSpec] -> [Text]
-exportedModuleNames = mapMaybe go
-  where
-    go spec =
-      case spec of
-        ExportAnn _ inner -> go inner
-        ExportModule _ name -> Just name
-        _ -> Nothing
-
-importFilter :: [ImportItem] -> NameFilter
-importFilter items =
-  NameFilter
-    { nfValues = Map.fromList [(name, ()) | ImportItemVar namespace item <- peeled, namespace /= Just IEEntityNamespaceType, let name = renderUnqualifiedName item],
-      nfTypes = Map.fromList (mapMaybe importType peeled)
-    }
-  where
-    peeled = map peelImportItem items
-    importType item =
-      case item of
-        ImportItemVar (Just IEEntityNamespaceType) name -> Just (renderUnqualifiedName name, Nothing)
-        ImportItemAbs _ name -> Just (renderUnqualifiedName name, Nothing)
-        ImportItemAll _ name -> Just (renderUnqualifiedName name, Just [])
-        ImportItemWith _ name members -> Just (renderUnqualifiedName name, Just (map (renderName . ieBundledMemberName) members))
-        ImportItemAllWith _ name _ _ -> Just (renderUnqualifiedName name, Just [])
-        _ -> Nothing
-
-peelImportItem :: ImportItem -> ImportItem
-peelImportItem item =
-  case item of
-    ImportAnn _ inner -> peelImportItem inner
-    _ -> item
-
-applyImportSpec :: Maybe ImportSpec -> ModuleInterface -> ModuleInterface
-applyImportSpec mSpec iface =
-  case mSpec of
-    Nothing -> iface
-    Just spec
-      | importSpecHiding spec -> hideInterface (importFilter (importSpecItems spec)) iface
-      | otherwise -> restrictInterface (importFilter (importSpecItems spec)) iface
-
-restrictInterface :: NameFilter -> ModuleInterface -> ModuleInterface
-restrictInterface names iface =
-  iface
-    { miValues = filter (exportedValue (nfValues names)) (miValues iface),
-      miTypes = mapMaybe (filterExportedType (nfTypes names)) (miTypes iface),
-      miClasses = mapMaybe (filterExportedClass (nfTypes names)) (miClasses iface),
-      miFixities = filter (exportedFixity (nfValues names) (nfTypes names)) (miFixities iface)
-    }
-
--- | Remove the hidden names. A hidden type or class goes with all its members.
-hideInterface :: NameFilter -> ModuleInterface -> ModuleInterface
-hideInterface names iface =
-  iface
-    { miValues = filter (not . exportedValue (nfValues names)) (miValues iface),
-      miTypes = filter (\typ -> Map.notMember (etName typ) (nfTypes names)) (miTypes iface),
-      miClasses = filter (\klass -> Map.notMember (ecName klass) (nfTypes names)) (miClasses iface),
-      miFixities = filter (not . exportedFixity (nfValues names) (nfTypes names)) (miFixities iface)
-    }
-
-exportedValue :: Map Text () -> ExportedValue -> Bool
-exportedValue allowed value =
-  Map.member (evName value) allowed
-
-filterExportedType :: Map Text (Maybe [Text]) -> ExportedType -> Maybe ExportedType
-filterExportedType allowedTypes typ =
-  case Map.lookup (etName typ) allowedTypes of
-    Nothing -> Nothing
-    Just Nothing -> Just (typ {etConstructors = []})
-    Just (Just []) -> Just typ
-    Just (Just names) -> Just (typ {etConstructors = filter (`elem` names) (etConstructors typ)})
-
-filterExportedClass :: Map Text (Maybe [Text]) -> ExportedClass -> Maybe ExportedClass
-filterExportedClass allowedTypes klass =
-  case Map.lookup (ecName klass) allowedTypes of
-    Nothing -> Nothing
-    Just Nothing -> Just (klass {ecMethods = []})
-    Just (Just []) -> Just klass
-    Just (Just names) -> Just (klass {ecMethods = filter ((`elem` names) . cmName) (ecMethods klass)})
-
-exportedFixity :: Map Text () -> Map Text (Maybe [Text]) -> FixityInfo -> Bool
-exportedFixity allowedValues allowedTypes fixity =
-  Map.member (fiName fixity) allowedValues || Map.member (fiName fixity) allowedTypes
-
-exportValueNames :: ExportSpec -> [Text]
-exportValueNames spec =
-  case spec of
-    ExportAnn _ inner -> exportValueNames inner
-    ExportVar _ namespace name | namespace /= Just IEEntityNamespaceType -> [renderName name]
-    _ -> []
-
-exportTypeNames :: ExportSpec -> [Text]
-exportTypeNames spec =
-  case spec of
-    ExportAnn _ inner -> exportTypeNames inner
-    ExportVar _ (Just IEEntityNamespaceType) name -> [renderName name]
-    ExportAbs _ _ name -> [renderName name]
-    ExportAll _ _ name -> [renderName name]
-    ExportWith _ _ name _ -> [renderName name]
-    ExportWithAll _ _ name _ _ -> [renderName name]
-    _ -> []
-
-exportMembers :: ExportSpec -> Maybe [Text]
-exportMembers spec =
-  case spec of
-    ExportAnn _ inner -> exportMembers inner
-    ExportAbs {} -> Nothing
-    ExportAll {} -> Just []
-    ExportWith _ _ _ members -> Just (map (renderName . ieBundledMemberName) members)
-    ExportWithAll _ _ _ _ members -> Just (map (renderName . ieBundledMemberName) members)
-    _ -> Nothing
-
-binderHeadName :: BinderHead UnqualifiedName -> Text
-binderHeadName head' =
-  case head' of
-    PrefixBinderHead name _ -> renderUnqualifiedName name
-    InfixBinderHead _ name _ _ -> renderUnqualifiedName name
-
-sourceTypeFamilyName :: TypeFamilyDecl -> Text
-sourceTypeFamilyName familyDecl =
-  case typeFamilyDeclHead familyDecl of
-    TCon name _ -> renderName name
-    _ -> renderSourceType (typeFamilyDeclHead familyDecl)
-
 dataConNames :: DataConDecl -> [Text]
 dataConNames con =
   case peelDataConAnn con of
@@ -735,10 +310,6 @@ gadtBodyFieldNames body =
 fieldDeclNames :: FieldDecl -> [Text]
 fieldDeclNames field =
   map renderUnqualifiedName (fieldNames field)
-
-renderSourceType :: Type -> Text
-renderSourceType =
-  T.pack . renderString . layoutPretty defaultLayoutOptions . prettyType
 
 -- | Query @ghc-pkg@ for package information.
 --
@@ -805,7 +376,3 @@ trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 dotToSlash :: Char -> Char
 dotToSlash '.' = '/'
 dotToSlash c = c
-
-pathSepToDot :: Char -> Char
-pathSepToDot '/' = '.'
-pathSepToDot c = c

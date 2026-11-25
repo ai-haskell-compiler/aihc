@@ -1,0 +1,55 @@
+program: |
+  constructor I# [IntRep]
+
+  primitive +# :: IntRep/2
+
+  $box (x :: BoxedRep Lifted) (y :: IntRep) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    m :: IntRep <-
+      primitive-call @IntRep +# (n :: IntRep) (y :: IntRep)
+    store (CI# (m :: IntRep))
+
+  $box_unboxed (x :: BoxedRep Lifted) (y :: IntRep) -> IntRep =
+    n :: IntRep <-
+      fetch (CI#) (x :: BoxedRep Lifted)
+    primitive-call @IntRep +# (n :: IntRep) (y :: IntRep)
+
+  $entry (x :: BoxedRep Lifted) -> IntRep =
+    boxed :: BoxedRep Lifted <-
+      call @(BoxedRep Lifted) $box (x :: BoxedRep Lifted) (1 :: IntRep)
+    value :: IntRep <-
+      fetch (CI#) (boxed :: BoxedRep Lifted)
+    constant (value :: IntRep)
+expected: |-
+  constructor I# [IntRep]
+
+  primitive +# :: IntRep/2
+
+  $box (x :: BoxedRep Lifted) (y :: IntRep) -> BoxedRep Lifted =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    m :: IntRep <-
+      primitive-call @IntRep +# (n :: IntRep) (y :: IntRep)
+    store (CI# (m :: IntRep))
+
+  $box_unboxed (x :: BoxedRep Lifted) (y :: IntRep) -> IntRep =
+    n :: IntRep <-
+      fetch (CI#) (x :: BoxedRep Lifted)
+    primitive-call @IntRep +# (n :: IntRep) (y :: IntRep)
+
+  $entry (x :: BoxedRep Lifted) -> IntRep =
+    call @IntRep $box_unboxed2 (x :: BoxedRep Lifted) (1 :: IntRep)
+
+  $box_unboxed2 (x :: BoxedRep Lifted) (y :: IntRep) -> IntRep =
+    v :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (x :: BoxedRep Lifted)
+    n :: IntRep <-
+      fetch (CI#) (v :: BoxedRep Lifted)
+    primitive-call @IntRep +# (n :: IntRep) (y :: IntRep)
+status: pass
+reason: an earlier run made the worker $box_unboxed, and a later pass removed its eval because its calls gave only values, so a new direct call of $box gets a new worker from the present body of $box and evaluates its thunk argument

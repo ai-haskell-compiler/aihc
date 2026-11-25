@@ -14,7 +14,7 @@ module Aihc.Tc.Generate.Expr
   )
 where
 
-import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier)
+import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -44,6 +44,7 @@ import Aihc.Tc.Syntax.Pending
     FloatType (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
+    LiteralSyntax (..),
     Name (..),
     NumericType (..),
     Pattern (..),
@@ -82,7 +83,7 @@ import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.List (partition)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -96,58 +97,37 @@ inferExpr = inferExprAt Nothing
 
 inferExprAt :: Maybe SourceSpan -> Expr -> TcM (Expr, TcType, [Ct])
 inferExprAt ambient expr = case expr of
-  EResolved integerAnn (EResolved ann inner)
-    | ResolutionOk integerResolution <- integerAnn,
-      resolutionNamespace integerResolution == ResolutionNamespaceType,
-      ResolutionOk resolution <- ann,
-      isFromIntegerResolution resolution,
-      EInt _ TInteger _ <- inner -> do
-        (literal, ty, cts) <- inferOverloadedIntegerLiteral ambient (Just integerResolution) ann resolution inner
-        pure (EResolved integerAnn literal, ty, cts)
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      isFromIntegerResolution resolution,
-      EInt _ TInteger _ <- inner ->
-        inferOverloadedIntegerLiteral ambient Nothing ann resolution inner
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "fromRational" resolution,
-      EFloat _ TFractional _ <- inner ->
-        inferOverloadedLiteral ambient "fromRational" [] ann resolution inner
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "fromString" resolution,
-      EString _ _ <- inner ->
-        inferOverloadedLiteral ambient "fromString" [] ann resolution inner
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "fromListN" resolution ->
-        inferOverloadedList (resolutionSpan resolution <|> ambient) ann resolution inner
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "fromList" resolution ->
-        inferOverloadedSequence (resolutionSpan resolution <|> ambient) ann resolution inner
-  EResolved ann inner
-    | ResolutionOk resolution <- ann,
-      resolutionNamespace resolution == ResolutionNamespaceType,
-      isPrimitiveLiteral inner ->
-        inferPrimitiveLiteral ann resolution inner
-  EResolved ann (EIf cond thenE elseE)
-    | ResolutionOk resolution <- ann,
-      isIfThenElseResolution resolution ->
-        inferRebindableIf (resolutionSpan resolution <|> ambient) ann resolution cond thenE elseE
-  EResolved ann (ENegate inner)
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "negate" resolution ->
-        inferNegate (resolutionSpan resolution <|> ambient) ann resolution inner
-  EResolved ann (EGetField record field)
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "getField" resolution ->
-        inferGetField (resolutionSpan resolution <|> ambient) ann resolution record field
-  EResolved ann (EGetFieldProjection fields)
-    | ResolutionOk resolution <- ann,
-      isSyntaxTermResolution "getField" resolution ->
-        inferGetFieldProjection (resolutionSpan resolution <|> ambient) ann resolution fields
+  EInt (LiteralSyntaxOverloaded integerType conversion) _ TInteger _
+    | Just resolution <- syntaxResolution conversion ->
+        inferOverloadedLiteral ambient "fromInteger" (maybeToList (integerType >>= syntaxResolution)) resolution expr
+  EFloat (LiteralSyntaxOverloaded _ conversion) _ TFractional _
+    | Just resolution <- syntaxResolution conversion ->
+        inferOverloadedLiteral ambient "fromRational" [] resolution expr
+  EString (Just conversion) _ _
+    | Just resolution <- syntaxResolution conversion ->
+        inferOverloadedLiteral ambient "fromString" [] resolution expr
+  EList syntax (Just method) items
+    | Just resolution <- syntaxResolution method ->
+        inferOverloadedList (resolutionSpan resolution <|> ambient) syntax method resolution items
+  EArithSeq (Just method) arithSeq
+    | Just resolution <- syntaxResolution method ->
+        inferOverloadedSequence (resolutionSpan resolution <|> ambient) method resolution arithSeq
+  _
+    | Just typeName <- primitiveLiteralTypeName expr,
+      Just resolution <- syntaxResolution typeName ->
+        inferPrimitiveLiteral resolution expr
+  EIf (Just method) cond thenE elseE
+    | Just resolution <- syntaxResolution method ->
+        inferRebindableIf (resolutionSpan resolution <|> ambient) method resolution cond thenE elseE
+  ENegate method inner
+    | Just resolution <- syntaxResolution method ->
+        inferNegate (resolutionSpan resolution <|> ambient) method resolution inner
+  EGetField method record field
+    | Just resolution <- syntaxResolution method ->
+        inferGetField (resolutionSpan resolution <|> ambient) method resolution record field
+  EGetFieldProjection method fields
+    | Just resolution <- syntaxResolution method ->
+        inferGetFieldProjection (resolutionSpan resolution <|> ambient) method resolution fields
   EVar name ->
     inferVar (exprSpan expr <|> ambient) name
   EImplicitParam name ->
@@ -160,7 +140,7 @@ inferExprAt ambient expr = case expr of
     literalResult expr charType
   ECharHash {} ->
     abortTc "primitive character literal is missing its resolver type annotation"
-  EString _ _ ->
+  EString {} ->
     literalResult expr stringType
   EStringHash {} ->
     abortTc "primitive string literal is missing its resolver type annotation"
@@ -180,8 +160,8 @@ inferExprAt ambient expr = case expr of
     inferSectionL (exprSpan expr <|> ambient) inner op
   ESectionR op inner ->
     inferSectionR (exprSpan expr <|> ambient) op inner
-  EIf cond thenE elseE ->
-    inferIf (exprSpan expr <|> ambient) cond thenE elseE
+  EIf method cond thenE elseE ->
+    inferIf (exprSpan expr <|> ambient) method cond thenE elseE
   EMultiWayIf alternatives ->
     inferMultiWayIf (exprSpan expr <|> ambient) alternatives
   ECase scrutinee alts ->
@@ -203,33 +183,30 @@ inferExprAt ambient expr = case expr of
     pure (EPragma pragma inner', ty, cts)
   ETypeSig inner tyAnn -> do
     inferTypeSig (exprSpan expr <|> ambient) inner tyAnn
-  ENegate inner -> do
+  ENegate method inner -> do
     (inner', innerTy, cs) <- inferExpr inner
-    pure (ENegate inner', innerTy, cs)
+    pure (ENegate method inner', innerTy, cs)
   EAnn ann inner -> do
     (inner', ty, cts) <- inferExprAt (annotationSpan ann <|> ambient) inner
     pure (EAnn ann inner', ty, cts)
   ETc ann inner -> do
     (inner', ty, cts) <- inferExprAt ambient inner
     pure (ETc ann inner', ty, cts)
-  EResolved result inner -> do
-    (inner', ty, cts) <- inferExprAt ambient inner
-    pure (EResolved result inner', ty, cts)
-  ETuple flavor elems ->
-    inferTuple (exprSpan expr <|> ambient) flavor elems
+  ETuple syntax flavor elems ->
+    inferTuple (exprSpan expr <|> ambient) syntax flavor elems
   EUnboxedSum alternative arity inner -> do
     (inner', innerType, constraints) <- inferExprAt ambient inner
     types <- mapM (\index -> if index == alternative then pure innerType else freshMetaTv) [0 .. arity - 1]
     sumType <- unboxedSumType types
     let pending = pendingAnnotation sumType types [] []
     pure (annotatePendingExprAt ambient pending (EUnboxedSum alternative arity inner'), sumType, constraints)
-  EList elems ->
-    inferList (exprSpan expr <|> ambient) elems
+  EList syntax _ elems ->
+    inferList (exprSpan expr <|> ambient) syntax elems
   EListComp body quals ->
     inferListComp (exprSpan expr <|> ambient) body quals
   EListCompParallel body branches ->
     inferListCompParallel (exprSpan expr <|> ambient) body branches
-  EArithSeq arithSeq ->
+  EArithSeq _ arithSeq ->
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
   EDo stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
@@ -484,21 +461,17 @@ inferMonoTypeSig sp inner tyAnn sigTy = do
   -- proof is reflexivity.
   pure (annotateSigCast sigTy ev (ETypeSig inner' tyAnn), sigTy, cts <> [sigCt])
 
--- | An overloaded integer literal is @fromInteger (n :: Integer)@.
---
--- The resolver gives the Integer type when the built-in scope has it.
--- The argument type of the method then equals Integer.
-inferOverloadedIntegerLiteral :: Maybe SourceSpan -> Maybe Resolved -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedIntegerLiteral ambient integerResolution =
-  inferOverloadedLiteral ambient "fromInteger" (maybe [] pure integerResolution)
-
 -- | Infer an overloaded literal that a class method converts.
 --
 -- @literalResolutions@ holds the resolution of the type of the argument of
 -- the method, when the resolver gives it. The argument type of the method
--- must then equal that type.
-inferOverloadedLiteral :: Maybe SourceSpan -> Text -> [Resolved] -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedLiteral ambient methodName literalResolutions resolutionAnn resolution literalExpr = do
+-- must then equal that type. An integer literal is
+-- @fromInteger (n :: Integer)@.
+--
+-- The literal gets one annotation: the result type, with the type
+-- arguments and the evidence of the method.
+inferOverloadedLiteral :: Maybe SourceSpan -> Text -> [Resolved] -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
+inferOverloadedLiteral ambient methodName literalResolutions resolution literalExpr = do
   let sp = resolutionSpan resolution <|> ambient
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   resultTy <- freshMetaTv
@@ -530,25 +503,30 @@ inferOverloadedLiteral ambient methodName literalResolutions resolutionAnn resol
           typeArgs
           (map ctEvVar methodCts)
           []
-  pure (annotatePendingExprAt sp pending (EResolved resolutionAnn literalExpr), resultTy, methodCts <> [methodEq] <> literalCts)
+  pure (annotatePendingExprAt sp pending literalExpr, resultTy, methodCts <> [methodEq] <> literalCts)
 
-inferPrimitiveLiteral :: ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferPrimitiveLiteral resolutionAnn resolution literalExpr = do
+inferPrimitiveLiteral :: Resolved -> Expr -> TcM (Expr, TcType, [Ct])
+inferPrimitiveLiteral resolution literalExpr = do
   maybeInfo <- lookupResolvedTypeSyntax resolution
   case maybeInfo of
     Just info ->
-      literalResult (EResolved resolutionAnn literalExpr) (pure (TcTyCon (tciTyCon info) []))
+      literalResult literalExpr (pure (TcTyCon (tciTyCon info) []))
     Nothing ->
       abortTc ("resolved primitive literal type missing from type environment: " <> show (resolutionTarget resolution))
 
-isPrimitiveLiteral :: Expr -> Bool
-isPrimitiveLiteral expr =
+-- | The name of the type of a primitive literal expression.
+primitiveLiteralTypeName :: Expr -> Maybe Name
+primitiveLiteralTypeName expr =
   case expr of
-    EInt _ numericType _ -> numericType /= TInteger
-    EFloat _ floatType _ -> floatType /= TFractional
-    ECharHash {} -> True
-    EStringHash {} -> True
-    _ -> False
+    EInt (LiteralSyntaxPrimitive typeName) _ _ _ -> Just typeName
+    EFloat (LiteralSyntaxPrimitive typeName) _ _ _ -> Just typeName
+    ECharHash typeName _ _ -> Just typeName
+    EStringHash typeName _ _ -> Just typeName
+    _ -> Nothing
+
+-- | The resolution of a syntax name, when the resolver found it.
+syntaxResolution :: Name -> Maybe Resolved
+syntaxResolution name = nameResolution name >>= resolvedOf
 
 -- | Whether a resolver annotation names the given syntax term.
 isSyntaxTermResolution :: Text -> Resolved -> Bool
@@ -556,16 +534,10 @@ isSyntaxTermResolution name resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
     && resolutionIdentifier resolution == IdentifierNamed name
 
-isFromIntegerResolution :: Resolved -> Bool
-isFromIntegerResolution = isSyntaxTermResolution "fromInteger"
-
 -- | Whether a resolver annotation names the method that sequences a do statement.
 isDoMethodResolution :: Resolved -> Bool
 isDoMethodResolution resolution =
   isSyntaxTermResolution ">>=" resolution || isSyntaxTermResolution ">>" resolution
-
-isIfThenElseResolution :: Resolved -> Bool
-isIfThenElseResolution = isSyntaxTermResolution "ifThenElse"
 
 isArithSeqResolution :: Resolved -> Bool
 isArithSeqResolution resolution =
@@ -625,7 +597,6 @@ annotateLambdaPattern bindings argTy pat =
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType (PTc _ inner) = lambdaPatternCarriesBinderType inner
-lambdaPatternCarriesBinderType (PResolved _ inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType PVar {} = True
 lambdaPatternCarriesBinderType (PParen inner) = lambdaPatternCarriesBinderType inner
 lambdaPatternCarriesBinderType PAs {} = True
@@ -660,9 +631,6 @@ checkExpr expected expression = case expression of
   ETc annotation inner | checksExpectedResult inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (ETc annotation inner', ty, constraints)
-  EResolved result inner | checksExpectedResult inner -> do
-    (inner', ty, constraints) <- checkExpr expected inner
-    pure (EResolved result inner', ty, constraints)
   EParen inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EParen inner', ty, constraints)
@@ -681,7 +649,7 @@ checkExpr expected expression = case expression of
     case expectedParts of
       Just (argumentTypes, resultType) -> lambdaCasesWith (exprSpan expression) argumentTypes resultType alternatives
       Nothing -> inferExpr expression
-  EList elements -> inferListWithExpected (Just expected) (exprSpan expression) elements
+  EList syntax Nothing elements -> inferListWithExpected (Just expected) (exprSpan expression) syntax elements
   ECase scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
@@ -708,9 +676,6 @@ checkExpr expected expression = case expression of
       ETc annotation inner -> do
         (inner', ty, constraints) <- checkApplicationAt ambient inner
         pure (ETc annotation inner', ty, constraints)
-      EResolved result inner -> do
-        (inner', ty, constraints) <- checkApplicationAt ambient inner
-        pure (EResolved result inner', ty, constraints)
       EParen inner -> do
         (inner', ty, constraints) <- checkApplicationAt ambient inner
         pure (EParen inner', ty, constraints)
@@ -721,7 +686,6 @@ checkExpr expected expression = case expression of
     isAnnotatedApplication expr = case expr of
       EAnn _ inner -> isAnnotatedApplication inner
       ETc _ inner -> isAnnotatedApplication inner
-      EResolved _ inner -> isAnnotatedApplication inner
       EParen inner -> isAnnotatedApplication inner
       EPragma _ inner -> isAnnotatedApplication inner
       EApp {} -> True
@@ -776,14 +740,8 @@ checkRhs expected rhs = case rhs of
 -- Keep this list of constructors the same as the list in 'checkExpr'.
 checksExpectedResult :: Expr -> Bool
 checksExpectedResult expression = case expression of
-  EResolved annotation _
-    | ResolutionOk resolution <- annotation,
-      isSyntaxTermResolution "fromListN" resolution
-        || isSyntaxTermResolution "fromList" resolution ->
-        False
   EAnn _ inner -> checksExpectedResult inner
   ETc _ inner -> checksExpectedResult inner
-  EResolved _ inner -> checksExpectedResult inner
   EParen inner -> checksExpectedResult inner
   EPragma _ inner -> checksExpectedResult inner
   ECase {} -> True
@@ -792,7 +750,8 @@ checksExpectedResult expression = case expression of
   ELambdaPats {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
-  EList {} -> True
+  -- An overloaded list does not give the expected type to its list.
+  EList _ method _ -> isNothing method
   _ -> False
 
 -- | Split an expected type into the given number of argument types and a
@@ -1139,7 +1098,6 @@ containsCheckedArgument expression
       EPragma _ inner -> containsCheckedArgument inner
       EAnn _ inner -> containsCheckedArgument inner
       ETc _ inner -> containsCheckedArgument inner
-      EResolved _ inner -> containsCheckedArgument inner
       _ -> False
 
 spineResultType :: TcType -> [SpineFrame] -> Maybe TcType
@@ -1172,7 +1130,6 @@ isConstructorArgument expr =
     EPragma _ inner -> isConstructorArgument inner
     EAnn _ inner -> isConstructorArgument inner
     ETc _ inner -> isConstructorArgument inner
-    EResolved _ inner -> isConstructorArgument inner
     _ -> False
 
 -- | Whether an argument is an operator section.
@@ -1185,7 +1142,6 @@ isSectionArgument expr =
     EPragma _ inner -> isSectionArgument inner
     EAnn _ inner -> isSectionArgument inner
     ETc _ inner -> isSectionArgument inner
-    EResolved _ inner -> isSectionArgument inner
     _ -> False
 
 -- | Whether a type family application is part of a type.
@@ -1456,7 +1412,6 @@ prefixOperatorHead expr =
     EApp fun arg -> EApp (prefixOperatorHead fun) arg
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
     ETc ann inner -> ETc ann (prefixOperatorHead inner)
-    EResolved ann inner -> EResolved ann (prefixOperatorHead inner)
     EVar name ->
       case mapMaybe infoPending (nameTc name) of
         pending : _ ->
@@ -1663,7 +1618,6 @@ pendingTypeArgs expr =
       case info of
         InfoType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
         _ -> pendingTypeArgs inner
-    EResolved _ inner -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner
@@ -1740,8 +1694,8 @@ inferSectionR sp op inner = do
           op'' = annotateOperatorCast operatorTy evidence op'
       pure (annotatePendingExprAt sp pending (ESectionR op'' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
-inferIf :: Maybe SourceSpan -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
-inferIf sp cond thenE elseE = do
+inferIf :: Maybe SourceSpan -> Maybe Name -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
+inferIf sp method cond thenE elseE = do
   (cond', condTy, condCts) <- inferExpr cond
   (thenE', thenTy, thenCts) <- inferExpr thenE
   (elseE', elseTy, elseCts) <- inferExpr elseE
@@ -1757,7 +1711,7 @@ inferIf sp cond thenE elseE = do
       cond'' = annotateBranchCast expectedBoolTy condEv cond'
       thenE'' = annotateBranchCast resultTy thenEv thenE'
       elseE'' = annotateBranchCast resultTy elseEv elseE'
-  pure (annotatePendingExprAt sp pending (EIf cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
+  pure (annotatePendingExprAt sp pending (EIf method cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
 -- | A multi-way if is a guarded right-hand side without a binding. Each
 -- alternative has the result type.
@@ -1769,10 +1723,11 @@ inferMultiWayIf sp alternatives = do
 
 -- | RebindableSyntax gives an if expression the in-scope ifThenElse.
 --
--- The method annotation sits inside the result annotation. The desugarer
--- applies the method to the condition and the two branches.
-inferRebindableIf :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
-inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
+-- The method name gets the method annotation, and the expression gets the
+-- result annotation. The desugarer applies the method to the condition and
+-- the two branches.
+inferRebindableIf :: Maybe SourceSpan -> Name -> Resolved -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
+inferRebindableIf sp method resolution cond thenE elseE = do
   (cond', condTy, condCts) <- inferExpr cond
   (thenE', thenTy, thenCts) <- inferExpr thenE
   (elseE', elseTy, elseCts) <- inferExpr elseE
@@ -1783,19 +1738,18 @@ inferRebindableIf sp resolutionAnn resolution cond thenE elseE = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "ifThenElse") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      annotated = annotatePendingExpr methodPending (EResolved resolutionAnn (EIf cond' thenE' elseE'))
   pure
-    ( annotatePendingExprAt sp resultPending annotated,
+    ( annotatePendingExprAt sp resultPending (EIf (Just (annotatePendingName methodPending method)) cond' thenE' elseE'),
       resultTy,
       condCts <> thenCts <> elseCts <> methodCts <> [methodEquality]
     )
 
 -- | Negation applies the resolved negate method to its operand.
 --
--- The method annotation sits inside the result annotation. The desugarer
--- applies the method to the operand.
-inferNegate :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferNegate sp resolutionAnn resolution inner = do
+-- The method name gets the method annotation, and the expression gets the
+-- result annotation. The desugarer applies the method to the operand.
+inferNegate :: Maybe SourceSpan -> Name -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
+inferNegate sp method resolution inner = do
   (inner', innerTy, innerCts) <- inferExpr inner
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "negate" resolution
   resultTy <- freshMetaTv
@@ -1804,22 +1758,21 @@ inferNegate sp resolutionAnn resolution inner = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "negate") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      annotated = annotatePendingExpr methodPending (EResolved resolutionAnn (ENegate inner'))
   pure
-    ( annotatePendingExprAt sp resultPending annotated,
+    ( annotatePendingExprAt sp resultPending (ENegate (annotatePendingName methodPending method) inner'),
       resultTy,
       innerCts <> methodCts <> [methodEquality]
     )
 
 -- | Record dot syntax applies the getField syntax term at the label of the
 -- field, as GHC does. The expression @e.x@ is @getField \@"x" e@.
-inferGetField :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> Name -> TcM (Expr, TcType, [Ct])
-inferGetField sp resolutionAnn resolution record field = do
+inferGetField :: Maybe SourceSpan -> Name -> Resolved -> Expr -> Name -> TcM (Expr, TcType, [Ct])
+inferGetField sp method resolution record field = do
   (record', recordTy, recordCts) <- inferExpr record
   (field', resultTy, fieldCts) <- inferFieldSelection sp resolution recordTy field
   let pending = pendingAnnotation resultTy [] [] []
   pure
-    ( annotatePendingExprAt sp pending (EResolved resolutionAnn (EGetField record' field')),
+    ( annotatePendingExprAt sp pending (EGetField method record' field'),
       resultTy,
       recordCts <> fieldCts
     )
@@ -1827,14 +1780,14 @@ inferGetField sp resolutionAnn resolution record field = do
 -- | A record dot projection such as @(.x.y)@ is a function. It applies
 -- getField at each label in turn, first @x@ and then @y@. The checked
 -- argument type of the annotation is the record type.
-inferGetFieldProjection :: Maybe SourceSpan -> ResolutionResult -> Resolved -> [Name] -> TcM (Expr, TcType, [Ct])
-inferGetFieldProjection sp resolutionAnn resolution fields = do
+inferGetFieldProjection :: Maybe SourceSpan -> Name -> Resolved -> [Name] -> TcM (Expr, TcType, [Ct])
+inferGetFieldProjection sp method resolution fields = do
   argumentTy <- freshMetaTv
   (fields', resultTy, cts) <- selectFields argumentTy fields
   let projectionTy = TcFunTy argumentTy resultTy
       pending = pendingAnnotation projectionTy [] [] [argumentTy]
   pure
-    ( annotatePendingExprAt sp pending (EResolved resolutionAnn (EGetFieldProjection fields')),
+    ( annotatePendingExprAt sp pending (EGetFieldProjection method fields'),
       projectionTy,
       cts
     )
@@ -1885,8 +1838,8 @@ inferFieldSelection ambient resolution recordTy field = do
       evidence <- freshEvVar
       pure (mkWantedCt (EqPred left right) evidence (OccurrenceOf "getField") sp)
 
-inferTuple :: Maybe SourceSpan -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
-inferTuple sp flavor elems = do
+inferTuple :: Maybe SourceSpan -> Name -> TupleFlavor -> [Maybe Expr] -> TcM (Expr, TcType, [Ct])
+inferTuple sp syntax flavor elems = do
   results <- mapM inferElem elems
   let elems' = map (\(expr, _, _) -> expr) results
       tys = map (\(_, ty, _) -> ty) results
@@ -1901,7 +1854,7 @@ inferTuple sp flavor elems = do
       missingTys = [ty | (Nothing, ty, _) <- results]
       sectionTy = foldr TcFunTy tupleTy missingTys
       pending = pendingAnnotation sectionTy tys [] []
-  pure (annotatePendingExprAt sp pending (ETuple flavor elems'), sectionTy, cts)
+  pure (annotatePendingExprAt sp pending (ETuple syntax flavor elems'), sectionTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -1911,9 +1864,13 @@ inferTuple sp flavor elems = do
       pure (Just e', ty, cts)
 
 -- | An overloaded list applies fromListN to its length and an ordinary list.
-inferOverloadedList :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedList sp resolutionAnn resolution inner = do
-  (list', listTy, listCts) <- inferExprAt sp inner
+--
+-- The list syntax name gets the annotation of the ordinary list. The
+-- method name gets the method annotation, and the expression gets the
+-- result annotation.
+inferOverloadedList :: Maybe SourceSpan -> Name -> Name -> Resolved -> [Expr] -> TcM (Expr, TcType, [Ct])
+inferOverloadedList sp syntax method resolution items = do
+  (items', listPending, listTy, listCts) <- inferListParts Nothing sp items
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromListN" resolution
   kinds <- getKinds
   intTyCon <- wiredTyCon tcWiringIntTyCon (typeKind kinds)
@@ -1923,14 +1880,17 @@ inferOverloadedList sp resolutionAnn resolution inner = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      annotated = annotatePendingExpr methodPending (EResolved resolutionAnn list')
-  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
+      list = EList (annotatePendingName listPending syntax) (Just (annotatePendingName methodPending method)) items'
+  pure (annotatePendingExprAt sp resultPending list, resultTy, listCts <> methodCts <> [methodEquality])
 
 -- | An arithmetic sequence under OverloadedLists applies fromList to an
 -- ordinary list.
-inferOverloadedSequence :: Maybe SourceSpan -> ResolutionResult -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
-inferOverloadedSequence sp resolutionAnn resolution inner = do
-  (list', listTy, listCts) <- inferExprAt sp inner
+--
+-- The method name gets the method annotation, and the expression gets the
+-- result annotation.
+inferOverloadedSequence :: Maybe SourceSpan -> Name -> Resolved -> ArithSeq -> TcM (Expr, TcType, [Ct])
+inferOverloadedSequence sp method resolution arithSeq = do
+  (arithSeq', listTy, listCts) <- inferArithSeqNode sp arithSeq
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "fromList" resolution
   resultTy <- freshMetaTv
   equalityEvidence <- freshEvVar
@@ -1938,21 +1898,28 @@ inferOverloadedSequence sp resolutionAnn resolution inner = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromList") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      annotated = annotatePendingExpr methodPending (EResolved resolutionAnn list')
-  pure (annotatePendingExprAt sp resultPending annotated, resultTy, listCts <> methodCts <> [methodEquality])
+      sequence' = EArithSeq (Just (annotatePendingName methodPending method)) arithSeq'
+  pure (annotatePendingExprAt sp resultPending sequence', resultTy, listCts <> methodCts <> [methodEquality])
 
-inferList :: Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
+inferList :: Maybe SourceSpan -> Name -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList = inferListWithExpected Nothing
 
-inferListWithExpected :: Maybe TcType -> Maybe SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
-inferListWithExpected expected sp elems = do
+inferListWithExpected :: Maybe TcType -> Maybe SourceSpan -> Name -> [Expr] -> TcM (Expr, TcType, [Ct])
+inferListWithExpected expected sp syntax elems = do
+  (elems', pending, listTy, cts) <- inferListParts expected sp elems
+  pure (annotatePendingExprAt sp pending (EList syntax Nothing elems'), listTy, cts)
+
+-- | Infer an ordinary list. The result has the checked elements, the
+-- annotation of the list, the list type, and the constraints.
+inferListParts :: Maybe TcType -> Maybe SourceSpan -> [Expr] -> TcM ([Expr], PendingTcAnnotation, TcType, [Ct])
+inferListParts expected sp elems = do
   (nilCon, nilInstantiation) <- instantiateListConstructor sp tcWiringNilDataCon
   nilCts <- mapM (predToCt sp (tyConName nilCon)) (instPreds nilInstantiation)
   case elems of
     [] -> do
       let listTy = instType nilInstantiation
           pending = pendingAnnotation listTy (instTypeArgs nilInstantiation) (map ctEvVar nilCts) []
-      pure (annotatePendingExprAt sp pending (EList []), listTy, nilCts)
+      pure ([], pending, listTy, nilCts)
     _ -> do
       (consCon, consInstantiation) <- instantiateListConstructor sp tcWiringConsDataCon
       consPredicateCts <- mapM (predToCt sp (tyConName consCon)) (instPreds consInstantiation)
@@ -1976,7 +1943,7 @@ inferListWithExpected expected sp elems = do
           resultConstructorCt <- constructorEqualityCt sp sourceResultTy sourceTailTy
           elementEqualityCts <- mapM (elementEqualityCt firstElemSp firstElemTy) (drop 1 results)
           let constructorCts = nilCts <> consPredicateCts <> [firstConstructorCt, nilConstructorCt, resultConstructorCt]
-          pure (annotatePendingExprAt sp pending (EList elems'), sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
+          pure (elems', pending, sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
         _ -> abortTc "the wired list cons constructor has an invalid type"
   where
     inferElem expectedElemTy elemExpr = case expected of
@@ -2016,7 +1983,7 @@ inferArithSeq :: Maybe SourceSpan -> ArithSeq -> TcM (Expr, TcType, [Ct])
 inferArithSeq sp arithSeq = do
   (arithSeq', resultTy, cts) <- inferArithSeqNode sp arithSeq
   let pending = pendingAnnotation resultTy [] [] []
-  pure (annotatePendingExprAt sp pending (EArithSeq arithSeq'), resultTy, cts)
+  pure (annotatePendingExprAt sp pending (EArithSeq Nothing arithSeq'), resultTy, cts)
 
 inferArithSeqNode :: Maybe SourceSpan -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
 inferArithSeqNode sp arithSeq =
@@ -2698,7 +2665,6 @@ exprSpan expr =
     EAnn ann inner ->
       annotationSpan ann <|> exprSpan inner
     ETc _ inner -> exprSpan inner
-    EResolved _ inner -> exprSpan inner
     _ -> Nothing
 
 nameToText :: Name -> Text

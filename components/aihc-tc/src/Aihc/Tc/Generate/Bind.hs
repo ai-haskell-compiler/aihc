@@ -59,7 +59,11 @@ import Aihc.Tc.Syntax.Pending
     annotateFunCast,
     annotateRhsCast,
     annotationSpan,
+    listMatchNames,
+    literalMatchNames,
+    literalSyntaxNames,
     mkSpanAnnotation,
+    nPlusKMatchNames,
     nameResolved,
     peelDeclAnn,
     unqualifiedNameText,
@@ -77,7 +81,7 @@ import Data.List (mapAccumL, partition)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
@@ -327,8 +331,11 @@ declTermReferences decl = do
       case expr of
         ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
+    -- The name of built-in list or tuple syntax is not a term.
     hasTermResolution name =
-      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolved name)
+      case nameResolved name of
+        Just resolution -> resolutionNamespace resolution == ResolutionNamespaceTerm && resolutionTarget resolution /= EntitySyntax
+        Nothing -> False
 
 -- | The binders that a declaration defines.
 declaredBinderKeys :: Decl -> TcM [Entity]
@@ -753,7 +760,16 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
             owners = ownersOf generalizable
          in if null generalizable || null owners || not (isClassPred predicate) || any (`Set.member` restrictedBinders) owners
               then (preds, outerCts ++ [ct], givens)
-              else (foldr (MonoidMap.adjust (<> [predicate])) preds owners, outerCts, givens ++ [ct])
+              else (foldr (MonoidMap.adjust (addPredicate predicate)) preds owners, outerCts, givens ++ [ct])
+      -- Each occurrence of a predicate gets evidence from the same given.
+      -- Thus a binder abstracts over one dictionary for each distinct
+      -- predicate, as a top-level binding does. Each use of the binder
+      -- gives one wanted constraint for each predicate of its scheme. If
+      -- equal predicates stay, the count increases at each level of a chain
+      -- of local bindings.
+      addPredicate predicate known
+        | predicate `elem` known = known
+        | otherwise = known <> [predicate]
       (localPreds, outer, givenCts) = foldl step (MonoidMap.empty, [], []) residualCts
   forM_ givenCts $ \ct ->
     bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
@@ -800,7 +816,6 @@ restrictedBinderKeys groups = do
       case pat of
         PAnn _ inner -> isVariablePattern inner
         PTc _ inner -> isVariablePattern inner
-        PResolved _ inner -> isVariablePattern inner
         PParen inner -> isVariablePattern inner
         PVar {} -> True
         _ -> False
@@ -921,7 +936,6 @@ strictBinderSignature sigs pat =
       case pattern' of
         PAnn _ inner -> strictPatternBinderName inner
         PTc _ inner -> strictPatternBinderName inner
-        PResolved _ inner -> strictPatternBinderName inner
         PParen inner -> strictPatternBinderName inner
         PStrict inner -> patternBinderName inner
         _ -> Nothing
@@ -1180,7 +1194,6 @@ isStrictPatternBind decl =
       case pat of
         PAnn _ inner -> patternIsStrict inner
         PTc _ inner -> patternIsStrict inner
-        PResolved _ inner -> patternIsStrict inner
         PParen inner -> patternIsStrict inner
         PStrict _ -> True
         _ -> False
@@ -1281,7 +1294,6 @@ patternBinderName (PVar n) = Just n
 patternBinderName (PParen inner) = patternBinderName inner
 patternBinderName (PAnn _ inner) = patternBinderName inner
 patternBinderName (PTc _ inner) = patternBinderName inner
-patternBinderName (PResolved _ inner) = patternBinderName inner
 patternBinderName _ = Nothing
 
 freeVarsDecls :: [Decl] -> TcM (Set.Set Entity)
@@ -1326,15 +1338,17 @@ freeVarsPattern pat =
   case pat of
     PAnn _ inner -> freeVarsPattern inner
     PTc _ inner -> freeVarsPattern inner
-    PResolved result inner -> do
-      innerVars <- freeVarsPattern inner
-      insertSyntaxTermKey result innerVars
     PParen inner -> freeVarsPattern inner
     PAs _ inner -> freeVarsPattern inner
     PStrict inner -> freeVarsPattern inner
     PIrrefutable inner -> freeVarsPattern inner
     PTypeSig inner _ -> freeVarsPattern inner
-    PList items -> Set.unions <$> mapM freeVarsPattern items
+    PList match items -> do
+      itemVars <- Set.unions <$> mapM freeVarsPattern items
+      foldM (flip insertSyntaxTermKey) itemVars (mapMaybe nameResolution (foldMap listMatchNames match))
+    PLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNegLit match _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (literalMatchNames match))
+    PNPlusK match _ _ -> foldM (flip insertSyntaxTermKey) Set.empty (mapMaybe nameResolution (nPlusKMatchNames match))
     PTuple _ items -> Set.unions <$> mapM freeVarsPattern items
     PUnboxedSum _ _ inner -> freeVarsPattern inner
     PCon name _ subPats -> Set.insert <$> resolvedTermKey name <*> (Set.unions <$> mapM freeVarsPattern subPats)
@@ -1390,15 +1404,35 @@ freeVarsGuardQualifiers qualifiers bodyVars =
       pure (Set.difference (declVars <> restVars) localBinders)
 
 freeVarsExpr :: Expr -> TcM (Set.Set Entity)
-freeVarsExpr expr =
+freeVarsExpr expr = do
+  vars <- freeVarsExprChildren expr
+  foldM (flip insertSyntaxTermKey) vars (mapMaybe nameResolution (exprSyntaxNames expr))
+
+-- | The syntax names of an expression, such as @fromInteger@ for a literal.
+exprSyntaxNames :: Expr -> [Name]
+exprSyntaxNames expr =
+  case expr of
+    EInt syntax _ _ _ -> literalSyntaxNames syntax
+    EFloat syntax _ _ _ -> literalSyntaxNames syntax
+    ECharHash typeName _ _ -> [typeName]
+    EString conversion _ _ -> maybeToList conversion
+    EStringHash typeName _ _ -> [typeName]
+    EIf method _ _ _ -> maybeToList method
+    ENegate method _ -> [method]
+    EArithSeq method _ -> maybeToList method
+    EGetField method _ _ -> [method]
+    EGetFieldProjection method _ -> [method]
+    EList syntax method _ -> syntax : maybeToList method
+    ETuple syntax _ _ -> [syntax]
+    _ -> []
+
+freeVarsExprChildren :: Expr -> TcM (Set.Set Entity)
+freeVarsExprChildren expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
     ETc _ inner -> freeVarsExpr inner
-    EResolved result inner -> do
-      innerVars <- freeVarsExpr inner
-      insertSyntaxTermKey result innerVars
-    EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EIf _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
     ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
     ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
@@ -1413,7 +1447,7 @@ freeVarsExpr expr =
       rhsVars <- freeVarsExpr rhs
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate inner -> freeVarsExpr inner
+    ENegate _ inner -> freeVarsExpr inner
     ESectionL inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
@@ -1435,9 +1469,9 @@ freeVarsExpr expr =
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EPragma _ inner -> freeVarsExpr inner
-    EList items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EList _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq _ arithSeq -> freeVarsArithSeq arithSeq
+    ETuple _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
@@ -1461,7 +1495,7 @@ freeVarsExpr expr =
       -- to be checked first for the expansion to find the builder.
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
-    EGetField record _ -> freeVarsExpr record
+    EGetField _ record _ -> freeVarsExpr record
     EUnboxedSum _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 

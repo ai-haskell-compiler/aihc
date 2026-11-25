@@ -36,14 +36,24 @@ import Aihc.Tc.Syntax
     GuardQualifier (..),
     ImportItem (..),
     InstanceDeclItem (..),
+    ListMatch (..),
     Literal (..),
+    LiteralMatch (..),
+    LiteralSyntax (..),
     Module (..),
+    NPlusKMatch (..),
+    Name (..),
+    OverloadedLiteralMatch (..),
     Pattern (..),
     SourceSpan,
     TcInfo (..),
     Type (..),
     annotationSpan,
+    listMatchNames,
+    literalMatchNames,
+    literalSyntaxNames,
     moduleName,
+    nPlusKMatchNames,
   )
 import Aihc.Tc.Syntax.Traverse (Walk (..), idWalk, walk)
 import Aihc.Tc.Types
@@ -109,7 +119,7 @@ labelWalk =
         span' <- gets labelsListSpan
         addInfoLabels span' [info]
         pure info,
-      walkExpr = wrapped peelExpr,
+      walkExpr = exprLabels,
       walkPattern = patternLabels,
       walkType = wrapped peelType,
       walkDecl = wrapped peelDecl,
@@ -135,19 +145,81 @@ labelWalk =
       _ <- children base
       pure node
 
+    -- The syntax names of an expression, such as @negate@ for @-x@, get
+    -- the span of the expression, after the information of its wrappers.
+    exprLabels children node = do
+      let (anns, infos, base) = peelLeading peelExpr node
+          (syntaxInfos, base') = exprSyntax base
+      addInfoLabels (spanFromAnnotations anns) (infos <> syntaxInfos)
+      _ <- children base'
+      pure node
+
     -- The parser gives no span to a literal in a nested pattern. The
     -- literal has the same source extent as its pattern, so it gets the
+    -- pattern span. The names of the match of a pattern also get the
     -- pattern span.
     patternLabels children node = do
       let (anns, infos, base) = peelLeading peelPattern node
           patternSpan = spanFromAnnotations anns
-      addInfoLabels patternSpan infos
-      case base of
-        PLit literal -> do
+          (matchInfos, base') = patternMatch base
+      addInfoLabels patternSpan (infos <> matchInfos)
+      case base' of
+        PLit _ literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
           addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
-        _ -> void (children base)
+        _ -> void (children base')
       pure node
+
+-- | The information of the names of the match of a pattern, and the
+-- pattern with no information in these names.
+patternMatch :: Pattern -> ([TcInfo], Pattern)
+patternMatch pat =
+  case pat of
+    PLit match literal -> (literalInfos match, PLit (literalWithout match) literal)
+    PNegLit match literal -> (literalInfos match, PNegLit (literalWithout match) literal)
+    PNPlusK match name literal ->
+      ( concatMap nameTc (nPlusKMatchNames match),
+        PNPlusK (NPlusKMatch (without <$> nPlusKType match) (without (nPlusKFromInteger match)) (without (nPlusKGreaterEqual match)) (without (nPlusKMinus match))) name literal
+      )
+    PList (Just match) items ->
+      (concatMap nameTc (listMatchNames match), PList (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
+    _ -> ([], pat)
+  where
+    without name = name {nameTc = []}
+    literalInfos = concatMap nameTc . literalMatchNames
+    literalWithout match =
+      case match of
+        LiteralMatchFixed -> LiteralMatchFixed
+        LiteralMatchPrimitive typeName -> LiteralMatchPrimitive (without typeName)
+        LiteralMatchOverloaded (OverloadedLiteralMatch literalType conversion negation equality) ->
+          LiteralMatchOverloaded (OverloadedLiteralMatch (without <$> literalType) (without conversion) (without <$> negation) (without equality))
+
+-- | The information of the syntax names of an expression, and the
+-- expression with no information in these names.
+exprSyntax :: Expr -> ([TcInfo], Expr)
+exprSyntax expr =
+  case expr of
+    EInt syntax value numericType text -> (literalInfos syntax, EInt (literalWithout syntax) value numericType text)
+    EFloat syntax value floatType text -> (literalInfos syntax, EFloat (literalWithout syntax) value floatType text)
+    ECharHash ty value text -> (nameTc ty, ECharHash (without ty) value text)
+    EString conversion value text -> (foldMap nameTc conversion, EString (without <$> conversion) value text)
+    EStringHash ty value text -> (nameTc ty, EStringHash (without ty) value text)
+    EIf method condition thenExpr elseExpr -> (foldMap nameTc method, EIf (without <$> method) condition thenExpr elseExpr)
+    ENegate method inner -> (nameTc method, ENegate (without method) inner)
+    EArithSeq method sequence' -> (foldMap nameTc method, EArithSeq (without <$> method) sequence')
+    EGetField method record field -> (nameTc method, EGetField (without method) record field)
+    EGetFieldProjection method fields -> (nameTc method, EGetFieldProjection (without method) fields)
+    -- The conversion of an overloaded list goes before the ordinary list.
+    EList syntax method items -> (foldMap nameTc method <> nameTc syntax, EList (without syntax) (without <$> method) items)
+    ETuple syntax flavor items -> (nameTc syntax, ETuple (without syntax) flavor items)
+    _ -> ([], expr)
+  where
+    without name = name {nameTc = []}
+    literalInfos = concatMap nameTc . literalSyntaxNames
+    literalWithout syntax =
+      case syntax of
+        LiteralSyntaxPrimitive ty -> LiteralSyntaxPrimitive (without ty)
+        LiteralSyntaxOverloaded ty conversion -> LiteralSyntaxOverloaded (without <$> ty) (without conversion)
 
 addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
 addInfoLabels span' infos = do
@@ -173,13 +245,11 @@ peelLeading peel =
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
 peelExpr (ETc info inner) = Just (Nothing, Just info, inner)
-peelExpr (EResolved _ inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 
 peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
 peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
 peelPattern (PTc info inner) = Just (Nothing, Just info, inner)
-peelPattern (PResolved _ inner) = Just (Nothing, Nothing, inner)
 peelPattern _ = Nothing
 
 peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)

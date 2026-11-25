@@ -1638,8 +1638,23 @@ tailCallGroups callers names =
 -- do not change, thus 'eliminateRedundantBlockParameters' removes those
 -- parameters. The object writer compiles each item as the lowering emits
 -- it, without 'Aihc.Lir.Inline.prepareModule', thus the pass runs here.
+--
+-- The merge examines only the items that this group emits. Only the group
+-- names its members (see 'tailCallCallers'), so the items of other groups
+-- do not change the result. A lowering of a full module keeps all of its
+-- items until the end. If the merge examined all of them, the time to lower
+-- a module would be quadratic in the number of its functions.
 lowerFunctionGroup :: LowerEnv -> GrinFunction -> [GrinFunction] -> [GrinFunction] -> LowerM ()
 lowerFunctionGroup env root members copies = do
+  before <- gets stateItemsRev
+  modify' (\state -> state {stateItemsRev = []})
+  lowerFunctionGroupItems env root members copies
+  modify' (\state -> state {stateItemsRev = stateItemsRev state <> before})
+
+-- | The work of 'lowerFunctionGroup' on a state that holds only the items of
+-- the group.
+lowerFunctionGroupItems :: LowerEnv -> GrinFunction -> [GrinFunction] -> [GrinFunction] -> LowerM ()
+lowerFunctionGroupItems env root members copies = do
   mapM_ (lowerFunction env) (root : members)
   copyFunctions <- if null copies then pure [] else lowerCopies env copies
   items <- gets stateItemsRev

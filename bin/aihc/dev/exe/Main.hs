@@ -6,7 +6,6 @@ import Aihc.Cli.PlayBundle (BundleStats (..), LoadedBundle (..), loadBundle)
 import Aihc.Cli.PlayBundleStore (StoreBundleInfo (..), writeStoreBundle, writeStoreRuntime)
 import Aihc.Dev.Explore (ExploreOptions (..), runExplore)
 import Aihc.Dev.ExtractHi (extractPackage)
-import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressReports, renderInterfaceMismatch, runCoreLibApiDivergences, runCoreLibProgressReports)
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Frontend (FrontendOptions (..), runFrontend)
 import Aihc.Dev.Fuzz qualified as Fuzz
@@ -19,14 +18,12 @@ import Aihc.Tc (TcInterface (..))
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Control.Monad (foldM_, unless, when)
-import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Data.Yaml qualified as Yaml
 import GHC.Clock (getMonotonicTime)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
@@ -48,10 +45,7 @@ main = do
 
 -- | Top-level command type. New subcommands are added here.
 data Command
-  = ExtractHi ExtractHiOpts
-  | CompareHiSubset CompareHiSubsetOpts
-  | CoreLibsProgress CoreLibsProgressOpts
-  | ExtractResolveIface ExtractResolveIfaceOpts
+  = ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
   | Frontend FrontendOptions
   | PipelineExamples PipelineExamplesOptions
@@ -61,55 +55,20 @@ data Command
   | FcPasses PackageId [FilePath] OptimizationLevel [String]
   | Explore FilePath OptimizationLevel (Maybe NativeTarget) Bool
 
-data ExtractHiOpts = ExtractHiOpts
-  { ehPackage :: String,
-    ehFormat :: OutputFormat
-  }
-
 data ExtractResolveIfaceOpts = ExtractResolveIfaceOpts
   { eriPackage :: String,
     eriOutput :: FilePath
   }
 
-data CompareHiSubsetOpts = CompareHiSubsetOpts
-  { chsCandidate :: String,
-    chsOracle :: String
-  }
-
-newtype CoreLibsProgressOpts = CoreLibsProgressOpts
-  { clpDivergences :: Bool
-  }
-
-data OutputFormat = YAML | JSON
-  deriving (Show)
-
 commandParser :: Parser Command
 commandParser =
   subparser
     ( command
-        "extract-hi"
+        "extract-resolve-iface"
         ( info
-            (ExtractHi <$> extractHiParser <**> helper)
-            (progDesc "Extract scoping and typing information from .hi interface files")
+            (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
+            (progDesc "Extract minimal resolver interface (names only) from .hi files")
         )
-        <> command
-          "compare-hi-subset"
-          ( info
-              (CompareHiSubset <$> compareHiSubsetParser <**> helper)
-              (progDesc "Check that a candidate .hi interface is a subset of an oracle package")
-          )
-        <> command
-          "core-libs-progress"
-          ( info
-              (CoreLibsProgress <$> coreLibsProgressParser <**> helper)
-              (progDesc "Report ghc-prim/base API coverage for aihc-prim/aihc-base")
-          )
-        <> command
-          "extract-resolve-iface"
-          ( info
-              (ExtractResolveIface <$> extractResolveIfaceParser <**> helper)
-              (progDesc "Extract minimal resolver interface (names only) from .hi files")
-          )
         <> command
           "fuzz"
           ( info
@@ -224,20 +183,6 @@ frontendParser =
           )
       )
 
-extractHiParser :: Parser ExtractHiOpts
-extractHiParser =
-  ExtractHiOpts
-    <$> strArgument
-      ( metavar "PACKAGE"
-          <> help "Package name to extract (e.g. 'base', 'containers')"
-      )
-    <*> flag
-      YAML
-      JSON
-      ( long "json"
-          <> help "Output JSON instead of YAML"
-      )
-
 extractResolveIfaceParser :: Parser ExtractResolveIfaceOpts
 extractResolveIfaceParser =
   ExtractResolveIfaceOpts
@@ -252,50 +197,7 @@ extractResolveIfaceParser =
           <> help "Output file path for the JSON interface"
       )
 
-coreLibsProgressParser :: Parser CoreLibsProgressOpts
-coreLibsProgressParser =
-  CoreLibsProgressOpts
-    <$> switch
-      ( long "divergences"
-          <> help "Also list every export of a module shared with ghc-prim or base that GHC does not provide, and fail if there are any"
-      )
-
-compareHiSubsetParser :: Parser CompareHiSubsetOpts
-compareHiSubsetParser =
-  CompareHiSubsetOpts
-    <$> strOption
-      ( long "candidate"
-          <> metavar "PACKAGE"
-          <> help "Candidate package that must be a subset"
-      )
-    <*> strOption
-      ( long "oracle"
-          <> metavar "PACKAGE"
-          <> help "Oracle package that defines the compatible API"
-      )
-
 runCommand :: Command -> IO ()
-runCommand (ExtractHi opts) = do
-  pkg <- extractPackage (ehPackage opts)
-  case ehFormat opts of
-    YAML -> BL.putStr (BL.fromStrict (Yaml.encode pkg))
-    JSON -> BL.putStr (encode pkg)
-runCommand (CompareHiSubset opts) = do
-  candidate <- extractPackage (chsCandidate opts)
-  oracle <- extractPackage (chsOracle opts)
-  let mismatches = comparePackageSubset candidate oracle
-  if null mismatches
-    then putStrLn "OK"
-    else do
-      mapM_ (putStrLn . renderInterfaceMismatch) mismatches
-      exitFailure
-runCommand (CoreLibsProgress opts) = do
-  putStr . renderCoreLibProgressReports =<< runCoreLibProgressReports
-  when (clpDivergences opts) $ do
-    divergences <- runCoreLibApiDivergences
-    unless (null divergences) $ do
-      mapM_ (putStrLn . renderInterfaceMismatch) divergences
-      exitFailure
 runCommand (ExtractResolveIface opts) = do
   pkg <- extractPackage (eriPackage opts)
   let resolveIface = toResolveIface pkg

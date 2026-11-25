@@ -367,21 +367,49 @@ instance (FromResolved a) => FromResolved (R.RecordField a) where
     case node of
       R.RecordField x1 x2 x3 -> RecordField (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
+instance FromResolved R.LiteralMatch where
+  type ToPending R.LiteralMatch = LiteralMatch
+  fromResolved node =
+    case node of
+      R.LiteralMatchFixed -> LiteralMatchFixed
+      R.LiteralMatchPrimitive x1 -> LiteralMatchPrimitive (fromResolved x1)
+      R.LiteralMatchOverloaded x1 -> LiteralMatchOverloaded (fromResolved x1)
+
+instance FromResolved R.OverloadedLiteralMatch where
+  type ToPending R.OverloadedLiteralMatch = OverloadedLiteralMatch
+  fromResolved (R.OverloadedLiteralMatch x1 x2 x3 x4) =
+    OverloadedLiteralMatch (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+
+instance FromResolved R.NPlusKMatch where
+  type ToPending R.NPlusKMatch = NPlusKMatch
+  fromResolved (R.NPlusKMatch x1 x2 x3 x4) =
+    NPlusKMatch (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+
+instance FromResolved R.LiteralSyntax where
+  type ToPending R.LiteralSyntax = LiteralSyntax
+  fromResolved syntax =
+    case syntax of
+      R.LiteralSyntaxPrimitive x1 -> LiteralSyntaxPrimitive (fromResolved x1)
+      R.LiteralSyntaxOverloaded x1 x2 -> LiteralSyntaxOverloaded (fromResolved x1) (fromResolved x2)
+
+instance FromResolved R.ListMatch where
+  type ToPending R.ListMatch = ListMatch
+  fromResolved (R.ListMatch x1 x2) = ListMatch (fromResolved x1) (fromResolved x2)
+
 instance FromResolved R.Pattern where
   type ToPending R.Pattern = Pattern
   fromResolved node =
     case node of
       R.PAnn x1 x2 -> PAnn (fromResolved x1) (fromResolved x2)
-      R.PResolved x1 x2 -> PResolved (fromResolved x1) (fromResolved x2)
       R.PVar x1 -> PVar (fromResolved x1)
       R.PTypeBinder x1 -> PTypeBinder (fromResolved x1)
       R.PTypeSyntax x1 x2 -> PTypeSyntax (fromResolved x1) (fromResolved x2)
       R.PWildcard -> PWildcard
-      R.PLit x1 -> PLit (fromResolved x1)
+      R.PLit x1 x2 -> PLit (fromResolved x1) (fromResolved x2)
       R.PQuasiQuote x1 x2 -> PQuasiQuote (fromResolved x1) (fromResolved x2)
       R.PTuple x1 x2 -> PTuple (fromResolved x1) (fromResolved x2)
       R.PUnboxedSum x1 x2 x3 -> PUnboxedSum (fromResolved x1) (fromResolved x2) (fromResolved x3)
-      R.PList x1 -> PList (fromResolved x1)
+      R.PList x1 x2 -> PList (fromResolved x1) (fromResolved x2)
       R.PCon x1 x2 x3 -> PCon (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.PBuiltinCon x1 x2 x3 -> PBuiltinCon (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.PInfix x1 x2 x3 -> PInfix (fromResolved x1) (fromResolved x2) (fromResolved x3)
@@ -389,8 +417,8 @@ instance FromResolved R.Pattern where
       R.PAs x1 x2 -> PAs (fromResolved x1) (fromResolved x2)
       R.PStrict x1 -> PStrict (fromResolved x1)
       R.PIrrefutable x1 -> PIrrefutable (fromResolved x1)
-      R.PNegLit x1 -> PNegLit (fromResolved x1)
-      R.PNPlusK x1 x2 -> PNPlusK (fromResolved x1) (fromResolved x2)
+      R.PNegLit x1 x2 -> PNegLit (fromResolved x1) (fromResolved x2)
+      R.PNPlusK x1 x2 x3 -> PNPlusK (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.PParen x1 -> PParen (fromResolved x1)
       R.PRecord x1 x2 x3 -> PRecord (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.PTypeSig x1 x2 -> PTypeSig (fromResolved x1) (fromResolved x2)
@@ -617,26 +645,25 @@ instance FromResolved R.Expr where
   fromResolved node =
     case node of
       R.EAnn x1 x2 -> EAnn (fromResolved x1) (fromResolved x2)
-      R.EResolved x1 x2 -> EResolved (fromResolved x1) (fromResolved x2)
       R.EVar x1 -> EVar (fromResolved x1)
       R.EImplicitParam x1 -> EImplicitParam (fromResolved x1)
       R.ETypeSyntax x1 x2 -> ETypeSyntax (fromResolved x1) (fromResolved x2)
-      R.EInt x1 x2 x3 -> EInt (fromResolved x1) (fromResolved x2) (fromResolved x3)
-      R.EFloat x1 x2 x3 -> EFloat (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.EInt x1 x2 x3 x4 -> EInt (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.EFloat x1 x2 x3 x4 -> EFloat (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.EChar x1 x2 -> EChar (fromResolved x1) (fromResolved x2)
-      R.ECharHash x1 x2 -> ECharHash (fromResolved x1) (fromResolved x2)
-      R.EString x1 x2 -> EString (fromResolved x1) (fromResolved x2)
-      R.EStringHash x1 x2 -> EStringHash (fromResolved x1) (fromResolved x2)
+      R.ECharHash x1 x2 x3 -> ECharHash (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.EString x1 x2 x3 -> EString (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.EStringHash x1 x2 x3 -> EStringHash (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.EOverloadedLabel x1 x2 -> EOverloadedLabel (fromResolved x1) (fromResolved x2)
       R.EQuasiQuote x1 x2 -> EQuasiQuote (fromResolved x1) (fromResolved x2)
-      R.EIf x1 x2 x3 -> EIf (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.EIf x1 x2 x3 x4 -> EIf (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.EMultiWayIf x1 -> EMultiWayIf (fromResolved x1)
       R.ELambdaPats x1 x2 -> ELambdaPats (fromResolved x1) (fromResolved x2)
       R.ELambdaCase x1 -> ELambdaCase (fromResolved x1)
       R.ELambdaCases x1 -> ELambdaCases (fromResolved x1)
       R.EInfix x1 x2 x3 -> EInfix (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.EViewPat x1 x2 -> EViewPat (fromResolved x1) (fromResolved x2)
-      R.ENegate x1 -> ENegate (fromResolved x1)
+      R.ENegate x1 x2 -> ENegate (fromResolved x1) (fromResolved x2)
       R.ESectionL x1 x2 -> ESectionL (fromResolved x1) (fromResolved x2)
       R.ESectionR x1 x2 -> ESectionR (fromResolved x1) (fromResolved x2)
       R.ELetDecls x1 x2 -> ELetDecls (fromResolved x1) (fromResolved x2)
@@ -644,15 +671,15 @@ instance FromResolved R.Expr where
       R.EDo x1 x2 -> EDo (fromResolved x1) (fromResolved x2)
       R.EListComp x1 x2 -> EListComp (fromResolved x1) (fromResolved x2)
       R.EListCompParallel x1 x2 -> EListCompParallel (fromResolved x1) (fromResolved x2)
-      R.EArithSeq x1 -> EArithSeq (fromResolved x1)
+      R.EArithSeq x1 x2 -> EArithSeq (fromResolved x1) (fromResolved x2)
       R.ERecordCon x1 x2 x3 -> ERecordCon (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.ERecordUpd x1 x2 -> ERecordUpd (fromResolved x1) (fromResolved x2)
-      R.EGetField x1 x2 -> EGetField (fromResolved x1) (fromResolved x2)
-      R.EGetFieldProjection x1 -> EGetFieldProjection (fromResolved x1)
+      R.EGetField x1 x2 x3 -> EGetField (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.EGetFieldProjection x1 x2 -> EGetFieldProjection (fromResolved x1) (fromResolved x2)
       R.ETypeSig x1 x2 -> ETypeSig (fromResolved x1) (fromResolved x2)
       R.EParen x1 -> EParen (fromResolved x1)
-      R.EList x1 -> EList (fromResolved x1)
-      R.ETuple x1 x2 -> ETuple (fromResolved x1) (fromResolved x2)
+      R.EList x1 x2 x3 -> EList (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.ETuple x1 x2 x3 -> ETuple (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.EUnboxedSum x1 x2 x3 -> EUnboxedSum (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.ETypeApp x1 x2 -> ETypeApp (fromResolved x1) (fromResolved x2)
       R.EApp x1 x2 -> EApp (fromResolved x1) (fromResolved x2)

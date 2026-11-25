@@ -223,8 +223,11 @@ Each `AihcThread` has these fields:
   from it would keep a dead waiter, its frames, and its MVar alive until a
   gen2 cycle. The record of a cancelled wait stays in its queue and still
   names the frame of the wait. The thread pops that frame, and a different
-  stack can take the chunk. Thus each visit of a record deletes a frame that
-  is not the top frame of the stack of a thread with the same epoch.
+  stack can take the chunk. Thus each visit of a record deletes the frame
+  when the epoch of the record is not the epoch of its thread. A visit does
+  not compare the frame with the top of the stack. A collection can visit
+  the record of a current wait after the thread woke and suspended again at
+  a different frame.
 - `pending_head` and `pending_tail`: the queue of throwTo messages. A
   message is an MVar waiter record: the sender, its continuation, and the
   exception.

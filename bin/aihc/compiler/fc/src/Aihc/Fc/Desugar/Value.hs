@@ -670,7 +670,6 @@ constructorPatternAnnotation pattern' =
   case pattern' of
     Syn.PTc info inner -> constructorPatternAnnotation inner <|> infoType info
     Syn.PAnn _ inner -> constructorPatternAnnotation inner
-    Syn.PResolved _ inner -> constructorPatternAnnotation inner
     Syn.PParen inner -> constructorPatternAnnotation inner
     Syn.PStrict inner -> constructorPatternAnnotation inner
     Syn.PIrrefutable inner -> constructorPatternAnnotation inner
@@ -683,13 +682,27 @@ patternAnnotation pattern' =
   case pattern' of
     Syn.PTc info inner -> infoType info <|> patternAnnotation inner
     Syn.PAnn _ inner -> patternAnnotation inner
-    Syn.PResolved _ inner -> patternAnnotation inner
     Syn.PParen inner -> patternAnnotation inner
     Syn.PStrict inner -> patternAnnotation inner
     Syn.PIrrefutable inner -> patternAnnotation inner
     Syn.PAs _ inner -> patternAnnotation inner
     Syn.PTypeSig inner _ -> patternAnnotation inner
+    Syn.PLit match _ -> literalMatchAnnotation match
+    Syn.PNegLit match _ -> literalMatchAnnotation match
+    Syn.PNPlusK match _ _ -> nameAnnotation (Syn.nPlusKFromInteger match)
     _ -> Nothing
+
+-- | The checked type of an overloaded literal pattern. The type checker
+-- gives the conversion of the literal the scrutinee type as its type.
+literalMatchAnnotation :: Syn.LiteralMatch -> Maybe TcAnnotation
+literalMatchAnnotation match =
+  case match of
+    Syn.LiteralMatchOverloaded overloaded -> nameAnnotation (Syn.overloadedLiteralConversion overloaded)
+    _ -> Nothing
+
+-- | The first checked type of a name.
+nameAnnotation :: Syn.Name -> Maybe TcAnnotation
+nameAnnotation name = listToMaybe [checked | Syn.InfoType checked <- Syn.nameTc name]
 
 firstPatternPatSyn :: Syn.Match -> ValueM (Maybe (PatSynInfo, TcAnnotation))
 firstPatternPatSyn match =
@@ -1797,7 +1810,6 @@ forcedPatternBinder pattern'
       case current of
         Syn.PAnn _ inner -> strictBinder inner
         Syn.PTc _ inner -> strictBinder inner
-        Syn.PResolved _ inner -> strictBinder inner
         Syn.PParen inner -> strictBinder inner
         Syn.PStrict inner -> barePatternBinder inner
         _ -> Nothing
@@ -1807,7 +1819,6 @@ patternIsStrict pattern' =
   case pattern' of
     Syn.PAnn _ inner -> patternIsStrict inner
     Syn.PTc _ inner -> patternIsStrict inner
-    Syn.PResolved _ inner -> patternIsStrict inner
     Syn.PParen inner -> patternIsStrict inner
     Syn.PStrict _ -> True
     _ -> False
@@ -1819,13 +1830,12 @@ patternBinderSpecs pattern' =
       key <- requiredBinderKey name
       ty <- requiredPatternType pattern'
       pure [(key, Syn.unqualifiedNameText name, ty)]
-    Syn.PNPlusK name _ -> do
+    Syn.PNPlusK _ name _ -> do
       key <- requiredBinderKey name
       ty <- requiredPatternType pattern'
       pure [(key, Syn.unqualifiedNameText name, ty)]
     Syn.PAnn _ inner -> patternBinderSpecs inner
     Syn.PTc _ inner -> patternBinderSpecs inner
-    Syn.PResolved _ inner -> patternBinderSpecs inner
     Syn.PParen inner -> patternBinderSpecs inner
     Syn.PAs name inner -> do
       key <- requiredBinderKey name
@@ -1837,7 +1847,7 @@ patternBinderSpecs pattern' =
     Syn.PView _ inner -> patternBinderSpecs inner
     Syn.PCon _ _ children -> concat <$> mapM patternBinderSpecs children
     Syn.PInfix left _ right -> (<>) <$> patternBinderSpecs left <*> patternBinderSpecs right
-    Syn.PList children -> concat <$> mapM patternBinderSpecs children
+    Syn.PList _ children -> concat <$> mapM patternBinderSpecs children
     Syn.PUnboxedSum _ _ inner -> patternBinderSpecs inner
     Syn.PTuple _ children -> concat <$> mapM patternBinderSpecs children
     _ -> pure []
@@ -1889,7 +1899,6 @@ barePatternBinder pattern' =
     Syn.PVar name -> Just name
     Syn.PAnn _ inner -> barePatternBinder inner
     Syn.PTc _ inner -> barePatternBinder inner
-    Syn.PResolved _ inner -> barePatternBinder inner
     Syn.PParen inner -> barePatternBinder inner
     _ -> Nothing
 
@@ -2150,11 +2159,10 @@ patternBinderAnnotations :: Syn.Pattern -> [(Text, TcAnnotation)]
 patternBinderAnnotations pattern' =
   case pattern' of
     Syn.PVar name -> binderAnnotation name
-    Syn.PNPlusK name _ -> binderAnnotation name
+    Syn.PNPlusK _ name _ -> binderAnnotation name
     Syn.PAs name inner -> binderAnnotation name <> patternBinderAnnotations inner
     Syn.PAnn _ inner -> patternBinderAnnotations inner
     Syn.PTc _ inner -> patternBinderAnnotations inner
-    Syn.PResolved _ inner -> patternBinderAnnotations inner
     Syn.PParen inner -> patternBinderAnnotations inner
     Syn.PStrict inner -> patternBinderAnnotations inner
     Syn.PIrrefutable inner -> patternBinderAnnotations inner
@@ -2162,7 +2170,7 @@ patternBinderAnnotations pattern' =
     Syn.PView _ inner -> patternBinderAnnotations inner
     Syn.PCon _ _ children -> concatMap patternBinderAnnotations children
     Syn.PInfix left _ right -> patternBinderAnnotations left <> patternBinderAnnotations right
-    Syn.PList children -> concatMap patternBinderAnnotations children
+    Syn.PList _ children -> concatMap patternBinderAnnotations children
     Syn.PUnboxedSum _ _ inner -> patternBinderAnnotations inner
     Syn.PTuple _ children -> concatMap patternBinderAnnotations children
     _ -> []
@@ -2598,7 +2606,6 @@ expandLazyPattern binder ty pattern' =
   case pattern' of
     Syn.PAnn annotation inner -> rebuild (Syn.PAnn annotation) inner
     Syn.PTc annotation inner -> rebuild (Syn.PTc annotation) inner
-    Syn.PResolved annotation inner -> rebuild (Syn.PResolved annotation) inner
     Syn.PParen inner -> rebuild Syn.PParen inner
     Syn.PStrict inner -> rebuild Syn.PStrict inner
     Syn.PTypeSig inner signature -> rebuild (`Syn.PTypeSig` signature) inner
@@ -2729,12 +2736,11 @@ nPlusKPatternBinder pattern' =
   case pattern' of
     Syn.PAnn _ inner -> nPlusKPatternBinder inner
     Syn.PTc _ inner -> nPlusKPatternBinder inner
-    Syn.PResolved _ inner -> nPlusKPatternBinder inner
     Syn.PParen inner -> nPlusKPatternBinder inner
     Syn.PStrict inner -> nPlusKPatternBinder inner
     Syn.PAs _ inner -> nPlusKPatternBinder inner
     Syn.PTypeSig inner _ -> nPlusKPatternBinder inner
-    Syn.PNPlusK name _ -> Just name
+    Syn.PNPlusK _ name _ -> Just name
     _ -> Nothing
 
 -- | The value @fromInteger k@ of an n+k pattern.
@@ -2748,12 +2754,11 @@ nPlusKLiteral pattern' =
       case inner of
         Syn.PAnn _ next -> peelLiteral next
         Syn.PTc _ next -> peelLiteral next
-        Syn.PResolved _ next -> peelLiteral next
         Syn.PParen next -> peelLiteral next
         Syn.PStrict next -> peelLiteral next
         Syn.PAs _ next -> peelLiteral next
         Syn.PTypeSig next _ -> peelLiteral next
-        Syn.PNPlusK _ literal
+        Syn.PNPlusK _ _ literal
           | Syn.LitInt value Syn.TInteger _ <- Syn.peelLiteralAnn literal -> Just value
         _ -> Nothing
 
@@ -2827,24 +2832,32 @@ requiredPatternOccurrence name pattern' =
     (patternOccurrence name pattern')
 
 patternOccurrence :: Text -> Syn.Pattern -> Maybe (TcAnnotation, Resolved)
-patternOccurrence target = go Nothing
-  where
-    go currentType pattern' =
-      case pattern' of
-        Syn.PTc (Syn.InfoType checked) inner -> go (Just checked) inner
-        Syn.PResolved (ResolutionOk resolution) _
-          | resolutionIdentifier resolution == IdentifierNamed target,
-            resolutionNamespace resolution == ResolutionNamespaceTerm ->
-              (,resolution) <$> currentType
-        Syn.PTc _ inner -> go currentType inner
-        Syn.PResolved _ inner -> go currentType inner
-        Syn.PAnn _ inner -> go currentType inner
-        Syn.PParen inner -> go currentType inner
-        Syn.PStrict inner -> go currentType inner
-        Syn.PIrrefutable inner -> go currentType inner
-        Syn.PAs _ inner -> go currentType inner
-        Syn.PTypeSig inner _ -> go currentType inner
-        _ -> Nothing
+patternOccurrence target pattern' =
+  listToMaybe
+    [ (checked, resolution)
+    | name <- patternMatchNames pattern',
+      Just (ResolutionOk resolution) <- [Syn.nameResolution name],
+      resolutionIdentifier resolution == IdentifierNamed target,
+      resolutionNamespace resolution == ResolutionNamespaceTerm,
+      Syn.InfoType checked : _ <- [Syn.nameTc name]
+    ]
+
+-- | The names of the match of a pattern, below its wrappers.
+patternMatchNames :: Syn.Pattern -> [Syn.Name]
+patternMatchNames pattern' =
+  case pattern' of
+    Syn.PTc _ inner -> patternMatchNames inner
+    Syn.PAnn _ inner -> patternMatchNames inner
+    Syn.PParen inner -> patternMatchNames inner
+    Syn.PStrict inner -> patternMatchNames inner
+    Syn.PIrrefutable inner -> patternMatchNames inner
+    Syn.PAs _ inner -> patternMatchNames inner
+    Syn.PTypeSig inner _ -> patternMatchNames inner
+    Syn.PLit match _ -> Syn.literalMatchNames match
+    Syn.PNegLit match _ -> Syn.literalMatchNames match
+    Syn.PNPlusK match _ _ -> Syn.nPlusKMatchNames match
+    Syn.PList match _ -> foldMap Syn.listMatchNames match
+    _ -> []
 
 -- | The value of a literal pattern that compares with an equality test.
 data OverloadedLiteral
@@ -2873,14 +2886,13 @@ overloadedPatternValue pattern' = go pattern'
       case inner' of
         Syn.PAnn _ inner -> go inner
         Syn.PTc _ inner -> go inner
-        Syn.PResolved _ inner -> go inner
         Syn.PParen inner -> go inner
         Syn.PStrict inner -> go inner
         Syn.PIrrefutable inner -> go inner
         Syn.PAs _ inner -> go inner
         Syn.PTypeSig inner _ -> go inner
-        Syn.PLit literal -> (,False) <$> overloadedLiteralValue overloadedString literal
-        Syn.PNegLit literal -> (,True) <$> overloadedLiteralValue overloadedString literal
+        Syn.PLit _ literal -> (,False) <$> overloadedLiteralValue overloadedString literal
+        Syn.PNegLit _ literal -> (,True) <$> overloadedLiteralValue overloadedString literal
         _ -> Nothing
 
 overloadedLiteralValue :: Bool -> Syn.Literal -> Maybe OverloadedLiteral
@@ -2916,7 +2928,6 @@ patternScrutineeCast pattern' = case pattern' of
   Syn.PTc (Syn.InfoCast (TcCastAnnotation (Just proof) target)) _ -> Just (target, proof)
   Syn.PTc _ inner -> patternScrutineeCast inner
   Syn.PAnn _ inner -> patternScrutineeCast inner
-  Syn.PResolved _ inner -> patternScrutineeCast inner
   Syn.PParen inner -> patternScrutineeCast inner
   Syn.PStrict inner -> patternScrutineeCast inner
   Syn.PAs _ inner -> patternScrutineeCast inner
@@ -3176,7 +3187,6 @@ patternHasInstantiation :: Syn.Pattern -> Bool
 patternHasInstantiation pattern' = case pattern' of
   Syn.PTc info inner -> info == Syn.InfoPatternInstantiation || patternHasInstantiation inner
   Syn.PAnn _ inner -> patternHasInstantiation inner
-  Syn.PResolved _ inner -> patternHasInstantiation inner
   Syn.PParen inner -> patternHasInstantiation inner
   _ -> False
 
@@ -3188,7 +3198,6 @@ patternGivenPredicates = go
         Syn.PTc Syn.InfoPatternInstantiation inner -> skipApplication inner
         Syn.PTc info inner -> infoPredicates info <> go inner
         Syn.PAnn _ inner -> go inner
-        Syn.PResolved _ inner -> go inner
         Syn.PParen inner -> go inner
         Syn.PStrict inner -> go inner
         Syn.PIrrefutable inner -> go inner
@@ -3200,7 +3209,6 @@ patternGivenPredicates = go
     skipApplication (Syn.PTc (Syn.InfoType _) inner) = go inner
     skipApplication (Syn.PTc _ inner) = skipApplication inner
     skipApplication (Syn.PAnn _ inner) = skipApplication inner
-    skipApplication (Syn.PResolved _ inner) = skipApplication inner
     skipApplication inner = go inner
     infoPredicates info =
       maybe [] evidencePredicates (infoType info)
@@ -3218,7 +3226,6 @@ patternTypeVariables = go
       case pattern' of
         Syn.PTc info inner -> infoTypeVariables info <> go inner
         Syn.PAnn _ inner -> go inner
-        Syn.PResolved _ inner -> go inner
         Syn.PParen inner -> go inner
         Syn.PStrict inner -> go inner
         Syn.PIrrefutable inner -> go inner
@@ -3257,11 +3264,11 @@ patternKey pattern' =
   case peelPattern pattern' of
     Syn.PCon name _ _ -> Syn.nameText name
     Syn.PInfix _ name _ -> Syn.nameText name
-    Syn.PList [] -> "[]"
-    Syn.PList (_ : _) -> ":"
+    Syn.PList _ [] -> "[]"
+    Syn.PList _ (_ : _) -> ":"
     Syn.PUnboxedSum alternative arity _ -> unboxedSumDataConName (alternative + 1) arity
     Syn.PTuple _ fields -> "(" <> T.replicate (max 0 (length fields - 1)) "," <> ")"
-    Syn.PLit literal
+    Syn.PLit _ literal
       | isBoxedCharacterLiteral literal -> "C#"
       | otherwise -> T.pack (show (Syn.peelLiteralAnn literal))
     _ -> "_"
@@ -3299,7 +3306,6 @@ patternIsIrrefutable pattern' =
   case pattern' of
     Syn.PAnn _ inner -> patternIsIrrefutable inner
     Syn.PTc _ inner -> patternIsIrrefutable inner
-    Syn.PResolved _ inner -> patternIsIrrefutable inner
     Syn.PParen inner -> patternIsIrrefutable inner
     Syn.PAs _ inner -> patternIsIrrefutable inner
     Syn.PIrrefutable {} -> True
@@ -3313,7 +3319,6 @@ patternIsDefault pattern' =
   case pattern' of
     Syn.PAnn _ inner -> patternIsDefault inner
     Syn.PTc _ inner -> patternIsDefault inner
-    Syn.PResolved _ inner -> patternIsDefault inner
     Syn.PParen inner -> patternIsDefault inner
     Syn.PAs _ inner -> patternIsDefault inner
     Syn.PStrict inner -> patternIsDefault inner
@@ -3328,9 +3333,9 @@ patternChildren pattern' =
   case peelPattern pattern' of
     Syn.PCon _ _ children -> children
     Syn.PInfix left _ right -> [left, right]
-    Syn.PList [] -> []
-    Syn.PList (item : items) ->
-      let tailPattern = Syn.PList items
+    Syn.PList _ [] -> []
+    Syn.PList _ (item : items) ->
+      let tailPattern = Syn.PList Nothing items
           checkedTail =
             case patternType pattern' of
               Just ty -> Syn.PTc (Syn.InfoType (TcAnnotation ty [] [] [] [] [])) tailPattern
@@ -3338,8 +3343,8 @@ patternChildren pattern' =
        in [item, checkedTail]
     Syn.PUnboxedSum _ _ inner -> [inner]
     Syn.PTuple _ children -> children
-    Syn.PLit literal
-      | Syn.LitChar value source <- Syn.peelLiteralAnn literal -> [Syn.PLit (Syn.LitCharHash value source)]
+    Syn.PLit _ literal
+      | Syn.LitChar value source <- Syn.peelLiteralAnn literal -> [Syn.PLit Syn.LiteralMatchFixed (Syn.LitCharHash value source)]
     _ -> []
 
 patternConstructor :: Syn.Pattern -> ValueM AltCon
@@ -3347,8 +3352,8 @@ patternConstructor pattern' =
   case peelPattern pattern' of
     Syn.PCon name _ _ -> AltData <$> resolvedTermName name
     Syn.PInfix _ name _ -> AltData <$> resolvedTermName name
-    Syn.PList [] -> AltData <$> primitiveName "GHC.Types" "[]" SortDataConstructor
-    Syn.PList (_ : _) -> AltData <$> primitiveName "GHC.Types" ":" SortDataConstructor
+    Syn.PList _ [] -> AltData <$> primitiveName "GHC.Types" "[]" SortDataConstructor
+    Syn.PList _ (_ : _) -> AltData <$> primitiveName "GHC.Types" ":" SortDataConstructor
     Syn.PUnboxedSum alternative arity _ ->
       AltData <$> primitiveName "GHC.Types" (unboxedSumDataConName (alternative + 1) arity) SortDataConstructor
     Syn.PTuple flavor fields ->
@@ -3359,7 +3364,7 @@ patternConstructor pattern' =
               Syn.Boxed -> "GHC.Tuple"
               Syn.Unboxed -> "GHC.Types"
        in AltData <$> primitiveName moduleName' constructor SortDataConstructor
-    Syn.PLit literal
+    Syn.PLit _ literal
       | isBoxedCharacterLiteral literal -> AltData <$> boxedCharConstructor
       | otherwise -> AltLit <$> patternLiteral literal
     Syn.PWildcard -> pure AltDefault
@@ -3383,7 +3388,7 @@ isBoxedCharacterLiteral literal =
 
 patternFieldTypes :: Syn.Pattern -> [Syn.Pattern] -> ValueM [TcType]
 patternFieldTypes parent children
-  | Syn.PLit literal <- peelPattern parent,
+  | Syn.PLit _ literal <- peelPattern parent,
     isBoxedCharacterLiteral literal =
       (: []) <$> boxedCharFieldType
   -- A nested GADT pattern can refine a child annotation. The parent
@@ -3429,7 +3434,6 @@ patternMatchBindings pattern' binder ty =
   case pattern' of
     Syn.PAnn _ inner -> patternMatchBindings inner binder ty
     Syn.PTc _ inner -> patternMatchBindings inner binder ty
-    Syn.PResolved _ inner -> patternMatchBindings inner binder ty
     Syn.PParen inner -> patternMatchBindings inner binder ty
     Syn.PStrict inner -> patternMatchBindings inner binder ty
     Syn.PIrrefutable inner -> patternMatchBindings inner binder ty
@@ -3454,32 +3458,31 @@ peelPattern pattern' = go pattern'
           | Just view <- overloadedListView inner -> view
         Syn.PAnn _ next -> go next
         Syn.PTc _ next -> go next
-        Syn.PResolved _ next -> go next
         Syn.PParen next -> go next
         Syn.PStrict next -> go next
         Syn.PIrrefutable next -> go next
         Syn.PAs _ next -> go next
         Syn.PTypeSig next _ -> go next
-        Syn.PLit literal
+        Syn.PLit _ literal
           | Just expanded <- stringLiteralListPattern (patternType pattern') literal -> expanded
         _ -> inner
 
--- | Under OverloadedLists, the type checker gives a list pattern the
--- checked @toList@ method, just outside the resolver annotation of the
--- method. The pattern is then the view pattern @(toList -> [p1, ..., pn])@,
--- as in GHC. The view function is the method occurrence. Its type goes
--- from the scrutinee type to the checked type of the list pattern.
+-- | Under OverloadedLists, the type checker gives the @toList@ name of a
+-- list pattern its checked type, from the scrutinee type to the list type.
+-- The pattern is then the view pattern @(toList -> [p1, ..., pn])@, as in
+-- GHC. The view function is the method occurrence.
 overloadedListView :: Syn.Pattern -> Maybe Syn.Pattern
 overloadedListView pattern' =
   case pattern' of
-    Syn.PTc (Syn.InfoType checked) (Syn.PResolved resolutionResult inner)
-      | ResolutionOk resolution <- resolutionResult,
-        resolutionNamespace resolution == ResolutionNamespaceTerm,
-        resolutionIdentifier resolution == IdentifierNamed "toList",
-        Just listType <- patternType inner ->
-          let method = Syn.EVar (Syn.Name Nothing Syn.NameVarId "toList" [] (Just resolutionResult) [])
-              methodType = TcFunTy (tcAnnType checked) listType
-           in Just (Syn.PView (Syn.ETc (Syn.InfoType checked {tcAnnType = methodType}) method) inner)
+    Syn.PAnn _ inner -> overloadedListView inner
+    Syn.PTc _ inner -> overloadedListView inner
+    Syn.PList (Just match) items
+      | toList <- Syn.listMatchToList match,
+        Syn.InfoType checked : _ <- Syn.nameTc toList,
+        TcFunTy _ listType <- tcAnnType checked ->
+          let method = Syn.EVar toList {Syn.nameTc = []}
+              listPattern = Syn.PTc (Syn.InfoType (TcAnnotation listType [] [] [] [] [])) (Syn.PList Nothing items)
+           in Just (Syn.PView (Syn.ETc (Syn.InfoType checked) method) listPattern)
     _ -> Nothing
 
 -- | A string literal pattern as the list pattern of its characters. The
@@ -3490,11 +3493,11 @@ stringLiteralListPattern patternTy literal =
   case (Syn.peelLiteralAnn literal, patternTy) of
     (Syn.LitString value source, Just (TcTyCon tyCon [elementType]))
       | tyConName tyCon == "[]" ->
-          Just (Syn.PList [characterPattern elementType source char | char <- T.unpack value])
+          Just (Syn.PList Nothing [characterPattern elementType source char | char <- T.unpack value])
     _ -> Nothing
   where
     characterPattern elementType source char =
-      Syn.PTc (Syn.InfoType (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit (Syn.LitChar char source))
+      Syn.PTc (Syn.InfoType (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit Syn.LiteralMatchFixed (Syn.LitChar char source))
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
@@ -3514,10 +3517,9 @@ patternType pattern' =
     Syn.PVar name -> nameTcType name
     Syn.PTc info inner -> (tcAnnType <$> infoType info) <|> patternType inner
     Syn.PAnn _ inner -> patternType inner
-    Syn.PResolved _ inner -> patternType inner
-    Syn.PLit literal -> literalType literal
-    Syn.PNegLit literal -> literalType literal
-    Syn.PNPlusK name _ -> nameTcType name
+    Syn.PLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
+    Syn.PNegLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
+    Syn.PNPlusK _ name _ -> nameTcType name
     Syn.PParen inner -> patternType inner
     Syn.PStrict inner -> patternType inner
     Syn.PIrrefutable inner -> patternType inner
@@ -3664,10 +3666,9 @@ desugarExpr expression =
         withCoercion proof (pure . ExCast inner')
     Syn.ETc (Syn.InfoType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
     Syn.ETc _ inner -> desugarExpr inner
-    Syn.EResolved (ResolutionOk resolution) _
-      | isIfThenElseResolution resolution ->
-          failValue "rebindable if expression is missing its checked ifThenElse method"
-    Syn.EResolved _ inner -> desugarExpr inner
+    Syn.EIf (Just method) _ _ _
+      | Just _ <- syntaxResolved method ->
+          failValue "rebindable if expression is missing its checked result type"
     Syn.EAnn _ inner -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
@@ -3682,7 +3683,7 @@ desugarExpr expression =
     Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
     Syn.ELambdaCase alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
     Syn.ELambdaCases alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
-    Syn.EIf condition thenExpression elseExpression -> do
+    Syn.EIf _ condition thenExpression elseExpression -> do
       resultType <- requiredExprType thenExpression
       desugarIf resultType condition thenExpression elseExpression
     Syn.ECase {} -> failValue "case expression does not have a checked result type"
@@ -3704,63 +3705,62 @@ desugarAnnotatedExpr annotation inner = do
         expression
           | Just name <- annotatedVariable expression -> do
               desugarVariable (Just annotation) name
-        Syn.EResolved (ResolutionOk resolution) (Syn.EInt value Syn.TInteger _)
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
+        Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
+          | Just resolution <- syntaxResolved conversion ->
               desugarOverloadedInteger annotation resolution value
-        Syn.EResolved (ResolutionOk resolution) (Syn.EFloat value Syn.TFractional _)
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromRational" ->
+        Syn.EFloat (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TFractional _
+          | Just resolution <- syntaxResolved conversion ->
               desugarOverloadedRational annotation resolution value
-        Syn.EResolved (ResolutionOk resolution) (Syn.EString value _)
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromString" ->
+        Syn.EString (Just conversion) value _
+          | Just resolution <- syntaxResolved conversion ->
               desugarOverloadedString annotation resolution value
-        Syn.EResolved (ResolutionOk resolution) list
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromListN" -> do
-              method <- desugarResolvedOccurrence annotation resolution
+        -- An overloaded list applies fromListN to its length and to the
+        -- ordinary list. The list syntax name has the annotation of the
+        -- ordinary list.
+        Syn.EList syntax (Just method) elements
+          | Just resolution <- syntaxResolved method -> do
+              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+              listAnnotation <- requiredSyntaxAnnotation syntax
               kinds <- valueKinds
               representation <- convertRuntimeRep (intRep kinds)
               constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
-              count <- listLength list
-              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger count)) intHashType)
-              ExApp (ExApp method size) <$> desugarExpr list
-        Syn.EResolved (ResolutionOk resolution) sequence'
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "fromList" -> do
-              method <- desugarResolvedOccurrence annotation resolution
-              ExApp method <$> desugarExpr sequence'
-        Syn.EResolved (ResolutionOk resolution) (Syn.EIf condition thenExpression elseExpression)
-          | isIfThenElseResolution resolution ->
-              desugarRebindableIf annotation resolution condition thenExpression elseExpression
-        Syn.EResolved (ResolutionOk resolution) (Syn.ENegate operand)
-          | resolutionNamespace resolution == ResolutionNamespaceTerm,
+              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger (length elements))) intHashType)
+              ExApp (ExApp method' size) <$> desugarList listAnnotation elements
+        Syn.EArithSeq (Just method) arithSeq
+          | Just resolution <- syntaxResolved method -> do
+              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+              ExApp method' <$> desugarArithSeq arithSeq
+        Syn.EIf (Just method) condition thenExpression elseExpression
+          | Just resolution <- syntaxResolved method -> do
+              methodAnnotation <- requiredSyntaxAnnotation method
+              desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
+        Syn.ENegate method operand
+          | Just resolution <- syntaxResolved method,
+            resolutionNamespace resolution == ResolutionNamespaceTerm,
             resolutionIdentifier resolution == IdentifierNamed "negate" -> do
+              methodAnnotation <- requiredSyntaxAnnotation method
               primPackage <- gets (cePrimPackage . vsConvertEnv)
               case negatableIntegerLiteral operand of
                 Just (literalAnnotation, literalResolution, value)
-                  | negateFoldsIntoLiteral primPackage annotation resolution literalResolution ->
+                  | negateFoldsIntoLiteral primPackage methodAnnotation resolution literalResolution ->
                       desugarOverloadedInteger literalAnnotation literalResolution (negate value)
                 _ -> do
-                  method <- desugarResolvedOccurrence annotation resolution
-                  ExApp method <$> desugarExpr operand
-        Syn.EResolved (ResolutionOk resolution) (Syn.EGetField record field)
-          | isGetFieldResolution resolution ->
+                  method' <- desugarResolvedOccurrence methodAnnotation resolution
+                  ExApp method' <$> desugarExpr operand
+        Syn.EGetField method record field
+          | Just resolution <- syntaxResolved method,
+            isGetFieldResolution resolution ->
               ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
-        Syn.EResolved (ResolutionOk resolution) (Syn.EGetFieldProjection fields)
-          | isGetFieldResolution resolution ->
+        Syn.EGetFieldProjection method fields
+          | Just resolution <- syntaxResolved method,
+            isGetFieldResolution resolution ->
               desugarGetFieldProjection annotation resolution fields
-        Syn.EResolved (ResolutionOk resolution) primitiveLiteral
-          | resolutionNamespace resolution == ResolutionNamespaceType,
-            isPrimitiveLiteral primitiveLiteral ->
-              desugarAnnotatedExpr annotation primitiveLiteral
-        Syn.EInt value numericType _
+        Syn.EInt _ value numericType _
           | numericType /= Syn.TInteger -> do
               kinds <- valueKinds
               representation <- convertRuntimeRep (numericRepresentation kinds numericType)
               ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EFloat value floatType _
+        Syn.EFloat _ value floatType _
           | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
               kinds <- valueKinds
               representation' <- convertRuntimeRep (representation kinds)
@@ -3770,28 +3770,28 @@ desugarAnnotatedExpr annotation inner = do
           constructor <- boxedCharConstructor
           representation <- convertRuntimeRep (wordRep kinds)
           pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
-        Syn.ECharHash value _ -> do
+        Syn.ECharHash _ value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (wordRep kinds)
           ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EString value _ -> desugarString annotation value
+        Syn.EString _ value _ -> desugarString annotation value
         _
           | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
         Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
-        Syn.EStringHash value _ -> do
+        Syn.EStringHash _ value _ -> do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
           ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EList elements -> desugarList annotation elements
+        Syn.EList _ _ elements -> desugarList annotation elements
         Syn.EListComp expression statements -> desugarListComp annotation expression statements
         Syn.EListCompParallel expression branches -> desugarListCompParallel annotation expression branches
-        Syn.EArithSeq arithSeq -> desugarArithSeq arithSeq
-        Syn.ETuple flavor elements -> desugarTuple annotation flavor elements
+        Syn.EArithSeq _ arithSeq -> desugarArithSeq arithSeq
+        Syn.ETuple _ flavor elements -> desugarTuple annotation flavor elements
         Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
         Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
-        Syn.EIf condition thenExpression elseExpression ->
+        Syn.EIf _ condition thenExpression elseExpression ->
           desugarIf (tcAnnType annotation) condition thenExpression elseExpression
         -- A multi-way if is a guarded right-hand side. A failed last guard
         -- ends in an empty case on its own test value.
@@ -3860,25 +3860,33 @@ negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, Resolved, Integer)
 negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
-    Syn.ETc (Syn.InfoType tcAnnotation) (Syn.EResolved (ResolutionOk resolution) (Syn.EInt value Syn.TInteger _))
-      | null (tcAnnTypeBinders tcAnnotation),
+    Syn.ETc (Syn.InfoType tcAnnotation) (Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _)
+      | Just resolution <- syntaxResolved conversion,
+        null (tcAnnTypeBinders tcAnnotation),
         null (tcAnnEvidenceBinders tcAnnotation),
         resolutionNamespace resolution == ResolutionNamespaceTerm,
         resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
           Just (tcAnnotation, resolution, value)
-    -- Source spans and resolutions above the checked literal do not change it.
+    -- Source spans above the checked literal do not change it.
     Syn.EAnn _ inner -> negatableIntegerLiteral inner
-    Syn.EResolved _ inner -> negatableIntegerLiteral inner
     Syn.ETc info inner
       | Nothing <- infoType info,
         Nothing <- infoCast info ->
           negatableIntegerLiteral inner
     _ -> Nothing
 
-isIfThenElseResolution :: Resolved -> Bool
-isIfThenElseResolution resolution =
-  resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution == IdentifierNamed "ifThenElse"
+-- | The resolution of a syntax name, when the resolver found it.
+syntaxResolved :: Syn.Name -> Maybe Resolved
+syntaxResolved name = Syn.nameResolution name >>= resolvedOf
+
+-- | The checked annotation of a syntax name. The type checker gives one
+-- to each syntax name of a method that it checks.
+requiredSyntaxAnnotation :: Syn.Name -> ValueM TcAnnotation
+requiredSyntaxAnnotation name =
+  maybe
+    (failValue ("syntax name " <> T.unpack (Syn.nameText name) <> " has no checked type"))
+    pure
+    (nameAnnotation name)
 
 -- | RebindableSyntax applies the checked ifThenElse method to the
 -- condition and the two branches.
@@ -3913,7 +3921,6 @@ annotatedVariable expression =
   case expression of
     Syn.EAnn _ inner -> annotatedVariable inner
     Syn.ETc _ inner -> annotatedVariable inner
-    Syn.EResolved _ inner -> annotatedVariable inner
     Syn.EParen inner -> annotatedVariable inner
     Syn.EPragma _ inner -> annotatedVariable inner
     Syn.EVar name -> Just name
@@ -4800,7 +4807,6 @@ peelUnpackPattern pattern' =
   case pattern' of
     Syn.PAnn _ inner -> peelUnpackPattern inner
     Syn.PTc _ inner -> peelUnpackPattern inner
-    Syn.PResolved _ inner -> peelUnpackPattern inner
     Syn.PParen inner -> peelUnpackPattern inner
     Syn.PStrict inner -> peelUnpackPattern inner
     Syn.PTypeSig inner _ -> peelUnpackPattern inner
@@ -5027,14 +5033,6 @@ desugarLambda lambdaType patterns body = do
         }
 
 -- | Read the length of the ordinary list inside an overloaded list.
-listLength :: Syn.Expr -> ValueM Int
-listLength expression = case expression of
-  Syn.EAnn _ inner -> listLength inner
-  Syn.ETc _ inner -> listLength inner
-  Syn.EResolved _ inner -> listLength inner
-  Syn.EList elements -> pure (length elements)
-  _ -> failValue "overloaded list has no list expression"
-
 desugarList :: TcAnnotation -> [Syn.Expr] -> ValueM Expr
 desugarList annotation elements = do
   elementType <-
@@ -5865,7 +5863,6 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
       withCoercion proof (\coercion -> pure (ExLet (Bind casted (ExCast (ExVar (binderName binder)) coercion)) body))
     Syn.PAnn _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PTc _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
-    Syn.PResolved _ inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PParen inner -> desugarPatternWithFailure resultType binder ty inner success failure
     Syn.PStrict inner -> do
       body <- desugarPatternWithFailure resultType binder ty inner success failure
@@ -6051,7 +6048,6 @@ directPatternBindings pattern' binder ty =
   case pattern' of
     Syn.PAnn _ inner -> directPatternBindings inner binder ty
     Syn.PTc _ inner -> directPatternBindings inner binder ty
-    Syn.PResolved _ inner -> directPatternBindings inner binder ty
     Syn.PParen inner -> directPatternBindings inner binder ty
     Syn.PIrrefutable inner -> directPatternBindings inner binder ty
     Syn.PTypeSig inner _ -> directPatternBindings inner binder ty
@@ -7310,7 +7306,6 @@ isApplicationExpression expression =
   case expression of
     Syn.EAnn _ inner -> isApplicationExpression inner
     Syn.ETc _ inner -> isApplicationExpression inner
-    Syn.EResolved _ inner -> isApplicationExpression inner
     Syn.EParen inner -> isApplicationExpression inner
     Syn.EPragma _ inner -> isApplicationExpression inner
     Syn.EApp {} -> True
@@ -7349,15 +7344,6 @@ lookupLocal key displayName = do
   case local of
     Just entry -> pure entry
     Nothing -> failValue ("missing local value " <> T.unpack displayName)
-
-isPrimitiveLiteral :: Syn.Expr -> Bool
-isPrimitiveLiteral expression =
-  case expression of
-    Syn.EInt _ numericType _ -> numericType /= Syn.TInteger
-    Syn.EFloat _ floatType _ -> floatType /= Syn.TFractional
-    Syn.ECharHash {} -> True
-    Syn.EStringHash {} -> True
-    _ -> False
 
 lookupBindingType :: Entity -> ValueM TcType
 lookupBindingType key = do
@@ -7413,7 +7399,6 @@ inferExprType expression =
     Syn.ETc (Syn.InfoCast (TcCastAnnotation _ target)) _ -> pure target
     Syn.ETc _ inner -> inferExprType inner
     Syn.EAnn _ inner -> inferExprType inner
-    Syn.EResolved _ inner -> inferExprType inner
     Syn.EVar name -> lookupNamedBindingType name
     Syn.EApp function _ -> do
       functionType <- inferExprType function
@@ -7440,7 +7425,7 @@ inferExprType expression =
       types <- concat <$> mapM localGroupBinderTypes groups
       withBindingTypes types (inferExprType body)
     -- An if expression has the type of its branches.
-    Syn.EIf _ thenExpression _ -> inferExprType thenExpression
+    Syn.EIf _ _ thenExpression _ -> inferExprType thenExpression
     Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
     Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
     unsupported -> failValue ("missing checked expression type: " <> take 80 (show unsupported))
@@ -7450,12 +7435,11 @@ exprType expression =
   case expression of
     Syn.ETc info inner -> infoExprType info <|> exprType inner
     Syn.EAnn _ inner -> exprType inner
-    Syn.EResolved _ inner -> exprType inner
     Syn.EApp function _ -> exprType function >>= applicationResultType
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
-    Syn.EIf _ thenExpression _ -> exprType thenExpression
+    Syn.EIf _ _ thenExpression _ -> exprType thenExpression
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing

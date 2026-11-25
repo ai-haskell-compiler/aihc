@@ -6,6 +6,7 @@ module Aihc.Cli.Options
     PlanCommandOptions (..),
     PlanOptions (..),
     ReplOptions (..),
+    NativeSplicePackage,
     TestOptions (..),
     defaultPlanOptions,
     parseCommandIO,
@@ -14,18 +15,24 @@ module Aihc.Cli.Options
   )
 where
 
+import Aihc.Hackage.Package (PackageName, Version, parsePackageIdentifier)
 import Aihc.Native (NativeTarget, OptimizationLevel, defaultOptimizationLevel, hostNativeTarget, parseNativeTarget, parseOptimizationLevel, renderNativeTarget, renderOptimizationLevel)
 import Aihc.PackagePlan.Project (ProjectSelection (..))
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdBuild !BuildOptions
-  | CmdInstall !InstallOptions
+  = CmdBuild ![NativeSplicePackage] !BuildOptions
+  | CmdInstall ![NativeSplicePackage] !InstallOptions
   | CmdLinkExe !LinkExeOptions
   | CmdPlan !PlanCommandOptions
   | CmdRepl !ReplOptions
   | CmdTest !TestOptions
   deriving (Eq, Show)
+
+-- | A package whose Template Haskell splices run as native code with no
+-- sandbox (@--unsafe-disable-th-sandbox=PACKAGE@). A package without a
+-- version names each version.
+type NativeSplicePackage = (PackageName, Maybe Version)
 
 -- | Build an executable, or every executable of a Cabal package.
 --
@@ -232,13 +239,13 @@ commandParser =
     ( OA.command
         "build"
         ( OA.info
-            (CmdBuild <$> buildOptionsParser OA.<**> OA.helper)
+            (CmdBuild <$> nativeSplicePackagesOption <*> buildOptionsParser OA.<**> OA.helper)
             (OA.progDesc "Build one Haskell executable from a main module, or every executable of a Cabal package from a local directory or Hackage")
         )
         <> OA.command
           "install"
           ( OA.info
-              (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
+              (CmdInstall <$> nativeSplicePackagesOption <*> installOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Build and install one Cabal library from a local directory or Hackage")
           )
         <> OA.command
@@ -448,6 +455,19 @@ executableOptions description =
             <> OA.help description
         )
     )
+
+nativeSplicePackagesOption :: OA.Parser [NativeSplicePackage]
+nativeSplicePackagesOption =
+  OA.many
+    ( OA.option
+        (OA.eitherReader parsePackage)
+        ( OA.long "unsafe-disable-th-sandbox"
+            <> OA.metavar "PACKAGE"
+            <> OA.help "Run the Template Haskell splices of PACKAGE (NAME or NAME-VERSION) as native code, not in the WebAssembly sandbox. For an executable, give the name of the executable. Give the option again to add a package. WARNING: A splice of PACKAGE then has all the access of the user. It can read and write files, start processes, and use the network. Use this option only for packages that you trust"
+        )
+    )
+  where
+    parsePackage text = maybe (Left ("Invalid package " <> text <> ". Give NAME or NAME-VERSION")) Right (parsePackageIdentifier text)
 
 workspaceOption :: OA.Parser (Maybe FilePath)
 workspaceOption =

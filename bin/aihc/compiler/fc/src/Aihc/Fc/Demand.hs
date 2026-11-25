@@ -157,6 +157,10 @@ type Signatures = Map Name Signature
 data DemandRewrites
   = StrictLetsOnly
   | StrictLetsAndArguments
+  | -- | Strict lets, and the strict arguments of a call of a function of an
+    -- enclosing recursive group only. Such a call is a loop step, and a
+    -- lazy accumulator there makes a chain of thunks.
+    StrictLetsAndLoopArguments
   deriving (Eq, Show)
 
 -- | What the pass did.
@@ -218,7 +222,10 @@ data Env = Env
     -- | If True, a call of a local function can walk its body again.
     -- A walk of a body sets it to False, so that a chain of calls cannot
     -- walk each body more than one time for each call.
-    envRefine :: !Bool
+    envRefine :: !Bool,
+    -- | The functions of the enclosing recursive groups: the top-level
+    -- value itself and the binders of each enclosing @rec@.
+    envLoops :: !(Set Name)
   }
 
 -- | An environment for the analysis only, with the given signatures.
@@ -233,7 +240,8 @@ analysisEnv types signatures =
       envBodies = Map.empty,
       envThunks = MonoidMap.empty,
       envExcluded = MonoidMap.empty,
-      envRefine = True
+      envRefine = True,
+      envLoops = Set.empty
     }
 
 extendType :: Env -> Binder -> Env
@@ -632,7 +640,7 @@ rewriteDecl :: Env -> Decl -> DemandM Decl
 rewriteDecl env decl =
   case decl of
     DeclVal declaration -> do
-      (body, _) <- demandExpr env (Just (valType declaration)) (valBody declaration)
+      (body, _) <- demandExpr env {envLoops = Set.singleton (valName declaration)} (Just (valType declaration)) (valBody declaration)
       pure (DeclVal declaration {valBody = body})
     _ -> pure decl
 
@@ -695,7 +703,8 @@ demandExpr env ty expr =
         _ -> pure (ExLet (Bind binder rhs') body', strict)
     ExRec binds body -> do
       let inner = bindRecursiveSignatures (extendTypes env (map bindBinder binds)) binds
-      binds' <- traverse (\bind -> (\(rhs, _) -> bind {bindRhs = rhs}) <$> demandExpr inner (Just (binderType (bindBinder bind))) (bindRhs bind)) binds
+          loops = inner {envLoops = envLoops env <> Set.fromList (map (binderName . bindBinder) binds)}
+      binds' <- traverse (\bind -> (\(rhs, _) -> bind {bindRhs = rhs}) <$> demandExpr loops (Just (binderType (bindBinder bind))) (bindRhs bind)) binds
       (body', bodyStrict) <- demandExpr inner ty body
       pure (ExRec binds' body', bodyStrict `Set.difference` Set.fromList (map (binderName . bindBinder) binds))
     ExAbsurd scrutinee result -> do
@@ -764,7 +773,13 @@ demandApplication env ty (function, arguments) = do
             length values >= arity ->
               fromMaybe evaluates (refinedEvaluates env name values)
         _ -> Set.empty
-  (arguments', strictSets, wraps) <- walkArguments env result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
+  let argumentsAllowed = case envRewrites env of
+        StrictLetsOnly -> False
+        StrictLetsAndArguments -> True
+        StrictLetsAndLoopArguments -> case fst (castedSpine function) of
+          ExVar name -> Set.member name (envLoops env)
+          _ -> False
+  (arguments', strictSets, wraps) <- walkArguments env argumentsAllowed result (zip3 arguments argumentTypes (demandsByArgument arguments demands))
   let application = List.foldl' applyArgument function' arguments'
       wrapped = foldr (\(binder, scrutinee) body -> caseFromList scrutinee (Just binder) (fromMaybe (binderType binder) result) [Alt AltDefault [] [] body]) application wraps
   pure (wrapped, headStrict <> bodyStrict <> mconcat strictSets)
@@ -802,8 +817,8 @@ demandsByArgument arguments demands =
 -- before the call. The outermost wrap comes first.
 -- Closed arguments stay lazy. Their case binders can prevent constant
 -- lifting of an outer constructor expression.
-walkArguments :: Env -> Maybe Type -> [(Either Type Expr, Maybe Type, Demand)] -> DemandM ([Either Type Expr], [Set Name], [(Binder, Expr)])
-walkArguments env result = go
+walkArguments :: Env -> Bool -> Maybe Type -> [(Either Type Expr, Maybe Type, Demand)] -> DemandM ([Either Type Expr], [Set Name], [(Binder, Expr)])
+walkArguments env argumentsAllowed result = go
   where
     go items =
       case items of
@@ -817,7 +832,7 @@ walkArguments env result = go
           case (demand, argumentType, result) of
             (demand', Just argumentTy, Just _)
               | isStrict demand',
-                envRewrites env == StrictLetsAndArguments,
+                argumentsAllowed,
                 not (Set.disjoint (Map.keysSet (teBinders (envTypes env))) (exprValueNames argument')),
                 isLiftedType (envTypes env) argumentTy,
                 not (isValueLike env argument') -> do
