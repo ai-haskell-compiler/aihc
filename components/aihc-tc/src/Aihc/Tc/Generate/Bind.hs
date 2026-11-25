@@ -61,6 +61,7 @@ import Aihc.Tc.Syntax.Pending
     annotationSpan,
     listMatchNames,
     literalMatchNames,
+    literalSyntaxNames,
     mkSpanAnnotation,
     nPlusKMatchNames,
     nameResolved,
@@ -80,7 +81,7 @@ import Data.List (mapAccumL, partition)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Set qualified as Set
@@ -330,8 +331,11 @@ declTermReferences decl = do
       case expr of
         ERecordUpd _ fields -> map (nameText . recordFieldName) fields
         _ -> []
+    -- The name of built-in list or tuple syntax is not a term.
     hasTermResolution name =
-      maybe False ((== ResolutionNamespaceTerm) . resolutionNamespace) (nameResolved name)
+      case nameResolved name of
+        Just resolution -> resolutionNamespace resolution == ResolutionNamespaceTerm && resolutionTarget resolution /= EntitySyntax
+        Nothing -> False
 
 -- | The binders that a declaration defines.
 declaredBinderKeys :: Decl -> TcM [Entity]
@@ -1400,15 +1404,35 @@ freeVarsGuardQualifiers qualifiers bodyVars =
       pure (Set.difference (declVars <> restVars) localBinders)
 
 freeVarsExpr :: Expr -> TcM (Set.Set Entity)
-freeVarsExpr expr =
+freeVarsExpr expr = do
+  vars <- freeVarsExprChildren expr
+  foldM (flip insertSyntaxTermKey) vars (mapMaybe nameResolution (exprSyntaxNames expr))
+
+-- | The syntax names of an expression, such as @fromInteger@ for a literal.
+exprSyntaxNames :: Expr -> [Name]
+exprSyntaxNames expr =
+  case expr of
+    EInt syntax _ _ _ -> literalSyntaxNames syntax
+    EFloat syntax _ _ _ -> literalSyntaxNames syntax
+    ECharHash typeName _ _ -> [typeName]
+    EString conversion _ _ -> maybeToList conversion
+    EStringHash typeName _ _ -> [typeName]
+    EIf method _ _ _ -> maybeToList method
+    ENegate method _ -> [method]
+    EArithSeq method _ -> maybeToList method
+    EGetField method _ _ -> [method]
+    EGetFieldProjection method _ -> [method]
+    EList syntax method _ -> syntax : maybeToList method
+    ETuple syntax _ _ -> [syntax]
+    _ -> []
+
+freeVarsExprChildren :: Expr -> TcM (Set.Set Entity)
+freeVarsExprChildren expr =
   case expr of
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
     ETc _ inner -> freeVarsExpr inner
-    EResolved result inner -> do
-      innerVars <- freeVarsExpr inner
-      insertSyntaxTermKey result innerVars
-    EIf a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EIf _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
     EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
     ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
     ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
@@ -1423,7 +1447,7 @@ freeVarsExpr expr =
       rhsVars <- freeVarsExpr rhs
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate inner -> freeVarsExpr inner
+    ENegate _ inner -> freeVarsExpr inner
     ESectionL inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
@@ -1445,9 +1469,9 @@ freeVarsExpr expr =
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EPragma _ inner -> freeVarsExpr inner
-    EList items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EList _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq _ arithSeq -> freeVarsArithSeq arithSeq
+    ETuple _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
@@ -1471,7 +1495,7 @@ freeVarsExpr expr =
       -- to be checked first for the expansion to find the builder.
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
-    EGetField record _ -> freeVarsExpr record
+    EGetField _ record _ -> freeVarsExpr record
     EUnboxedSum _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 

@@ -39,6 +39,7 @@ import Aihc.Tc.Syntax
     ListMatch (..),
     Literal (..),
     LiteralMatch (..),
+    LiteralSyntax (..),
     Module (..),
     NPlusKMatch (..),
     Name (..),
@@ -50,6 +51,7 @@ import Aihc.Tc.Syntax
     annotationSpan,
     listMatchNames,
     literalMatchNames,
+    literalSyntaxNames,
     moduleName,
     nPlusKMatchNames,
   )
@@ -117,7 +119,7 @@ labelWalk =
         span' <- gets labelsListSpan
         addInfoLabels span' [info]
         pure info,
-      walkExpr = wrapped peelExpr,
+      walkExpr = exprLabels,
       walkPattern = patternLabels,
       walkType = wrapped peelType,
       walkDecl = wrapped peelDecl,
@@ -141,6 +143,15 @@ labelWalk =
       let (anns, infos, base) = peelLeading peel node
       addInfoLabels (spanFromAnnotations anns) infos
       _ <- children base
+      pure node
+
+    -- The syntax names of an expression, such as @negate@ for @-x@, get
+    -- the span of the expression, after the information of its wrappers.
+    exprLabels children node = do
+      let (anns, infos, base) = peelLeading peelExpr node
+          (syntaxInfos, base') = exprSyntax base
+      addInfoLabels (spanFromAnnotations anns) (infos <> syntaxInfos)
+      _ <- children base'
       pure node
 
     -- The parser gives no span to a literal in a nested pattern. The
@@ -183,6 +194,33 @@ patternMatch pat =
         LiteralMatchOverloaded (OverloadedLiteralMatch literalType conversion negation equality) ->
           LiteralMatchOverloaded (OverloadedLiteralMatch (without <$> literalType) (without conversion) (without <$> negation) (without equality))
 
+-- | The information of the syntax names of an expression, and the
+-- expression with no information in these names.
+exprSyntax :: Expr -> ([TcInfo], Expr)
+exprSyntax expr =
+  case expr of
+    EInt syntax value numericType text -> (literalInfos syntax, EInt (literalWithout syntax) value numericType text)
+    EFloat syntax value floatType text -> (literalInfos syntax, EFloat (literalWithout syntax) value floatType text)
+    ECharHash ty value text -> (nameTc ty, ECharHash (without ty) value text)
+    EString conversion value text -> (foldMap nameTc conversion, EString (without <$> conversion) value text)
+    EStringHash ty value text -> (nameTc ty, EStringHash (without ty) value text)
+    EIf method condition thenExpr elseExpr -> (foldMap nameTc method, EIf (without <$> method) condition thenExpr elseExpr)
+    ENegate method inner -> (nameTc method, ENegate (without method) inner)
+    EArithSeq method sequence' -> (foldMap nameTc method, EArithSeq (without <$> method) sequence')
+    EGetField method record field -> (nameTc method, EGetField (without method) record field)
+    EGetFieldProjection method fields -> (nameTc method, EGetFieldProjection (without method) fields)
+    -- The conversion of an overloaded list goes before the ordinary list.
+    EList syntax method items -> (foldMap nameTc method <> nameTc syntax, EList (without syntax) (without <$> method) items)
+    ETuple syntax flavor items -> (nameTc syntax, ETuple (without syntax) flavor items)
+    _ -> ([], expr)
+  where
+    without name = name {nameTc = []}
+    literalInfos = concatMap nameTc . literalSyntaxNames
+    literalWithout syntax =
+      case syntax of
+        LiteralSyntaxPrimitive ty -> LiteralSyntaxPrimitive (without ty)
+        LiteralSyntaxOverloaded ty conversion -> LiteralSyntaxOverloaded (without <$> ty) (without conversion)
+
 addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
 addInfoLabels span' infos = do
   currentModule <- gets labelsModule
@@ -207,7 +245,6 @@ peelLeading peel =
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
 peelExpr (ETc info inner) = Just (Nothing, Just info, inner)
-peelExpr (EResolved _ inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 
 peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)

@@ -8,8 +8,9 @@
 --
 -- * Each 'Name' and 'UnqualifiedName' has a 'ResolutionResult' field.
 -- * The syntax terms that desugared syntax uses, such as @fromInteger@ for
---   a literal and @>>=@ for a @do@ statement, are in wrapper constructors
---   such as 'EResolved' and 'DoResolved'.
+--   a literal and @>>=@ for a @do@ statement, are names in the fields of
+--   the nodes that use them, such as 'EInt', or in wrapper constructors
+--   such as 'DoResolved'.
 -- * The knot variables of an @mdo@ segment are in 'DoRecKnot'.
 -- * The resolve errors of whole declarations, imports and items are in
 --   wrapper constructors and fields such as 'DeclError'.
@@ -78,9 +79,11 @@ module Aihc.Resolve.Syntax
     OverloadedLiteralMatch (..),
     NPlusKMatch (..),
     ListMatch (..),
+    LiteralSyntax (..),
     literalMatchNames,
     nPlusKMatchNames,
     listMatchNames,
+    literalSyntaxNames,
     RoleAnnotation (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -430,12 +433,11 @@ peelDeclAnn decl =
     DeclError _ inner -> peelDeclAnn inner
     _ -> decl
 
--- | Remove the annotation and resolution wrappers of an expression.
+-- | Remove the annotation wrappers of an expression.
 peelExprAnn :: Expr -> Expr
 peelExprAnn expr =
   case expr of
     EAnn _ inner -> peelExprAnn inner
-    EResolved _ inner -> peelExprAnn inner
     _ -> expr
 
 -- | Remove the annotation and resolution wrappers of a pattern.
@@ -885,6 +887,24 @@ nPlusKMatchNames (NPlusKMatch literalType conversion comparison minus) =
 listMatchNames :: ListMatch -> [Name]
 listMatchNames (ListMatch toList fromListN) = [toList, fromListN]
 
+-- | The names that a numeric literal expression uses.
+data LiteralSyntax
+  = -- | A primitive literal, such as @1#@. The name is its primitive type.
+    LiteralSyntaxPrimitive Name
+  | -- | An overloaded literal, such as @1@ or @1.5@. The first name is the
+    -- type of the literal before the conversion: @Integer@ for an integer
+    -- literal. It is 'Nothing' when the built-in scope has no such type.
+    -- The second name is the conversion: @fromInteger@ or @fromRational@.
+    LiteralSyntaxOverloaded (Maybe Name) Name
+  deriving (Eq, Show, Generic)
+
+-- | The names of a numeric literal expression.
+literalSyntaxNames :: LiteralSyntax -> [Name]
+literalSyntaxNames syntax =
+  case syntax of
+    LiteralSyntaxPrimitive typeName -> [typeName]
+    LiteralSyntaxOverloaded literalType conversion -> maybe [] pure literalType <> [conversion]
+
 -- | A pattern.
 data Pattern
   = -- | Metadata for the whole pattern.
@@ -1316,9 +1336,6 @@ data ForeignDecl = ForeignDecl
 data Expr
   = -- | Metadata for the whole expression.
     EAnn Annotation Expr
-  | -- | A syntax term or type that the desugaring of the expression uses,
-    -- such as @fromInteger@ for a literal, or a resolve error.
-    EResolved ResolutionResult Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
@@ -1326,23 +1343,24 @@ data Expr
   | -- | @type T@ in a term position.
     ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt Integer NumericType Text
+    EInt LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat Rational FloatType Text
+    EFloat LiteralSyntax Rational FloatType Text
   | -- | @'x'@
     EChar Char Text
-  | -- | @'x'#@
-    ECharHash Char Text
-  | -- | @"hello"@
-    EString Text Text
-  | -- | @"hello"#@
-    EStringHash Text Text
+  | -- | @'x'#@. The name is the type @Char#@.
+    ECharHash Name Char Text
+  | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
+    EString (Maybe Name) Text Text
+  | -- | @"hello"#@. The name is the type @Addr#@.
+    EStringHash Name Text Text
   | -- | @#name@
     EOverloadedLabel Text Text
   | -- | @[qq| body |]@
     EQuasiQuote Text Text
-  | -- | @if c then t else e@
-    EIf Expr Expr Expr
+  | -- | @if c then t else e@. Under @RebindableSyntax@, the name is
+    -- @ifThenElse@.
+    EIf (Maybe Name) Expr Expr Expr
   | -- | @if | g1 -> e1 | g2 -> e2@
     EMultiWayIf [GuardedRhs Expr]
   | -- | @\x y -> body@
@@ -1357,8 +1375,8 @@ data Expr
     -- The arrow is grammar, not an operator that a scope can bind, so it
     -- gets its own constructor.  'checkPattern' turns this into 'PView'.
     EViewPat Expr Expr
-  | -- | @-x@
-    ENegate Expr
+  | -- | @-x@. The name is @negate@.
+    ENegate Name Expr
   | -- | @(x +)@
     ESectionL Expr Name
   | -- | @(+ x)@
@@ -1373,24 +1391,26 @@ data Expr
     EListComp Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
     EListCompParallel Expr [[CompStmt]]
-  | -- | @[1,3 .. 9]@
-    EArithSeq ArithSeq
+  | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
+    EArithSeq (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
     ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | -- | @r { x = 1 }@
     ERecordUpd Expr [RecordField Expr]
-  | -- | @a.b@
-    EGetField Expr Name -- a.b (OverloadedRecordDot)
-  | -- | @(.b)@ or @(.b.c)@
-    EGetFieldProjection [Name] -- (.b) or (.b.c) projection section (OverloadedRecordDot)
+  | -- | @a.b@ under @OverloadedRecordDot@. The first name is @getField@.
+    EGetField Name Expr Name
+  | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
+    -- @getField@.
+    EGetFieldProjection Name [Name]
   | -- | @(expr :: ty)@
     ETypeSig Expr Type
   | -- | @(expr)@
     EParen Expr
-  | -- | @[x, y]@
-    EList [Expr]
-  | -- | @(x, y)@, @(, y)@, or @(# x | #)@
-    ETuple TupleFlavor [Maybe Expr]
+  | -- | @[x, y]@. The first name is the list syntax. Under
+    -- @OverloadedLists@, the second name is @fromListN@.
+    EList Name (Maybe Name) [Expr]
+  | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
+    ETuple Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
     EUnboxedSum Int Int Expr
   | -- | @f \@Type@
@@ -1578,6 +1598,8 @@ instance NFData OverloadedLiteralMatch
 instance NFData NPlusKMatch
 
 instance NFData ListMatch
+
+instance NFData LiteralSyntax
 
 instance NFData ForallTelescope
 

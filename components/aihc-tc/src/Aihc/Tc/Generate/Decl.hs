@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Decl
   )
 where
 
-import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), resolvedOf)
+import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations
   ( PendingTcAnnotation (..),
     TcAnnotation (..),
@@ -99,6 +99,7 @@ import Aihc.Tc.Syntax.Pending
     ListMatch (..),
     Literal (..),
     LiteralMatch (..),
+    LiteralSyntax (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
@@ -3942,7 +3943,7 @@ patSynMatcherMatch pat argBinders =
     -- and a binder of that type has no fixed representation.
     success = foldl EApp (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
     failed = EApp (localVar failure) unit
-    unit = ETuple Boxed []
+    unit = ETuple (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
 
 -- | The checked pattern inside a checked matcher equation.
 matcherPattern :: Match -> Maybe Pattern
@@ -3955,7 +3956,6 @@ matcherPattern match =
       case expr of
         EAnn _ inner -> go inner
         ETc _ inner -> go inner
-        EResolved _ inner -> go inner
         EParen inner -> go inner
         EPragma _ inner -> go inner
         ECase _ (alt : _) -> Just (caseAltPattern alt)
@@ -3972,14 +3972,14 @@ patternToExpr pat =
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
     PTc info inner -> ETc info <$> patternToExpr inner
     PVar name -> Just (localVar name)
-    PTuple flavor items -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
+    PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
     -- @toList@ of the match goes.
     PList match items ->
-      maybe id EResolved (match >>= nameResolution . listMatchFromListN) . EList <$> mapM patternToExpr items
+      EList (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
     PBuiltinCon (BuiltinTuple flavor arity) _ items
-      | length items == arity -> ETuple flavor <$> mapM (fmap Just . patternToExpr) items
+      | length items == arity -> ETuple (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
     PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
     -- A record pattern with a wildcard has no expression: the wildcard
@@ -3993,17 +3993,21 @@ patternToExpr pat =
     -- A punned field becomes a field with an explicit value, because the
     -- value of the field is the converted pattern.
     recordField field = (\value -> field {recordFieldValue = value, recordFieldPun = False}) <$> patternToExpr (recordFieldValue field)
+    tupleSyntaxName flavor arity = syntaxName (displayIdentifier (IdentifierTuple flavor arity))
+
+-- | The name of built-in list or tuple syntax in an expression that the
+-- type checker makes. The type checker does not read its resolution, so the
+-- name has none.
+syntaxName :: Text -> Name
+syntaxName text = Name Nothing NameConSym text [] Nothing []
 
 -- | An annotated literal pattern as an expression.
 --
 -- The resolver gives a literal pattern the names of its match: the type
 -- of the unconverted literal, the conversion that an overloaded literal
--- applies, and the @==@ that compares the result to the scrutinee. An
--- expression instead wants the type and the conversion wrapped directly
--- around a bare literal, with the annotations of the literal outside. The
--- @==@ goes.
---
--- The list of wrappers has the innermost wrapper first.
+-- applies, and the @==@ that compares the result to the scrutinee. The
+-- literal expression keeps the type and the conversion. The @==@ goes.
+-- The annotations of the pattern and of the literal go outside.
 literalPatternToExpr :: Pattern -> Maybe Expr
 literalPatternToExpr = go []
   where
@@ -4013,15 +4017,15 @@ literalPatternToExpr = go []
         PTc info inner -> go (ETc info : wrappers) inner
         PLit match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
-           in Just (wrapAll (literalMatchWrappers match <> wrappers <> literalWrappers) (literalToExpr bare))
+           in wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
         _ -> Nothing
 
 -- | An annotated negated literal pattern as an expression.
 --
 -- A negated literal pattern has the same names as a literal one, and one
 -- more: the @negate@ it applies to the converted literal. An expression
--- wants that resolution around a negation of the converted literal, as the
--- resolver writes for @-1@. The @==@ goes.
+-- applies that @negate@ to the converted literal, as the resolver writes
+-- for @-1@. The @==@ goes.
 negatedLiteralPatternToExpr :: Pattern -> Maybe Expr
 negatedLiteralPatternToExpr = go []
   where
@@ -4029,25 +4033,16 @@ negatedLiteralPatternToExpr = go []
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
         PTc info inner -> go (ETc info : wrappers) inner
-        PNegLit match literal ->
+        PNegLit match literal -> do
           let (literalWrappers, bare) = peelLiteralAnns literal
-              converted = wrapAll (literalMatchWrappers match <> wrappers <> literalWrappers) (literalToExpr bare)
-              negation = case match of
-                LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded >>= nameResolution
+          converted <- wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
+          -- Only an overloaded literal has a negate. Without one, the name
+          -- has no resolution, as a negation without a resolved negate.
+          let negation = case match of
+                LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-           in Just (maybe id EResolved negation (ENegate converted))
+          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
         _ -> Nothing
-
--- | The resolutions that the expression of a literal pattern keeps, as
--- wrappers with the innermost wrapper first: the conversion inside the
--- type of the unconverted literal.
-literalMatchWrappers :: LiteralMatch -> [Expr -> Expr]
-literalMatchWrappers match =
-  map EResolved . reverse . mapMaybe nameResolution $
-    case match of
-      LiteralMatchFixed -> []
-      LiteralMatchPrimitive typeName -> [typeName]
-      LiteralMatchOverloaded overloaded -> maybeToList (overloadedLiteralType overloaded) <> [overloadedLiteralConversion overloaded]
 
 -- | Apply wrappers to an expression, the first wrapper innermost.
 wrapAll :: [Expr -> Expr] -> Expr -> Expr
@@ -4062,17 +4057,34 @@ peelLiteralAnns literal =
     LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc info], bare)
     _ -> ([], literal)
 
-literalToExpr :: Literal -> Expr
-literalToExpr literal =
+-- | A bare literal of a literal pattern as an expression, with the names of
+-- its match that the expression uses. The result is 'Nothing' when the
+-- match does not have the names that the expression needs.
+literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
+literalMatchExpr match literal =
   case literal of
-    LitAnn ann inner -> EAnn ann (literalToExpr inner)
-    LitTc info inner -> ETc info (literalToExpr inner)
-    LitInt value numericType source -> EInt value numericType source
-    LitFloat value floatType source -> EFloat value floatType source
-    LitChar value source -> EChar value source
-    LitCharHash value source -> ECharHash value source
-    LitString value source -> EString value source
-    LitStringHash value source -> EStringHash value source
+    LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
+    LitTc info inner -> ETc info <$> literalMatchExpr match inner
+    LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
+    LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
+    LitChar value source -> Just (EChar value source)
+    LitCharHash value source -> (\typeName -> ECharHash typeName value source) <$> primitiveType
+    LitString value source ->
+      case match of
+        LiteralMatchOverloaded overloaded -> Just (EString (Just (overloadedLiteralConversion overloaded)) value source)
+        _ -> Just (EString Nothing value source)
+    LitStringHash value source -> (\typeName -> EStringHash typeName value source) <$> primitiveType
+  where
+    numericSyntax =
+      case match of
+        LiteralMatchFixed -> Nothing
+        LiteralMatchPrimitive typeName -> Just (LiteralSyntaxPrimitive typeName)
+        LiteralMatchOverloaded overloaded ->
+          Just (LiteralSyntaxOverloaded (overloadedLiteralType overloaded) (overloadedLiteralConversion overloaded))
+    primitiveType =
+      case match of
+        LiteralMatchPrimitive typeName -> Just typeName
+        _ -> Nothing
 
 replacePatSynDecl :: PatSynDecl -> Decl -> Decl
 replacePatSynDecl patSyn decl =
@@ -6814,7 +6826,6 @@ exprSpan expr =
   case expr of
     EAnn ann inner ->
       annotationSpan ann <|> exprSpan inner
-    EResolved _ inner -> exprSpan inner
     EParen inner -> exprSpan inner
     EPragma _ inner -> exprSpan inner
     ETypeSig inner _ -> exprSpan inner

@@ -55,6 +55,7 @@ import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax
 import Data.Functor.Identity (Identity (..))
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | What the copy does with the body of a splice.
 data SpliceHooks f = SpliceHooks
@@ -356,6 +357,24 @@ copiedLiteralMatch negated lit =
             overloadedLiteralEquality = copiedName NameVarSym "=="
           }
 
+-- | The names of a copied numeric literal expression, with no resolution.
+-- A literal with a primitive type names that type. Else the literal is
+-- overloaded.
+copiedLiteralSyntax :: Maybe Text -> Maybe Name -> Text -> LiteralSyntax
+copiedLiteralSyntax primitiveType literalType conversion =
+  case primitiveType of
+    Just typeName -> LiteralSyntaxPrimitive (copiedName NameConId typeName)
+    Nothing -> LiteralSyntaxOverloaded literalType (copiedName NameVarId conversion)
+
+-- | The text of the tuple syntax name, such as @(,)@ or @(#,#)@.
+tupleSyntaxText :: TupleFlavor -> Int -> Text
+tupleSyntaxText flavor arity =
+  case flavor of
+    Boxed -> "(" <> commas <> ")"
+    Unboxed -> "(#" <> commas <> "#)"
+  where
+    commas = T.replicate (max 0 (arity - 1)) ","
+
 -- | The match names of a copied n+k pattern, with no resolution.
 copiedNPlusKMatch :: NPlusKMatch
 copiedNPlusKMatch =
@@ -620,22 +639,24 @@ convertExpr hooks expr =
     P.EVar name -> pure (EVar (fromParserName name))
     P.EImplicitParam name -> pure (EImplicitParam name)
     P.ETypeSyntax form ty -> ETypeSyntax form <$> convertType hooks ty
-    P.EInt value numericType text -> pure (EInt value numericType text)
-    P.EFloat value floatType text -> pure (EFloat value floatType text)
+    P.EInt value numericType text ->
+      pure (EInt (copiedLiteralSyntax (primitiveNumericTypeName numericType) (Just (copiedName NameConId "Integer")) "fromInteger") value numericType text)
+    P.EFloat value floatType text ->
+      pure (EFloat (copiedLiteralSyntax (primitiveFloatTypeName floatType) Nothing "fromRational") value floatType text)
     P.EChar value text -> pure (EChar value text)
-    P.ECharHash value text -> pure (ECharHash value text)
-    P.EString value text -> pure (EString value text)
-    P.EStringHash value text -> pure (EStringHash value text)
+    P.ECharHash value text -> pure (ECharHash (copiedName NameConId "Char#") value text)
+    P.EString value text -> pure (EString Nothing value text)
+    P.EStringHash value text -> pure (EStringHash (copiedName NameConId "Addr#") value text)
     P.EOverloadedLabel label text -> pure (EOverloadedLabel label text)
     P.EQuasiQuote quoter body -> pure (EQuasiQuote quoter body)
-    P.EIf cond trueBranch falseBranch -> EIf <$> go cond <*> go trueBranch <*> go falseBranch
+    P.EIf cond trueBranch falseBranch -> EIf Nothing <$> go cond <*> go trueBranch <*> go falseBranch
     P.EMultiWayIf guarded -> EMultiWayIf <$> traverse (convertGuardedRhs hooks go) guarded
     P.ELambdaPats pats body -> ELambdaPats <$> traverse (convertPattern hooks) pats <*> go body
     P.ELambdaCase alts -> ELambdaCase <$> traverse (convertCaseAlt hooks go) alts
     P.ELambdaCases alts -> ELambdaCases <$> traverse (convertLambdaCaseAlt hooks) alts
     P.EInfix left op right -> (\left' right' -> EInfix left' (fromParserName op) right') <$> go left <*> go right
     P.EViewPat left right -> EViewPat <$> go left <*> go right
-    P.ENegate inner -> ENegate <$> go inner
+    P.ENegate inner -> ENegate (copiedName NameVarId "negate") <$> go inner
     P.ESectionL inner op -> (`ESectionL` fromParserName op) <$> go inner
     P.ESectionR op inner -> ESectionR (fromParserName op) <$> go inner
     P.ELetDecls decls body -> ELetDecls <$> traverse (convertDecl hooks) decls <*> go body
@@ -643,16 +664,16 @@ convertExpr hooks expr =
     P.EDo stmts flavor -> (`EDo` flavor) <$> traverse (convertDoStmt hooks go) stmts
     P.EListComp body stmts -> EListComp <$> go body <*> traverse (convertCompStmt hooks) stmts
     P.EListCompParallel body branches -> EListCompParallel <$> go body <*> traverse (traverse (convertCompStmt hooks)) branches
-    P.EArithSeq arithSeq -> EArithSeq <$> convertArithSeq hooks arithSeq
+    P.EArithSeq arithSeq -> EArithSeq Nothing <$> convertArithSeq hooks arithSeq
     P.ERecordCon name fields wildcard ->
       (\fields' -> ERecordCon (fromParserName name) fields' wildcard) <$> traverse (convertRecordField go) fields
     P.ERecordUpd record fields -> ERecordUpd <$> go record <*> traverse (convertRecordField go) fields
-    P.EGetField record name -> (`EGetField` fromParserName name) <$> go record
-    P.EGetFieldProjection names -> pure (EGetFieldProjection (map fromParserName names))
+    P.EGetField record name -> (\record' -> EGetField (copiedName NameVarId "getField") record' (fromParserName name)) <$> go record
+    P.EGetFieldProjection names -> pure (EGetFieldProjection (copiedName NameVarId "getField") (map fromParserName names))
     P.ETypeSig inner ty -> ETypeSig <$> go inner <*> convertType hooks ty
     P.EParen inner -> EParen <$> go inner
-    P.EList items -> EList <$> traverse go items
-    P.ETuple flavor items -> ETuple flavor <$> traverse (traverse go) items
+    P.EList items -> EList (copiedName NameConSym "[]") Nothing <$> traverse go items
+    P.ETuple flavor items -> ETuple (copiedName NameConSym (tupleSyntaxText flavor (length items))) flavor <$> traverse (traverse go) items
     P.EUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> go inner
     P.ETypeApp fun ty -> ETypeApp <$> go fun <*> convertType hooks ty
     P.EApp fun arg -> EApp <$> go fun <*> go arg
