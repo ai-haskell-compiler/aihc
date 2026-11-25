@@ -1191,11 +1191,11 @@ resolveExpr expr =
     ETHTypedQuote inner ->
       R.ETHTypedQuote <$> withExpressionQuote True (resolveExpr inner)
     -- The names of a declaration quote with only value bindings, type
-    -- signatures, and instances have the scope of the quote, as the names
-    -- of an expression quote. The binders of the quote are local to the
-    -- quote, as the binders of a let. The change of the quote reads the
-    -- resolutions. The body of a different declaration quote stays
-    -- unresolved. But each splice in the body is an expression at the
+    -- signatures, instances, and standalone deriving declarations have the
+    -- scope of the quote, as the names of an expression quote. The binders
+    -- of the quote are local to the quote, as the binders of a let. The
+    -- change of the quote reads the resolutions. The body of a different
+    -- declaration quote stays unresolved. But each splice in the body is an expression at the
     -- level of the quote, and the type checker examines it.
     ETHDeclQuote decls
       | all resolvedQuoteDecl decls -> do
@@ -1221,13 +1221,15 @@ resolveExpr expr =
     EProc {} -> fromParserExpr expr <$ unhandledSyntax ResolutionNamespaceTerm "EProc"
 
 -- | Whether the resolver resolves a declaration of a declaration quote:
--- a value binding, a type signature, or an instance.
+-- a value binding, a type signature, an instance, or a standalone deriving
+-- declaration.
 resolvedQuoteDecl :: Decl -> Bool
 resolvedQuoteDecl decl =
   case snd (peelDeclSpan decl) of
     DeclValue {} -> True
     DeclTypeSig {} -> True
     DeclInstance {} -> True
+    DeclStandaloneDeriving {} -> True
     _ -> False
 
 -- | Resolve the splices in the unresolved body of a quote.

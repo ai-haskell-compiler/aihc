@@ -25,7 +25,7 @@
 -- parsed form.
 --
 -- The new expression refers to the Template Haskell library through the
--- module alias of 'quoteImports'. A module that has a quote gets these
+-- module aliases of 'quoteImports'. A module that has a quote gets these
 -- imports before its first name resolution.
 --
 -- The change handles a subset of the expressions. A quote with a construct
@@ -68,11 +68,27 @@ moduleHasQuote = not . null . moduleQuotes
 quoteAlias :: Text
 quoteAlias = "AihcQuoteLibrary"
 
+-- | The alias of the internal module of the library. Some of its functions
+-- have the same names as functions of the public modules, but different
+-- types. Thus, the module has a different alias.
+quoteInternalAlias :: Text
+quoteInternalAlias = "AihcQuoteInternal"
+
+-- | The alias of the module that gives the constructors of @Maybe@. A
+-- function of the internal module takes an optional argument.
+quoteMaybeAlias :: Text
+quoteMaybeAlias = "AihcQuoteMaybe"
+
 -- | The imports that give the names of the new expressions.
 quoteImports :: [ImportDecl]
-quoteImports = map qualified ["Language.Haskell.TH.Lib", "Language.Haskell.TH.Syntax"]
+quoteImports =
+  [ qualified quoteAlias "Language.Haskell.TH.Lib",
+    qualified quoteAlias "Language.Haskell.TH.Syntax",
+    qualified quoteInternalAlias "Language.Haskell.TH.Lib.Internal",
+    qualified quoteMaybeAlias "Data.Maybe"
+  ]
   where
-    qualified name =
+    qualified alias name =
       ImportDecl
         { importDeclAnns = [],
           importDeclLevel = Nothing,
@@ -82,7 +98,7 @@ quoteImports = map qualified ["Language.Haskell.TH.Lib", "Language.Haskell.TH.Sy
           importDeclQualified = True,
           importDeclQualifiedPost = False,
           importDeclModule = name,
-          importDeclAs = Just quoteAlias,
+          importDeclAs = Just alias,
           importDeclSpec = Nothing
         }
 
@@ -680,9 +696,10 @@ quotedPattern pattern' =
     _ -> Nothing
 
 -- | The expression that builds the syntax trees of a resolved declaration
--- quote body. The subset has value bindings, type signatures, and
--- instances with no pragmas. A binder of a declaration, also of a method
--- of an instance, becomes a name with no module. Thus, the declarations
+-- quote body. The subset has value bindings, type signatures, instances
+-- with no pragmas, and standalone deriving declarations with no pragmas.
+-- A binder of a declaration, also of a method of an instance, becomes a
+-- name with no module. Thus, the declarations
 -- of the result bind the names as they are written in the quote.
 --
 -- The sets and the state are the same as for 'quoted'.
@@ -708,7 +725,23 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
               instanceHead <- quotedType dynamic binders (R.instanceDeclHead instanceDecl)
               items <- concat <$> mapM instanceItem (R.instanceDeclItems instanceDecl)
               pure [call "instanceD" [call "cxt" [EList context], instanceHead, EList items]]
+        R.DeclStandaloneDeriving derivingDecl
+          | null (R.standaloneDerivingPragmas derivingDecl),
+            isNothing (R.standaloneDerivingWarning derivingDecl),
+            null (R.standaloneDerivingForall derivingDecl) -> do
+              strategy <- traverse derivingStrategy (R.standaloneDerivingStrategy derivingDecl)
+              context <- mapM (quotedType dynamic binders) (R.standaloneDerivingContext derivingDecl)
+              instanceHead <- quotedType dynamic binders (R.standaloneDerivingHead derivingDecl)
+              pure [internalCall "standaloneDerivWithStrategyD" [maybeExpression strategy, call "cxt" [EList context], instanceHead]]
         _ -> lift Nothing
+    derivingStrategy strategy =
+      case strategy of
+        R.DerivingStock -> pure (library "stockStrategy")
+        R.DerivingNewtype -> pure (library "newtypeStrategy")
+        R.DerivingAnyclass -> pure (library "anyclassStrategy")
+        R.DerivingVia via -> (\via' -> call "viaStrategy" [via']) <$> quotedType dynamic binders via
+    maybeExpression = maybe (maybeConstructor "Nothing") (EApp (maybeConstructor "Just"))
+    maybeConstructor name = EVar (mkName (Just quoteMaybeAlias) NameConId name)
     instanceItem item =
       case item of
         R.InstanceItemAnn _ inner -> instanceItem inner
@@ -836,6 +869,10 @@ call function = foldl EApp (library function)
 
 library :: Text -> Expr
 library function = EVar (mkName (Just quoteAlias) NameVarId function)
+
+-- | An application of a function of the internal module of the library.
+internalCall :: Text -> [Expr] -> Expr
+internalCall function = foldl EApp (EVar (mkName (Just quoteInternalAlias) NameVarId function))
 
 -- | A data constructor of the Template Haskell library.
 libraryConstructor :: Text -> Expr

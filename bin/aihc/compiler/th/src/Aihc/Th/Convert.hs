@@ -94,6 +94,11 @@ declaration tree =
       items <- list members >>= fmap concat . mapM instanceItem
       pure (DeclInstance (InstanceDecl [] Nothing [] context' instanceHead' items))
     TreeNode "InstanceD" [overlap, _, _, _] -> unsupported "overlap pragma" overlap
+    TreeNode "StandaloneDerivD" [strategy, context, instanceHead] -> do
+      strategy' <- optional strategyFromTree strategy
+      context' <- list context >>= mapM typeFromTree
+      instanceHead' <- typeFromTree instanceHead
+      pure (DeclStandaloneDeriving (StandaloneDerivingDecl strategy' [] Nothing [] context' instanceHead'))
     TreeNode "ClassD" [context, name, binders, dependencies, members] -> do
       context' <- list context >>= mapM typeFromTree
       className <- binderFromTree name
@@ -273,16 +278,19 @@ strictField tree =
 derivingClause :: Tree -> Either Text DerivingClause
 derivingClause tree =
   case tree of
-    TreeNode "DerivClause" [strategy, classes] -> DerivingClause <$> optional derivingStrategy strategy <*> (Right <$> (list classes >>= mapM typeFromTree))
+    TreeNode "DerivClause" [strategy, classes] -> DerivingClause <$> optional strategyFromTree strategy <*> (Right <$> (list classes >>= mapM typeFromTree))
     _ -> unsupported "deriving clause" tree
-  where
-    derivingStrategy strategy =
-      case strategy of
-        TreeNode "StockStrategy" [] -> Right DerivingStock
-        TreeNode "AnyclassStrategy" [] -> Right DerivingAnyclass
-        TreeNode "NewtypeStrategy" [] -> Right DerivingNewtype
-        TreeNode "ViaStrategy" [via] -> DerivingVia <$> typeFromTree via
-        _ -> unsupported "deriving strategy" strategy
+
+-- | The strategy of a @deriving@ clause or of a standalone deriving
+-- declaration.
+strategyFromTree :: Tree -> Either Text DerivingStrategy
+strategyFromTree strategy =
+  case strategy of
+    TreeNode "StockStrategy" [] -> Right DerivingStock
+    TreeNode "AnyclassStrategy" [] -> Right DerivingAnyclass
+    TreeNode "NewtypeStrategy" [] -> Right DerivingNewtype
+    TreeNode "ViaStrategy" [via] -> DerivingVia <$> typeFromTree via
+    _ -> unsupported "deriving strategy" strategy
 
 -- | The right side of a binding or of a case alternative, from its body
 -- and its local declarations.

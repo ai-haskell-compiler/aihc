@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, twiceHelper, typedOffset, typedSteps, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
@@ -74,6 +76,17 @@ quoteDescribe name =
         where
           suffix = "!"
           text = $(stringE (nameBase name))
+    |]
+
+-- | A standalone deriving declaration with a via strategy and a context
+-- from a declaration quote. The types come from splices.
+quoteShowVia :: Q Type -> Q Type -> Q [Dec]
+quoteShowVia via target =
+  [d|
+    deriving via
+      $via
+      instance
+        (Show $via) => Show $target
     |]
 
 -- | The value of the environment variable PATH in a splice. A library
