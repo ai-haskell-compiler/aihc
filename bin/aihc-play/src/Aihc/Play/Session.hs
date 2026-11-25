@@ -8,15 +8,20 @@
 -- against these facts.
 module Aihc.Play.Session
   ( Session,
+    sessionExports,
+    sessionInterface,
     bundleSession,
     sessionBundleStats,
     Problem (..),
     problemJson,
+    userPackage,
     parseUserModule,
     resolveUserModule,
     typecheckUserModule,
     sessionWiring,
     sessionPrim,
+    withQuoteImports,
+    checkModules,
     checkProgram,
   )
 where
@@ -52,7 +57,6 @@ import Aihc.Resolve
     builtins,
     collectModuleExportsWithDeps,
     modulesInPackage,
-    resolveUnit,
   )
 import Aihc.Tc
   ( MergeCheck (TrustMergedFacts),
@@ -69,6 +73,8 @@ import Aihc.Tc
     typecheckModulesWithInterface,
   )
 import Aihc.Tc.Syntax qualified as TcSyntax
+import Aihc.Th.Prepare (resolveUnitQuotes)
+import Aihc.Th.Quote (moduleHasQuote, quoteImports)
 import Data.ByteString (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -147,11 +153,18 @@ parseUserModule source =
       (problems, modu) = parseWith "Main.hs" extensions source
    in (problems, modu, effectiveExtensions GHC2021Edition (moduleLanguagePragmas modu))
 
+-- | The module with the imports of the quote library when it has a
+-- quote. Name resolution changes each quote into calls of that library.
+withQuoteImports :: Module -> Module
+withQuoteImports modu
+  | moduleHasQuote modu = modu {moduleImports = moduleImports modu <> quoteImports}
+  | otherwise = modu
+
 -- | Resolve the module of the reader against the session. A failure still
 -- gives the module with the resolutions that succeeded.
 resolveUserModule :: Session -> Module -> [Extension] -> ([Problem], [ResolvedModule])
 resolveUserModule session modu extensions =
-  case resolveUnit scope visible units of
+  case resolveUnitQuotes scope visible units of
     Right (ResolvedUnit result) -> ([], result)
     Left failure -> (map resolveProblem (failureErrors failure), failureModules failure)
   where
@@ -175,24 +188,31 @@ tcProblem :: TcDiagnostic -> Problem
 tcProblem diagnostic =
   Problem "typecheck" (diagLoc diagnostic) (T.pack (renderKind (diagKind diagnostic)))
 
--- | Check the user module and the executable entry with the same interface.
-checkProgram :: Session -> Text -> Either [Problem] ([TcSyntax.Module], TcInterface)
-checkProgram session source = do
-  let (parseProblems, modu, extensions) = parseUserModule source
-      entryExtensions = headerExtensions GHC2021Edition entrySource
-      (entryProblems, entry) = parseWith entryPath entryExtensions entrySource
-  require (parseProblems <> entryProblems)
-  require [Problem "input" Nothing "The module must have the name Main." | moduleName modu `notElem` [Nothing, Just "Main"]]
-  let package = Package "exe" (PackageId "exe")
-      units = modulesInPackage package [(modu, extensions), (entry, entryExtensions)]
+-- | Resolve and type check modules of one package against the session.
+-- The result has the checked modules and the facts of the session with the
+-- facts of the modules.
+checkModules :: Session -> Package -> [(Module, [Extension])] -> Either [Problem] ([TcSyntax.Module], TcInterface)
+checkModules session package modules = do
+  let units = modulesInPackage package modules
       visible = collectModuleExportsWithDeps (sessionExports session) units <> sessionExports session
       scope = builtins package visible builtinFunctionModules
-  resolved <- case resolveUnit scope visible units of
-    Left failure -> Left (map (entryProblem . resolveProblem) (failureErrors failure))
+  resolved <- case resolveUnitQuotes scope visible units of
+    Left failure -> Left (map resolveProblem (failureErrors failure))
     Right (ResolvedUnit result) -> Right result
   let (checked, interface) = typecheckModulesWithInterface (primTcConfig (sessionPrim session)) (sessionInterface session) resolved
-  require (concatMap (map (entryProblem . tcProblem) . filter ((== TcError) . diagSeverity) . tcModuleDiagnostics) checked)
-  pure (checked, mergeTcInterfaces TrustMergedFacts [sessionInterface session, interface])
+  case concatMap (map tcProblem . filter ((== TcError) . diagSeverity) . tcModuleDiagnostics) checked of
+    [] -> Right (checked, mergeTcInterfaces TrustMergedFacts [sessionInterface session, interface])
+    problems -> Left problems
+
+-- | Check the user module and the executable entry with the same interface.
+-- The module has the results of its splices.
+checkProgram :: Session -> Module -> [Extension] -> Either [Problem] ([TcSyntax.Module], TcInterface)
+checkProgram session modu extensions = do
+  let entryExtensions = headerExtensions GHC2021Edition entrySource
+      (entryProblems, entry) = parseWith entryPath entryExtensions entrySource
+  require entryProblems
+  require [Problem "input" Nothing "The module must have the name Main." | moduleName modu `notElem` [Nothing, Just "Main"]]
+  either (Left . map entryProblem) Right (checkModules session (Package "exe" (PackageId "exe")) [(modu, extensions), (entry, entryExtensions)])
   where
     require [] = Right ()
     require problems = Left problems

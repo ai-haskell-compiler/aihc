@@ -265,6 +265,7 @@ library
     Aihc.Native
     Aihc.Prim.Wiring
     Aihc.Th.Convert
+    Aihc.Th.Prepare
     Aihc.Th.Quote
     Aihc.Th.Reify
     Aihc.Th.Request
@@ -274,6 +275,7 @@ library
     Aihc.Wasm
     Aihc.Wasm.ControlFlow
     Aihc.Wasm.Engine
+    Aihc.Wasm.Engine.Protocol
     Aihc.Wasm.Lir
 
   other-modules:

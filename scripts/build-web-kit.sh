@@ -124,7 +124,7 @@ async function copy(directory, relative = "") {
     }
   }
 }
-for (const directory of ["bin/aihc-play/app", "bin/aihc-play/src", "bin/aihc/src", "bin/aihc/prim-wiring", ...["fc", "grin", "lir", "native", "wasm"].map((name) => "bin/aihc/compiler/" + name + "/src")]) {
+for (const directory of ["bin/aihc-play/app", "bin/aihc-play/src", "bin/aihc/src", "bin/aihc/prim-wiring", ...["fc", "grin", "lir", "native", "th", "wasm"].map((name) => "bin/aihc/compiler/" + name + "/src")]) {
   await copy(join(root, directory));
 }
 JS
@@ -187,6 +187,8 @@ if [[ -n "${AIHC_PLAY_HELPER_URL:-}" ]]; then
   manifest_options+=(--data-url "$AIHC_PLAY_HELPER_URL")
 fi
 cp "$root/web-kit/src/"*.js "$output/"
+# The engine core of Aihc.Wasm.Engine runs the splices in the browser.
+cp "$root/bin/aihc/compiler/wasm/runtime/engine-core.mjs" "$output/engine-core.js"
 cp "$root/web-kit/README.md" "$root/LICENSE" "$output/"
 
 echo "=== Transpile the component with jco ==="
