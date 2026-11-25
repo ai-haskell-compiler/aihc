@@ -269,6 +269,7 @@ library
     GHC.Internal.Classes
     GHC.Internal.Data.NonEmpty
     GHC.Internal.Environment
+    GHC.Internal.Environment.Host
     GHC.Internal.Exception.Context
     GHC.Internal.Exception.Type
     GHC.Internal.Foldable

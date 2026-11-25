@@ -1,0 +1,22 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Char (lexLitChar, readLitChar)
+    import Prelude
+
+    -- The empty escape after a character belongs to that character.
+    main :: IO ()
+    main = do
+      print (readLitChar "\\128\\&0x")
+      print (readLitChar "a\\&\\&b")
+      print (lexLitChar "\\SO\\&H")
+stdout: |
+  [('\128',"0x")]
+  [('a',"b")]
+  [("\\SO","H")]
+output: |
+  ()
+expression: main
+status: pass
+reason: readLitChar and lexLitChar read each empty escape after the character, as in GHC

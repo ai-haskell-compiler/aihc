@@ -1,0 +1,39 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Ratio ((%))
+    import Prelude
+
+    -- Each value is outside the range of Int, so a conversion through the
+    -- machine integer wraps.
+    main :: IO ()
+    main = do
+      print (fromInteger (-92233720368547758080) :: Double)
+      print (fromInteger (2 ^ (64 :: Int) - 1) :: Double)
+      print (fromInteger (2 ^ (70 :: Int)) :: Float)
+      print (fromRational ((-92233720368547758080) % 10) :: Double)
+      print (fromRational (1 % (2 ^ (1074 :: Int))) :: Double)
+      print (fromRational ((10 ^ (400 :: Int)) % 3) :: Double)
+      print (encodeFloat (2 ^ (64 :: Int) - 1) (-3) :: Double)
+      print (truncate (-1.0e19 :: Double) :: Integer)
+      print (round (2.5e20 :: Double) :: Integer)
+      print (decodeFloat (5.0e-324 :: Double))
+      print (1.0e-310 :: Double)
+stdout: |
+  -9.223372036854776e19
+  1.8446744073709552e19
+  1.1805916e21
+  -9.223372036854776e18
+  5.0e-324
+  Infinity
+  2.3058430092136937e18
+  -10000000000000000000
+  250000000000000000000
+  (4503599627370496,-1126)
+  1.0e-310
+output: |
+  ()
+expression: main
+status: pass
+reason: Conversions between Integer or Rational and floating point do not go through Int, so a large value does not wrap

@@ -211,17 +211,23 @@ lexDigits input =
     ([], _) -> []
     (digits, rest) -> [(digits, rest)]
 
+-- | Read one character. As in GHC, each empty escape @\\&@ after the
+-- character is also read. The spelling does not include it.
 lexLitChar :: ReadS String
 lexLitChar input =
   case readLitCharWithSpelling input of
     [] -> []
-    (_, spelling, rest) : _ -> [(spelling, rest)]
+    (_, spelling, rest) : _ -> [(spelling, skipEmptyEscapes rest)]
 
 readLitChar :: ReadS Char
 readLitChar input =
   case readLitCharWithSpelling input of
     [] -> []
-    (char, _, rest) : _ -> [(char, rest)]
+    (char, _, rest) : _ -> [(char, skipEmptyEscapes rest)]
+
+skipEmptyEscapes :: String -> String
+skipEmptyEscapes ('\\' : '&' : rest) = skipEmptyEscapes rest
+skipEmptyEscapes rest = rest
 
 lexP :: ReadPrec Lexeme
 lexP =

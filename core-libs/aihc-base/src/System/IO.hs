@@ -1,5 +1,6 @@
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | The standard IO interface.
 module System.IO
@@ -102,12 +103,13 @@ where
 
 import Control.Monad.Fix (mfix)
 import Data.Bits ((.|.))
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.List (break, elem, reverse)
 import Data.Maybe (Maybe (..))
 import Foreign.C.Error (eEXIST, eINTR, errnoToIOError, getErrno)
 import Foreign.C.String (CString)
 import Foreign.C.Types (CInt (..))
-import GHC.IO (mask_, onException)
+import GHC.IO (catch, mask_, onException, unsafePerformIO)
 import GHC.IO.Encoding
   ( TextEncoding,
     char8,
@@ -128,9 +130,9 @@ import GHC.IO.Handle.Text (hGetBuf, hGetBufNonBlocking, hGetBufSome, hGetChar, h
 import GHC.IO.IOMode (IOMode (..))
 import GHC.IO.StdHandles (openBinaryFile, openFile, stderr, stdin, stdout, withBinaryFile, withFile)
 import GHC.Internal.IO.Types (IOErrorType (..), IOException (..), ioError)
-import System.Posix.Internals (c_unlink, o_CREAT, o_EXCL, o_RDWR, withFilePath)
+import System.Posix.Internals (c_getpid, c_unlink, o_CREAT, o_EXCL, o_RDWR, withFilePath)
 import System.Posix.Types (CMode (..))
-import Prelude (Bool (..), Char, FilePath, IO, Integer, Read (..), Show (..), String, appendFile, getChar, getContents, getLine, interact, otherwise, print, pure, putChar, putStr, putStrLn, readFile, readIO, readLn, writeFile, (+), (++), (<), (==), (>>=))
+import Prelude (Bool (..), Char, FilePath, IO, Integer, Read (..), Show (..), String, appendFile, getChar, getContents, getLine, interact, otherwise, print, pure, putChar, putStr, putStrLn, readFile, readIO, readLn, writeFile, (+), (++), (<), (==), (>>=), (||))
 
 -- | Create a private temporary file with a read-write handle.
 openTempFile :: FilePath -> String -> IO (FilePath, Handle)
@@ -150,7 +152,9 @@ openTempFile' :: String -> Bool -> CMode -> FilePath -> String -> IO (FilePath, 
 openTempFile' location binary permissions directory template
   | '/' `elem` template =
       ioError (IOError Nothing InvalidArgument location "template contains a path separator" Nothing (Just template))
-  | otherwise = attempt 0
+  | otherwise = do
+      process <- processName
+      attempt process
   where
     (prefix, suffix) =
       case break (== '.') (reverse template) of
@@ -160,23 +164,24 @@ openTempFile' location binary permissions directory template
     base = case directory of
       "" -> ""
       _ -> directory ++ "/"
-    attempt :: Integer -> IO (FilePath, Handle)
-    attempt number = do
-      let path = base ++ prefix ++ show number ++ suffix
-      withFilePath path (create path number)
-    create path number encoded =
+    -- Each attempt takes a new number from a counter of the process, as in
+    -- GHC. Two threads thus do not try the same names in the same sequence.
+    -- When a caller removes the file, a different caller cannot get its name.
+    attempt :: String -> IO (FilePath, Handle)
+    attempt process = do
+      number <- atomicModifyIORef' tempCounter (\current -> (current + 1, current))
+      let path = base ++ prefix ++ process ++ show number ++ suffix
+      withFilePath path (create path process)
+    create path process encoded =
       mask_
         ( do
             descriptor <- openTemporaryFile encoded (o_RDWR .|. o_CREAT .|. o_EXCL) permissions
             if descriptor < 0
               then do
                 errno <- getErrno
-                if errno == eEXIST
-                  then attempt (number + 1)
-                  else
-                    if errno == eINTR
-                      then attempt number
-                      else ioError (errnoToIOError location errno Nothing (Just path))
+                if errno == eEXIST || errno == eINTR
+                  then attempt process
+                  else ioError (errnoToIOError location errno Nothing (Just path))
               else do
                 handle <-
                   fdToHandle' descriptor Nothing False path ReadWriteMode binary
@@ -187,6 +192,19 @@ openTempFile' location binary permissions directory template
                                   )
                 pure (path, handle)
         )
+
+-- | The process identifier and a separator, as GHC puts in a temporary file
+-- name. Two processes thus do not try the same names. A target without a
+-- process identifier gives an empty name.
+processName :: IO String
+processName =
+  (c_getpid >>= \pid -> pure (show pid ++ "-"))
+    `catch` \(_ :: IOException) -> pure ""
+
+-- | The number of the next temporary file name of the process.
+tempCounter :: IORef Integer
+tempCounter = unsafePerformIO (newIORef 0)
+{-# NOINLINE tempCounter #-}
 
 foreign import capi unsafe "fcntl.h open"
   openTemporaryFile :: CString -> CInt -> CMode -> IO CInt
