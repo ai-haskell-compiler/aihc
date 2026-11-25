@@ -416,9 +416,9 @@ convertType hooks ty =
     P.TInfix left name promotion right ->
       (\left' right' -> TInfix left' (fromParserName name) promotion right') <$> convertType hooks left <*> convertType hooks right
     P.TFun arrowKind left right -> TFun <$> convertArrowKind hooks arrowKind <*> convertType hooks left <*> convertType hooks right
-    P.TTuple flavor promotion items -> TTuple flavor promotion <$> traverse (convertType hooks) items
+    P.TTuple flavor promotion items -> TTuple (copiedName NameConSym (tupleSyntaxText flavor (length items))) flavor promotion <$> traverse (convertType hooks) items
     P.TUnboxedSum items -> TUnboxedSum <$> traverse (convertType hooks) items
-    P.TList promotion items -> TList promotion <$> traverse (convertType hooks) items
+    P.TList promotion items -> TList (copiedName NameConSym "[]") promotion <$> traverse (convertType hooks) items
     P.TParen inner -> TParen <$> convertType hooks inner
     P.TKindSig inner kind -> TKindSig <$> convertType hooks inner <*> convertType hooks kind
     P.TContext constraints inner -> TContext <$> traverse (convertType hooks) constraints <*> convertType hooks inner
@@ -539,7 +539,7 @@ convertDataConDecl hooks dataConDecl =
         <$> binders forallVars
         <*> types context
         <*> convertBangType hooks field
-    P.ListCon forallVars context -> ListCon <$> binders forallVars <*> types context
+    P.ListCon forallVars context -> ListCon <$> binders forallVars <*> types context <*> pure (copiedName NameConSym "[]")
   where
     binders = traverse (convertTyVarBinder hooks)
     types = traverse (convertType hooks)
@@ -707,10 +707,10 @@ convertDoStmt :: (Applicative f) => SpliceHooks f -> (a -> f b) -> P.DoStmt a ->
 convertDoStmt hooks convertBody stmt =
   case stmt of
     P.DoAnn ann inner -> DoAnn ann <$> convertDoStmt hooks convertBody inner
-    P.DoBind pat body -> DoBind <$> convertPattern hooks pat <*> convertBody body
+    P.DoBind pat body -> DoBind Nothing <$> convertPattern hooks pat <*> convertBody body
     P.DoLetDecls decls -> DoLetDecls <$> traverse (convertDecl hooks) decls
-    P.DoExpr body -> DoExpr <$> convertBody body
-    P.DoRecStmt stmts -> DoRecStmt <$> traverse (convertDoStmt hooks convertBody) stmts
+    P.DoExpr body -> DoExpr Nothing <$> convertBody body
+    P.DoRecStmt stmts -> DoRecStmt Nothing <$> traverse (convertDoStmt hooks convertBody) stmts
 
 convertCmd :: (Applicative f) => SpliceHooks f -> P.Cmd -> f Cmd
 convertCmd hooks cmd =
@@ -747,9 +747,10 @@ convertArithSeq :: (Applicative f) => SpliceHooks f -> P.ArithSeq -> f ArithSeq
 convertArithSeq hooks arithSeq =
   case arithSeq of
     P.ArithSeqAnn ann inner -> ArithSeqAnn ann <$> convertArithSeq hooks inner
-    P.ArithSeqFrom from -> ArithSeqFrom <$> expr from
-    P.ArithSeqFromThen from then' -> ArithSeqFromThen <$> expr from <*> expr then'
-    P.ArithSeqFromTo from to -> ArithSeqFromTo <$> expr from <*> expr to
-    P.ArithSeqFromThenTo from then' to -> ArithSeqFromThenTo <$> expr from <*> expr then' <*> expr to
+    P.ArithSeqFrom from -> ArithSeqFrom (method "enumFrom") <$> expr from
+    P.ArithSeqFromThen from then' -> ArithSeqFromThen (method "enumFromThen") <$> expr from <*> expr then'
+    P.ArithSeqFromTo from to -> ArithSeqFromTo (method "enumFromTo") <$> expr from <*> expr to
+    P.ArithSeqFromThenTo from then' to -> ArithSeqFromThenTo (method "enumFromThenTo") <$> expr from <*> expr then' <*> expr to
   where
     expr = convertExpr hooks
+    method = copiedName NameVarId

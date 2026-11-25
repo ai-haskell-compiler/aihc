@@ -762,7 +762,6 @@ instanceHeadClass :: R.Type -> Maybe (Text, Entity)
 instanceHeadClass ty =
   case ty of
     R.TAnn _ inner -> instanceHeadClass inner
-    R.TResolved _ inner -> instanceHeadClass inner
     R.TParen inner -> instanceHeadClass inner
     R.TKindSig inner _ -> instanceHeadClass inner
     R.TApp fun _ -> instanceHeadClass fun
@@ -1095,11 +1094,11 @@ resolveExpr expr =
       R.EParen <$> resolveExpr inner
     EList items -> do
       items' <- mapM resolveExpr items
-      syntax <- builtinSyntaxName IdentifierList
+      syntax <- builtinSyntaxName ResolutionNamespaceTerm IdentifierList
       R.EList syntax <$> overloadedListsTermName "fromListN" <*> pure items'
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
-      syntax <- builtinSyntaxName (IdentifierTuple flavor (length items))
+      syntax <- builtinSyntaxName ResolutionNamespaceTerm (IdentifierTuple flavor (length items))
       pure (R.ETuple syntax flavor items')
     EUnboxedSum alt arity inner ->
       R.EUnboxedSum alt arity <$> resolveExpr inner
@@ -1274,8 +1273,8 @@ integerTypeAnnotation sp = do
     NotFound _ -> pure Nothing
     resolved -> Just <$> resolution sp (IdentifierNamed "Integer") ResolutionNamespaceType resolved
 
--- | The name of a syntax term that the desugaring of an expression
--- applies.
+-- | The name of a syntax term that the desugaring of an expression or a
+-- statement applies.
 --
 -- The term comes from the built-in scope.
 -- RebindableSyntax takes the term from the lexical scope instead.
@@ -1300,11 +1299,11 @@ overloadedListsTermName name = do
     else pure Nothing
 
 -- | The name of built-in list or tuple syntax.
-builtinSyntaxName :: Identifier -> ResolveM R.Name
-builtinSyntaxName identifier = do
+builtinSyntaxName :: ResolutionNamespace -> Identifier -> ResolveM R.Name
+builtinSyntaxName namespace identifier = do
   at <- exprMatchSpan
   matchName at NameConSym (displayIdentifier identifier)
-    <$> resolution (matchResolutionSpan at) identifier ResolutionNamespaceTerm (Found EntitySyntax)
+    <$> resolution (matchResolutionSpan at) identifier namespace (Found EntitySyntax)
 
 -- | The name of the type of a primitive literal.
 primitiveTypeName :: Text -> ResolveM R.Name
@@ -1559,7 +1558,7 @@ resolveMonadComprehension body stmts = do
   withScope scope' $ do
     body' <- resolveExpr body
     returnVar <- monadCompSyntaxVar "return"
-    pure (R.EDo (stmts' <> [R.DoExpr (R.EApp returnVar body')]) DoPlain)
+    pure (R.EDo (stmts' <> [R.DoExpr Nothing (R.EApp returnVar body')]) DoPlain)
   where
     go scope stmts'' =
       withScope scope $
@@ -1581,8 +1580,8 @@ resolveMonadCompStmt stmt =
       scope <- currentScope
       condition' <- resolveExpr condition
       guardVar <- monadCompSyntaxVar "guard"
-      stmt' <- annotateDoMethod False ">>" (R.DoExpr (R.EApp guardVar condition'))
-      pure (scope, stmt')
+      method <- doMethodName False ">>"
+      pure (scope, R.DoExpr method (R.EApp guardVar condition'))
 
 -- | A variable that names a syntax term of a monad comprehension.
 monadCompSyntaxVar :: Text -> ResolveM R.Expr
@@ -1679,14 +1678,14 @@ resolveDoStmt isLast stmt =
     DoExpr body -> do
       scope <- currentScope
       body' <- resolveExpr body
-      stmt' <- annotateDoMethod isLast ">>" (R.DoExpr body')
-      pure (scope, stmt')
+      method <- doMethodName isLast ">>"
+      pure (scope, R.DoExpr method body')
     DoBind pat body -> do
       scope <- currentScope
       body' <- resolveExpr body
       (patScope, pat') <- bindPattern pat
-      stmt' <- annotateDoMethod isLast ">>=" =<< annotateDoBindFail isLast pat' (R.DoBind pat' body')
-      pure (unionScope patScope scope, stmt')
+      methods <- doBindMethods isLast pat'
+      pure (unionScope patScope scope, R.DoBind methods pat' body')
     DoLetDecls decls -> do
       scope <- currentScope
       (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
@@ -1696,8 +1695,8 @@ resolveDoStmt isLast stmt =
       scope <- currentScope
       (targets, recScope) <- allocateDoStmtBinders stmts
       stmts' <- extendScope recScope (mapM (resolveRecGroupStmt targets) stmts)
-      stmt' <- annotateRecStmt (R.DoRecStmt stmts')
-      pure (unionScope recScope scope, stmt')
+      methods <- doRecMethods
+      pure (unionScope recScope scope, R.DoRecStmt (Just methods) stmts')
 
 -- | Rewrite a resolved do block with the Applicative methods when
 -- ApplicativeDo is on. GHC does this rewrite in its renamer.
@@ -1736,7 +1735,7 @@ applicativeDo sourceStmts stmts = do
     || length binderNames /= Set.size (Set.fromList binderNames)
     then pure Nothing
     else case List.unsnoc (map R.peelDoStmtAnn stmts) of
-      Just (args, R.DoExpr final)
+      Just (args, R.DoExpr _ final)
         | Just parts <- traverse applicativeArg args,
           (lets, actions@(_ : _)) <- partitionEithers parts,
           independentActions actions,
@@ -1747,8 +1746,8 @@ applicativeDo sourceStmts stmts = do
   where
     applicativeArg stmt =
       case stmt of
-        R.DoBind pat action | lazyPattern pat -> Just (Right (pat, action))
-        R.DoExpr action -> Just (Right (R.PWildcard, action))
+        R.DoBind _ pat action | lazyPattern pat -> Just (Right (pat, action))
+        R.DoExpr _ action -> Just (Right (R.PWildcard, action))
         R.DoLetDecls decls -> Just (Left decls)
         _ -> Nothing
     lazyPattern pat =
@@ -1934,7 +1933,8 @@ segmentMdoStmts fieldScope targets finalUses stmts = go indexed
           let end = extend index firstEnd
               (segment, after) = splitAt (end - index + 1) remaining
               knot = RecKnotVariables (knotVariables index end)
-          recStmt <- annotateRecStmt (R.DoRecKnot knot (R.DoRecStmt (map snd segment)))
+          methods <- doRecMethods
+          let recStmt = R.DoRecKnot knot (R.DoRecStmt (Just methods) (map snd segment))
           (recStmt :) <$> go after
     -- A statement inside the segment can reach further than the segment.
     extend index end =
@@ -1946,8 +1946,8 @@ segmentMdoStmts fieldScope targets finalUses stmts = go indexed
 doStmtUses :: R.DoStmt R.Expr -> (Set.Set Entity, Bool)
 doStmtUses stmt =
   case R.peelDoStmtAnn stmt of
-    R.DoBind _ body -> (localEntities body, True)
-    R.DoExpr body -> (localEntities body, False)
+    R.DoBind _ _ body -> (localEntities body, True)
+    R.DoExpr _ body -> (localEntities body, False)
     _ -> (localEntities stmt, False)
 
 -- | Resolve one statement of a recursive group. The variables of the whole
@@ -1961,29 +1961,31 @@ resolveRecGroupStmt targets stmt =
       R.DoAnn ann <$> withPushedSpan ann (resolveRecGroupStmt targets inner)
     DoExpr body -> do
       body' <- resolveExpr body
-      annotateDoMethod False ">>" (R.DoExpr body')
+      method <- doMethodName False ">>"
+      pure (R.DoExpr method body')
     DoBind pat body -> do
       body' <- resolveExpr body
       pat' <- resolvePatternDefinition definition pat
-      annotateDoMethod False ">>=" =<< annotateDoBindFail False pat' (R.DoBind pat' body')
+      methods <- doBindMethods False pat'
+      pure (R.DoBind methods pat' body')
     DoLetDecls decls ->
       R.DoLetDecls <$> resolveBoundDecls targets Map.empty decls
     DoRecStmt stmts -> do
       stmts' <- mapM (resolveRecGroupStmt targets) stmts
-      annotateRecStmt (R.DoRecStmt stmts')
+      methods <- doRecMethods
+      pure (R.DoRecStmt (Just methods) stmts')
   where
     definition name = Found <$> Map.lookup (renderUnqualifiedName name) targets
 
--- | Give a @rec@ statement the methods of its desugaring: @mfix@ ties the
+-- | The methods of the desugaring of a @rec@ statement: @mfix@ ties the
 -- knot, @return@ gives the tuple of the group variables, and @>>=@ binds
 -- that tuple for the statements that follow.
-annotateRecStmt :: R.DoStmt R.Expr -> ResolveM (R.DoStmt R.Expr)
-annotateRecStmt stmt = do
-  sp <- currentSpan
-  mfixAnn <- syntaxTermAnnotation sp "mfix"
-  returnAnn <- syntaxTermAnnotation sp "return"
-  bindAnn <- syntaxTermAnnotation sp ">>="
-  pure (R.DoResolved mfixAnn (R.DoResolved returnAnn (R.DoResolved bindAnn stmt)))
+doRecMethods :: ResolveM R.DoRecMethods
+doRecMethods =
+  R.DoRecMethods
+    <$> exprSyntaxTermName "mfix"
+    <*> exprSyntaxTermName "return"
+    <*> exprSyntaxTermName ">>="
 
 -- | Give one entity to each variable that the statements bind.
 allocateDoStmtBinders :: [DoStmt Expr] -> ResolveM (Map.Map Text Entity, Scope)
@@ -2008,30 +2010,30 @@ doStmtBinderKeys fieldScope stmt =
     DoExpr _ -> []
     DoRecStmt stmts -> concatMap (doStmtBinderKeys fieldScope) stmts
 
--- | Give a do statement the method that sequences it.
+-- | The method that sequences a do statement.
 --
 -- A bind statement uses @>>=@ and an expression statement uses @>>@.
 -- The last statement is the result of the block and gets no method.
 -- Ordinary do notation uses the built-in Monad methods.
 -- RebindableSyntax uses lexical lookup instead.
-annotateDoMethod :: Bool -> Text -> R.DoStmt R.Expr -> ResolveM (R.DoStmt R.Expr)
-annotateDoMethod isLast name stmt
-  | isLast = pure stmt
-  | otherwise = do
-      sp <- currentSpan
-      methodAnn <- syntaxTermAnnotation sp name
-      pure (R.DoResolved methodAnn stmt)
+doMethodName :: Bool -> Text -> ResolveM (Maybe R.Name)
+doMethodName isLast name
+  | isLast = pure Nothing
+  | otherwise = Just <$> exprSyntaxTermName name
 
--- | Give a bind statement the @fail@ method when its pattern can fail to
--- match. The method goes inside the @>>=@ method. The type checker drops
--- the method when the constructors of the pattern make it irrefutable.
-annotateDoBindFail :: Bool -> R.Pattern -> R.DoStmt R.Expr -> ResolveM (R.DoStmt R.Expr)
-annotateDoBindFail isLast pat stmt
-  | isLast || not (patternMayFail pat) = pure stmt
+-- | The methods of a bind statement. The statement gets the @fail@ method
+-- when its pattern can fail to match. The type checker drops the method
+-- when the constructors of the pattern make it irrefutable.
+doBindMethods :: Bool -> R.Pattern -> ResolveM (Maybe R.DoBindMethods)
+doBindMethods isLast pat
+  | isLast = pure Nothing
   | otherwise = do
-      sp <- currentSpan
-      failAnn <- syntaxTermAnnotation sp "fail"
-      pure (R.DoResolved failAnn stmt)
+      failure <-
+        if patternMayFail pat
+          then Just <$> exprSyntaxTermName "fail"
+          else pure Nothing
+      method <- exprSyntaxTermName ">>="
+      pure (Just (R.DoBindMethods method failure))
 
 -- | Whether a pattern can fail to match, as far as its syntax tells. A
 -- constructor pattern can fail here; the type checker knows the other
@@ -2060,23 +2062,23 @@ resolveArithSeq arithSeq =
     ArithSeqAnn ann inner ->
       R.ArithSeqAnn ann <$> withPushedSpan ann (resolveArithSeq inner)
     ArithSeqFrom from -> do
-      resolved <- R.ArithSeqFrom <$> resolveExpr from
-      annotateArithSeqMethod "enumFrom" resolved
+      from' <- resolveExpr from
+      method <- exprSyntaxTermName "enumFrom"
+      pure (R.ArithSeqFrom method from')
     ArithSeqFromThen from then' -> do
-      resolved <- R.ArithSeqFromThen <$> resolveExpr from <*> resolveExpr then'
-      annotateArithSeqMethod "enumFromThen" resolved
+      parts <- (,) <$> resolveExpr from <*> resolveExpr then'
+      method <- exprSyntaxTermName "enumFromThen"
+      pure (uncurry (R.ArithSeqFromThen method) parts)
     ArithSeqFromTo from to -> do
-      resolved <- R.ArithSeqFromTo <$> resolveExpr from <*> resolveExpr to
-      annotateArithSeqMethod "enumFromTo" resolved
+      parts <- (,) <$> resolveExpr from <*> resolveExpr to
+      method <- exprSyntaxTermName "enumFromTo"
+      pure (uncurry (R.ArithSeqFromTo method) parts)
     ArithSeqFromThenTo from then' to -> do
-      resolved <- R.ArithSeqFromThenTo <$> resolveExpr from <*> resolveExpr then' <*> resolveExpr to
-      annotateArithSeqMethod "enumFromThenTo" resolved
-
-annotateArithSeqMethod :: Text -> R.ArithSeq -> ResolveM R.ArithSeq
-annotateArithSeqMethod name arithSeq = do
-  sp <- currentSpan
-  annotation <- syntaxTermAnnotation sp name
-  pure (R.ArithSeqResolved annotation arithSeq)
+      from' <- resolveExpr from
+      then'' <- resolveExpr then'
+      to' <- resolveExpr to
+      method <- exprSyntaxTermName "enumFromThenTo"
+      pure (R.ArithSeqFromThenTo method from' then'' to')
 
 resolveBoundDecls :: Map.Map Text Entity -> Map.Map Text Scope -> [Decl] -> ResolveM [R.Decl]
 resolveBoundDecls binderTargets signatureScopes decls = do
@@ -2578,7 +2580,7 @@ resolveDataConDecl dataConDecl =
     ListCon forallVars context -> do
       (forallScope, forallVars') <- bindTyVarBinders forallVars
       extendScope forallScope $
-        R.ListCon forallVars' <$> mapM resolveType context
+        R.ListCon forallVars' <$> mapM resolveType context <*> pure (R.mkName Nothing NameConSym "[]")
 
 resolveBangType :: BangType -> ResolveM R.BangType
 resolveBangType bt = do
@@ -2653,15 +2655,15 @@ resolveType ty =
     TTuple flavor promotion items -> do
       items' <- mapM resolveType items
       sp <- currentSpan
-      syntaxResolution <- resolution sp (IdentifierTuple flavor (length items)) (typePromotionNamespace promotion) (Found EntitySyntax)
-      pure (annotateTypeSyntax sp syntaxResolution (R.TTuple flavor promotion items'))
+      syntax <- builtinSyntaxName (typePromotionNamespace promotion) (IdentifierTuple flavor (length items))
+      pure (annotateTypeSpan sp (R.TTuple syntax flavor promotion items'))
     TUnboxedSum items ->
       R.TUnboxedSum <$> mapM resolveType items
     TList promotion items -> do
       items' <- mapM resolveType items
       sp <- currentSpan
-      syntaxResolution <- resolution sp IdentifierList (typePromotionNamespace promotion) (Found EntitySyntax)
-      pure (annotateTypeSyntax sp syntaxResolution (R.TList promotion items'))
+      syntax <- builtinSyntaxName (typePromotionNamespace promotion) IdentifierList
+      pure (annotateTypeSpan sp (R.TList syntax promotion items'))
     TParen inner ->
       R.TParen <$> resolveType inner
     TKindSig inner kind ->
@@ -2671,7 +2673,7 @@ resolveType ty =
     TSplice expr ->
       R.TSplice <$> withExpressionQuote False (withResetLocalSupply (resolveExpr expr))
     TWildcard -> pure R.TWildcard
-    TQuasiQuote {} -> R.TResolved . ResolutionError <$> unhandledSyntax ResolutionNamespaceType "TQuasiQuote" <*> pure (fromParserType ty)
+    TQuasiQuote {} -> fromParserType ty <$ unhandledSyntax ResolutionNamespaceType "TQuasiQuote"
 
 resolveArrowKind :: ArrowKind -> ResolveM R.ArrowKind
 resolveArrowKind arrowKind =
@@ -2694,9 +2696,11 @@ resolveTypeSignature ty =
       ty' <- resolveType ty
       pure (emptyScope, ty')
 
-annotateTypeSyntax :: Maybe SourceSpan -> ResolutionResult -> R.Type -> R.Type
-annotateTypeSyntax sp syntaxResolution =
-  R.TResolved syntaxResolution . maybe id (R.TAnn . mkAnnotation) sp
+-- | Give built-in type syntax its span. The resolver drops the span
+-- wrappers of the parser, but the type checker reports errors of a tuple or
+-- a list type at this span.
+annotateTypeSpan :: Maybe SourceSpan -> R.Type -> R.Type
+annotateTypeSpan sp = maybe id (R.TAnn . mkAnnotation) sp
 
 bindTyVarBinders :: [TyVarBinder] -> ResolveM (Scope, [R.TyVarBinder])
 bindTyVarBinders =
@@ -2963,7 +2967,6 @@ resolveDataConDefinitions scope firstConstructor =
     go ambient current =
       case current of
         R.DataConAnn ann inner -> R.DataConAnn ann <$> go (pushSpanFromAnn ambient ann) inner
-        R.DataConResolved result inner -> R.DataConResolved result <$> go ambient inner
         R.PrefixCon forallVars context name bangTypes ->
           (\name' -> R.PrefixCon forallVars context name' bangTypes) <$> resolveConstructor ambient name
         R.RecordCon forallVars context name fields ->
@@ -2974,9 +2977,9 @@ resolveDataConDefinitions scope firstConstructor =
           (\names' -> R.GadtCon forallVars context names' (resolveGadtFieldSelectors body)) <$> mapM (resolveConstructor ambient) names
         R.TupleCon {} -> pure current
         R.UnboxedSumCon {} -> pure current
-        R.ListCon {} -> do
-          result <- resolution ambient IdentifierList ResolutionNamespaceTerm (Found EntitySyntax)
-          pure (R.DataConResolved result current)
+        R.ListCon forallVars context _ ->
+          R.ListCon forallVars context . matchName (MatchSpan ambient ambient) NameConSym "[]"
+            <$> resolution ambient IdentifierList ResolutionNamespaceTerm (Found EntitySyntax)
 
     resolveConstructor span' name =
       let rendered = R.renderUnqualifiedName name

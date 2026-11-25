@@ -396,7 +396,6 @@ quotedTypeName :: R.Type -> Maybe Expr
 quotedTypeName ty =
   case ty of
     R.TAnn _ inner -> quotedTypeName inner
-    R.TResolved _ inner -> quotedTypeName inner
     R.TParen inner -> quotedTypeName inner
     R.TCon name _ ->
       case R.resolvedNameEntity name of
@@ -428,9 +427,9 @@ builtinTypeName ty =
 resolvedBuiltinTypeName :: R.Type -> Maybe Expr
 resolvedBuiltinTypeName ty =
   case ty of
-    R.TTuple Boxed Unpromoted [] -> builtinTypeName (TTuple Boxed Unpromoted [])
+    R.TTuple _ Boxed Unpromoted [] -> builtinTypeName (TTuple Boxed Unpromoted [])
     R.TBuiltinCon builtin Unpromoted -> builtinTypeName (TBuiltinCon builtin Unpromoted)
-    R.TList Unpromoted [] -> builtinTypeName (TList Unpromoted [])
+    R.TList _ Unpromoted [] -> builtinTypeName (TList Unpromoted [])
     _ -> Nothing
 
 -- | The expression that builds the syntax tree of a resolved type quote
@@ -450,7 +449,6 @@ quotedType dynamic binders = go
     go ty =
       case ty of
         R.TAnn _ inner -> go inner
-        R.TResolved _ inner -> go inner
         R.TParen inner -> go inner
         -- The namespace of the resolution decides the form, not the tick: with
         -- DataKinds, a data constructor with no tick is also promoted.
@@ -469,8 +467,8 @@ quotedType dynamic binders = go
           right' <- go right
           pure (applied (applied operator' left') right')
         R.TFun R.ArrowUnrestricted argument result -> applied . applied (library "arrowT") <$> go argument <*> go result
-        R.TList Unpromoted [element] -> applied (library "listT") <$> go element
-        R.TTuple Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
+        R.TList _ Unpromoted [element] -> applied (library "listT") <$> go element
+        R.TTuple _ Boxed Unpromoted items -> foldl applied (call "tupleT" [integer (toInteger (length items))]) <$> mapM go items
         R.TTypeLit (TypeLitInteger number _) -> pure (call "litT" [call "numTyLit" [integer number]])
         R.TTypeLit (TypeLitSymbol string _) -> pure (call "litT" [call "strTyLit" [stringLiteral string]])
         R.TContext constraints inner -> quantified [] constraints inner
@@ -497,7 +495,6 @@ quotedType dynamic binders = go
     withoutTypeAnnotations ty =
       case ty of
         R.TAnn _ inner -> withoutTypeAnnotations inner
-        R.TResolved _ inner -> withoutTypeAnnotations inner
         _ -> ty
 
 -- | The body of each expression splice, typed expression splice, and type
@@ -619,14 +616,13 @@ quoted dynamic binders = go
     statement stmt =
       case stmt of
         R.DoAnn _ inner -> statement inner
-        R.DoResolved _ inner -> statement inner
         R.DoRecKnot _ inner -> statement inner
-        R.DoBind pattern' body -> do
+        R.DoBind _ pattern' body -> do
           pattern'' <- lift (quotedPattern pattern')
           body' <- go body
           pure (call "bindS" [pattern'', body'])
         R.DoLetDecls decls -> (\decls' -> call "letS" [EList decls']) <$> quotedDeclarationList dynamic binders decls
-        R.DoExpr body -> (\body' -> call "noBindS" [body']) <$> go body
+        R.DoExpr _ body -> (\body' -> call "noBindS" [body']) <$> go body
         _ -> lift Nothing
     recordField fieldName field = do
       name <- lift (fieldName (R.recordFieldName field))

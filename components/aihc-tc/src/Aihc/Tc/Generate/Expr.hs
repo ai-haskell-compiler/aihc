@@ -14,7 +14,7 @@ module Aihc.Tc.Generate.Expr
   )
 where
 
-import Aihc.Resolve (Identifier (..), RecKnotVariables (..), ResolutionNamespace (..), Resolved (..), displayIdentifier, resolvedOf)
+import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
@@ -38,7 +38,9 @@ import Aihc.Tc.Syntax.Pending
     CaseAlt (..),
     CompStmt (..),
     Decl (..),
+    DoBindMethods (..),
     DoFlavor (..),
+    DoRecMethods (..),
     DoStmt (..),
     Expr (..),
     FloatType (..),
@@ -50,7 +52,6 @@ import Aihc.Tc.Syntax.Pending
     Pattern (..),
     Pragma,
     RecordField (..),
-    ResolutionResult (..),
     Rhs (..),
     SourceSpan,
     TcInfo (..),
@@ -58,14 +59,15 @@ import Aihc.Tc.Syntax.Pending
     Type (..),
     UnqualifiedName (..),
     annotateBranchCast,
-    annotateDoStmtCast,
     annotateExprCast,
     annotateFunCast,
     annotateRhsCast,
     annotateSigCast,
     annotationSpan,
+    arithSeqMethod,
     infoIsPending,
     infoPending,
+    mapArithSeqMethod,
     mkSpanAnnotation,
     peelExprAnn,
     qualifyName,
@@ -528,23 +530,6 @@ primitiveLiteralTypeName expr =
 syntaxResolution :: Name -> Maybe Resolved
 syntaxResolution name = nameResolution name >>= resolvedOf
 
--- | Whether a resolver annotation names the given syntax term.
-isSyntaxTermResolution :: Text -> Resolved -> Bool
-isSyntaxTermResolution name resolution =
-  resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution == IdentifierNamed name
-
--- | Whether a resolver annotation names the method that sequences a do statement.
-isDoMethodResolution :: Resolved -> Bool
-isDoMethodResolution resolution =
-  isSyntaxTermResolution ">>=" resolution || isSyntaxTermResolution ">>" resolution
-
-isArithSeqResolution :: Resolved -> Bool
-isArithSeqResolution resolution =
-  resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionIdentifier resolution
-      `elem` map IdentifierNamed ["enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
-
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
   ETc (InfoType ann)
@@ -558,6 +543,15 @@ annotatePendingExprAt (Just sp) ann =
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameTc = nameTc name <> [InfoType ann]}
+
+-- | Give the method name of a do statement its checked type, and the cast
+-- onto the type that the statement uses it at. The cast goes first. The
+-- method is equated as @method ~ (action -> continuation -> block)@, so
+-- the proof runs forwards. A given equality can be what makes the method
+-- fit the statement.
+annotateDoMethodName :: TcType -> EvVar -> PendingTcAnnotation -> Name -> Name
+annotateDoMethodName ty evidence pending name =
+  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight), InfoType pending]}
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -1988,23 +1982,21 @@ inferArithSeq sp arithSeq = do
 inferArithSeqNode :: Maybe SourceSpan -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
 inferArithSeqNode sp arithSeq =
   case arithSeq of
-    ArithSeqResolved ann inner
-      | ResolutionOk resolution <- ann,
-        isArithSeqResolution resolution ->
-          inferResolvedArithSeq sp ann resolution inner
-      | otherwise -> do
-          (inner', resultTy, cts) <- inferArithSeqNode sp inner
-          pure (ArithSeqResolved ann inner', resultTy, cts)
     ArithSeqAnn ann inner -> do
       (inner', resultTy, cts) <- inferArithSeqNode sp inner
       pure (ArithSeqAnn ann inner', resultTy, cts)
     ArithSeqTc ann inner -> do
       (inner', resultTy, cts) <- inferArithSeqNode sp inner
       pure (ArithSeqTc ann inner', resultTy, cts)
-    _ -> abortTc "arithmetic sequence is missing its resolved method"
+    _
+      | Just resolution <- syntaxResolution =<< arithSeqMethod arithSeq ->
+          inferResolvedArithSeq sp resolution arithSeq
+      | otherwise -> abortTc "arithmetic sequence is missing its resolved method"
 
-inferResolvedArithSeq :: Maybe SourceSpan -> ResolutionResult -> Resolved -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
-inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
+-- | Check an arithmetic sequence with its enumeration method. The method
+-- name gets the checked type of the method.
+inferResolvedArithSeq :: Maybe SourceSpan -> Resolved -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
+inferResolvedArithSeq sp resolution arithSeq = do
   (arithSeq', argumentTypes, argumentCts) <- inferArithSeqForm arithSeq
   let methodName = displayIdentifier (resolutionIdentifier resolution)
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
@@ -2013,7 +2005,7 @@ inferResolvedArithSeq sp resolutionAnn resolution arithSeq = do
   let expectedMethodTy = foldr TcFunTy resultTy argumentTypes
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf methodName) sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-      annotated = ArithSeqTc (InfoType methodPending) (ArithSeqResolved resolutionAnn arithSeq')
+      annotated = mapArithSeqMethod (annotatePendingName methodPending) arithSeq'
   pure (annotated, resultTy, argumentCts <> methodCts <> [methodEquality])
 
 -- | Instantiate a resolved syntax method such as enumFrom or ifThenElse.
@@ -2038,17 +2030,14 @@ inferArithSeqForm arithSeq =
     ArithSeqTc ann inner -> do
       (inner', types, cts) <- inferArithSeqForm inner
       pure (ArithSeqTc ann inner', types, cts)
-    ArithSeqResolved result inner -> do
-      (inner', types, cts) <- inferArithSeqForm inner
-      pure (ArithSeqResolved result inner', types, cts)
-    ArithSeqFrom from -> inferForm ArithSeqFrom [from]
-    ArithSeqFromThen from thenExpr -> inferForm2 ArithSeqFromThen from thenExpr
-    ArithSeqFromTo from to -> inferForm2 ArithSeqFromTo from to
-    ArithSeqFromThenTo from thenExpr to -> do
+    ArithSeqFrom method from -> inferForm (ArithSeqFrom method) [from]
+    ArithSeqFromThen method from thenExpr -> inferForm2 (ArithSeqFromThen method) from thenExpr
+    ArithSeqFromTo method from to -> inferForm2 (ArithSeqFromTo method) from to
+    ArithSeqFromThenTo method from thenExpr to -> do
       results <- mapM inferExpr [from, thenExpr, to]
       case results of
         [(from', fromTy, fromCts), (thenExpr', thenTy, thenCts), (to', toTy, toCts)] ->
-          pure (ArithSeqFromThenTo from' thenExpr' to', [fromTy, thenTy, toTy], fromCts <> thenCts <> toCts)
+          pure (ArithSeqFromThenTo method from' thenExpr' to', [fromTy, thenTy, toTy], fromCts <> thenCts <> toCts)
         _ -> abortTc "arithmetic sequence has an invalid argument count"
   where
     inferForm constructor expressions = do
@@ -2292,16 +2281,15 @@ inferLastDoStmt expected ambient stmt =
       case stmts' of
         [inner'] -> pure ([DoTc ann inner'], resultTy, cts)
         _ -> pure (stmts', resultTy, cts)
-    DoResolved result inner -> inferLastWrapped (DoResolved result) inner
     DoRecKnot knot inner -> inferLastWrapped (DoRecKnot knot) inner
-    DoExpr body -> do
+    DoExpr method body -> do
       (body', bodyTy, cts) <- maybe (inferExprAt ambient body) (`checkExpr` body) expected
       case expected of
-        Nothing -> pure ([DoExpr body'], bodyTy, cts)
+        Nothing -> pure ([DoExpr method body'], bodyTy, cts)
         Just expectedTy -> do
           -- The continuation must have the type that the do method requires.
           equality <- wantedDoEq ambient expectedTy bodyTy
-          pure ([DoExpr (annotateExprCast expectedTy (ctEvVar equality) body')], expectedTy, cts <> [equality])
+          pure ([DoExpr method (annotateExprCast expectedTy (ctEvVar equality) body')], expectedTy, cts <> [equality])
     _ -> do
       emitError ambient (OtherError "the last statement in a do block must be an expression")
       resultTy <- freshMetaTv
@@ -2316,13 +2304,15 @@ inferLastDoStmt expected ambient stmt =
 inferDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferDoStmt end expected ambient stmt rest =
   case stmt of
-    DoResolved {}
+    _
       | Just parts <- recStmtParts stmt ->
           inferRecStmt end expected ambient parts rest
-    DoResolved ann inner
-      | ResolutionOk resolution <- ann,
-        isDoMethodResolution resolution ->
-          inferResolvedDoStmt end expected ambient ann resolution inner rest
+    DoBind (Just (DoBindMethods method failure)) pat action
+      | Just resolution <- syntaxResolution method ->
+          inferResolvedDoBind end expected ambient method resolution (resolvedFailure =<< failure) pat action rest
+    DoExpr (Just method) action
+      | Just resolution <- syntaxResolution method ->
+          inferResolvedDoExpr end expected ambient method resolution action rest
     DoAnn ann inner -> do
       (stmts', resultTy, cts) <- inferDoStmt end expected (doStmtSpan stmt <|> ambient) inner rest
       case stmts' of
@@ -2333,9 +2323,8 @@ inferDoStmt end expected ambient stmt rest =
       case stmts' of
         inner' : rest' -> pure (DoTc ann inner' : rest', resultTy, cts)
         [] -> pure ([], resultTy, cts)
-    DoResolved result inner -> inferWrapped (DoResolved result) inner
     DoRecKnot knot inner -> inferWrapped (DoRecKnot knot) inner
-    DoBind pat action -> do
+    DoBind methods pat action -> do
       monadTy <- freshMetaTv
       itemTy <- freshMetaTv
       resultItemTy <- freshMetaTv
@@ -2349,11 +2338,11 @@ inferDoStmt end expected ambient stmt rest =
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
       remainingCts <- solvePatternBranch ambient patCheck resultTy restCts
       pure
-        ( DoBind pat' action' : rest',
+        ( DoBind methods pat' action' : rest',
           resultTy,
           actionCts <> remainingCts <> [actionEq, resultEq, monadCt]
         )
-    DoExpr action -> do
+    DoExpr method action -> do
       monadTy <- freshMetaTv
       itemTy <- freshMetaTv
       resultItemTy <- freshMetaTv
@@ -2363,7 +2352,7 @@ inferDoStmt end expected ambient stmt rest =
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
       pure
-        ( DoExpr action' : rest',
+        ( DoExpr method action' : rest',
           resultTy,
           actionCts <> restCts <> [actionEq, resultEq, monadCt]
         )
@@ -2373,11 +2362,12 @@ inferDoStmt end expected ambient stmt rest =
           (rest', resultTy, restCts) <- inferDoStmtsEnd end expected ambient rest
           pure (rest', resultTy, restCts)
       pure (DoLetDecls decls' : rest', resultTy, cts)
-    DoRecStmt _ -> do
+    DoRecStmt _ _ -> do
       emitError ambient (OtherError "a rec statement without its resolved methods")
       (rest', resultTy, cts) <- inferDoStmtsEnd end expected ambient rest
       pure (stmt : rest', resultTy, cts)
   where
+    resolvedFailure failure = (,) failure <$> syntaxResolution failure
     inferWrapped wrap inner = do
       (stmts', resultTy, cts) <- inferDoStmt end expected ambient inner rest
       case stmts' of
@@ -2388,9 +2378,9 @@ inferDoStmt end expected ambient stmt rest =
 -- @return@, and @>>=@ methods of its desugaring, the knot variables of a
 -- segment of an @mdo@ block, and its statements.
 data RecStmtParts = RecStmtParts
-  { recMfix :: !(ResolutionResult, Resolved),
-    recReturn :: !(ResolutionResult, Resolved),
-    recBind :: !(ResolutionResult, Resolved),
+  { recMfix :: !(Name, Resolved),
+    recReturn :: !(Name, Resolved),
+    recBind :: !(Name, Resolved),
     recKnot :: !(Maybe (RecKnotVariables, Set.Set Entity)),
     recStmts :: ![DoStmt Expr]
   }
@@ -2398,28 +2388,19 @@ data RecStmtParts = RecStmtParts
 recStmtParts :: DoStmt Expr -> Maybe RecStmtParts
 recStmtParts stmt =
   case stmt of
-    DoResolved mfixAnn (DoResolved returnAnn (DoResolved bindAnn inner)) ->
-      RecStmtParts
-        <$> method "mfix" mfixAnn
-        <*> method "return" returnAnn
-        <*> method ">>=" bindAnn
-        <*> pure (knot inner)
-        <*> body inner
+    DoRecKnot variablesKnot@(RecKnotVariables variables) (DoRecStmt (Just methods) stmts) ->
+      parts (Just (variablesKnot, variables)) methods stmts
+    DoRecStmt (Just methods) stmts -> parts Nothing methods stmts
     _ -> Nothing
   where
-    knot inner =
-      case inner of
-        DoRecKnot variablesKnot@(RecKnotVariables variables) _ -> Just (variablesKnot, variables)
-        _ -> Nothing
-    body inner =
-      case inner of
-        DoRecKnot _ (DoRecStmt stmts) -> Just stmts
-        DoRecStmt stmts -> Just stmts
-        _ -> Nothing
-    method name result =
-      case result of
-        ResolutionOk resolution | isSyntaxTermResolution name resolution -> Just (result, resolution)
-        _ -> Nothing
+    parts knot (DoRecMethods mfix return' bind) stmts =
+      RecStmtParts
+        <$> method mfix
+        <*> method return'
+        <*> method bind
+        <*> pure knot
+        <*> pure stmts
+    method name = (,) name <$> syntaxResolution name
 
 -- | Check a @rec@ statement. Its desugaring is
 --
@@ -2435,9 +2416,9 @@ recStmtParts stmt =
 -- statements after the let statement can use it at more than one type,
 -- and the knot takes one instance of it, as in GHC.
 --
--- The statement keeps the checked methods as annotations, from the outside
--- in: the @mfix@ method, the @return@ method, the @>>=@ method, and a
--- tuple annotation. The tuple annotation has the tuple type, the types of
+-- The method names of the statement get the checked types of the @mfix@,
+-- @return@, and @>>=@ methods. The statement gets a tuple annotation. The
+-- tuple annotation has the tuple type, the types of
 -- the variables as type arguments, and the type of the statement block as
 -- its only term argument type. Last, each generalized variable has a
 -- 'TcRecKnotOccurrence' marker, and after it the occurrence annotation of
@@ -2452,9 +2433,9 @@ inferRecStmt end expected ambient parts rest = do
   binderTys <- mapM (const freshMetaTv) keys
   monadTy <- freshMetaTv
   tupleTy <- recTupleType binderTys
-  let (mfixAnn, mfixResolution) = recMfix parts
-      (returnAnn, returnResolution) = recReturn parts
-      (bindAnn, bindResolution) = recBind parts
+  let (mfixName, mfixResolution) = recMfix parts
+      (returnName, returnResolution) = recReturn parts
+      (bindName, bindResolution) = recBind parts
       innerTy = TcAppTy monadTy tupleTy
       knotTy = TcFunTy tupleTy innerTy
       mfixTy = TcFunTy knotTy innerTy
@@ -2475,13 +2456,14 @@ inferRecStmt end expected ambient parts rest = do
       inferDoStmtsEnd end (Just restExpected) ambient rest
   resultEquality <- wantedDoEq ambient restTy restExpected
   let tuplePending = pendingAnnotation tupleTy binderTys [] [innerTy]
-      methodAnns ty ev pending ann = annotateDoStmtCast ty ev . DoTc (InfoType pending) . DoResolved ann
+      methods' =
+        DoRecMethods
+          (annotateDoMethodName mfixTy mfixEv mfixPending mfixName)
+          (annotateDoMethodName knotTy returnEv returnPending returnName)
+          (annotateDoMethodName bindTy bindEv bindPending bindName)
       stmt' =
-        methodAnns mfixTy mfixEv mfixPending mfixAnn $
-          methodAnns knotTy returnEv returnPending returnAnn $
-            methodAnns bindTy bindEv bindPending bindAnn $
-              DoTc (InfoType tuplePending) $
-                foldr knotOccurrence (maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt stmts')) knotOccurrences
+        DoTc (InfoType tuplePending) $
+          foldr knotOccurrence (maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt (Just methods') stmts')) knotOccurrences
   pure
     ( stmt' : rest',
       blockTy,
@@ -2527,29 +2509,19 @@ finishRecGroup sp innerTy binders = do
           pure (cts <> [equality])
         Nothing -> abortTc ("rec group variable missing from type environment: " <> show key)
 
-inferResolvedDoStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> ResolutionResult -> Resolved -> DoStmt Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
-inferResolvedDoStmt end expected ambient resolutionAnn resolution stmt rest =
-  case stmt of
-    DoResolved failAnn (DoBind pat action)
-      | ResolutionOk failResolution <- failAnn,
-        isSyntaxTermResolution "fail" failResolution ->
-          inferResolvedDoBind end expected ambient resolutionAnn resolution (Just (failAnn, failResolution)) pat action rest
-    DoBind pat action ->
-      inferResolvedDoBind end expected ambient resolutionAnn resolution Nothing pat action rest
-    DoExpr action -> do
-      restExpected <- freshMetaTv
-      blockTy <- maybe freshMetaTv pure expected
-      (action', actionTy, actionCts) <- inferExprAt ambient action
-      let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
-      (pending, methodEv, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
-      prepareScrutinee (actionCts <> methodCts)
-      (rest', restTy, restCts) <- inferDoStmtsEnd end (Just restExpected) ambient rest
-      resultEquality <- wantedDoEq ambient restTy restExpected
-      let stmt' = annotateDoStmtCast thenTy methodEv (DoTc (InfoType pending) (DoResolved resolutionAnn (DoExpr action')))
-      pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
-    _ -> do
-      emitError ambient (OtherError "internal do-bind annotation on a non-action statement")
-      inferDoStmt end expected ambient stmt rest
+-- | Check an expression statement with its @>>@ method.
+inferResolvedDoExpr :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> Name -> Resolved -> Expr -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
+inferResolvedDoExpr end expected ambient method resolution action rest = do
+  restExpected <- freshMetaTv
+  blockTy <- maybe freshMetaTv pure expected
+  (action', actionTy, actionCts) <- inferExprAt ambient action
+  let thenTy = TcFunTy actionTy (TcFunTy restExpected blockTy)
+  (pending, methodEv, methodCts) <- inferDoMethod ambient ">>" resolution thenTy
+  prepareScrutinee (actionCts <> methodCts)
+  (rest', restTy, restCts) <- inferDoStmtsEnd end (Just restExpected) ambient rest
+  resultEquality <- wantedDoEq ambient restTy restExpected
+  let stmt' = DoExpr (Just (annotateDoMethodName thenTy methodEv pending method)) action'
+  pure (stmt' : rest', blockTy, actionCts <> restCts <> methodCts <> [resultEquality])
 
 -- | Check a bind statement. The resolver gives the @fail@ method when the
 -- pattern can fail as far as its syntax tells. When the constructors of
@@ -2560,14 +2532,14 @@ inferResolvedDoBind ::
   DoEnd ->
   Maybe TcType ->
   Maybe SourceSpan ->
-  ResolutionResult ->
+  Name ->
   Resolved ->
-  Maybe (ResolutionResult, Resolved) ->
+  Maybe (Name, Resolved) ->
   Pattern ->
   Expr ->
   [DoStmt Expr] ->
   TcM ([DoStmt Expr], TcType, [Ct])
-inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat action rest = do
+inferResolvedDoBind end expected ambient method resolution failMethod pat action rest = do
   itemTy <- freshMetaTv
   restExpected <- freshMetaTv
   blockTy <- maybe freshMetaTv pure expected
@@ -2582,24 +2554,19 @@ inferResolvedDoBind end expected ambient resolutionAnn resolution failMethod pat
   failure <-
     case failMethod of
       Nothing -> pure Nothing
-      Just (failAnn, failResolution) -> do
+      Just (failName, failResolution) -> do
         canFail <- patternCanFail pat
         if canFail
           then do
             messageTy <- stringType
             let failTy = TcFunTy messageTy restExpected
             (failPending, failEv, failCts) <- inferDoMethod ambient "fail" failResolution failTy
-            pure (Just (failTy, failEv, failPending, failAnn, failCts))
+            pure (Just (annotateDoMethodName failTy failEv failPending failName, failCts))
           else pure Nothing
   let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-      bind = DoBind pat' action'
-      bindWithFailure =
-        case failure of
-          Just (failTy, failEv, failPending, failAnn, _) ->
-            annotateDoStmtCast failTy failEv (DoTc (InfoType failPending) (DoResolved failAnn bind))
-          Nothing -> bind
-      failCts = maybe [] (\(_, _, _, _, cts) -> cts) failure
-      stmt' = annotateDoStmtCast bindTy methodEv (DoTc (InfoType pending) (DoResolved resolutionAnn bindWithFailure))
+      methods' = DoBindMethods (annotateDoMethodName bindTy methodEv pending method) (fst <$> failure)
+      failCts = maybe [] snd failure
+      stmt' = DoBind (Just methods') pat' action'
   remainingCts <- solvePatternBranch ambient patCheck restExpected (restCts <> [resultEquality])
   pure (stmt' : rest', blockTy, actionCts <> remainingCts <> methodCts <> failCts)
 

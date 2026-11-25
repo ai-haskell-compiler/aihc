@@ -59,6 +59,9 @@ import Aihc.Tc.Syntax.Pending
     annotateFunCast,
     annotateRhsCast,
     annotationSpan,
+    arithSeqMethod,
+    doBindMethodsNames,
+    doRecMethodsNames,
     listMatchNames,
     literalMatchNames,
     literalSyntaxNames,
@@ -66,6 +69,7 @@ import Aihc.Tc.Syntax.Pending
     nPlusKMatchNames,
     nameResolved,
     peelDeclAnn,
+    peelDoStmtAnn,
     unqualifiedNameText,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
@@ -1564,50 +1568,67 @@ insertSyntaxTermKey result vars =
           pure (Set.insert methodKey vars)
     _ -> pure vars
 
+-- | The free variables of statements. The method names of a statement
+-- are syntax terms, and they are free variables of the statement.
 freeVarsDoStmts :: [DoStmt Expr] -> TcM (Set.Set Entity)
 freeVarsDoStmts stmts =
   case stmts of
     [] -> pure Set.empty
-    stmt : rest ->
-      case stmt of
-        DoAnn _ inner -> freeVarsDoStmts (inner : rest)
-        DoTc _ inner -> freeVarsDoStmts (inner : rest)
-        DoRecKnot _ inner -> freeVarsDoStmts (inner : rest)
-        DoResolved result inner -> do
-          vars <- freeVarsDoStmts (inner : rest)
-          insertSyntaxTermKey result vars
-        DoExpr body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
-        DoBind pat body -> do
-          bodyVars <- freeVarsExpr body
-          patVars <- freeVarsPattern pat
-          restVars <- freeVarsDoStmts rest
-          binders <- patternBinderKeys pat
-          pure (bodyVars <> patVars <> Set.difference restVars binders)
-        DoLetDecls decls -> do
-          declVars <- freeVarsDecls decls
-          restVars <- freeVarsDoStmts rest
-          binders <- declBinderKeys decls
-          pure (Set.difference (declVars <> restVars) binders)
-        -- The variables of a recursive group are in scope in all of its
-        -- statements and in the statements after it.
-        DoRecStmt inner -> do
-          innerVars <- freeVarsDoStmts inner
-          restVars <- freeVarsDoStmts rest
-          binders <- Set.fromList <$> mapM resolvedUnqualifiedTermKey (recStmtBinderNames inner)
-          pure (Set.difference (innerVars <> restVars) binders)
+    stmt : rest -> do
+      vars <- freeVarsDoStmtsChildren stmt rest
+      foldM (flip insertSyntaxTermKey) vars (mapMaybe nameResolution (doStmtMethodNames stmt))
 
+-- | The method names of a statement, under its wrappers.
+doStmtMethodNames :: DoStmt body -> [Name]
+doStmtMethodNames stmt =
+  case peelDoStmtAnn stmt of
+    DoBind methods _ _ -> foldMap doBindMethodsNames methods
+    DoExpr method _ -> maybeToList method
+    DoRecStmt methods _ -> foldMap doRecMethodsNames methods
+    _ -> []
+
+freeVarsDoStmtsChildren :: DoStmt Expr -> [DoStmt Expr] -> TcM (Set.Set Entity)
+freeVarsDoStmtsChildren stmt rest =
+  case stmt of
+    DoAnn _ inner -> freeVarsDoStmtsChildren inner rest
+    DoTc _ inner -> freeVarsDoStmtsChildren inner rest
+    DoRecKnot _ inner -> freeVarsDoStmtsChildren inner rest
+    DoExpr _ body -> Set.union <$> freeVarsExpr body <*> freeVarsDoStmts rest
+    DoBind _ pat body -> do
+      bodyVars <- freeVarsExpr body
+      patVars <- freeVarsPattern pat
+      restVars <- freeVarsDoStmts rest
+      binders <- patternBinderKeys pat
+      pure (bodyVars <> patVars <> Set.difference restVars binders)
+    DoLetDecls decls -> do
+      declVars <- freeVarsDecls decls
+      restVars <- freeVarsDoStmts rest
+      binders <- declBinderKeys decls
+      pure (Set.difference (declVars <> restVars) binders)
+    -- The variables of a recursive group are in scope in all of its
+    -- statements and in the statements after it.
+    DoRecStmt _ inner -> do
+      innerVars <- freeVarsDoStmts inner
+      restVars <- freeVarsDoStmts rest
+      binders <- Set.fromList <$> mapM resolvedUnqualifiedTermKey (recStmtBinderNames inner)
+      pure (Set.difference (innerVars <> restVars) binders)
+
+-- | The free variables of an arithmetic sequence. The enumeration method is
+-- a syntax term, and it is a free variable of the sequence.
 freeVarsArithSeq :: ArithSeq -> TcM (Set.Set Entity)
-freeVarsArithSeq arithSeq =
+freeVarsArithSeq arithSeq = do
+  vars <- freeVarsArithSeqItems arithSeq
+  foldM (flip insertSyntaxTermKey) vars (mapMaybe nameResolution (maybeToList (arithSeqMethod arithSeq)))
+
+freeVarsArithSeqItems :: ArithSeq -> TcM (Set.Set Entity)
+freeVarsArithSeqItems arithSeq =
   case arithSeq of
-    ArithSeqAnn _ inner -> freeVarsArithSeq inner
-    ArithSeqTc _ inner -> freeVarsArithSeq inner
-    ArithSeqResolved result inner -> do
-      innerVars <- freeVarsArithSeq inner
-      insertSyntaxTermKey result innerVars
-    ArithSeqFrom from -> freeVarsExpr from
-    ArithSeqFromThen from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
-    ArithSeqFromTo from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to
-    ArithSeqFromThenTo from thenExpr to -> Set.unions <$> mapM freeVarsExpr [from, thenExpr, to]
+    ArithSeqAnn _ inner -> freeVarsArithSeqItems inner
+    ArithSeqTc _ inner -> freeVarsArithSeqItems inner
+    ArithSeqFrom _ from -> freeVarsExpr from
+    ArithSeqFromThen _ from thenExpr -> Set.union <$> freeVarsExpr from <*> freeVarsExpr thenExpr
+    ArithSeqFromTo _ from to -> Set.union <$> freeVarsExpr from <*> freeVarsExpr to
+    ArithSeqFromThenTo _ from thenExpr to -> Set.unions <$> mapM freeVarsExpr [from, thenExpr, to]
 
 freeVarsAlt :: CaseAlt Expr -> TcM (Set.Set Entity)
 freeVarsAlt (CaseAlt _ pat rhs) = do

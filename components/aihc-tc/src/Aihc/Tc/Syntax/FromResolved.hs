@@ -392,6 +392,14 @@ instance FromResolved R.LiteralSyntax where
       R.LiteralSyntaxPrimitive x1 -> LiteralSyntaxPrimitive (fromResolved x1)
       R.LiteralSyntaxOverloaded x1 x2 -> LiteralSyntaxOverloaded (fromResolved x1) (fromResolved x2)
 
+instance FromResolved R.DoBindMethods where
+  type ToPending R.DoBindMethods = DoBindMethods
+  fromResolved (R.DoBindMethods x1 x2) = DoBindMethods (fromResolved x1) (fromResolved x2)
+
+instance FromResolved R.DoRecMethods where
+  type ToPending R.DoRecMethods = DoRecMethods
+  fromResolved (R.DoRecMethods x1 x2 x3) = DoRecMethods (fromResolved x1) (fromResolved x2) (fromResolved x3)
+
 instance FromResolved R.ListMatch where
   type ToPending R.ListMatch = ListMatch
   fromResolved (R.ListMatch x1 x2) = ListMatch (fromResolved x1) (fromResolved x2)
@@ -443,7 +451,6 @@ instance FromResolved R.Type where
   fromResolved node =
     case node of
       R.TAnn x1 x2 -> TAnn (fromResolved x1) (fromResolved x2)
-      R.TResolved x1 x2 -> TResolved (fromResolved x1) (fromResolved x2)
       R.TVar x1 -> TVar (fromResolved x1)
       R.TCon x1 x2 -> TCon (fromResolved x1) (fromResolved x2)
       R.TBuiltinCon x1 x2 -> TBuiltinCon (fromResolved x1) (fromResolved x2)
@@ -456,9 +463,9 @@ instance FromResolved R.Type where
       R.TTypeApp x1 x2 -> TTypeApp (fromResolved x1) (fromResolved x2)
       R.TInfix x1 x2 x3 x4 -> TInfix (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.TFun x1 x2 x3 -> TFun (fromResolved x1) (fromResolved x2) (fromResolved x3)
-      R.TTuple x1 x2 x3 -> TTuple (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.TTuple x1 x2 x3 x4 -> TTuple (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.TUnboxedSum x1 -> TUnboxedSum (fromResolved x1)
-      R.TList x1 x2 -> TList (fromResolved x1) (fromResolved x2)
+      R.TList x1 x2 x3 -> TList (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.TParen x1 -> TParen (fromResolved x1)
       R.TKindSig x1 x2 -> TKindSig (fromResolved x1) (fromResolved x2)
       R.TContext x1 x2 -> TContext (fromResolved x1) (fromResolved x2)
@@ -545,14 +552,13 @@ instance FromResolved R.DataConDecl where
   fromResolved node =
     case node of
       R.DataConAnn x1 x2 -> DataConAnn (fromResolved x1) (fromResolved x2)
-      R.DataConResolved x1 x2 -> DataConResolved (fromResolved x1) (fromResolved x2)
       R.PrefixCon x1 x2 x3 x4 -> PrefixCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.InfixCon x1 x2 x3 x4 x5 -> InfixCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
       R.RecordCon x1 x2 x3 x4 -> RecordCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.GadtCon x1 x2 x3 x4 -> GadtCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.TupleCon x1 x2 x3 x4 -> TupleCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.UnboxedSumCon x1 x2 x3 x4 x5 -> UnboxedSumCon (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
-      R.ListCon x1 x2 -> ListCon (fromResolved x1) (fromResolved x2)
+      R.ListCon x1 x2 x3 -> ListCon (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.GadtBody where
   type ToPending R.GadtBody = GadtBody
@@ -712,12 +718,11 @@ instance (FromResolved body) => FromResolved (R.DoStmt body) where
   fromResolved node =
     case node of
       R.DoAnn x1 x2 -> DoAnn (fromResolved x1) (fromResolved x2)
-      R.DoResolved x1 x2 -> DoResolved (fromResolved x1) (fromResolved x2)
       R.DoRecKnot x1 x2 -> DoRecKnot (fromResolved x1) (fromResolved x2)
-      R.DoBind x1 x2 -> DoBind (fromResolved x1) (fromResolved x2)
+      R.DoBind x1 x2 x3 -> DoBind (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.DoLetDecls x1 -> DoLetDecls (fromResolved x1)
-      R.DoExpr x1 -> DoExpr (fromResolved x1)
-      R.DoRecStmt x1 -> DoRecStmt (fromResolved x1)
+      R.DoExpr x1 x2 -> DoExpr (fromResolved x1) (fromResolved x2)
+      R.DoRecStmt x1 x2 -> DoRecStmt (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Cmd where
   type ToPending R.Cmd = Cmd
@@ -752,11 +757,10 @@ instance FromResolved R.ArithSeq where
   fromResolved node =
     case node of
       R.ArithSeqAnn x1 x2 -> ArithSeqAnn (fromResolved x1) (fromResolved x2)
-      R.ArithSeqResolved x1 x2 -> ArithSeqResolved (fromResolved x1) (fromResolved x2)
-      R.ArithSeqFrom x1 -> ArithSeqFrom (fromResolved x1)
-      R.ArithSeqFromThen x1 x2 -> ArithSeqFromThen (fromResolved x1) (fromResolved x2)
-      R.ArithSeqFromTo x1 x2 -> ArithSeqFromTo (fromResolved x1) (fromResolved x2)
-      R.ArithSeqFromThenTo x1 x2 x3 -> ArithSeqFromThenTo (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.ArithSeqFrom x1 x2 -> ArithSeqFrom (fromResolved x1) (fromResolved x2)
+      R.ArithSeqFromThen x1 x2 x3 -> ArithSeqFromThen (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.ArithSeqFromTo x1 x2 x3 -> ArithSeqFromTo (fromResolved x1) (fromResolved x2) (fromResolved x3)
+      R.ArithSeqFromThenTo x1 x2 x3 x4 -> ArithSeqFromThenTo (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved P.Literal where
   type ToPending P.Literal = Literal

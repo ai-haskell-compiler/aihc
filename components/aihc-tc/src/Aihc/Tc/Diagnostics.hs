@@ -220,7 +220,6 @@ peelPatternOnce _ = Nothing
 
 peelTypeOnce :: Type -> Maybe ([Annotation], Type)
 peelTypeOnce (TAnn ann inner) = Just ([ann], inner)
-peelTypeOnce (TResolved _ inner) = Just ([], inner)
 peelTypeOnce _ = Nothing
 
 peelDeclOnce :: Decl -> Maybe ([Annotation], Decl)
@@ -232,7 +231,6 @@ peelDeclOnce _ = Nothing
 peelDataConOnce :: DataConDecl -> Maybe ([Annotation], DataConDecl)
 peelDataConOnce (DataConAnn ann inner) = Just ([ann], inner)
 peelDataConOnce (DataConTc _ inner) = Just ([], inner)
-peelDataConOnce (DataConResolved _ inner) = Just ([], inner)
 peelDataConOnce _ = Nothing
 
 peelLiteralOnce :: Literal -> Maybe ([Annotation], Literal)
@@ -247,7 +245,6 @@ peelGuardOnce _ = Nothing
 peelDoOnce :: DoStmt body -> Maybe ([Annotation], DoStmt body)
 peelDoOnce (DoAnn ann inner) = Just ([ann], inner)
 peelDoOnce (DoTc _ inner) = Just ([], inner)
-peelDoOnce (DoResolved _ inner) = Just ([], inner)
 peelDoOnce (DoRecKnot _ inner) = Just ([], inner)
 peelDoOnce _ = Nothing
 
@@ -259,7 +256,6 @@ peelCompOnce _ = Nothing
 peelArithSeqOnce :: ArithSeq -> Maybe ([Annotation], ArithSeq)
 peelArithSeqOnce (ArithSeqAnn ann inner) = Just ([ann], inner)
 peelArithSeqOnce (ArithSeqTc _ inner) = Just ([], inner)
-peelArithSeqOnce (ArithSeqResolved _ inner) = Just ([], inner)
 peelArithSeqOnce _ = Nothing
 
 peelClassItemOnce :: ClassDeclItem -> Maybe ([Annotation], ClassDeclItem)

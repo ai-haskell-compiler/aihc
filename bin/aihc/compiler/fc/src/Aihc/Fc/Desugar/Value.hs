@@ -872,7 +872,6 @@ recordConstructorNames declaration =
   case declaration of
     Syn.DataConAnn _ inner -> recordConstructorNames inner
     Syn.DataConTc _ inner -> recordConstructorNames inner
-    Syn.DataConResolved _ inner -> recordConstructorNames inner
     Syn.RecordCon _ _ constructor _ -> [Syn.unqualifiedNameText constructor]
     Syn.GadtCon _ _ constructors (Syn.GadtRecordBody _ _) -> map Syn.unqualifiedNameText constructors
     _ -> []
@@ -5377,37 +5376,27 @@ listTypeFromElement elementType = do
   package <- gets (cePrimPackage . vsConvertEnv)
   pure (TcTyCon (mkTyConWithOrigin package "GHC.Types" "[]" 1) [elementType])
 
+-- | An arithmetic sequence applies its checked enumeration method to its
+-- items. The type checker puts the checked type on the method name.
 desugarArithSeq :: Syn.ArithSeq -> ValueM Expr
 desugarArithSeq arithSeq =
-  case arithSeq of
-    Syn.ArithSeqTc (Syn.InfoType tcAnnotation) inner -> desugarCheckedArithSeq tcAnnotation inner
-    Syn.ArithSeqTc _ inner -> desugarArithSeq inner
-    Syn.ArithSeqAnn _ inner -> desugarArithSeq inner
-    Syn.ArithSeqResolved _ inner -> desugarArithSeq inner
-    _ -> failValue "arithmetic sequence is missing its checked method"
-
-desugarCheckedArithSeq :: TcAnnotation -> Syn.ArithSeq -> ValueM Expr
-desugarCheckedArithSeq tcAnnotation arithSeq =
-  case arithSeq of
-    Syn.ArithSeqResolved (ResolutionOk resolution) inner -> do
-      method <- desugarResolvedOccurrence tcAnnotation resolution
-      arguments <- mapM desugarExpr (arithSeqArguments inner)
-      pure (foldl ExApp method arguments)
-    Syn.ArithSeqResolved _ inner -> desugarCheckedArithSeq tcAnnotation inner
-    Syn.ArithSeqAnn _ inner -> desugarCheckedArithSeq tcAnnotation inner
-    Syn.ArithSeqTc _ inner -> desugarCheckedArithSeq tcAnnotation inner
+  case Syn.arithSeqMethod arithSeq of
+    Just method | Just resolution <- syntaxResolved method -> do
+      tcAnnotation <- requiredSyntaxAnnotation method
+      method' <- desugarResolvedOccurrence tcAnnotation resolution
+      arguments <- mapM desugarExpr (arithSeqArguments arithSeq)
+      pure (foldl ExApp method' arguments)
     _ -> failValue "arithmetic sequence is missing its resolved method"
 
 arithSeqArguments :: Syn.ArithSeq -> [Syn.Expr]
 arithSeqArguments arithSeq =
   case arithSeq of
     Syn.ArithSeqAnn _ inner -> arithSeqArguments inner
-    Syn.ArithSeqResolved _ inner -> arithSeqArguments inner
     Syn.ArithSeqTc _ inner -> arithSeqArguments inner
-    Syn.ArithSeqFrom from -> [from]
-    Syn.ArithSeqFromThen from thenExpression -> [from, thenExpression]
-    Syn.ArithSeqFromTo from to -> [from, to]
-    Syn.ArithSeqFromThenTo from thenExpression to -> [from, thenExpression, to]
+    Syn.ArithSeqFrom _ from -> [from]
+    Syn.ArithSeqFromThen _ from thenExpression -> [from, thenExpression]
+    Syn.ArithSeqFromTo _ from to -> [from, to]
+    Syn.ArithSeqFromThenTo _ from thenExpression to -> [from, thenExpression, to]
 
 -- | A Template Haskell quote such as @[| e |]@, @[t| ty |]@, or @'name@.
 isTemplateHaskellQuote :: Syn.Expr -> Bool
@@ -5553,28 +5542,28 @@ desugarDoStatements resultType end statements =
     ([], Nothing) -> failValue "do block has no statements"
     ([statement], Nothing) ->
       case peelDoStatement statement of
-        Syn.DoExpr body -> desugarExpr body
+        Syn.DoExpr _ body -> desugarExpr body
         other -> failValue ("invalid final do statement: " <> take 80 (show other))
     (statement : rest, _) ->
       case peelDoStatement statement of
         Syn.DoLetDecls declarations -> do
           desugarLocalDecls declarations (pure resultType) continue
-        Syn.DoBind pattern' action -> do
-          (annotation, resolution) <- requiredDoBindOccurrence statement
-          bind <- desugarDoMethod statement annotation resolution
+        Syn.DoBind methods pattern' action -> do
+          Syn.DoBindMethods methodName failName <- maybe (failValue "bind statement has no checked >>= method") pure methods
+          annotation <- requiredSyntaxAnnotation methodName
+          bind <- desugarDoMethod methodName
           action' <- desugarExpr action
-          failure <- doBindFailure statement
-          continuation <- desugarDoPatternContinuation statement annotation pattern' failure continue
+          failure <- doBindFailure statement failName
+          continuation <- desugarDoPatternContinuation methodName annotation pattern' failure continue
           pure (ExApp (ExApp bind action') continuation)
-        Syn.DoExpr action -> do
-          (annotation, resolution) <- requiredDoBindOccurrence statement
-          method <- desugarDoMethod statement annotation resolution
+        Syn.DoExpr maybeMethod action -> do
+          methodName <- maybe (failValue "expression statement has no checked >> method") pure maybeMethod
+          method <- desugarDoMethod methodName
           action' <- desugarExpr action
           ExApp (ExApp method action') <$> continue
-        Syn.DoRecStmt inner -> desugarRecStmt statement inner continue
+        Syn.DoRecStmt methods inner -> desugarRecStmt statement methods inner continue
         Syn.DoAnn {} -> failValue "do statement keeps an annotation after peeling"
         Syn.DoTc {} -> failValue "do statement keeps an annotation after peeling"
-        Syn.DoResolved {} -> failValue "do statement keeps an annotation after peeling"
         Syn.DoRecKnot {} -> failValue "do statement keeps an annotation after peeling"
       where
         continue = desugarDoStatements resultType end rest
@@ -5586,11 +5575,11 @@ desugarDoStatements resultType end statements =
 -- given equality changes the type of the bound value. Then the pattern type
 -- is the cast target, and the lambda binder has the argument type of the
 -- continuation that the method takes.
-desugarDoPatternContinuation :: Syn.DoStmt Syn.Expr -> TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
-desugarDoPatternContinuation statement annotation pattern' failure rest = do
+desugarDoPatternContinuation :: Syn.Name -> TcAnnotation -> Syn.Pattern -> Maybe Expr -> ValueM Expr -> ValueM Expr
+desugarDoPatternContinuation methodName annotation pattern' failure rest = do
   ty <-
     case patternScrutineeCast pattern' of
-      Just _ -> doBindArgumentType statement annotation
+      Just _ -> doBindArgumentType methodName annotation
       Nothing -> requiredPatternType pattern'
   binder <- freshPatternBinder pattern' ty
   locals <- directPatternBindings pattern' binder ty
@@ -5604,17 +5593,15 @@ desugarDoPatternContinuation statement annotation pattern' failure rest = do
 -- | The call of @fail@ that a bind statement makes when its pattern does
 -- not match, when the type checker kept the method. The message names the
 -- statement, as in GHC.
-doBindFailure :: Syn.DoStmt Syn.Expr -> ValueM (Maybe Expr)
-doBindFailure statement =
-  case [(cast, annotation, resolution) | (cast, Just annotation, resolution) <- recStmtMethods statement, resolutionIdentifier resolution == IdentifierNamed "fail"] of
-    [(cast, annotation, resolution)] -> do
-      method <- desugarResolvedOccurrence annotation resolution
-      method' <-
-        case cast of
-          Just proof -> withCoercion proof (pure . ExCast method)
-          Nothing -> pure method
-      message <- desugarStringValue ("Pattern match failure in do expression" <> maybe "" ((" at " <>) . renderSourceSpan) (doStmtSourceSpan statement))
-      pure (Just (ExApp method' message))
+doBindFailure :: Syn.DoStmt Syn.Expr -> Maybe Syn.Name -> ValueM (Maybe Expr)
+doBindFailure statement failName =
+  case failName of
+    Just name
+      | Just _ <- nameAnnotation name,
+        Just _ <- syntaxResolved name -> do
+          method' <- desugarDoMethod name
+          message <- desugarStringValue ("Pattern match failure in do expression" <> maybe "" ((" at " <>) . renderSourceSpan) (doStmtSourceSpan statement))
+          pure (Just (ExApp method' message))
     _ -> pure Nothing
 
 doStmtSourceSpan :: Syn.DoStmt body -> Maybe Syn.SourceSpan
@@ -5622,7 +5609,6 @@ doStmtSourceSpan statement =
   case statement of
     Syn.DoAnn annotation inner -> Syn.annotationSpan annotation <|> doStmtSourceSpan inner
     Syn.DoTc _ inner -> doStmtSourceSpan inner
-    Syn.DoResolved _ inner -> doStmtSourceSpan inner
     Syn.DoRecKnot _ inner -> doStmtSourceSpan inner
     _ -> Nothing
 
@@ -5655,13 +5641,14 @@ renderSourceSpan span' =
 -- bindings, so the knot is not forced before a variable is used. A let
 -- statement can generalize a variable. Then @return vs@ applies it to the
 -- types and the evidence of its knot occurrence.
-desugarRecStmt :: Syn.DoStmt Syn.Expr -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
-desugarRecStmt statement inner rest = do
-  let (methods, maybeTuple, knotOccurrences) = recStmtAnnotations statement
+desugarRecStmt :: Syn.DoStmt Syn.Expr -> Maybe Syn.DoRecMethods -> [Syn.DoStmt Syn.Expr] -> ValueM Expr -> ValueM Expr
+desugarRecStmt statement methods inner rest = do
+  let (maybeTuple, knotOccurrences) = recStmtAnnotations statement
   tupleAnnotation <- maybe (failValue "rec statement has no checked tuple annotation") pure maybeTuple
-  mfix <- recStmtMethod "mfix" methods
-  returnMethod <- recStmtMethod "return" methods
-  bind <- recStmtMethod ">>=" methods
+  Syn.DoRecMethods mfixName returnName bindName <- maybe (failValue "rec statement has no checked methods") pure methods
+  mfix <- desugarDoMethod mfixName
+  returnMethod <- desugarDoMethod returnName
+  bind <- desugarDoMethod bindName
   innerType <-
     case tcAnnTermArgTypes tupleAnnotation of
       [ty] -> pure ty
@@ -5699,31 +5686,23 @@ desugarRecStmt statement inner rest = do
       resultFunction = ExLam result (foldr ExLet continuation resultBinds)
   pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
 
--- | The checked methods of a @rec@ statement, each with its cast, the
--- tuple annotation that is next to the statements, and the knot occurrence
--- of each generalized group variable. Each resolution closes one method:
--- the type annotation and the cast before it belong to it. A
--- 'TcRecKnotOccurrence' marker comes before the occurrence annotation of
--- its variable.
-recStmtAnnotations :: Syn.DoStmt Syn.Expr -> ([(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)], Maybe TcAnnotation, [(Entity, TcAnnotation)])
-recStmtAnnotations = go Nothing Nothing
+-- | The tuple annotation of a @rec@ statement, and the knot occurrence of
+-- each generalized group variable. A 'TcRecKnotOccurrence' marker comes
+-- before the occurrence annotation of its variable.
+recStmtAnnotations :: Syn.DoStmt Syn.Expr -> (Maybe TcAnnotation, [(Entity, TcAnnotation)])
+recStmtAnnotations = go Nothing
   where
-    go cast annotation statement =
+    go annotation statement =
       case statement of
-        Syn.DoResolved (ResolutionOk resolution) inner ->
-          let (methods, tuple, occurrences) = go Nothing Nothing inner
-           in ((cast, annotation, resolution) : methods, tuple, occurrences)
         Syn.DoTc (Syn.InfoRecKnotOccurrence key) inner
           | Syn.DoTc (Syn.InfoType occurrence) rest <- inner ->
-              let (methods, tuple, occurrences) = go cast annotation rest
-               in (methods, tuple, (key, occurrence) : occurrences)
-        Syn.DoTc (Syn.InfoCast (TcCastAnnotation (Just proof) _)) inner -> go (Just proof) annotation inner
-        Syn.DoTc (Syn.InfoType checked) inner -> go cast (Just checked) inner
-        Syn.DoTc _ inner -> go cast annotation inner
-        Syn.DoResolved _ inner -> go cast annotation inner
-        Syn.DoRecKnot _ inner -> go cast annotation inner
-        Syn.DoAnn _ inner -> go cast annotation inner
-        _ -> ([], annotation, [])
+              let (tuple, occurrences) = go annotation rest
+               in (tuple, (key, occurrence) : occurrences)
+        Syn.DoTc (Syn.InfoType checked) inner -> go (Just checked) inner
+        Syn.DoTc _ inner -> go annotation inner
+        Syn.DoRecKnot _ inner -> go annotation inner
+        Syn.DoAnn _ inner -> go annotation inner
+        _ -> (annotation, [])
 
 -- | The knot variables that a 'RecKnotVariables' annotation of a @rec@
 -- statement gives.
@@ -5733,24 +5712,7 @@ recStmtKnotVariables statement =
     Syn.DoRecKnot (RecKnotVariables variables) _ -> Just variables
     Syn.DoAnn _ inner -> recStmtKnotVariables inner
     Syn.DoTc _ inner -> recStmtKnotVariables inner
-    Syn.DoResolved _ inner -> recStmtKnotVariables inner
     _ -> Nothing
-
--- | The checked methods of a statement.
-recStmtMethods :: Syn.DoStmt Syn.Expr -> [(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)]
-recStmtMethods statement =
-  let (methods, _, _) = recStmtAnnotations statement
-   in methods
-
-recStmtMethod :: Text -> [(Maybe Ev.Coercion, Maybe TcAnnotation, Resolved)] -> ValueM Expr
-recStmtMethod name methods =
-  case [(cast, annotation, resolution) | (cast, annotation, resolution) <- methods, resolutionIdentifier resolution == IdentifierNamed name] of
-    [(cast, Just annotation, resolution)] -> do
-      method <- desugarResolvedOccurrence annotation resolution
-      case cast of
-        Just proof -> withCoercion proof (pure . ExCast method)
-        Nothing -> pure method
-    _ -> failValue ("rec statement has no checked " <> T.unpack name <> " method")
 
 -- | Bind each group variable lazily to its field of a knot value. A group
 -- with one variable binds the variable to the knot value itself.
@@ -6059,62 +6021,32 @@ directPatternBindings pattern' binder ty =
       pure ((outer <>) <$> innerResult)
     _ -> pure Nothing
 
--- | The sequencing method of a @do@ statement, cast onto the type the
--- statement uses it at when a given equality made it fit. The statement has
--- no expression node for the method, so the cast is a statement annotation.
-desugarDoMethod :: Syn.DoStmt Syn.Expr -> TcAnnotation -> Resolved -> ValueM Expr
-desugarDoMethod statement annotation resolution = do
+-- | The checked method of a @do@ statement, cast onto the type that the
+-- statement uses it at when a given equality made it fit. The type checker
+-- puts the cast on the method name.
+desugarDoMethod :: Syn.Name -> ValueM Expr
+desugarDoMethod name = do
+  annotation <- requiredSyntaxAnnotation name
+  resolution <- maybe (failValue ("do method " <> T.unpack (Syn.nameText name) <> " has no resolution")) pure (syntaxResolved name)
   method <- desugarResolvedOccurrence annotation resolution
-  case doMethodCast statement of
+  case listToMaybe (mapMaybe infoCastProof (Syn.nameTc name)) of
     Just proof -> withCoercion proof (pure . ExCast method)
     Nothing -> pure method
-
-doMethodCast :: Syn.DoStmt body -> Maybe Ev.Coercion
-doMethodCast statement =
-  case statement of
-    Syn.DoTc (Syn.InfoCast (TcCastAnnotation (Just proof) _)) _ -> Just proof
-    Syn.DoTc _ inner -> doMethodCast inner
-    Syn.DoAnn _ inner -> doMethodCast inner
-    Syn.DoResolved _ inner -> doMethodCast inner
-    Syn.DoRecKnot _ inner -> doMethodCast inner
-    _ -> Nothing
 
 peelDoStatement :: Syn.DoStmt body -> Syn.DoStmt body
 peelDoStatement statement =
   case statement of
     Syn.DoAnn _ inner -> peelDoStatement inner
     Syn.DoTc _ inner -> peelDoStatement inner
-    Syn.DoResolved _ inner -> peelDoStatement inner
     Syn.DoRecKnot _ inner -> peelDoStatement inner
     _ -> statement
 
-requiredDoBindOccurrence :: Syn.DoStmt Syn.Expr -> ValueM (TcAnnotation, Resolved)
-requiredDoBindOccurrence statement =
-  case doBindOccurrence statement of
-    Just occurrence -> pure occurrence
-    Nothing -> failValue ("missing checked do method occurrence: " <> take 80 (show statement))
-
--- | The checked @>>=@ or @>>@ method of a statement: the first type
--- annotation and the first resolution from the outside. The @fail@ method
--- of a bind statement is inside them.
-doBindOccurrence :: Syn.DoStmt Syn.Expr -> Maybe (TcAnnotation, Resolved)
-doBindOccurrence = go Nothing Nothing
-  where
-    go maybeAnnotation maybeResolution statement =
-      case statement of
-        Syn.DoTc info inner -> go (maybeAnnotation <|> infoType info) maybeResolution inner
-        Syn.DoResolved result inner -> go maybeAnnotation (maybeResolution <|> resolvedOf result) inner
-        Syn.DoAnn _ inner -> go maybeAnnotation maybeResolution inner
-        Syn.DoRecKnot _ inner -> go maybeAnnotation maybeResolution inner
-        _ -> (,) <$> maybeAnnotation <*> maybeResolution
-
--- | The type of the continuation body of a checked @>>=@ method.
 -- | The argument type of the continuation of a checked @>>=@ method. When a
--- given equality made the method fit, the statement casts the method, and
--- the cast target has the type that the statement uses.
-doBindArgumentType :: Syn.DoStmt body -> TcAnnotation -> ValueM TcType
-doBindArgumentType statement annotation =
-  case doMethodCastTarget statement of
+-- given equality made the method fit, the method name has a cast, and the
+-- cast target has the type that the statement uses.
+doBindArgumentType :: Syn.Name -> TcAnnotation -> ValueM TcType
+doBindArgumentType methodName annotation =
+  case listToMaybe [target | Syn.InfoCast (TcCastAnnotation (Just _) target) <- Syn.nameTc methodName] of
     Just target -> argumentOf target
     Nothing -> argumentOf (tcAnnType annotation)
   where
@@ -6122,16 +6054,6 @@ doBindArgumentType statement annotation =
       case ty of
         TcFunTy _ (TcFunTy (TcFunTy argument _) _) -> pure argument
         _ -> failValue ("invalid checked >>= type: " <> show ty)
-
-doMethodCastTarget :: Syn.DoStmt body -> Maybe TcType
-doMethodCastTarget statement =
-  case statement of
-    Syn.DoTc (Syn.InfoCast (TcCastAnnotation (Just _) target)) _ -> Just target
-    Syn.DoTc _ inner -> doMethodCastTarget inner
-    Syn.DoAnn _ inner -> doMethodCastTarget inner
-    Syn.DoResolved _ inner -> doMethodCastTarget inner
-    Syn.DoRecKnot _ inner -> doMethodCastTarget inner
-    _ -> Nothing
 
 doBindResultType :: TcAnnotation -> ValueM TcType
 doBindResultType annotation =

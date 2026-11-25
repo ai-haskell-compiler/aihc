@@ -283,7 +283,6 @@ dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
     DataConTc _ inner -> dataConIdentities inner
-    DataConResolved _ inner -> dataConIdentities inner
     PrefixCon _ _ name _ -> [DeclaredDataCon name]
     InfixCon _ _ _ name _ -> [DeclaredDataCon name]
     RecordCon _ _ name _ -> [DeclaredDataCon name]
@@ -1636,7 +1635,6 @@ recordSelectorTypes parent declaration =
   case declaration of
     DataConAnn ann inner -> DataConAnn ann <$> recordSelectorTypes parent inner
     DataConTc ann inner -> DataConTc ann <$> recordSelectorTypes parent inner
-    DataConResolved ann inner -> DataConResolved ann <$> recordSelectorTypes parent inner
     RecordCon forallVars context constructor fields ->
       RecordCon forallVars context constructor <$> mapM annotateField fields
     GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
@@ -5180,7 +5178,6 @@ dataFamilyInstanceParams familyInst = do
         TTypeApp function argument -> typeLevelVars function <> typeLevelVars argument
         TParen inner -> typeLevelVars inner
         TAnn _ inner -> typeLevelVars inner
-        TResolved _ inner -> typeLevelVars inner
         -- The other forms do not occur in an instance head, or they cannot
         -- have a kind annotation. All of their variables are type parameters.
         _ -> freeTypeVars ty
@@ -5232,7 +5229,6 @@ sourceTypeKey home ty =
   case ty of
     TParen inner -> sourceTypeKey home inner
     TAnn _ inner -> sourceTypeKey home inner
-    TResolved _ inner -> sourceTypeKey home inner
     TCon name _ -> typeConKey home name
     TVar name -> unqualifiedNameText name
     TApp function argument -> sourceTypeKey home function <> "$" <> sourceTypeKey home argument
@@ -5248,8 +5244,8 @@ sourceTypeKey home ty =
     -- @(a, b)@ and @Tuple2 a b@ of a local @data Tuple2 a b@ get different
     -- keys.
     TFun _ argument result -> "(->)$" <> sourceTypeKey home argument <> "$" <> sourceTypeKey home result
-    TList _ arguments -> arguments `keyedUnder` "[]"
-    TTuple flavor _ arguments -> arguments `keyedUnder` tupleKey flavor (length arguments)
+    TList _ _ arguments -> arguments `keyedUnder` "[]"
+    TTuple _ flavor _ arguments -> arguments `keyedUnder` tupleKey flavor (length arguments)
     TUnboxedSum arguments -> arguments `keyedUnder` ("(#" <> T.replicate (length arguments - 1) "|" <> "#)")
     TStar {} -> "(*)"
     TTypeLit literal ->
@@ -5819,7 +5815,6 @@ resultKindArity = maybe 0 go
         TForall _ inner -> go inner
         TParen inner -> go inner
         TAnn _ inner -> go inner
-        TResolved _ inner -> go inner
         _ -> 0
 
 registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM ()
@@ -6056,7 +6051,6 @@ newtypeConstructorSpan = dataConSpan <=< newtypeDeclConstructor
   where
     dataConSpan (DataConAnn annotation inner) = annotationSpan annotation <|> dataConSpan inner
     dataConSpan (DataConTc _ inner) = dataConSpan inner
-    dataConSpan (DataConResolved _ inner) = dataConSpan inner
     dataConSpan _ = Nothing
 
 -- | The C type a @CTYPE@ pragma names.
@@ -6321,7 +6315,6 @@ registerDataConWithResult :: [Text] -> [ParamInfo] -> TcType -> DataConDecl -> T
 registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
   DataConAnn _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
   DataConTc _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
-  DataConResolved _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
   PrefixCon forallVars context conName args ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType args)
   InfixCon forallVars context lhs conName rhs ->
@@ -6332,7 +6325,7 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
     registerBuiltinDataCon forallVars context (BuiltinTupleCon flavor (length fields)) (map bangType fields)
   UnboxedSumCon forallVars context alternative arity field ->
     registerBuiltinDataCon forallVars context (BuiltinUnboxedSumCon alternative arity) [bangType field]
-  ListCon forallVars context ->
+  ListCon forallVars context _ ->
     registerBuiltinDataCon forallVars context BuiltinNilCon []
   GadtCon forallBinders context names body -> do
     explicitParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
@@ -6698,7 +6691,6 @@ dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
     DataConTc _ inner -> dataConSourceLayout inner
-    DataConResolved _ inner -> dataConSourceLayout inner
     PrefixCon _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
     InfixCon _ _ left _ right ->
@@ -6808,7 +6800,6 @@ typeSpan ty =
   case ty of
     TAnn ann inner ->
       annotationSpan ann <|> typeSpan inner
-    TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner

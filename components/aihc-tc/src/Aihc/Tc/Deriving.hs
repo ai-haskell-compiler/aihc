@@ -643,7 +643,6 @@ typeSpan :: Type -> Maybe SourceSpan
 typeSpan ty =
   case ty of
     TAnn annotation inner -> annotationSpan annotation <|> typeSpan inner
-    TResolved _ inner -> typeSpan inner
     TParen inner -> typeSpan inner
     TForall _ inner -> typeSpan inner
     TContext _ inner -> typeSpan inner
