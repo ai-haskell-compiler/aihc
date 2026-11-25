@@ -4,7 +4,10 @@
 --
 -- The bundle takes the newest @aihc-base@ entry of the store and the
 -- @aihc-prim@ entry it depends on: the packages a program sees without
--- a dependency of its own. See "Aihc.Cli.PlayBundle" for the format.
+-- a dependency of its own. When the store has an
+-- @aihc-template-haskell@ entry above that @aihc-base@ entry, the bundle
+-- also takes it and its @aihc-internal@ entry. Then a program can import
+-- the Template Haskell library. See "Aihc.Cli.PlayBundle" for the format.
 module Aihc.Cli.PlayBundleStore
   ( writeStoreBundle,
     storeBundle,
@@ -36,9 +39,9 @@ data StoreBundleInfo = StoreBundleInfo
   }
   deriving (Show)
 
--- | The packages of the bundle, by name.
+-- | The packages of the bundle, by name, in dependency order.
 corePackages :: [Text]
-corePackages = ["aihc-prim", "aihc-base"]
+corePackages = ["aihc-prim", "aihc-base", "aihc-internal", "aihc-template-haskell"]
 
 -- | Write the bundle of a store to a file.
 writeStoreBundle :: FilePath -> FilePath -> IO StoreBundleInfo
@@ -52,8 +55,7 @@ writeStoreBundle store output = do
 storeBundle :: FilePath -> IO (StoreBundleInfo, BL.ByteString)
 storeBundle store = do
   platform <- findPlatformDirectory store
-  base <- newestEntry platform "aihc-base"
-  entries <- closure platform Map.empty [base]
+  entries <- coreEntries (const True) platform
   let ordered = [entry | name <- corePackages, entry <- Map.elems entries, packageManifestName (snd entry) == name]
   -- The facts name a package by its unit identity, not by the store
   -- directory, which also carries the fingerprint of the entry.
@@ -98,12 +100,36 @@ findPlatformDirectory store = do
         else any ("aihc-base-" `isPrefixOfPath`) <$> listDirectory directory
     isPrefixOfPath prefix path = take (length prefix) path == prefix
 
--- | The newest store entry of a package, by the time of its manifest.
-newestEntry :: FilePath -> Text -> IO (FilePath, PackageManifest)
-newestEntry = newestEntryMatching (const True)
+-- | The core entries of a bundle, keyed by identity: the newest
+-- @aihc-base@ entry that matches, and the core packages below it. The
+-- result also has the newest @aihc-template-haskell@ entry that matches
+-- and that uses the same @aihc-base@ entry, with the core packages below
+-- it. A store without such an entry gives no Template Haskell packages.
+coreEntries :: (PackageManifest -> Bool) -> FilePath -> IO (Map.Map FilePath (FilePath, PackageManifest))
+coreEntries matches platform = do
+  base <- newestEntryMatching matches platform "aihc-base"
+  baseEntries <- closure platform Map.empty [base]
+  candidates <- entriesMatching matches platform "aihc-template-haskell"
+  let sameBase found = [identity | (identity, manifest) <- Map.elems found, packageManifestName manifest == "aihc-base"] == [fst base]
+      firstWithBase [] = pure baseEntries
+      firstWithBase (candidate : rest) = do
+        found <- closure platform baseEntries [candidate]
+        if sameBase found then pure found else firstWithBase rest
+  firstWithBase candidates
 
+-- | The newest store entry of a package that matches, by the time of its
+-- manifest.
 newestEntryMatching :: (PackageManifest -> Bool) -> FilePath -> Text -> IO (FilePath, PackageManifest)
 newestEntryMatching matches platform name = do
+  candidates <- entriesMatching matches platform name
+  case candidates of
+    entry : _ -> pure entry
+    [] -> ioError (userError ("no " <> T.unpack name <> " entry under " <> platform))
+
+-- | The store entries of a package that match, the newest first, by the
+-- time of their manifests.
+entriesMatching :: (PackageManifest -> Bool) -> FilePath -> Text -> IO [(FilePath, PackageManifest)]
+entriesMatching matches platform name = do
   children <- listDirectory platform
   candidates <- fmap concat . forM children $ \child -> do
     let manifestPath = packageManifestPath (platform </> child)
@@ -119,9 +145,7 @@ newestEntryMatching matches platform name = do
                 time <- getModificationTime manifestPath
                 pure [(time, (child, value))]
           _ -> pure []
-  case sortOn (Down . fst) candidates of
-    (_, entry) : _ -> pure entry
-    [] -> ioError (userError ("no " <> T.unpack name <> " entry under " <> platform))
+  pure (map snd (sortOn (Down . fst) candidates))
 
 -- | The core packages below the given entries, keyed by identity.
 closure :: FilePath -> Map.Map FilePath (FilePath, PackageManifest) -> [(FilePath, PackageManifest)] -> IO (Map.Map FilePath (FilePath, PackageManifest))
@@ -147,8 +171,7 @@ moduleNameDirectory = joinPath . map T.unpack . T.splitOn "."
 writeStoreRuntime :: FilePath -> FilePath -> IO ()
 writeStoreRuntime store output = do
   platform <- findPlatformDirectory store
-  base <- newestEntryMatching (not . any (`elem` ["lto", "no-code"]) . packageManifestFlags) platform "aihc-base"
-  entries <- closure platform Map.empty [base]
+  entries <- coreEntries (not . any (`elem` ["lto", "no-code"]) . packageManifestFlags) platform
   createDirectoryIfMissing True output
   files <- fmap concat . forM (Map.toAscList entries) $ \(identity, (_, manifest)) -> do
     let root = platform </> identity

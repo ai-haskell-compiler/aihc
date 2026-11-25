@@ -24,11 +24,13 @@ const dataUrl = option("--data-url");
 
 const GLUE = ["aihc.js", "worker.js", "host.js", "manifest.js"];
 const COMPILER = "aihc-play-component.js";
+const SPLICE_IMAGE = "th-image.wasm.gz";
 const isDocument = (path) => /(^|\/)(README\.md|[^/]*(LICENSE|COPYING|NOTICE)[^/]*)$/i.test(path);
 const group = (path) => {
   if (isDocument(path)) return "doc";
   if (GLUE.includes(path)) return "glue";
   if (path.startsWith("tools/") || path === "runtime.pack.gz") return "linker";
+  if (path === SPLICE_IMAGE) return "splices";
   return "compiler";
 };
 
@@ -52,7 +54,7 @@ await walk(output, "", null);
 if (toolsUrl) await walk(toolsAssets, "tools/", toolsUrl);
 files.sort((a, b) => (a.path < b.path ? -1 : 1));
 
-for (const path of [...GLUE, COMPILER, "core.bundle.gz", "runtime.pack.gz", "tools/tools.js"]) {
+for (const path of [...GLUE, COMPILER, "core.bundle.gz", "runtime.pack.gz", "tools/tools.js", SPLICE_IMAGE]) {
   if (!files.some((file) => file.path === path)) throw new Error("The kit does not have " + path + ".");
 }
 const build = createHash("sha256").update(JSON.stringify(files.map(({ path, bytes, sha256 }) => ({ path, bytes, sha256 })))).digest("hex").slice(0, 16);
@@ -68,6 +70,9 @@ const manifest = {
   worker: "worker.js",
   compiler: { module: COMPILER, bundle: "core.bundle.gz" },
   linker: { tools: "tools/tools.js", runtime: "runtime.pack.gz" },
+  // The image that runs Template Haskell splices. The glue does not use it
+  // yet.
+  splices: { image: SPLICE_IMAGE },
   // A later release lists the library packs here. See the README of the kit.
   packs: [],
   files,
