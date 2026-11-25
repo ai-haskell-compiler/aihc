@@ -230,7 +230,6 @@ peelDeclOnce _ = Nothing
 
 peelDataConOnce :: DataConDecl -> Maybe ([Annotation], DataConDecl)
 peelDataConOnce (DataConAnn ann inner) = Just ([ann], inner)
-peelDataConOnce (DataConTc _ inner) = Just ([], inner)
 peelDataConOnce _ = Nothing
 
 peelLiteralOnce :: Literal -> Maybe ([Annotation], Literal)
@@ -244,29 +243,24 @@ peelGuardOnce _ = Nothing
 
 peelDoOnce :: DoStmt body -> Maybe ([Annotation], DoStmt body)
 peelDoOnce (DoAnn ann inner) = Just ([ann], inner)
-peelDoOnce (DoTc _ inner) = Just ([], inner)
 peelDoOnce (DoRecKnot _ inner) = Just ([], inner)
 peelDoOnce _ = Nothing
 
 peelCompOnce :: CompStmt -> Maybe ([Annotation], CompStmt)
 peelCompOnce (CompAnn ann inner) = Just ([ann], inner)
-peelCompOnce (CompTc _ inner) = Just ([], inner)
 peelCompOnce _ = Nothing
 
 peelArithSeqOnce :: ArithSeq -> Maybe ([Annotation], ArithSeq)
 peelArithSeqOnce (ArithSeqAnn ann inner) = Just ([ann], inner)
-peelArithSeqOnce (ArithSeqTc _ inner) = Just ([], inner)
 peelArithSeqOnce _ = Nothing
 
 peelClassItemOnce :: ClassDeclItem -> Maybe ([Annotation], ClassDeclItem)
 peelClassItemOnce (ClassItemAnn ann inner) = Just ([ann], inner)
-peelClassItemOnce (ClassItemTc _ inner) = Just ([], inner)
 peelClassItemOnce (ClassItemError _ inner) = Just ([], inner)
 peelClassItemOnce _ = Nothing
 
 peelInstanceItemOnce :: InstanceDeclItem -> Maybe ([Annotation], InstanceDeclItem)
 peelInstanceItemOnce (InstanceItemAnn ann inner) = Just ([ann], inner)
-peelInstanceItemOnce (InstanceItemTc _ inner) = Just ([], inner)
 peelInstanceItemOnce (InstanceItemError _ inner) = Just ([], inner)
 peelInstanceItemOnce _ = Nothing
 

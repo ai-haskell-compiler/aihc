@@ -123,22 +123,18 @@ classDefaultWorkerType kinds classAnnotation method =
 
 dataConBindings :: TcWiring -> (Text, Text) -> DataConDecl -> [TcBindingResult]
 dataConBindings wiring origin dataConDecl =
-  case dataConDecl of
-    DataConTc (InfoType tcAnn) inner ->
+  case [tcAnn | InfoType tcAnn <- dataConTc dataConDecl] of
+    tcAnn : _ ->
       [ TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)
-      | name <- map (dataConIdentityName wiring) (dataConIdentities inner)
+      | name <- map (dataConIdentityName wiring) (dataConIdentities dataConDecl)
       ]
-    DataConTc _ inner -> dataConBindings wiring origin inner
-    DataConAnn _ inner -> dataConBindings wiring origin inner
-    _ -> []
+    [] -> []
 
 recordSelectorBindings :: (Text, Text) -> DataConDecl -> [TcBindingResult]
 recordSelectorBindings origin declaration =
-  case declaration of
-    DataConTc (InfoType tcAnn) inner -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
-    DataConTc _ inner -> recordSelectorBindings origin inner
-    DataConAnn _ inner -> recordSelectorBindings origin inner
-    _ -> []
+  case [tcAnn | InfoType tcAnn <- dataConTc declaration] of
+    tcAnn : _ -> selectorBindingsFromConstructorType (tcAnnType tcAnn) declaration
+    [] -> []
   where
     selectorBindingsFromConstructorType constructorType inner =
       let (typeVariables, qualifiedConstructor) = peelForAlls constructorType
@@ -183,9 +179,8 @@ recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
 recordFieldNamesOf declaration =
   case declaration of
     DataConAnn _ inner -> recordFieldNamesOf inner
-    DataConTc _ inner -> recordFieldNamesOf inner
-    RecordCon _ _ _ fields -> concatMap fieldNames fields
-    GadtCon _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
+    RecordCon _ _ _ _ fields -> concatMap fieldNames fields
+    GadtCon _ _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
     _ -> []
 
 -- | The type that the type checker put on a binder, when it has one.
@@ -197,13 +192,12 @@ dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
-    DataConTc _ inner -> dataConIdentities inner
-    PrefixCon _ _ name _ -> [DeclaredDataCon name]
-    InfixCon _ _ _ name _ -> [DeclaredDataCon name]
-    RecordCon _ _ name _ -> [DeclaredDataCon name]
-    GadtCon _ _ names _ -> map DeclaredDataCon names
-    TupleCon _ _ flavor fields -> [BuiltinDataConIdentity (BuiltinTupleCon flavor (length fields))]
-    UnboxedSumCon _ _ alternative arity _ -> [BuiltinDataConIdentity (BuiltinUnboxedSumCon alternative arity)]
+    PrefixCon _ _ _ name _ -> [DeclaredDataCon name]
+    InfixCon _ _ _ _ name _ -> [DeclaredDataCon name]
+    RecordCon _ _ _ name _ -> [DeclaredDataCon name]
+    GadtCon _ _ _ names _ -> map DeclaredDataCon names
+    TupleCon _ _ _ flavor fields -> [BuiltinDataConIdentity (BuiltinTupleCon flavor (length fields))]
+    UnboxedSumCon _ _ _ alternative arity _ -> [BuiltinDataConIdentity (BuiltinUnboxedSumCon alternative arity)]
     ListCon {} -> [BuiltinDataConIdentity BuiltinNilCon]
 
 -- | The name a constructor has in the term environment. A declared
@@ -247,22 +241,21 @@ dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType
 dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
-    DataConTc _ inner -> dataConSourceLayout inner
-    PrefixCon _ _ _ fields ->
+    PrefixCon _ _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
-    InfixCon _ _ left _ right ->
+    InfixCon _ _ _ left _ right ->
       (InfixDataCon, map (Nothing,) [left, right], identities)
-    RecordCon _ _ _ fields ->
+    RecordCon _ _ _ _ fields ->
       (RecordDataCon, recordSourceFields fields, identities)
-    TupleCon _ _ Boxed fields ->
+    TupleCon _ _ _ Boxed fields ->
       (SyntaxDataCon, map (Nothing,) fields, identities)
-    TupleCon _ _ Unboxed fields ->
+    TupleCon _ _ _ Unboxed fields ->
       (UnboxedTupleDataCon, map (Nothing,) fields, identities)
-    UnboxedSumCon _ _ alternative arity field ->
+    UnboxedSumCon _ _ _ alternative arity field ->
       (UnboxedSumDataCon alternative arity, [(Nothing, field)], identities)
     ListCon {} ->
       (SyntaxDataCon, [], identities)
-    GadtCon _ _ _ body ->
+    GadtCon _ _ _ _ body ->
       case body of
         GadtPrefixBody fields _ -> (PrefixDataCon, map ((Nothing,) . fst) fields, identities)
         GadtRecordBody fields _ -> (RecordDataCon, recordSourceFields fields, identities)
@@ -333,12 +326,11 @@ recStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         DoAnn _ inner -> stmtBinders inner
-        DoTc _ inner -> stmtBinders inner
         DoRecKnot _ inner -> stmtBinders inner
         DoBind _ pat _ -> patternBinderNames pat
         DoLetDecls decls -> concatMap declBinders decls
         DoExpr _ _ -> []
-        DoRecStmt _ stmts -> concatMap stmtBinders stmts
+        DoRecStmt _ _ stmts -> concatMap stmtBinders stmts
     declBinders decl =
       case peelDeclAnn decl of
         DeclValue (FunctionBind name _) -> [name]
@@ -356,9 +348,8 @@ compStmtBinderNames =
     stmtBinders stmt =
       case stmt of
         CompAnn _ inner -> stmtBinders inner
-        CompTc _ inner -> stmtBinders inner
-        CompGen pat _ -> patternBinderNames pat
-        CompLetDecls decls -> concatMap declBinders decls
+        CompGen _ pat _ -> patternBinderNames pat
+        CompLetDecls _ decls -> concatMap declBinders decls
         _ -> []
     declBinders decl =
       case peelDeclAnn decl of

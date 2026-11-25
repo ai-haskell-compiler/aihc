@@ -137,6 +137,7 @@ import Aihc.Tc.Syntax.Pending
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    addDataConTc,
     annotateDecl,
     annotateRhsCast,
     annotationSpan,
@@ -282,13 +283,12 @@ dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =
   case dataConDecl of
     DataConAnn _ inner -> dataConIdentities inner
-    DataConTc _ inner -> dataConIdentities inner
-    PrefixCon _ _ name _ -> [DeclaredDataCon name]
-    InfixCon _ _ _ name _ -> [DeclaredDataCon name]
-    RecordCon _ _ name _ -> [DeclaredDataCon name]
-    GadtCon _ _ names _ -> map DeclaredDataCon names
-    TupleCon _ _ flavor fields -> [BuiltinDataConIdentity (BuiltinTupleCon flavor (length fields))]
-    UnboxedSumCon _ _ alternative arity _ -> [BuiltinDataConIdentity (BuiltinUnboxedSumCon alternative arity)]
+    PrefixCon _ _ _ name _ -> [DeclaredDataCon name]
+    InfixCon _ _ _ _ name _ -> [DeclaredDataCon name]
+    RecordCon _ _ _ name _ -> [DeclaredDataCon name]
+    GadtCon _ _ _ names _ -> map DeclaredDataCon names
+    TupleCon _ _ _ flavor fields -> [BuiltinDataConIdentity (BuiltinTupleCon flavor (length fields))]
+    UnboxedSumCon _ _ _ alternative arity _ -> [BuiltinDataConIdentity (BuiltinUnboxedSumCon alternative arity)]
     ListCon {} -> [BuiltinDataConIdentity BuiltinNilCon]
 
 -- | The name a constructor has in the term environment. A declared
@@ -477,14 +477,12 @@ hoistAssociatedDataFamilies modu = modu {moduleDecls = concatMap hoistDecl (modu
     classItem item =
       case item of
         ClassItemAnn ann inner -> either (Left . ClassItemAnn ann) (Right . DeclAnn ann) (classItem inner)
-        ClassItemTc info inner -> either (Left . ClassItemTc info) (Right . DeclTc info) (classItem inner)
         ClassItemError err inner -> either (Left . ClassItemError err) (Right . DeclError err) (classItem inner)
         ClassItemDataFamilyDecl familyDecl -> Right (DeclDataFamilyDecl familyDecl)
         _ -> Left item
     instanceItem item =
       case item of
         InstanceItemAnn ann inner -> either (Left . InstanceItemAnn ann) (Right . DeclAnn ann) (instanceItem inner)
-        InstanceItemTc info inner -> either (Left . InstanceItemTc info) (Right . DeclTc info) (instanceItem inner)
         InstanceItemError err inner -> either (Left . InstanceItemError err) (Right . DeclError err) (instanceItem inner)
         InstanceItemDataFamilyInst familyInst -> Right (DeclDataFamilyInst familyInst)
         _ -> Left item
@@ -1472,13 +1470,12 @@ annotateClassDefaultItem :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
 annotateClassDefaultItem classTyCon item =
   case item of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem classTyCon inner
-    ClassItemTc ann inner -> ClassItemTc ann <$> annotateClassDefaultItem classTyCon inner
     ClassItemError ann inner -> ClassItemError ann <$> annotateClassDefaultItem classTyCon inner
-    ClassItemDefault valueDecl ->
+    ClassItemDefault tc valueDecl ->
       case valueDeclBinderName valueDecl of
         Just (methodName, _) -> do
           methodTy <- bindingType (tyConMemberTermKey classTyCon (defaultMethodName methodName))
-          pure (ClassItemTc (InfoInstanceMethod (TcInstanceMethodAnnotation methodName methodTy)) item)
+          pure (ClassItemDefault (InfoInstanceMethod (TcInstanceMethodAnnotation methodName methodTy) : tc) valueDecl)
         Nothing -> pure item
     ClassItemTypeFamilyDecl familyDecl ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
@@ -1604,7 +1601,7 @@ annotateRegisteredDataConDeclTc parent dataConDecl = do
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (DataConTc (InfoCheckedType (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
+      pure (addDataConTc (InfoCheckedType (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1626,7 +1623,7 @@ annotateDataConDeclTc parent dataConDecl = do
     key : _ -> do
       ty <- dataConBindingType key
       selectors <- annotateRecordSelectorNames parent dataConDecl >>= recordSelectorTypes parent
-      pure (DataConTc (InfoCheckedType (TcAnnotation ty [] [] [] [] [])) selectors)
+      pure (addDataConTc (InfoCheckedType (TcAnnotation ty [] [] [] [] [])) selectors)
 
 -- | Put the checked selector type on each field name that has a selector.
 -- A field whose type has an existential variable has none.
@@ -1634,11 +1631,10 @@ recordSelectorTypes :: TyCon -> DataConDecl -> TcM DataConDecl
 recordSelectorTypes parent declaration =
   case declaration of
     DataConAnn ann inner -> DataConAnn ann <$> recordSelectorTypes parent inner
-    DataConTc ann inner -> DataConTc ann <$> recordSelectorTypes parent inner
-    RecordCon forallVars context constructor fields ->
-      RecordCon forallVars context constructor <$> mapM annotateField fields
-    GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
-      GadtCon forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
+    RecordCon tc forallVars context constructor fields ->
+      RecordCon tc forallVars context constructor <$> mapM annotateField fields
+    GadtCon tc forallBinders context constructors (GadtRecordBody fields result) ->
+      GadtCon tc forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
     _ -> pure declaration
   where
     annotateField field = do
@@ -1657,10 +1653,10 @@ recordSelectorTypes parent declaration =
 annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames parent declaration =
   case declaration of
-    RecordCon forallVars context constructor fields ->
-      RecordCon forallVars context constructor <$> mapM annotateField fields
-    GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
-      GadtCon forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
+    RecordCon tc forallVars context constructor fields ->
+      RecordCon tc forallVars context constructor <$> mapM annotateField fields
+    GadtCon tc forallBinders context constructors (GadtRecordBody fields result) ->
+      GadtCon tc forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
     _ -> pure declaration
   where
     annotateField field = do
@@ -2225,7 +2221,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       let definedMethods =
             [ name
             | item <- instanceDeclItems instanceDecl,
-              InstanceItemBind valueDecl <- [peelInstanceDeclItemAnn item],
+              InstanceItemBind _ valueDecl <- [peelInstanceDeclItemAnn item],
               name <- valueDeclBinderNames valueDecl
             ]
       defaultMethodUses <-
@@ -2301,10 +2297,9 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
           annotateItem item =
             case item of
               InstanceItemAnn ann inner -> InstanceItemAnn ann (annotateItem inner)
-              InstanceItemTc ann inner -> InstanceItemTc ann (annotateItem inner)
               InstanceItemError ann inner -> InstanceItemError ann (annotateItem inner)
-              InstanceItemTypeFamilyInst familyInst
-                | Just equation <- explicitEquation familyInst -> InstanceItemTc (InfoTypeFamilyInstance equation) item
+              InstanceItemTypeFamilyInst tc familyInst
+                | Just equation <- explicitEquation familyInst -> InstanceItemTypeFamilyInst (InfoTypeFamilyInstance equation : tc) familyInst
               _ -> item
           items = map annotateItem (instanceDeclItems instanceDecl)
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
@@ -2464,11 +2459,10 @@ tcClassDefaultBody :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
 tcClassDefaultBody classTyCon item =
   case item of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody classTyCon inner
-    ClassItemTc ann inner -> ClassItemTc ann <$> tcClassDefaultBody classTyCon inner
     ClassItemError ann inner -> ClassItemError ann <$> tcClassDefaultBody classTyCon inner
-    ClassItemDefault valueDecl -> do
+    ClassItemDefault tc valueDecl -> do
       checked <- tcClassDefaultValue classTyCon valueDecl
-      pure (ClassItemDefault checked)
+      pure (ClassItemDefault tc checked)
     _ -> pure item
 
 tcClassDefaultValue :: TyCon -> ValueDecl -> TcM ValueDecl
@@ -2548,7 +2542,6 @@ instanceMethodSignatures :: [InstanceDeclItem] -> Map Text Type
 instanceMethodSignatures = Map.fromList . concatMap collect
   where
     collect (InstanceItemAnn _ inner) = collect inner
-    collect (InstanceItemTc _ inner) = collect inner
     collect (InstanceItemError _ inner) = collect inner
     collect (InstanceItemTypeSig names ty) = [(unqualifiedNameText name, ty) | name <- names]
     collect _ = []
@@ -2601,11 +2594,9 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
   case item of
     InstanceItemAnn ann inner ->
       InstanceItemAnn ann <$> tcInstanceItemBody instanceScope schemes givens signatures inner
-    InstanceItemTc info inner ->
-      InstanceItemTc info <$> tcInstanceItemBody instanceScope schemes givens signatures inner
     InstanceItemError err inner ->
       InstanceItemError err <$> tcInstanceItemBody instanceScope schemes givens signatures inner
-    InstanceItemBind (FunctionBind name matches) -> do
+    InstanceItemBind tc (FunctionBind name matches) -> do
       scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
       scope <- instanceMethodScope instanceScope signatures (unqualifiedNameText name) givens scheme matches
@@ -2625,9 +2616,9 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
         else do
           let methodName = unqualifiedNameText name
               checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-              checkedBind = InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results])
-          pure (InstanceItemTc (InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
-    InstanceItemBind (PatternBind _ pat rhs) ->
+              methodInfo = InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)
+          pure (InstanceItemBind (methodInfo : tc) (FunctionBind name [match | (match, _cts, _impls) <- results]))
+    InstanceItemBind tc (PatternBind mult pat rhs) ->
       case patternBinderName pat of
         Just (methodName, _) -> do
           scheme <- instanceMethodScheme schemes methodName
@@ -2642,8 +2633,8 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
             [(match, _cts, _impls)]
               | not failed ->
                   let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-                      checkedBind = replaceInstancePatternBindRhs (matchRhs match) item
-                   in pure (InstanceItemTc (InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)) checkedBind)
+                      methodInfo = InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)
+                   in pure (InstanceItemBind (methodInfo : tc) (PatternBind mult pat (matchRhs match)))
             _ -> pure item
         Nothing -> pure item
     _ -> pure item
@@ -2895,7 +2886,7 @@ classDeclDefaultMethodNames classDecl = nub (mapMaybe classItemDefaultMethodName
 classItemDefaultMethodName :: ClassDeclItem -> Maybe Text
 classItemDefaultMethodName item =
   case peelClassDeclItemAnn item of
-    ClassItemDefault valueDecl -> fst <$> valueDeclBinderName valueDecl
+    ClassItemDefault _ valueDecl -> fst <$> valueDeclBinderName valueDecl
     _ -> Nothing
 
 valueDeclBinderName :: ValueDecl -> Maybe (Text, Text)
@@ -3173,15 +3164,6 @@ replacePatternBindRhs rhs decl =
     DeclError ann inner -> DeclError ann (replacePatternBindRhs rhs inner)
     DeclValue (PatternBind mult pat _) -> DeclValue (PatternBind mult pat rhs)
     _ -> decl
-
-replaceInstancePatternBindRhs :: Rhs Expr -> InstanceDeclItem -> InstanceDeclItem
-replaceInstancePatternBindRhs rhs item =
-  case item of
-    InstanceItemAnn ann inner -> InstanceItemAnn ann (replaceInstancePatternBindRhs rhs inner)
-    InstanceItemTc ann inner -> InstanceItemTc ann (replaceInstancePatternBindRhs rhs inner)
-    InstanceItemError ann inner -> InstanceItemError ann (replaceInstancePatternBindRhs rhs inner)
-    InstanceItemBind (PatternBind mult pat _) -> InstanceItemBind (PatternBind mult pat rhs)
-    _ -> item
 
 patternBinders :: Pattern -> [Text]
 patternBinders = map unqualifiedNameText . patternBinderNames
@@ -4683,9 +4665,8 @@ instanceDeclTypeFamilyInsts instanceDecl = mapMaybe familyItem (instanceDeclItem
     familyItem item =
       case item of
         InstanceItemAnn _ inner -> familyItem inner
-        InstanceItemTc _ inner -> familyItem inner
         InstanceItemError _ inner -> familyItem inner
-        InstanceItemTypeFamilyInst familyInst -> Just familyInst
+        InstanceItemTypeFamilyInst _ familyInst -> Just familyInst
         _ -> Nothing
 
 typeFamilyInstName :: TypeFamilyInst -> Maybe Text
@@ -6050,7 +6031,6 @@ newtypeConstructorSpan :: NewtypeDecl -> Maybe SourceSpan
 newtypeConstructorSpan = dataConSpan <=< newtypeDeclConstructor
   where
     dataConSpan (DataConAnn annotation inner) = annotationSpan annotation <|> dataConSpan inner
-    dataConSpan (DataConTc _ inner) = dataConSpan inner
     dataConSpan _ = Nothing
 
 -- | The C type a @CTYPE@ pragma names.
@@ -6314,20 +6294,19 @@ registerDataCon tc kindParams paramInfos =
 registerDataConWithResult :: [Text] -> [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
 registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
   DataConAnn _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
-  DataConTc _ inner -> registerDataConWithResult gadtHiddenNames paramInfos resTy inner
-  PrefixCon forallVars context conName args ->
+  PrefixCon _ forallVars context conName args ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType args)
-  InfixCon forallVars context lhs conName rhs ->
+  InfixCon _ forallVars context lhs conName rhs ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType [lhs, rhs])
-  RecordCon forallVars context conName fields ->
+  RecordCon _ forallVars context conName fields ->
     registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType (recordBangFields fields))
-  TupleCon forallVars context flavor fields ->
+  TupleCon _ forallVars context flavor fields ->
     registerBuiltinDataCon forallVars context (BuiltinTupleCon flavor (length fields)) (map bangType fields)
-  UnboxedSumCon forallVars context alternative arity field ->
+  UnboxedSumCon _ forallVars context alternative arity field ->
     registerBuiltinDataCon forallVars context (BuiltinUnboxedSumCon alternative arity) [bangType field]
-  ListCon forallVars context _ ->
+  ListCon _ forallVars context _ ->
     registerBuiltinDataCon forallVars context BuiltinNilCon []
-  GadtCon forallBinders context names body -> do
+  GadtCon _ forallBinders context names body -> do
     explicitParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
     -- The kind variables of a GADT header do not scope over the
     -- constructor signatures. Thus, the @x@ of
@@ -6690,22 +6669,21 @@ dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType
 dataConSourceLayout declaration =
   case declaration of
     DataConAnn _ inner -> dataConSourceLayout inner
-    DataConTc _ inner -> dataConSourceLayout inner
-    PrefixCon _ _ _ fields ->
+    PrefixCon _ _ _ _ fields ->
       (PrefixDataCon, map (Nothing,) fields, identities)
-    InfixCon _ _ left _ right ->
+    InfixCon _ _ _ left _ right ->
       (InfixDataCon, map (Nothing,) [left, right], identities)
-    RecordCon _ _ _ fields ->
+    RecordCon _ _ _ _ fields ->
       (RecordDataCon, recordSourceFields fields, identities)
-    TupleCon _ _ Boxed fields ->
+    TupleCon _ _ _ Boxed fields ->
       (SyntaxDataCon, map (Nothing,) fields, identities)
-    TupleCon _ _ Unboxed fields ->
+    TupleCon _ _ _ Unboxed fields ->
       (UnboxedTupleDataCon, map (Nothing,) fields, identities)
-    UnboxedSumCon _ _ alternative arity field ->
+    UnboxedSumCon _ _ _ alternative arity field ->
       (UnboxedSumDataCon alternative arity, [(Nothing, field)], identities)
     ListCon {} ->
       (SyntaxDataCon, [], identities)
-    GadtCon _ _ _ body ->
+    GadtCon _ _ _ _ body ->
       case body of
         GadtPrefixBody fields _ -> (PrefixDataCon, map ((Nothing,) . fst) fields, identities)
         GadtRecordBody fields _ -> (RecordDataCon, recordSourceFields fields, identities)

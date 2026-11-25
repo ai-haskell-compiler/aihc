@@ -160,10 +160,14 @@ module Aihc.Tc.Syntax.Pending
     peelTypeHead,
     peelDoStmtAnn,
     peelDataConAnn,
+    dataConTc,
+    addDataConTc,
     peelClassDeclItemAnn,
     peelInstanceDeclItemAnn,
     peelGuardQualifierAnn,
     peelCompStmtAnn,
+    compStmtTc,
+    addCompStmtTc,
     peelArithSeqAnn,
     peelCmdAnn,
 
@@ -444,8 +448,8 @@ recordSelectorNames constructors =
   where
     recordFields constructor =
       case peelDataConAnn constructor of
-        RecordCon _ _ _ fields -> [fields]
-        GadtCon _ _ _ (GadtRecordBody fields _) -> [fields]
+        RecordCon _ _ _ _ fields -> [fields]
+        GadtCon _ _ _ _ (GadtRecordBody fields _) -> [fields]
         _ -> []
 
 -- | The name as the source writes it, with its qualifier.
@@ -554,29 +558,26 @@ peelTypeHead ty =
     TParen inner -> peelTypeHead inner
     _ -> ty
 
--- | Remove the annotation and type checker wrappers of a constructor.
+-- | Remove the annotation wrappers of a constructor.
 peelDataConAnn :: DataConDecl -> DataConDecl
 peelDataConAnn decl =
   case decl of
     DataConAnn _ inner -> peelDataConAnn inner
-    DataConTc _ inner -> peelDataConAnn inner
     _ -> decl
 
--- | Remove the annotation, error and type checker wrappers of a class item.
+-- | Remove the annotation and error wrappers of a class item.
 peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
 peelClassDeclItemAnn item =
   case item of
     ClassItemAnn _ inner -> peelClassDeclItemAnn inner
-    ClassItemTc _ inner -> peelClassDeclItemAnn inner
     ClassItemError _ inner -> peelClassDeclItemAnn inner
     _ -> item
 
--- | Remove the annotation, error and type checker wrappers of an instance item.
+-- | Remove the annotation and error wrappers of an instance item.
 peelInstanceDeclItemAnn :: InstanceDeclItem -> InstanceDeclItem
 peelInstanceDeclItemAnn item =
   case item of
     InstanceItemAnn _ inner -> peelInstanceDeclItemAnn inner
-    InstanceItemTc _ inner -> peelInstanceDeclItemAnn inner
     InstanceItemError _ inner -> peelInstanceDeclItemAnn inner
     _ -> item
 
@@ -590,15 +591,69 @@ peelCompStmtAnn :: CompStmt -> CompStmt
 peelCompStmtAnn stmt =
   case stmt of
     CompAnn _ inner -> peelCompStmtAnn inner
-    CompTc _ inner -> peelCompStmtAnn inner
     _ -> stmt
 
--- | Remove the annotation and type checker wrappers of a sequence.
+-- | What the type checker found for a constructor declaration, under its
+-- annotation wrappers.
+dataConTc :: DataConDecl -> [TcInfo]
+dataConTc decl =
+  case peelDataConAnn decl of
+    PrefixCon tc _ _ _ _ -> tc
+    InfixCon tc _ _ _ _ _ -> tc
+    RecordCon tc _ _ _ _ -> tc
+    GadtCon tc _ _ _ _ -> tc
+    TupleCon tc _ _ _ _ -> tc
+    UnboxedSumCon tc _ _ _ _ _ -> tc
+    ListCon tc _ _ _ -> tc
+    DataConAnn _ _ -> []
+
+-- | Put an item of information in front of the information of a
+-- constructor declaration, under its annotation wrappers.
+addDataConTc :: TcInfo -> DataConDecl -> DataConDecl
+addDataConTc item decl =
+  case decl of
+    DataConAnn ann inner -> DataConAnn ann (addDataConTc item inner)
+    PrefixCon tc a b c d -> PrefixCon (item : tc) a b c d
+    InfixCon tc a b c d e -> InfixCon (item : tc) a b c d e
+    RecordCon tc a b c d -> RecordCon (item : tc) a b c d
+    GadtCon tc a b c d -> GadtCon (item : tc) a b c d
+    TupleCon tc a b c d -> TupleCon (item : tc) a b c d
+    UnboxedSumCon tc a b c d e -> UnboxedSumCon (item : tc) a b c d e
+    ListCon tc a b c -> ListCon (item : tc) a b c
+
+-- | What the type checker found for a comprehension statement, under its
+-- annotation wrappers.
+compStmtTc :: CompStmt -> [TcInfo]
+compStmtTc stmt =
+  case peelCompStmtAnn stmt of
+    CompGen tc _ _ -> tc
+    CompGuard tc _ -> tc
+    CompLetDecls tc _ -> tc
+    CompThen tc _ -> tc
+    CompThenBy tc _ _ -> tc
+    CompGroupUsing tc _ -> tc
+    CompGroupByUsing tc _ _ -> tc
+    CompAnn _ _ -> []
+
+-- | Put an item of information in front of the information of a
+-- comprehension statement, under its annotation wrappers.
+addCompStmtTc :: TcInfo -> CompStmt -> CompStmt
+addCompStmtTc item stmt =
+  case stmt of
+    CompAnn ann inner -> CompAnn ann (addCompStmtTc item inner)
+    CompGen tc pat expr -> CompGen (item : tc) pat expr
+    CompGuard tc expr -> CompGuard (item : tc) expr
+    CompLetDecls tc decls -> CompLetDecls (item : tc) decls
+    CompThen tc function -> CompThen (item : tc) function
+    CompThenBy tc function key -> CompThenBy (item : tc) function key
+    CompGroupUsing tc function -> CompGroupUsing (item : tc) function
+    CompGroupByUsing tc key function -> CompGroupByUsing (item : tc) key function
+
+-- | Remove the annotation wrappers of a sequence.
 peelArithSeqAnn :: ArithSeq -> ArithSeq
 peelArithSeqAnn arithSeq =
   case arithSeq of
     ArithSeqAnn _ inner -> peelArithSeqAnn inner
-    ArithSeqTc _ inner -> peelArithSeqAnn inner
     _ -> arithSeq
 
 peelCmdAnn :: Cmd -> Cmd
@@ -607,12 +662,11 @@ peelCmdAnn cmd =
     CmdAnn _ inner -> peelCmdAnn inner
     _ -> cmd
 
--- | Remove the annotation, resolution, knot and type checker wrappers of a statement.
+-- | Remove the annotation and knot wrappers of a statement.
 peelDoStmtAnn :: DoStmt body -> DoStmt body
 peelDoStmtAnn stmt =
   case stmt of
     DoAnn _ inner -> peelDoStmtAnn inner
-    DoTc _ inner -> peelDoStmtAnn inner
     DoRecKnot _ inner -> peelDoStmtAnn inner
     _ -> stmt
 
@@ -1275,28 +1329,28 @@ data NewtypeDecl = NewtypeDecl
   }
   deriving (Eq, Show)
 
--- | A data constructor declaration.
+-- | A data constructor declaration. The first field of each constructor
+-- is what the type checker found for the declaration: the type of the
+-- data constructor.
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkSpanAnnotation').
     DataConAnn Annotation DataConDecl
-  | -- | What the type checker found for the whole constructor declaration.
-    DataConTc TcInfo DataConDecl
   | -- | @Just a@
-    PrefixCon [TyVarBinder] [Type] UnqualifiedName [BangType]
+    PrefixCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [BangType]
   | -- | @a :+: b@
-    InfixCon [TyVarBinder] [Type] BangType UnqualifiedName BangType
+    InfixCon [TcInfo] [TyVarBinder] [Type] BangType UnqualifiedName BangType
   | -- | @MkT { x :: Int, y :: Bool }@
-    RecordCon [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
+    RecordCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon [ForallTelescope] [Type] [UnqualifiedName] GadtBody
+    GadtCon [TcInfo] [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   | -- | Tuple-style constructor: @()@, @(a,b)@, @(# #)@, @(# a,b #)@
-    TupleCon [TyVarBinder] [Type] TupleFlavor [BangType]
+    TupleCon [TcInfo] [TyVarBinder] [Type] TupleFlavor [BangType]
   | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
     -- Fields: forall vars, context, position (1-based), total arity, field type
-    UnboxedSumCon [TyVarBinder] [Type] Int Int BangType
+    UnboxedSumCon [TcInfo] [TyVarBinder] [Type] Int Int BangType
   | -- | List constructor: @[]@. The name is the built-in list syntax.
-    ListCon [TyVarBinder] [Type] Name
+    ListCon [TcInfo] [TyVarBinder] [Type] Name
   deriving (Eq, Show)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1377,8 +1431,6 @@ data ClassDecl = ClassDecl
 data ClassDeclItem
   = -- | Metadata for the whole class item.
     ClassItemAnn Annotation ClassDeclItem
-  | -- | What the type checker found for the whole class item.
-    ClassItemTc TcInfo ClassDeclItem
   | -- | A resolve error for the whole class item.
     ClassItemError ResolveError ClassDeclItem
   | -- | @f :: a -> Bool@
@@ -1387,8 +1439,9 @@ data ClassDeclItem
     ClassItemDefaultSig BinderName Type
   | -- | @infixr 5 :+:@
     ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | -- | A default method body such as @f x = True@.
-    ClassItemDefault ValueDecl
+  | -- | A default method body such as @f x = True@. The information is
+    -- the type of the default method.
+    ClassItemDefault [TcInfo] ValueDecl
   | -- | @type family F a@
     ClassItemTypeFamilyDecl TypeFamilyDecl
   | -- | @data family DF a@
@@ -1415,18 +1468,18 @@ data InstanceDecl = InstanceDecl
 data InstanceDeclItem
   = -- | Metadata for the whole instance item (typically a 'SourceSpan' via 'mkSpanAnnotation').
     InstanceItemAnn Annotation InstanceDeclItem
-  | -- | What the type checker found for the whole instance item.
-    InstanceItemTc TcInfo InstanceDeclItem
   | -- | A resolve error for the whole instance item.
     InstanceItemError ResolveError InstanceDeclItem
-  | -- | A method body such as @show x = ...@
-    InstanceItemBind ValueDecl
+  | -- | A method body such as @show x = ...@. The information is the
+    -- checked type of the method.
+    InstanceItemBind [TcInfo] ValueDecl
   | -- | @show :: T -> String@
     InstanceItemTypeSig [BinderName] Type
   | -- | @infixr 5 :+:@
     InstanceItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | -- | @type F Int = Bool@
-    InstanceItemTypeFamilyInst TypeFamilyInst
+  | -- | @type F Int = Bool@. The information is the equation of the
+    -- instance.
+    InstanceItemTypeFamilyInst [TcInfo] TypeFamilyInst
   | -- | @data instance DF Int = DFInt@
     InstanceItemDataFamilyInst DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
@@ -1584,8 +1637,6 @@ data LambdaCaseAlt = LambdaCaseAlt
 data DoStmt body
   = -- | Metadata for the whole do-statement (typically a 'SourceSpan' via 'mkSpanAnnotation').
     DoAnn Annotation (DoStmt body)
-  | -- | What the type checker found for the whole statement.
-    DoTc TcInfo (DoStmt body)
   | -- | The knot variables of a @rec@ segment of an @mdo@ block.
     DoRecKnot RecKnotVariables (DoStmt body)
   | -- | @pat <- expr@. The methods are 'Nothing' for the last statement of
@@ -1598,9 +1649,11 @@ data DoStmt body
     -- last statement of a block and for a statement that the resolver did
     -- not resolve.
     DoExpr (Maybe Name) body
-  | -- | @rec { stmts }@. The methods are 'Nothing' for a statement that the
-    -- resolver did not resolve.
-    DoRecStmt (Maybe DoRecMethods) [DoStmt body]
+  | -- | @rec { stmts }@. The information is the type of the tuple of the
+    -- group variables, then a pair of items for each knot occurrence. The
+    -- methods are 'Nothing' for a statement that the resolver did not
+    -- resolve.
+    DoRecStmt [TcInfo] (Maybe DoRecMethods) [DoStmt body]
   deriving (Eq, Show)
 
 -- | The methods of the desugaring of a bind statement.
@@ -1659,34 +1712,33 @@ data Cmd
     CmdPar Cmd
   deriving (Eq, Show)
 
--- | A statement inside a list comprehension.
+-- | A statement inside a list comprehension. The first field of each
+-- constructor is what the type checker found for the statement: the type
+-- of the tuple of the bound variables. The first statement of a parallel
+-- branch and each transform statement have it.
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkSpanAnnotation').
     CompAnn Annotation CompStmt
-  | -- | What the type checker found for the whole statement.
-    CompTc TcInfo CompStmt
   | -- | @x <- xs@
-    CompGen Pattern Expr
+    CompGen [TcInfo] Pattern Expr
   | -- | @x > 0@
-    CompGuard Expr
+    CompGuard [TcInfo] Expr
   | -- | @let y = f x@
-    CompLetDecls [Decl]
+    CompLetDecls [TcInfo] [Decl]
   | -- | @then f@ (TransformListComp)
-    CompThen Expr
+    CompThen [TcInfo] Expr
   | -- | @then f by e@ (TransformListComp)
-    CompThenBy Expr Expr
+    CompThenBy [TcInfo] Expr Expr
   | -- | @then group using f@ (TransformListComp)
-    CompGroupUsing Expr
+    CompGroupUsing [TcInfo] Expr
   | -- | @then group by e using f@ (TransformListComp)
-    CompGroupByUsing Expr Expr
+    CompGroupByUsing [TcInfo] Expr Expr
   deriving (Eq, Show)
 
 -- | An arithmetic sequence expression.
 data ArithSeq
   = -- | Metadata for the whole arithmetic sequence (typically a 'SourceSpan' via 'mkSpanAnnotation').
     ArithSeqAnn Annotation ArithSeq
-  | -- | What the type checker found for the whole arithmetic sequence.
-    ArithSeqTc TcInfo ArithSeq
   | -- | @[expr ..]@. The name is the @enumFrom@ method.
     ArithSeqFrom Name Expr
   | -- | @[start, thenExpr ..]@. The name is the @enumFromThen@ method.
@@ -1717,7 +1769,6 @@ mapArithSeqMethod f arithSeq =
     ArithSeqFromTo method from to -> ArithSeqFromTo (f method) from to
     ArithSeqFromThenTo method from then' to -> ArithSeqFromThenTo (f method) from then' to
     ArithSeqAnn ann inner -> ArithSeqAnn ann (mapArithSeqMethod f inner)
-    ArithSeqTc info inner -> ArithSeqTc info (mapArithSeqMethod f inner)
 
 -- | Wrap a declaration with its checked type.
 annotateDecl :: TcAnnotation -> Decl -> Decl
