@@ -1425,8 +1425,7 @@ candidateDependencies platform aliases flags demanded root gpd =
 -- one flag assignment, after aliasing.
 usedSubLibraries :: (OS, Arch) -> Map PackageName PackageName -> FlagAssignment -> Set Text -> Maybe Stanzas -> Package -> MonoidMap PackageName (Set Text)
 usedSubLibraries platform aliases flags demanded root gpd =
-  MonoidMap.fromListWith
-    Set.union
+  MonoidMap.fromList
     [ (resolved, Set.singleton library)
     | build <- contributingBuildInfos platform flags demanded root gpd,
       Dependency packageName _ libraries <- dependencies build,
