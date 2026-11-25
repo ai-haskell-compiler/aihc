@@ -1357,11 +1357,23 @@ typeableArguments ty =
 --
 -- The first set holds every family rule: a family application rewrites to
 -- the other side of its given. A given whose two sides are both family
--- applications rewrites nothing. Each later set adds one rigid variable
--- rule to the family rules. A rigid variable equal to another type
--- rewrites to that type. Two rigid variables give one set for each
--- direction, because the wanted can name either one while the given names
--- the other.
+-- applications rewrites nothing.
+--
+-- The given equalities between two rigid variables divide the variables
+-- into classes. For each variable of a class, a set rewrites all the
+-- variables of the class to that variable, and the family rules with the
+-- same rewrites. The solver rewrites the givens as well as the wanted.
+-- One set for each class is necessary: the givens @a ~ a2, ..., a ~ a9@
+-- of the tuple instances of @Control.Lens.At@ make the wanted @Each (a,
+-- a2, ..., a9) t a b@. Only the rewrite of all the variables to one
+-- variable matches the instance @Each (a, a, ..., a)@. A set for each
+-- rewrite of one variable made the solver try each order of the rewrites,
+-- and the number of orders is exponential. The target of the rewrite is
+-- important: with the givens @m ~~ m'@ and @MonadReader r m'@, only the
+-- rewrite to @m'@ solves the wanted @Monad m@.
+--
+-- Each later set adds one rule to the family rules. A rigid variable equal
+-- to a type that is not a variable rewrites to that type.
 givenRewriteRuleSets :: [Pred] -> TcM [[(TcType, TcType, Coercion)]]
 givenRewriteRuleSets givens = do
   written <- allGivenEqualities givens
@@ -1371,10 +1383,64 @@ givenRewriteRuleSets givens = do
   reduced <- traverse (\(left, right, proof) -> (,,proof) <$> reduceTypeFamilies left <*> reduceTypeFamilies right) decomposed
   let equalities = decomposed <> [equality | equality@(left, right, _) <- reduced, (left, right) `notElem` [(l, r) | (l, r, _) <- decomposed]]
   oriented <- mapM orient equalities
-  let familyRules = concat [rules | (rules, _) <- oriented]
-      variableRules = concat [rules | (_, rules) <- oriented]
-  pure (familyRules : [familyRules <> [rule] | rule <- variableRules])
+  let familyRules = concat [rules | (rules, _, _) <- oriented]
+      variableRules = concat [rules | (_, rules, _) <- oriented]
+      renamingRules =
+        [ renamedFamilyRules renaming <> familyRules <> renaming
+        | renaming <- variableRenamings (concat [pairs | (_, _, pairs) <- oriented])
+        ]
+      renamedFamilyRules renaming =
+        [ (from', to', Trans (Sym fromProof) (Trans proof toProof))
+        | (from, to, proof) <- familyRules,
+          let (from', fromProof) = rewriteWithRules renaming from
+              (to', toProof) = rewriteWithRules renaming to,
+          not (sameType from' from && sameType to' to)
+        ]
+  pure (familyRules : renamingRules <> [familyRules <> [rule] | rule <- variableRules])
   where
+    -- For each variable of each class, the rules that rewrite all the
+    -- variables of the class to that variable. The root of a class is the
+    -- left side of a given, and the last target. Thus the given @a ~ b@
+    -- first rewrites @a@ to @b@, as the given states it.
+    variableRenamings pairs =
+      [ [ (TcTyVar variable, TcTyVar target, compose proof (symmetric targetProof))
+        | (variable, proof) <- members,
+          not (sameTyVar variable target)
+        ]
+      | members <- variableClasses pairs,
+        (target, targetProof) <- reverse members
+      ]
+    compose (Refl _) proof = proof
+    compose proof (Refl _) = proof
+    compose first second = Trans first second
+    symmetric proof = case proof of
+      Refl {} -> proof
+      Sym inner -> inner
+      _ -> Sym proof
+    -- The classes of the variables. Each variable has a proof of
+    -- @variable ~ root@ along a path of givens. The root is the first
+    -- variable of its class.
+    variableClasses pairs = go [] pairs
+      where
+        go _ [] = []
+        go seen ((left, _, _) : rest)
+          | any (sameTyVar left) seen = go seen rest
+          | otherwise =
+              let members = walk [(left, Refl (TcTyVar left))] [left]
+               in members : go (map fst members <> seen) rest
+        walk reached [] = reached
+        walk reached (current : queue) =
+          let toRoot = fromMaybe (Refl (TcTyVar current)) (listToMaybe [proof | (other, proof) <- reached, sameTyVar other current])
+              next =
+                [ (other, compose step toRoot)
+                | (left, right, proof) <- pairs,
+                  (other, step) <-
+                    [(right, Sym proof) | sameTyVar left current]
+                      <> [(left, proof) | sameTyVar right current],
+                  not (any (sameTyVar other . fst) reached)
+                ]
+              new = List.nubBy (\(x, _) (y, _) -> sameTyVar x y) next
+           in walk (reached <> new) (queue <> map fst new)
     -- A given equality between two applications of one constructor also
     -- gives the equalities of their arguments: @M1 f ~ M1 g@ gives @f ~
     -- g@, which can rewrite a wanted @C f@ to the given @C g@. Each part
@@ -1423,9 +1489,13 @@ givenRewriteRuleSets givens = do
       leftIsFamily <- isTypeFamilyApplication left
       rightIsFamily <- isTypeFamilyApplication right
       pure $ case (leftIsFamily, rightIsFamily) of
-        (True, False) -> ([(left, right, proof)], skolemRule right left (Sym proof))
-        (False, True) -> ([(right, left, Sym proof)], skolemRule left right proof)
-        (False, False) -> ([], variableRule left right proof)
+        (True, False) -> ([(left, right, proof)], skolemRule right left (Sym proof), [])
+        (False, True) -> ([(right, left, Sym proof)], skolemRule left right proof, [])
+        (False, False) -> case (left, right) of
+          (TcTyVar leftVar, TcTyVar rightVar)
+            | sameTyVar leftVar rightVar -> ([], [], [])
+            | otherwise -> ([], [], [(leftVar, rightVar, proof)])
+          _ -> ([], variableRule left right proof, [])
         -- Two family applications have no preferred side. Each direction
         -- is an alternative: the given @AllB c b ~ GAll 0 c (Rep b)@
         -- rewrites a wanted @GAll 0 c (Rep b)@ to the given @AllB c b@.
@@ -1433,13 +1503,14 @@ givenRewriteRuleSets givens = do
         -- rule: the given @F (F a) ~ F a@ would rewrite @F a@ to @F (F
         -- a)@, and each rewritten wanted to a larger one, without end.
         (True, True)
-          | sameType left right -> ([], [])
+          | sameType left right -> ([], [], [])
           | otherwise ->
               ( [],
                 [ rule
                 | rule@(from, to, _) <- [(left, right, proof), (right, left, Sym proof)],
                   not (containsType from to)
-                ]
+                ],
+                []
               )
     containsType from ty =
       sameType from ty
@@ -1461,9 +1532,6 @@ givenRewriteRuleSets givens = do
         _ -> []
     variableRule left right proof =
       case (left, right) of
-        (TcTyVar leftVar, TcTyVar rightVar)
-          | sameTyVar leftVar rightVar -> []
-          | otherwise -> [(left, right, proof), (right, left, Sym proof)]
         (TcTyVar _, _) -> [(left, right, proof)]
         (_, TcTyVar _) -> [(right, left, Sym proof)]
         _ -> []
