@@ -72,6 +72,8 @@ import Aihc.Tc.Syntax.Pending
     mkSpanAnnotation,
     peelExprAnn,
     qualifyName,
+    PatternTc (..),
+    ExprTc (..),
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType)
@@ -533,7 +535,7 @@ syntaxResolution name = nameResolution name >>= resolvedOf
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
-  ETc (InfoType ann)
+  ETc (ExprType ann)
 
 annotatePendingExprAt :: Maybe SourceSpan -> PendingTcAnnotation -> Expr -> Expr
 annotatePendingExprAt Nothing ann =
@@ -587,7 +589,7 @@ annotateLambdaPattern bindings argTy pat =
   let annotated = annotatePatternBindings bindings pat
    in if lambdaPatternCarriesBinderType annotated
         then annotated
-        else PTc (InfoType (pendingAnnotation argTy [] [] [])) annotated
+        else PTc (PatternType (pendingAnnotation argTy [] [] [])) annotated
 
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
@@ -1611,8 +1613,8 @@ pendingTypeArgs expr =
     EAnn _ inner -> pendingTypeArgs inner
     ETc info inner ->
       case info of
-        InfoType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
-        _ -> pendingTypeArgs inner
+        ExprType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
+        ExprCast _ -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner

@@ -61,7 +61,6 @@ import Aihc.Tc.Syntax.Pending
     UnqualifiedName (..),
     ValueDecl (..),
     annotationSpan,
-    infoHasType,
     infoIsPending,
     mkSpanAnnotation,
     nameText,
@@ -69,6 +68,7 @@ import Aihc.Tc.Syntax.Pending
     peelLiteralAnn,
     peelPatternAnn,
     resolvedBinderEntity,
+    PatternTc (..),
   )
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -267,7 +267,7 @@ checkPattern sp pat scrutTy
       (body, typeArgs, predicates) <- instantiatePatternType scrutTy
       wanted <- mapM (predToCt sp "pattern") predicates
       check <- checkPattern sp pat body
-      let annotate = PTc InfoPatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
+      let annotate = PTc PatternInstantiation . annotatePendingPatternAt sp (pendingAnnotation body typeArgs (map ctEvVar wanted) [])
       pure check {pcWantedCts = wanted <> pcWantedCts check, pcPatterns = map annotate (pcPatterns check)}
   where
     isSigmaType ty = case ty of
@@ -338,8 +338,8 @@ checkedPatternType sp ty pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
 annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt Nothing pending = PTc (InfoType pending)
-annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (InfoType pending)
+annotatePendingPatternAt Nothing pending = PTc (PatternType pending)
+annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (PatternType pending)
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
@@ -368,11 +368,19 @@ patternNeedsCheckedType pat =
     PTypeSig inner _ -> patternNeedsCheckedType inner
     _ -> True
 
+-- | Whether the information of a pattern wrapper is a type.
+patternTcHasType :: PatternTc -> Bool
+patternTcHasType item =
+  case item of
+    PatternType _ -> True
+    PatternCast _ -> False
+    PatternInstantiation -> False
+
 patternHasPendingType :: Pattern -> Bool
 patternHasPendingType pat =
   case pat of
     PAnn _ inner -> patternHasPendingType inner
-    PTc info inner -> infoHasType info || patternHasPendingType inner
+    PTc info inner -> patternTcHasType info || patternHasPendingType inner
     PParen inner -> patternHasPendingType inner
     PLit _ literal -> literalHasPendingType literal
     PStrict inner -> patternHasPendingType inner
@@ -384,7 +392,7 @@ literalHasPendingType :: Literal -> Bool
 literalHasPendingType literal =
   case literal of
     LitAnn _ inner -> literalHasPendingType inner
-    LitTc info inner -> infoHasType info || literalHasPendingType inner
+    LitTc _ _ -> True
     _ -> False
 
 sourceSpanFromAnnotations :: [Annotation] -> Maybe SourceSpan
@@ -447,7 +455,7 @@ checkPatternCore sp pat scrutTy =
             -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              let castPattern = PTc (InfoCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit match (checkedLiteral literalTy lit))
+              let castPattern = PTc (PatternCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit match (checkedLiteral literalTy lit))
               pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
             Nothing -> pure (checkedOnly (PLit match (checkedLiteral scrutTy lit)))
     PNegLit _ lit
@@ -609,7 +617,7 @@ checkTuplePattern sp flavor items scrutTy = do
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
   let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
-      castPattern = PTc (InfoCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
+      castPattern = PTc (PatternCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
 
 -- | Whether a pattern contains a constructor pattern.
@@ -637,7 +645,7 @@ checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
 
 checkedLiteral :: TcType -> Literal -> Literal
-checkedLiteral ty = LitTc (InfoType (pendingAnnotation ty [] [] []))
+checkedLiteral ty = LitTc (pendingAnnotation ty [] [] [])
 
 checkListPattern :: Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
 checkListPattern sp items scrutTy =
@@ -1050,7 +1058,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcTyVars = boundTyVars <> pcTyVars subCheck,
-            pcPatterns = [PTc (InfoCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
+            pcPatterns = [PTc (PatternCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)

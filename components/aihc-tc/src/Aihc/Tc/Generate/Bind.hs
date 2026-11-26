@@ -16,7 +16,7 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, WorkingTcAnnotation (..))
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -71,6 +71,8 @@ import Aihc.Tc.Syntax.Pending
     peelDeclAnn,
     peelDoStmtAnn,
     unqualifiedNameText,
+    PatternTc (..),
+    ExprTc (..),
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
@@ -285,8 +287,8 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
             Nothing -> pure expr
             Just annotation ->
               pure $ case mapMaybe annotationSpan (nameAnns name) of
-                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (InfoType annotation) (EVar name))
-                [] -> ETc (InfoType annotation) (EVar name)
+                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (ExprType annotation) (EVar name))
+                [] -> ETc (ExprType annotation) (EVar name)
         EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
         ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
         ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
@@ -443,7 +445,7 @@ inferImplicitParamDecl inferExpr decl =
           Just whereDecls -> do
             (whereDecls', expr', ty, cts) <- inferLocalDecls inferExpr whereDecls (inferExpr expr)
             pure (expr', Just whereDecls', ty, cts)
-      let annotated = DeclTc (InfoType (pendingAnnotation ty [] [] [])) (DeclImplicitParam name expr' maybeDecls')
+      let annotated = DeclTc (WorkingPending (pendingAnnotation ty [] [] [])) (DeclImplicitParam name expr' maybeDecls')
       pure (annotated, name, ty, cts)
     _ -> abortTc "implicit-parameter group contains another declaration"
 
@@ -494,7 +496,7 @@ annotateLocalBindingDecls generalized binders decls = do
 annotateLocalBindingDecl :: Set.Set Entity -> Map Entity TcBinder -> Decl -> TcM Decl
 annotateLocalBindingDecl generalized binders decl =
   case decl of
-    DeclTc (InfoType pending) (DeclValue (PatternBind mult pat rhs))
+    DeclTc (WorkingPending pending) (DeclValue (PatternBind mult pat rhs))
       | Nothing <- patternBinderName pat -> do
           keys <- patternBinderKeyList pat
           let schemes = [(name, scheme) | (name, key) <- zip (patternBinderNames pat) keys, Set.member key generalized, Just (TcIdBinder scheme _) <- [Map.lookup key binders]]
@@ -504,7 +506,7 @@ annotateLocalBindingDecl generalized binders decl =
             else do
               pendings <- mapM (binderPending rhsTyVars) schemes
               let pending' = pending {pendingTcAnnType = foldr TcForAllTy (pendingTcAnnType pending) rhsTyVars}
-              pure (DeclTc (InfoType pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
+              pure (DeclTc (WorkingPending pending') (DeclValue (PatternBind mult (reannotatePatternBinders pendings pat) rhs)))
     DeclAnn ann inner -> DeclAnn ann <$> annotateLocalBindingDecl generalized binders inner
     DeclTc ann inner -> DeclTc ann <$> annotateLocalBindingDecl generalized binders inner
     DeclError ann inner -> DeclError ann <$> annotateLocalBindingDecl generalized binders inner
@@ -516,7 +518,7 @@ annotateLocalBindingDecl generalized binders decl =
         case keys of
           key : _
             | Just binder <- Map.lookup key binders ->
-                pure (DeclTc (InfoType (pendingAnnotation (binderType binder) [] [] [])) decl)
+                pure (DeclTc (WorkingPending (pendingAnnotation (binderType binder) [] [] [])) decl)
           _ -> pure decl
     _ -> pure decl
   where
@@ -919,7 +921,7 @@ inferLocalPatternDecl inferExpr placeholders mult pat rhs = do
   let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
   -- The declaration records the type of the right-hand side.
   -- 'annotateLocalBindingDecl' generalizes it with the group.
-  pure (DeclTc (InfoType (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts, schemes)
+  pure (DeclTc (WorkingPending (pendingAnnotation rhsTy [] [] [])) (DeclValue (PatternBind mult pat' rhs')), cts, schemes)
   where
     isPolymorphicType ty =
       case ty of
@@ -956,9 +958,9 @@ inferStrictSignatureBind inferExpr sigs scopedSigs placeholders mult pat name sc
   instantiation <- instantiateWithArgs scheme
   forceCts <- mapM wantedForce (instPreds instantiation)
   let forcePending = pendingAnnotation (instType instantiation) (instTypeArgs instantiation) (map ctEvVar forceCts) []
-      pat' = PTc InfoPatternInstantiation (PTc (InfoType forcePending) pat)
+      pat' = PTc PatternInstantiation (PTc (PatternType forcePending) pat)
       declPending = pendingAnnotation (schemeToType scheme) [] [] []
-  pure (DeclTc (InfoType declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
+  pure (DeclTc (WorkingPending declPending) (DeclValue (PatternBind mult pat' rhs')), cts <> forceCts)
   where
     wantedForce predicate = do
       evidence <- freshEvVar

@@ -25,10 +25,11 @@
 module Aihc.Tc.Syntax.Pending
   ( -- * Type checker information
     TcInfo (..),
+    ExprTc (..),
+    PatternTc (..),
     PatSynEquations (..),
     infoPending,
     infoIsPending,
-    infoHasType,
     annotateDecl,
     annotateRhsCast,
     annotateExprCast,
@@ -284,6 +285,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation,
     TcModuleIdentity,
     TcRecStmt,
+    WorkingTcAnnotation (..),
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (EvVar)
@@ -302,8 +304,25 @@ data TcInfo
     InfoCheckedType !TcAnnotation
   | -- | A pending cast of a node to a type that an equality proves.
     InfoCast !PendingTcCastAnnotation
-  | -- | The constructor pattern instantiates its type arguments.
-    InfoPatternInstantiation
+  deriving (Eq, Show)
+
+-- | What the type checker found for a whole expression.
+data ExprTc
+  = -- | The pending type of the expression, with its type arguments and evidence.
+    ExprType !PendingTcAnnotation
+  | -- | A pending cast of the expression to a type that an equality proves.
+    ExprCast !PendingTcCastAnnotation
+  deriving (Eq, Show)
+
+-- | What the type checker found for a whole pattern.
+data PatternTc
+  = -- | The pending type of the pattern, with its type arguments and evidence.
+    PatternType !PendingTcAnnotation
+  | -- | A pending cast of the pattern to a type that an equality proves.
+    PatternCast !PendingTcCastAnnotation
+  | -- | The constructor pattern instantiates its type arguments. The
+    -- annotation of the instantiation is in the next 'PatternType' wrapper.
+    PatternInstantiation
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -320,8 +339,8 @@ data PatSynEquations = PatSynEquations
 data Literal
   = -- | Metadata for the whole literal.
     LitAnn Annotation Literal
-  | -- | What the type checker found for the whole literal.
-    LitTc TcInfo Literal
+  | -- | The pending type of the whole literal.
+    LitTc PendingTcAnnotation Literal
   | -- | @1@, @1#@, @1#Word8@
     LitInt Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
@@ -783,8 +802,8 @@ data ImportItem
 data Decl
   = -- | Metadata for the whole declaration.
     DeclAnn Annotation Decl
-  | -- | What the type checker found for the whole declaration.
-    DeclTc TcInfo Decl
+  | -- | The pending or checked type of the whole declaration.
+    DeclTc WorkingTcAnnotation Decl
   | -- | A resolve error for the whole declaration.
     DeclError ResolveError Decl
   | -- | @f x = x@ or @x = 1@
@@ -1055,7 +1074,7 @@ data Pattern
   = -- | Metadata for the whole pattern.
     PAnn Annotation Pattern
   | -- | What the type checker found for the whole pattern.
-    PTc TcInfo Pattern
+    PTc PatternTc Pattern
   | -- | @x@
     PVar UnqualifiedName
   | -- | @\@a@ in a required type argument pattern.
@@ -1508,7 +1527,7 @@ data Expr
   = -- | Metadata for the whole expression.
     EAnn Annotation Expr
   | -- | What the type checker found for the whole expression.
-    ETc TcInfo Expr
+    ETc ExprTc Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
@@ -1776,7 +1795,7 @@ mapArithSeqMethod f arithSeq =
 
 -- | Wrap a declaration with its checked type.
 annotateDecl :: TcAnnotation -> Decl -> Decl
-annotateDecl ann = DeclTc (InfoCheckedType ann)
+annotateDecl ann = DeclTc (WorkingChecked ann)
 
 -- | Cast a right-hand side onto the right type of its wanted equality.
 annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
@@ -1791,7 +1810,7 @@ annotateRhsCast ty evidence rhs =
 -- equality that proves it runs backwards for the argument itself.
 annotateExprCast :: TcType -> EvVar -> Expr -> Expr
 annotateExprCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToLeft))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToLeft))
 
 -- | Cast an expression onto the right type of its wanted equality. The
 -- function of an application whose type is not syntactically an arrow is
@@ -1799,7 +1818,7 @@ annotateExprCast ty evidence =
 -- for the function itself.
 annotateFunCast :: TcType -> EvVar -> Expr -> Expr
 annotateFunCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast an annotated expression onto its signature type. The expression
 -- is equated as @actual ~ signature@, so the proof runs forwards. A given
@@ -1808,7 +1827,7 @@ annotateFunCast ty evidence =
 -- stands, and FC needs the cast onto @Proxy d@.
 annotateSigCast :: TcType -> EvVar -> Expr -> Expr
 annotateSigCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast a part of an @if@ expression onto the type that the expression
 -- needs there. The part is equated as @actual ~ needed@, so the proof
@@ -1817,7 +1836,7 @@ annotateSigCast ty evidence =
 -- the types @N t@ and @n@.
 annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
 annotateBranchCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | The pending type of an item of information, if it is one.
 infoPending :: TcInfo -> Maybe PendingTcAnnotation
@@ -1831,12 +1850,4 @@ infoIsPending :: TcInfo -> Bool
 infoIsPending item =
   case item of
     InfoType _ -> True
-    _ -> False
-
--- | Whether an item of information is a type, pending or final.
-infoHasType :: TcInfo -> Bool
-infoHasType item =
-  case item of
-    InfoType _ -> True
-    InfoCheckedType _ -> True
     _ -> False

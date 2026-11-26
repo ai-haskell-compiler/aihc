@@ -39,6 +39,7 @@ import Aihc.Tc.Syntax
     DoStmt (..),
     ExportSpec (..),
     Expr (..),
+    ExprTc (..),
     GuardQualifier (..),
     ImportItem (..),
     InstanceDecl (..),
@@ -53,6 +54,7 @@ import Aihc.Tc.Syntax
     NewtypeDecl (..),
     OverloadedLiteralMatch (..),
     Pattern (..),
+    PatternTc (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
     TcInfo (..),
@@ -394,12 +396,14 @@ peelLeading peel =
 
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
-peelExpr (ETc info inner) = Just (Nothing, Just info, inner)
+peelExpr (ETc (ExprType annotation) inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelExpr (ETc (ExprCast _) inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 
 peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
 peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
-peelPattern (PTc info inner) = Just (Nothing, Just info, inner)
+peelPattern (PTc (PatternType annotation) inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelPattern (PTc _ inner) = Just (Nothing, Nothing, inner)
 peelPattern _ = Nothing
 
 peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)
@@ -408,7 +412,7 @@ peelType _ = Nothing
 
 peelDecl :: Decl -> Maybe (Maybe Annotation, Maybe TcInfo, Decl)
 peelDecl (DeclAnn ann inner) = Just (Just ann, Nothing, inner)
-peelDecl (DeclTc info inner) = Just (Nothing, Just info, inner)
+peelDecl (DeclTc annotation inner) = Just (Nothing, Just (InfoType annotation), inner)
 peelDecl (DeclError _ inner) = Just (Nothing, Nothing, inner)
 peelDecl _ = Nothing
 
@@ -418,7 +422,7 @@ peelDataCon _ = Nothing
 
 peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcInfo, Literal)
 peelLiteral (LitAnn ann inner) = Just (Just ann, Nothing, inner)
-peelLiteral (LitTc info inner) = Just (Nothing, Just info, inner)
+peelLiteral (LitTc annotation inner) = Just (Nothing, Just (InfoType annotation), inner)
 peelLiteral _ = Nothing
 
 peelGuard :: GuardQualifier -> Maybe (Maybe Annotation, Maybe TcInfo, GuardQualifier)

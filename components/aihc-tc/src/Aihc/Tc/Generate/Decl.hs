@@ -146,7 +146,6 @@ import Aihc.Tc.Syntax.Pending
     binderHeadParams,
     binderResolved,
     gadtBodyResultType,
-    infoPending,
     instanceHeadName,
     mkSpanAnnotation,
     moduleExports,
@@ -162,8 +161,10 @@ import Aihc.Tc.Syntax.Pending
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
+    ExprTc (..),
+    PatternTc (..),
   )
-import Aihc.Tc.Syntax.Pending.Traverse (collectResolutions, collectTcInfos)
+import Aihc.Tc.Syntax.Pending.Traverse (collectPendingAnnotations, collectResolutions)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -790,7 +791,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
         Just residualPreds'
           | failed -> pure rule
           | otherwise -> do
-              let interior = concatMap pendingTypes (collectTcInfos infoPending lhs')
+              let interior = concatMap pendingTypes (collectPendingAnnotations lhs')
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
               -- A binder signature can give a variable a kind that mentions a
               -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
@@ -3946,7 +3947,7 @@ patternToExpr pat
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
-    PTc info inner -> ETc info <$> patternToExpr inner
+    PTc info inner -> patternTcExpr info <$> patternToExpr inner
     PVar name -> Just (localVar name)
     PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
@@ -3990,7 +3991,7 @@ literalPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
+        PTc info inner -> go (patternTcExpr info : wrappers) inner
         PLit match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
            in wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
@@ -4008,7 +4009,7 @@ negatedLiteralPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
+        PTc info inner -> go (patternTcExpr info : wrappers) inner
         PNegLit match literal -> do
           let (literalWrappers, bare) = peelLiteralAnns literal
           converted <- wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
@@ -4020,6 +4021,15 @@ negatedLiteralPatternToExpr = go []
           pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
         _ -> Nothing
 
+-- | The information of a pattern wrapper as an expression wrapper. The
+-- mark of a pattern instantiation has no meaning for an expression.
+patternTcExpr :: PatternTc -> Expr -> Expr
+patternTcExpr item =
+  case item of
+    PatternType annotation -> ETc (ExprType annotation)
+    PatternCast cast -> ETc (ExprCast cast)
+    PatternInstantiation -> id
+
 -- | Apply wrappers to an expression, the first wrapper innermost.
 wrapAll :: [Expr -> Expr] -> Expr -> Expr
 wrapAll wrappers expr = foldl (\inner wrap -> wrap inner) expr wrappers
@@ -4030,7 +4040,7 @@ peelLiteralAnns :: Literal -> ([Expr -> Expr], Literal)
 peelLiteralAnns literal =
   case literal of
     LitAnn ann inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [EAnn ann], bare)
-    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc info], bare)
+    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc (ExprType info)], bare)
     _ -> ([], literal)
 
 -- | A bare literal of a literal pattern as an expression, with the names of
@@ -4040,7 +4050,7 @@ literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
 literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
-    LitTc info inner -> ETc info <$> literalMatchExpr match inner
+    LitTc info inner -> ETc (ExprType info) <$> literalMatchExpr match inner
     LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
     LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
     LitChar value source -> Just (EChar value source)

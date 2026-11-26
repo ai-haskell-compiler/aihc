@@ -634,11 +634,12 @@ infoType item =
     Syn.InfoType annotation -> Just annotation
     _ -> Nothing
 
--- | The cast of an item of information, if it is one.
-infoCast :: Syn.TcInfo -> Maybe TcCastAnnotation
-infoCast item =
+-- | The checked type of the information of a pattern wrapper, if it is
+-- one.
+patternInfoType :: Syn.PatternTc -> Maybe TcAnnotation
+patternInfoType item =
   case item of
-    Syn.InfoCast annotation -> Just annotation
+    Syn.PatternType annotation -> Just annotation
     _ -> Nothing
 
 -- | The proof of a cast, if the item is a cast that needs one.
@@ -655,7 +656,7 @@ infoCastProof item =
 constructorPatternAnnotation :: Syn.Pattern -> Maybe TcAnnotation
 constructorPatternAnnotation pattern' =
   case pattern' of
-    Syn.PTc info inner -> constructorPatternAnnotation inner <|> infoType info
+    Syn.PTc info inner -> constructorPatternAnnotation inner <|> patternInfoType info
     Syn.PAnn _ inner -> constructorPatternAnnotation inner
     Syn.PParen inner -> constructorPatternAnnotation inner
     Syn.PStrict inner -> constructorPatternAnnotation inner
@@ -667,7 +668,7 @@ constructorPatternAnnotation pattern' =
 patternAnnotation :: Syn.Pattern -> Maybe TcAnnotation
 patternAnnotation pattern' =
   case pattern' of
-    Syn.PTc info inner -> infoType info <|> patternAnnotation inner
+    Syn.PTc info inner -> patternInfoType info <|> patternAnnotation inner
     Syn.PAnn _ inner -> patternAnnotation inner
     Syn.PParen inner -> patternAnnotation inner
     Syn.PStrict inner -> patternAnnotation inner
@@ -1035,7 +1036,7 @@ annotatedForeignDecl = go Nothing
   where
     go maybeType declaration =
       case declaration of
-        Syn.DeclTc info inner -> go (infoType info <|> maybeType) inner
+        Syn.DeclTc info inner -> go (Just info <|> maybeType) inner
         Syn.DeclAnn _ inner -> go maybeType inner
         Syn.DeclError _ inner -> go maybeType inner
         Syn.DeclForeign foreignDecl -> (,Syn.foreignPlan foreignDecl,foreignDecl) <$> maybeType
@@ -1847,7 +1848,7 @@ patternBinding declaration =
 declarationType :: Syn.Decl -> Maybe TcType
 declarationType declaration =
   case declaration of
-    Syn.DeclTc info inner -> (tcAnnType <$> infoType info) <|> declarationType inner
+    Syn.DeclTc info _ -> Just (tcAnnType info)
     Syn.DeclAnn _ inner -> declarationType inner
     Syn.DeclError _ inner -> declarationType inner
     _ -> Nothing
@@ -2885,7 +2886,7 @@ desugarDataPatterns resultType fallback argument arguments argumentTypes works =
 -- | The type checker supplies the cast before a constructor pattern match.
 patternScrutineeCast :: Syn.Pattern -> Maybe (TcType, Ev.Coercion)
 patternScrutineeCast pattern' = case pattern' of
-  Syn.PTc (Syn.InfoCast (TcCastAnnotation (Just proof) target)) _ -> Just (target, proof)
+  Syn.PTc (Syn.PatternCast (TcCastAnnotation (Just proof) target)) _ -> Just (target, proof)
   Syn.PTc _ inner -> patternScrutineeCast inner
   Syn.PAnn _ inner -> patternScrutineeCast inner
   Syn.PParen inner -> patternScrutineeCast inner
@@ -3145,7 +3146,7 @@ specializeMatchWork key arity fields fieldTypes (match, locals) =
 
 patternHasInstantiation :: Syn.Pattern -> Bool
 patternHasInstantiation pattern' = case pattern' of
-  Syn.PTc info inner -> info == Syn.InfoPatternInstantiation || patternHasInstantiation inner
+  Syn.PTc info inner -> info == Syn.PatternInstantiation || patternHasInstantiation inner
   Syn.PAnn _ inner -> patternHasInstantiation inner
   Syn.PParen inner -> patternHasInstantiation inner
   _ -> False
@@ -3155,7 +3156,7 @@ patternGivenPredicates = go
   where
     go pattern' =
       case pattern' of
-        Syn.PTc Syn.InfoPatternInstantiation inner -> skipApplication inner
+        Syn.PTc Syn.PatternInstantiation inner -> skipApplication inner
         Syn.PTc info inner -> infoPredicates info <> go inner
         Syn.PAnn _ inner -> go inner
         Syn.PParen inner -> go inner
@@ -3166,12 +3167,12 @@ patternGivenPredicates = go
         Syn.PCon name _ _ -> namePredicates name
         Syn.PInfix _ name _ -> namePredicates name
         _ -> []
-    skipApplication (Syn.PTc (Syn.InfoType _) inner) = go inner
+    skipApplication (Syn.PTc (Syn.PatternType _) inner) = go inner
     skipApplication (Syn.PTc _ inner) = skipApplication inner
     skipApplication (Syn.PAnn _ inner) = skipApplication inner
     skipApplication inner = go inner
     infoPredicates info =
-      maybe [] evidencePredicates (infoType info)
+      maybe [] evidencePredicates (patternInfoType info)
     namePredicates name =
       concat
         [ evidencePredicates checked
@@ -3193,7 +3194,7 @@ patternTypeVariables = go
         Syn.PTypeSig inner _ -> go inner
         _ -> []
     infoTypeVariables info =
-      maybe [] tcAnnTypeBinders (infoType info)
+      maybe [] tcAnnTypeBinders (patternInfoType info)
 
 -- | The key of the first pattern of a row, or nothing for a default row.
 firstPatternKey :: Syn.Match -> Maybe Text
@@ -3298,7 +3299,7 @@ patternChildren pattern' =
       let tailPattern = Syn.PList Nothing items
           checkedTail =
             case patternType pattern' of
-              Just ty -> Syn.PTc (Syn.InfoType (TcAnnotation ty [] [] [] [] [])) tailPattern
+              Just ty -> Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) tailPattern
               Nothing -> tailPattern
        in [item, checkedTail]
     Syn.PUnboxedSum _ _ inner -> [inner]
@@ -3441,8 +3442,8 @@ overloadedListView pattern' =
         Syn.InfoType checked : _ <- Syn.nameTc toList,
         TcFunTy _ listType <- tcAnnType checked ->
           let method = Syn.EVar toList {Syn.nameTc = []}
-              listPattern = Syn.PTc (Syn.InfoType (TcAnnotation listType [] [] [] [] [])) (Syn.PList Nothing items)
-           in Just (Syn.PView (Syn.ETc (Syn.InfoType checked) method) listPattern)
+              listPattern = Syn.PTc (Syn.PatternType (TcAnnotation listType [] [] [] [] [])) (Syn.PList Nothing items)
+           in Just (Syn.PView (Syn.ETc (Syn.ExprType checked) method) listPattern)
     _ -> Nothing
 
 -- | A string literal pattern as the list pattern of its characters. The
@@ -3457,7 +3458,7 @@ stringLiteralListPattern patternTy literal =
     _ -> Nothing
   where
     characterPattern elementType source char =
-      Syn.PTc (Syn.InfoType (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit Syn.LiteralMatchFixed (Syn.LitChar char source))
+      Syn.PTc (Syn.PatternType (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit Syn.LiteralMatchFixed (Syn.LitChar char source))
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
@@ -3475,7 +3476,7 @@ patternType :: Syn.Pattern -> Maybe TcType
 patternType pattern' =
   case pattern' of
     Syn.PVar name -> nameTcType name
-    Syn.PTc info inner -> (tcAnnType <$> infoType info) <|> patternType inner
+    Syn.PTc info inner -> (tcAnnType <$> patternInfoType info) <|> patternType inner
     Syn.PAnn _ inner -> patternType inner
     Syn.PLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
     Syn.PNegLit match literal -> literalType literal <|> (tcAnnType <$> literalMatchAnnotation match)
@@ -3490,7 +3491,7 @@ patternType pattern' =
 literalType :: Syn.Literal -> Maybe TcType
 literalType literal =
   case literal of
-    Syn.LitTc info inner -> (tcAnnType <$> infoType info) <|> literalType inner
+    Syn.LitTc info _ -> Just (tcAnnType info)
     Syn.LitAnn _ inner -> literalType inner
     _ -> Nothing
 
@@ -3620,11 +3621,11 @@ desugarExpr expression =
   case expression of
     -- A given equality made the expression fit where it stands, so the
     -- proof it carries is the cast that keeps the Core well typed.
-    Syn.ETc (Syn.InfoCast (TcCastAnnotation (Just proof) _)) inner ->
+    Syn.ETc (Syn.ExprCast (TcCastAnnotation (Just proof) _)) inner ->
       do
         inner' <- desugarExpr inner
         withCoercion proof (pure . ExCast inner')
-    Syn.ETc (Syn.InfoType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
+    Syn.ETc (Syn.ExprType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
     Syn.ETc _ inner -> desugarExpr inner
     Syn.EIf (Just method) _ _ _
       | Just _ <- syntaxResolved method ->
@@ -3820,7 +3821,7 @@ negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, Resolved, Integer)
 negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
-    Syn.ETc (Syn.InfoType tcAnnotation) (Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _)
+    Syn.ETc (Syn.ExprType tcAnnotation) (Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _)
       | Just resolution <- syntaxResolved conversion,
         null (tcAnnTypeBinders tcAnnotation),
         null (tcAnnEvidenceBinders tcAnnotation),
@@ -3829,10 +3830,6 @@ negatableIntegerLiteral expression =
           Just (tcAnnotation, resolution, value)
     -- Source spans above the checked literal do not change it.
     Syn.EAnn _ inner -> negatableIntegerLiteral inner
-    Syn.ETc info inner
-      | Nothing <- infoType info,
-        Nothing <- infoCast info ->
-          negatableIntegerLiteral inner
     _ -> Nothing
 
 -- | The resolution of a syntax name, when the resolver found it.
@@ -4778,7 +4775,7 @@ peelUnpackPattern pattern' =
 annotatePattern :: TcType -> Syn.Pattern -> Syn.Pattern
 annotatePattern ty pattern'
   | isJust (patternType pattern') = pattern'
-  | otherwise = Syn.PTc (Syn.InfoType (TcAnnotation ty [] [] [] [] [])) pattern'
+  | otherwise = Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) pattern'
 
 specializeFlattened :: Text -> [TcType] -> [FieldRep] -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
 specializeFlattened key sourceTypes reps fields fieldTypes (match, locals) =
@@ -5750,7 +5747,7 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
                   Alt (AltData falseName) [] [] failure'
                 ]
             )
-    Syn.PTc (Syn.InfoType _) _
+    Syn.PTc (Syn.PatternType _) _
       | isJust (patternConstructorSourceName pattern') -> do
           -- A pattern synonym use keeps its own annotation, which has the
           -- type arguments of the use, even when it binds no type variables
@@ -5766,7 +5763,7 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
     -- The type checker can put a cast before a constructor pattern, for
     -- example when a given equality changes the scrutinee type. The match
     -- uses the cast target, as 'desugarDataPatterns' does.
-    Syn.PTc (Syn.InfoCast (TcCastAnnotation (Just proof) target)) inner -> do
+    Syn.PTc (Syn.PatternCast (TcCastAnnotation (Just proof) target)) inner -> do
       casted <- freshBinder "_cast_scrut" target
       body <- desugarPatternWithFailure resultType casted target inner success failure
       withCoercion proof (\coercion -> pure (ExLet (Bind casted (ExCast (ExVar (binderName binder)) coercion)) body))
@@ -5797,7 +5794,7 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
       let typed =
             case patternType pattern' of
               Just _ -> pattern'
-              Nothing -> Syn.PTc (Syn.InfoType (TcAnnotation ty [] [] [] [] [])) pattern'
+              Nothing -> Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) pattern'
       maybePatSyn <- patternPatSyn typed
       case maybePatSyn of
         Just (info, annotation) -> desugarPatSynWithFailure resultType binder typed info annotation success failure
@@ -7264,7 +7261,7 @@ requiredExprType expression =
 inferExprType :: Syn.Expr -> ValueM TcType
 inferExprType expression =
   case expression of
-    Syn.ETc (Syn.InfoCast (TcCastAnnotation _ target)) _ -> pure target
+    Syn.ETc (Syn.ExprCast (TcCastAnnotation _ target)) _ -> pure target
     Syn.ETc _ inner -> inferExprType inner
     Syn.EAnn _ inner -> inferExprType inner
     Syn.EVar name -> lookupNamedBindingType name
@@ -7315,11 +7312,11 @@ exprType expression =
 -- | The type that an item of expression information gives. A cast gives the type
 -- after the cast, so a function whose type is a family application has
 -- the arrow type that the type checker proved for it.
-infoExprType :: Syn.TcInfo -> Maybe TcType
+infoExprType :: Syn.ExprTc -> Maybe TcType
 infoExprType info =
   case info of
-    Syn.InfoCast (TcCastAnnotation _ target) -> Just target
-    _ -> tcAnnType <$> infoType info
+    Syn.ExprCast (TcCastAnnotation _ target) -> Just target
+    Syn.ExprType annotation -> Just (tcAnnType annotation)
 
 applicationResultType :: TcType -> Maybe TcType
 applicationResultType ty =

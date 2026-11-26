@@ -90,6 +90,11 @@ finalizeSyntax =
         finalizeDataFamilyInstance = \info ->
           info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
         finalizeAnnotation = fmap Just . annotationForPendingTc,
+        -- The checker writes the types of declarations as final
+        -- information.
+        finalizeCheckedAnnotation = \annotation -> do
+          rejectMetaFinalInfo (Final.InfoType annotation)
+          recordAnnotationKindArguments annotation,
         finalizeCast = finalizeCastAnnotation,
         finalizePendingType = \ty ->
           tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
@@ -134,13 +139,6 @@ finalizeInfo item =
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
-    InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
-  where
-    -- Information that the checker writes as final keeps its value, but
-    -- it must not have a meta variable.
-    checked final = do
-      rejectMetaFinalInfo final
-      pure (Just final)
 
 -- | Finalize a cast. A cast whose proof is not needed goes away.
 finalizeCastAnnotation :: PendingTcCastAnnotation -> TcM (Maybe TcCastAnnotation)

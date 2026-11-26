@@ -46,7 +46,7 @@ declBindings wiring kinds origin decl =
     DeclAnn _ inner -> declBindings wiring kinds origin inner
     DeclError _ inner -> declBindings wiring kinds origin inner
     DeclTc info inner ->
-      infoBindings origin info inner <> declBindings wiring kinds origin inner
+      typeBindings origin info inner <> declBindings wiring kinds origin inner
     DeclClass classDecl -> maybe [] (classBindings kinds origin) (classDeclTc classDecl)
     DeclInstance instanceDecl ->
       [ TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
@@ -60,12 +60,6 @@ declBindings wiring kinds origin decl =
     DeclDataFamilyInst familyInst ->
       concatMap (dataConBindings wiring origin) (dataFamilyInstConstructors familyInst)
         <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
-    _ -> []
-
-infoBindings :: (Text, Text) -> TcInfo -> Decl -> [TcBindingResult]
-infoBindings origin info decl =
-  case info of
-    InfoType tcAnn -> typeBindings origin tcAnn decl
     _ -> []
 
 typeBindings :: (Text, Text) -> TcAnnotation -> Decl -> [TcBindingResult]

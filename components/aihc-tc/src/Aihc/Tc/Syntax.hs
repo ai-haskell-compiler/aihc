@@ -23,6 +23,8 @@
 module Aihc.Tc.Syntax
   ( -- * Type checker information
     TcInfo (..),
+    ExprTc (..),
+    PatternTc (..),
     PatSynEquations (..),
 
     -- * Resolutions
@@ -293,8 +295,25 @@ data TcInfo
   | -- | A cast of a node to a type. Without a coercion, the cast is a
     -- reflexive proof that keeps the type.
     InfoCast !TcCastAnnotation
-  | -- | The constructor pattern instantiates its type arguments.
-    InfoPatternInstantiation
+  deriving (Eq, Show)
+
+-- | What the type checker found for a whole expression.
+data ExprTc
+  = -- | The type of the expression, with its type arguments and evidence.
+    ExprType !TcAnnotation
+  | -- | A cast of the expression to a type that an equality proves.
+    ExprCast !TcCastAnnotation
+  deriving (Eq, Show)
+
+-- | What the type checker found for a whole pattern.
+data PatternTc
+  = -- | The type of the pattern, with its type arguments and evidence.
+    PatternType !TcAnnotation
+  | -- | A cast of the pattern to a type that an equality proves.
+    PatternCast !TcCastAnnotation
+  | -- | The constructor pattern instantiates its type arguments. The
+    -- annotation of the instantiation is in the next 'PatternType' wrapper.
+    PatternInstantiation
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -311,8 +330,8 @@ data PatSynEquations = PatSynEquations
 data Literal
   = -- | Metadata for the whole literal.
     LitAnn Annotation Literal
-  | -- | What the type checker found for the whole literal.
-    LitTc TcInfo Literal
+  | -- | The type of the whole literal.
+    LitTc TcAnnotation Literal
   | -- | @1@, @1#@, @1#Word8@
     LitInt Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
@@ -777,8 +796,8 @@ data ImportItem
 data Decl
   = -- | Metadata for the whole declaration.
     DeclAnn Annotation Decl
-  | -- | What the type checker found for the whole declaration.
-    DeclTc TcInfo Decl
+  | -- | The type of the whole declaration.
+    DeclTc TcAnnotation Decl
   | -- | A resolve error for the whole declaration.
     DeclError ResolveError Decl
   | -- | @f x = x@ or @x = 1@
@@ -1049,7 +1068,7 @@ data Pattern
   = -- | Metadata for the whole pattern.
     PAnn Annotation Pattern
   | -- | What the type checker found for the whole pattern.
-    PTc TcInfo Pattern
+    PTc PatternTc Pattern
   | -- | @x@
     PVar UnqualifiedName
   | -- | @\@a@ in a required type argument pattern.
@@ -1502,7 +1521,7 @@ data Expr
   = -- | Metadata for the whole expression.
     EAnn Annotation Expr
   | -- | What the type checker found for the whole expression.
-    ETc TcInfo Expr
+    ETc ExprTc Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@

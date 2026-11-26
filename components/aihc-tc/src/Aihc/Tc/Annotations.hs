@@ -22,6 +22,7 @@ module Aihc.Tc.Annotations
     TcForeignMarshal (..),
     TcForeignAbiType (..),
     PendingTcAnnotation (..),
+    WorkingTcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -270,6 +271,17 @@ data PendingTcAnnotation = PendingTcAnnotation
     pendingTcAnnEvidenceBinders :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
   }
+  deriving (Eq, Show)
+
+-- | An annotation of a declaration in the tree that the type checker works
+-- on.
+data WorkingTcAnnotation
+  = -- | The solver must fill in the meta variables and the evidence
+    -- variables.
+    WorkingPending !PendingTcAnnotation
+  | -- | The checker writes the annotation as final, such as the type of a
+    -- top-level declaration.
+    WorkingChecked !TcAnnotation
   deriving (Eq, Show)
 
 -- | One dictionary that a binding takes or holds. The predicate is the

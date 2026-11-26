@@ -18,7 +18,7 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, PendingTcMatchArityCast, TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, PendingTcMatchArityCast, TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..), WorkingTcAnnotation (..))
 import Aihc.Tc.Types (TcType)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
@@ -28,7 +28,7 @@ import Data.Maybe (catMaybes)
 import Data.Text (Text)
 
 -- | Wrap a node with its information, if the information stays.
-wrapInfo :: (TcInfo -> node -> node) -> Maybe TcInfo -> node -> node
+wrapInfo :: (item -> node -> node) -> Maybe item -> node -> node
 wrapInfo wrap item node = maybe node (`wrap` node) item
 
 -- | Change a list of information items, and remove the items that the
@@ -45,6 +45,8 @@ data Finalizers m = Finalizers
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
     -- | Change an annotation, or remove it.
     finalizeAnnotation :: PendingTcAnnotation -> m (Maybe TcAnnotation),
+    -- | Change an annotation that the checker writes as final.
+    finalizeCheckedAnnotation :: TcAnnotation -> m TcAnnotation,
     -- | Change a cast, or remove it.
     finalizeCast :: PendingTcCastAnnotation -> m (Maybe TcCastAnnotation),
     -- | Change a type that can have meta variables.
@@ -68,6 +70,7 @@ plainFinalizers =
       finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
       finalizeAnnotation = const (pure Nothing),
+      finalizeCheckedAnnotation = pure,
       finalizeCast = const (pure Nothing),
       finalizePendingType = pure,
       finalizeCheckedType = pure,
@@ -95,6 +98,31 @@ recStmt info (TcRecStmt tuple occurrences) = do
   tuple' <- finalizeAnnotation info tuple
   occurrences' <- traverse (\(key, occurrence) -> fmap (key,) <$> finalizeAnnotation info occurrence) occurrences
   pure ((`TcRecStmt` catMaybes occurrences') <$> tuple')
+
+-- | Change the information of an expression wrapper, if the function
+-- keeps it.
+exprTc :: (Monad m) => Finalizers m -> Pending.ExprTc -> m (Maybe ExprTc)
+exprTc info item =
+  case item of
+    Pending.ExprType pending -> fmap ExprType <$> finalizeAnnotation info pending
+    Pending.ExprCast pending -> fmap ExprCast <$> finalizeCast info pending
+
+-- | Change the information of a pattern wrapper, if the function keeps
+-- it.
+patternTc :: (Monad m) => Finalizers m -> Pending.PatternTc -> m (Maybe PatternTc)
+patternTc info item =
+  case item of
+    Pending.PatternType pending -> fmap PatternType <$> finalizeAnnotation info pending
+    Pending.PatternCast pending -> fmap PatternCast <$> finalizeCast info pending
+    Pending.PatternInstantiation -> pure (Just PatternInstantiation)
+
+-- | Change the annotation of a declaration wrapper, if the function keeps
+-- it.
+declTc :: (Monad m) => Finalizers m -> WorkingTcAnnotation -> m (Maybe TcAnnotation)
+declTc info item =
+  case item of
+    WorkingPending pending -> finalizeAnnotation info pending
+    WorkingChecked checked -> Just <$> finalizeCheckedAnnotation info checked
 
 class FromPending a where
   type Final a
@@ -287,7 +315,7 @@ instance FromPending Pending.Literal where
   fromPending info node =
     case node of
       Pending.LitAnn x1 x2 -> LitAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeAnnotation info x1 <*> fromPending info x2
       Pending.LitInt x1 x2 x3 -> LitInt <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitFloat x1 x2 x3 -> LitFloat <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitChar x1 x2 -> LitChar <$> fromPending info x1 <*> fromPending info x2
@@ -366,7 +394,7 @@ instance FromPending Pending.Decl where
   fromPending info node =
     case node of
       Pending.DeclAnn x1 x2 -> DeclAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> declTc info x1 <*> fromPending info x2
       Pending.DeclError x1 x2 -> DeclError <$> fromPending info x1 <*> fromPending info x2
       Pending.DeclValue x1 -> DeclValue <$> fromPending info x1
       Pending.DeclImplicitParam x1 x2 x3 -> DeclImplicitParam <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
@@ -510,7 +538,7 @@ instance FromPending Pending.Pattern where
   fromPending info node =
     case node of
       Pending.PAnn x1 x2 -> PAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PTc x1 x2 -> wrapInfo PTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.PTc x1 x2 -> wrapInfo PTc <$> patternTc info x1 <*> fromPending info x2
       Pending.PVar x1 -> PVar <$> fromPending info x1
       Pending.PTypeBinder x1 -> PTypeBinder <$> fromPending info x1
       Pending.PTypeSyntax x1 x2 -> PTypeSyntax <$> fromPending info x1 <*> fromPending info x2
@@ -753,7 +781,7 @@ instance FromPending Pending.Expr where
   fromPending info node =
     case node of
       Pending.EAnn x1 x2 -> EAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.ETc x1 x2 -> wrapInfo ETc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.ETc x1 x2 -> wrapInfo ETc <$> exprTc info x1 <*> fromPending info x2
       Pending.EVar x1 -> EVar <$> fromPending info x1
       Pending.EImplicitParam x1 -> EImplicitParam <$> fromPending info x1
       Pending.ETypeSyntax x1 x2 -> ETypeSyntax <$> fromPending info x1 <*> fromPending info x2
