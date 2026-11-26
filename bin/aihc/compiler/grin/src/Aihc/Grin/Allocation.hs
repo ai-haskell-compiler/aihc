@@ -146,7 +146,7 @@ storeArguments program
                   ]
         ]
     rewriteFunction function = do
-      body <- rewriteCalls (grinFunctionBody function)
+      let body = rewriteCalls (grinFunctionBody function)
       let moved = MonoidMap.get (grinFunctionName function) positions
       if Map.null moved
         then pure function {grinFunctionBody = body}
@@ -180,14 +180,14 @@ storeArguments program
           case expression of
             GrinBind [var] (GrinStore _) body
               | Set.member var removed -> rewriteCalls body
-            GrinBind vars value body -> GrinBind vars <$> rewriteCalls value <*> rewriteCalls body
-            GrinStoreRec bindings body -> GrinStoreRec bindings <$> rewriteCalls body
+            GrinBind vars value body -> GrinBind vars (rewriteCalls value) (rewriteCalls body)
+            GrinStoreRec bindings body -> GrinStoreRec bindings (rewriteCalls body)
             GrinCase value binder alternatives ->
-              GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> rewriteCalls (grinAltRhs alternative)) alternatives
+              GrinCase value binder (map (\alternative -> alternative {grinAltRhs = rewriteCalls (grinAltRhs alternative)}) alternatives)
             GrinCall rep callee arguments ->
               let moved = MonoidMap.get callee positions
-               in pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
-            _ -> pure expression
+               in GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments])
+            _ -> expression
         expand moved index argument =
           case (Map.lookup index moved, argument) of
             (Just _, GrinVarValue var)
