@@ -290,8 +290,8 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
                 sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (ExprType annotation) (EVar name))
                 [] -> ETc (ExprType annotation) (EVar name)
         EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
-        ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
-        ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
+        ESectionL tc left operator -> ESectionL tc left <$> annotateOperator schemes operator
+        ESectionR tc operator right -> (\operator' -> ESectionR tc operator' right) <$> annotateOperator schemes operator
         _ -> pure expr
 
     annotateOperator schemes name = do
@@ -1418,16 +1418,16 @@ freeVarsExpr expr = do
 exprSyntaxNames :: Expr -> [Name]
 exprSyntaxNames expr =
   case expr of
-    EInt syntax _ _ _ -> literalSyntaxNames syntax
-    EFloat syntax _ _ _ -> literalSyntaxNames syntax
-    ECharHash typeName _ _ -> [typeName]
-    EString conversion _ _ -> maybeToList conversion
-    EStringHash typeName _ _ -> [typeName]
+    EInt _ syntax _ _ _ -> literalSyntaxNames syntax
+    EFloat _ syntax _ _ _ -> literalSyntaxNames syntax
+    ECharHash _ typeName _ _ -> [typeName]
+    EString _ conversion _ _ -> maybeToList conversion
+    EStringHash _ typeName _ _ -> [typeName]
     EIf _ method _ _ _ -> maybeToList method
-    ENegate method _ -> [method]
+    ENegate _ method _ -> [method]
     EArithSeq _ method _ -> maybeToList method
-    EGetField method _ _ -> [method]
-    EGetFieldProjection method _ -> [method]
+    EGetField _ method _ _ -> [method]
+    EGetFieldProjection _ method _ -> [method]
     EList _ syntax method _ -> syntax : maybeToList method
     ETuple _ syntax _ _ -> [syntax]
     _ -> []
@@ -1453,12 +1453,12 @@ freeVarsExprChildren expr =
       rhsVars <- freeVarsExpr rhs
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate _ inner -> freeVarsExpr inner
-    ESectionL inner op -> do
+    ENegate _ _ inner -> freeVarsExpr inner
+    ESectionL _ inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
-    ESectionR op inner -> do
+    ESectionR _ op inner -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
@@ -1501,7 +1501,7 @@ freeVarsExprChildren expr =
       -- to be checked first for the expansion to find the builder.
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
-    EGetField _ record _ -> freeVarsExpr record
+    EGetField _ _ record _ -> freeVarsExpr record
     EUnboxedSum _ _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 

@@ -4017,7 +4017,7 @@ negatedLiteralPatternToExpr = go []
           let negation = case match of
                 LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
+          pure (ENegate Nothing (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
         _ -> Nothing
 
 -- | The information of a pattern wrapper as an expression wrapper. The
@@ -4050,15 +4050,15 @@ literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
     LitTc info inner -> ETc (ExprType info) <$> literalMatchExpr match inner
-    LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
-    LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
-    LitChar value source -> Just (EChar value source)
-    LitCharHash value source -> (\typeName -> ECharHash typeName value source) <$> primitiveType
+    LitInt value numericType source -> (\syntax -> EInt Nothing syntax value numericType source) <$> numericSyntax
+    LitFloat value floatType source -> (\syntax -> EFloat Nothing syntax value floatType source) <$> numericSyntax
+    LitChar value source -> Just (EChar Nothing value source)
+    LitCharHash value source -> (\typeName -> ECharHash Nothing typeName value source) <$> primitiveType
     LitString value source ->
       case match of
-        LiteralMatchOverloaded overloaded -> Just (EString (Just (overloadedLiteralConversion overloaded)) value source)
-        _ -> Just (EString Nothing value source)
-    LitStringHash value source -> (\typeName -> EStringHash typeName value source) <$> primitiveType
+        LiteralMatchOverloaded overloaded -> Just (EString Nothing (Just (overloadedLiteralConversion overloaded)) value source)
+        _ -> Just (EString Nothing Nothing value source)
+    LitStringHash value source -> (\typeName -> EStringHash Nothing typeName value source) <$> primitiveType
   where
     numericSyntax =
       case match of

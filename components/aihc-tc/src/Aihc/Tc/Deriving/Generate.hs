@@ -630,7 +630,7 @@ showItems gen constructors = do
     showStringExpr text = do
       suffix <- freshLocal gen "s"
       pure (lambda gen suffix (showStringPiece text (localExpr gen suffix)))
-    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar character (T.pack (show character))), rest]
+    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar Nothing character (T.pack (show character))), rest]
     intersperseWith separator pieces =
       case pieces of
         [] -> []
@@ -769,7 +769,7 @@ readItems gen constructors = do
 -- | A string as an explicit list of characters, so the generated code needs
 -- no literal desugaring.
 stringExpr :: Gen -> Text -> Expr
-stringExpr gen text = at gen (listExpr gen [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
+stringExpr gen text = at gen (listExpr gen [at gen (EChar Nothing character (T.pack (show character))) | character <- T.unpack text])
 
 -- * Bounded
 
@@ -2049,7 +2049,7 @@ intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashL
 
 -- | An unboxed @Int#@ literal.
 intHashLiteral :: Gen -> Integer -> Expr
-intHashLiteral gen value = at gen (EInt (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
+intHashLiteral gen value = at gen (EInt Nothing (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
 
 -- | An ordinary list expression.
 listExpr :: Gen -> [Expr] -> Expr

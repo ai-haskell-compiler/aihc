@@ -3663,6 +3663,72 @@ desugarExpr expression =
     Syn.EArithSeq (Just _) _ arithSeq -> desugarArithSeq arithSeq
     Syn.ETuple (Just annotation) _ flavor elements -> desugarTuple annotation flavor elements
     Syn.EUnboxedSum (Just annotation) alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
+    Syn.EInt (Just annotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedInteger annotation resolution value
+    Syn.EFloat (Just annotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TFractional _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedRational annotation resolution value
+    Syn.EString (Just annotation) (Just conversion) value _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedString annotation resolution value
+    Syn.ENegate (Just _) method operand
+      | Just resolution <- syntaxResolved method,
+        resolutionNamespace resolution == ResolutionNamespaceTerm,
+        resolutionIdentifier resolution == IdentifierNamed "negate" -> do
+          methodAnnotation <- requiredSyntaxAnnotation method
+          primPackage <- gets (cePrimPackage . vsConvertEnv)
+          case negatableIntegerLiteral operand of
+            Just (literalAnnotation, literalResolution, value)
+              | negateFoldsIntoLiteral primPackage methodAnnotation resolution literalResolution ->
+                  desugarOverloadedInteger literalAnnotation literalResolution (negate value)
+            _ -> do
+              method' <- desugarResolvedOccurrence methodAnnotation resolution
+              ExApp method' <$> desugarExpr operand
+    Syn.EGetField (Just _) method record field
+      | Just resolution <- syntaxResolved method,
+        isGetFieldResolution resolution ->
+          ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
+    Syn.EGetFieldProjection (Just annotation) method fields
+      | Just resolution <- syntaxResolved method,
+        isGetFieldResolution resolution ->
+          desugarGetFieldProjection annotation resolution fields
+    Syn.EInt (Just annotation) _ value numericType _
+      | numericType /= Syn.TInteger -> do
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (numericRepresentation kinds numericType)
+          ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EFloat (Just annotation) _ value floatType _
+      | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
+          kinds <- valueKinds
+          representation' <- convertRuntimeRep (representation kinds)
+          ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EChar (Just _) value _ -> do
+      charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
+      kinds <- valueKinds
+      constructor <- boxedCharConstructor
+      representation <- convertRuntimeRep (wordRep kinds)
+      pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
+    Syn.ECharHash (Just annotation) _ value _ -> do
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (wordRep kinds)
+      ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EString (Just annotation) _ value _ -> desugarString annotation value
+    _
+      | isTemplateHaskellQuote expression,
+        Just quoteType <- exprType expression ->
+          desugarTemplateHaskellQuote quoteType
+    Syn.EQuasiQuote (Just quoteType) _ _ -> desugarQuasiQuote quoteType
+    Syn.EStringHash (Just annotation) _ value _ -> do
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (addrRep kinds)
+      ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
+    Syn.ESectionL (Just annotation) operand operator -> desugarSectionL annotation operand operator
+    Syn.ESectionR (Just annotation) operator operand -> desugarSectionR annotation operator operand
+    Syn.EImplicitParam (Just annotation) name ->
+      case tcAnnEvidenceTerms annotation of
+        [evidence] -> desugarEvidence evidence
+        _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
     Syn.ELambdaPats functionType patterns body -> desugarLambda functionType patterns body
     Syn.ELambdaCase (Just functionType) alternatives -> desugarMatches functionType (map caseAlternativeMatch alternatives)
     Syn.ELambdaCase Nothing alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
@@ -3686,7 +3752,6 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
-  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- mapM freshDictionaryBinder evidencePredicates
   body <-
@@ -3697,69 +3762,6 @@ desugarAnnotatedExpr annotation inner = do
         expression
           | Just name <- annotatedVariable expression -> do
               desugarVariable (Just annotation) name
-        Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedInteger annotation resolution value
-        Syn.EFloat (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TFractional _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedRational annotation resolution value
-        Syn.EString (Just conversion) value _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedString annotation resolution value
-        Syn.ENegate method operand
-          | Just resolution <- syntaxResolved method,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "negate" -> do
-              methodAnnotation <- requiredSyntaxAnnotation method
-              primPackage <- gets (cePrimPackage . vsConvertEnv)
-              case negatableIntegerLiteral operand of
-                Just (literalAnnotation, literalResolution, value)
-                  | negateFoldsIntoLiteral primPackage methodAnnotation resolution literalResolution ->
-                      desugarOverloadedInteger literalAnnotation literalResolution (negate value)
-                _ -> do
-                  method' <- desugarResolvedOccurrence methodAnnotation resolution
-                  ExApp method' <$> desugarExpr operand
-        Syn.EGetField method record field
-          | Just resolution <- syntaxResolved method,
-            isGetFieldResolution resolution ->
-              ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
-        Syn.EGetFieldProjection method fields
-          | Just resolution <- syntaxResolved method,
-            isGetFieldResolution resolution ->
-              desugarGetFieldProjection annotation resolution fields
-        Syn.EInt _ value numericType _
-          | numericType /= Syn.TInteger -> do
-              kinds <- valueKinds
-              representation <- convertRuntimeRep (numericRepresentation kinds numericType)
-              ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EFloat _ value floatType _
-          | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
-              kinds <- valueKinds
-              representation' <- convertRuntimeRep (representation kinds)
-              ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EChar value _ -> do
-          kinds <- valueKinds
-          constructor <- boxedCharConstructor
-          representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
-        Syn.ECharHash _ value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (wordRep kinds)
-          ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EString _ value _ -> desugarString annotation value
-        _
-          | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
-        Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
-        Syn.EStringHash _ value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (addrRep kinds)
-          ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
-        Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
-        Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-        Syn.EImplicitParam name ->
-          case tcAnnEvidenceTerms annotation of
-            [evidence] -> desugarEvidence evidence
-            _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
         -- An expression signature that is a polytype desugars to a type
         -- lambda. The expression itself stands where a monotype is
         -- expected, so the annotation instantiates that polytype again.
@@ -3815,7 +3817,7 @@ negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, Resolved, Integer)
 negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
-    Syn.ETc (Syn.ExprType tcAnnotation) (Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _)
+    Syn.EInt (Just tcAnnotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
       | Just resolution <- syntaxResolved conversion,
         null (tcAnnTypeBinders tcAnnotation),
         null (tcAnnEvidenceBinders tcAnnotation),
@@ -5365,14 +5367,14 @@ isTemplateHaskellQuote expression =
 -- | Template Haskell is not supported. A quote compiles to a call of
 -- @raise#@ with a message, so code that only defines quotes still
 -- compiles.
-desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
-desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
+desugarTemplateHaskellQuote :: TcType -> ValueM Expr
+desugarTemplateHaskellQuote quoteType = raiseErrorValue quoteType "TH is unsupported"
 
 -- | Quasi-quotes are not supported. A quasi-quote expression compiles to
 -- a call of @raise#@ with a message, so code that only defines
 -- quasi-quotes still compiles.
-desugarQuasiQuote :: TcAnnotation -> ValueM Expr
-desugarQuasiQuote annotation = raiseErrorValue (tcAnnType annotation) "quasi-quoting is unsupported"
+desugarQuasiQuote :: TcType -> ValueM Expr
+desugarQuasiQuote quoteType = raiseErrorValue quoteType "quasi-quoting is unsupported"
 
 -- | @raise# \@rep \@String \@ty message@: a value of any type that throws
 -- when it is forced.
@@ -7307,6 +7309,26 @@ exprType expression =
     Syn.EDo resultType _ _ -> resultType
     Syn.EArithSeq resultType _ _ -> resultType
     Syn.EList annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EInt annotation _ _ _ _ -> tcAnnType <$> annotation
+    Syn.EFloat annotation _ _ _ _ -> tcAnnType <$> annotation
+    Syn.EChar annotation _ _ -> tcAnnType <$> annotation
+    Syn.ECharHash annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EString annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EStringHash annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EImplicitParam annotation _ -> tcAnnType <$> annotation
+    Syn.EQuasiQuote quoteType _ _ -> quoteType
+    Syn.ETHExpQuote quoteType _ -> quoteType
+    Syn.ETHTypedQuote quoteType _ -> quoteType
+    Syn.ETHDeclQuote quoteType _ -> quoteType
+    Syn.ETHTypeQuote quoteType _ -> quoteType
+    Syn.ETHPatQuote quoteType _ -> quoteType
+    Syn.ETHNameQuote quoteType _ -> quoteType
+    Syn.ETHTypeNameQuote quoteType _ -> quoteType
+    Syn.ENegate resultType _ _ -> resultType
+    Syn.EGetField resultType _ _ _ -> resultType
+    Syn.EGetFieldProjection annotation _ _ -> tcAnnType <$> annotation
+    Syn.ESectionL annotation _ _ -> tcAnnType <$> annotation
+    Syn.ESectionR annotation _ _ -> tcAnnType <$> annotation
     Syn.ETuple annotation _ _ _ -> tcAnnType <$> annotation
     Syn.EUnboxedSum annotation _ _ _ -> tcAnnType <$> annotation
     Syn.EListComp annotation _ _ -> tcAnnType <$> annotation

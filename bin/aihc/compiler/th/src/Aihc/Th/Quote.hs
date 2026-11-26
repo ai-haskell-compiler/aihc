@@ -241,7 +241,7 @@ quotedModuleNames package home modu
         _ -> Nothing
     stringValue expr =
       case bare expr of
-        Tc.EString _ value _ -> Just value
+        Tc.EString _ _ value _ -> Just value
         _ -> Nothing
     bare expr =
       case expr of

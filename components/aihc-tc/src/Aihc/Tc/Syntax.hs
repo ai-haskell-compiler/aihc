@@ -1535,25 +1535,25 @@ data Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
-    EImplicitParam Text
+    EImplicitParam (Maybe TcAnnotation) Text
   | -- | @type T@ in a term position.
     ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt LiteralSyntax Integer NumericType Text
+    EInt (Maybe TcAnnotation) LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat LiteralSyntax Rational FloatType Text
+    EFloat (Maybe TcAnnotation) LiteralSyntax Rational FloatType Text
   | -- | @'x'@
-    EChar Char Text
+    EChar (Maybe TcAnnotation) Char Text
   | -- | @'x'#@. The name is the type @Char#@.
-    ECharHash Name Char Text
+    ECharHash (Maybe TcAnnotation) Name Char Text
   | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
-    EString (Maybe Name) Text Text
+    EString (Maybe TcAnnotation) (Maybe Name) Text Text
   | -- | @"hello"#@. The name is the type @Addr#@.
-    EStringHash Name Text Text
+    EStringHash (Maybe TcAnnotation) Name Text Text
   | -- | @#name@
     EOverloadedLabel Text Text
   | -- | @[qq| body |]@
-    EQuasiQuote Text Text
+    EQuasiQuote (Maybe TcType) Text Text
   | -- | @if c then t else e@. The type is the type of the expression. The
     -- type checker sets it. Under @RebindableSyntax@, the name is
     -- @ifThenElse@.
@@ -1577,11 +1577,11 @@ data Expr
     -- gets its own constructor.  'checkPattern' turns this into 'PView'.
     EViewPat Expr Expr
   | -- | @-x@. The name is @negate@.
-    ENegate Name Expr
+    ENegate (Maybe TcType) Name Expr
   | -- | @(x +)@
-    ESectionL Expr Name
+    ESectionL (Maybe TcAnnotation) Expr Name
   | -- | @(+ x)@
-    ESectionR Name Expr
+    ESectionR (Maybe TcAnnotation) Name Expr
   | -- | @let x = 1 in x@
     ELetDecls [Decl] Expr
   | -- | @case x of { Just y -> y }@. The type is the type of the
@@ -1601,10 +1601,10 @@ data Expr
   | -- | @r { x = 1 }@
     ERecordUpd Expr [RecordField Expr]
   | -- | @a.b@ under @OverloadedRecordDot@. The first name is @getField@.
-    EGetField Name Expr Name
+    EGetField (Maybe TcType) Name Expr Name
   | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
     -- @getField@.
-    EGetFieldProjection Name [Name]
+    EGetFieldProjection (Maybe TcAnnotation) Name [Name]
   | -- | @(expr :: ty)@
     ETypeSig Expr Type
   | -- | @(expr)@
@@ -1623,19 +1623,19 @@ data Expr
   | -- Template Haskell quotes
 
     -- | @[| expr |]@ or @[e| expr |]@
-    ETHExpQuote Expr
+    ETHExpQuote (Maybe TcType) Expr
   | -- | @[|| expr ||]@ or @[e|| expr ||]@
-    ETHTypedQuote Expr
+    ETHTypedQuote (Maybe TcType) Expr
   | -- | @[d| decls |]@
-    ETHDeclQuote [Decl]
+    ETHDeclQuote (Maybe TcType) [Decl]
   | -- | @[t| type |]@
-    ETHTypeQuote Type
+    ETHTypeQuote (Maybe TcType) Type
   | -- | @[p| pat |]@
-    ETHPatQuote Pattern
+    ETHPatQuote (Maybe TcType) Pattern
   | -- | @'expr@ in the term namespace.
-    ETHNameQuote Expr
+    ETHNameQuote (Maybe TcType) Expr
   | -- | @''Type@ in the type namespace.
-    ETHTypeNameQuote Type
+    ETHTypeNameQuote (Maybe TcType) Type
   | -- Template Haskell splices
 
     -- | @$expr@ or @$(expr)@
