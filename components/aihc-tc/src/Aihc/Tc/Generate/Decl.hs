@@ -162,7 +162,7 @@ import Aihc.Tc.Syntax
     unqualifiedNameAnns,
   )
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
-import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcAnnotations)
+import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcTypes)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -789,7 +789,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
         Just residualPreds'
           | failed -> pure rule
           | otherwise -> do
-              let interior = concatMap pendingTypes (collectTcAnnotations lhs')
+              let interior = collectTcTypes lhs'
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
               -- A binder signature can give a variable a kind that mentions a
               -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
@@ -825,9 +825,6 @@ tcRuleDecl rule = withAmbientSpan sp $ do
     zonkCt ct = do
       predicate <- zonkPred (ctPred ct)
       pure ct {ctPred = predicate}
-
-    pendingTypes pending =
-      tcAnnType pending : tcAnnTypeArgs pending <> tcAnnTermArgTypes pending
 
     withRuleBinders binders action =
       foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders

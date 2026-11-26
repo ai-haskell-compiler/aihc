@@ -27,7 +27,7 @@ module Aihc.Tc.Syntax.Traverse
     idWalk,
     FactWalk (..),
     idFactWalk,
-    collectTcAnnotations,
+    collectTcTypes,
     traverseAnnotations,
     annotationList,
     collectAnnotations,
@@ -38,7 +38,7 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
-import Aihc.Tc.Annotations (TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Types (TcType)
@@ -157,11 +157,13 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The type annotations of a piece of syntax, in source order.
-collectTcAnnotations :: (Walkable a) => a -> [TcAnnotation]
-collectTcAnnotations = runCollect (walk idWalk {walkTcAnnotation = step})
+-- | The types that the type checker put in a piece of syntax, in source
+-- order: the type, the type arguments, and the term argument types of
+-- each annotation, and each type that a node holds in a field of its own.
+collectTcTypes :: (Walkable a) => a -> [TcType]
+collectTcTypes = runCollect (walk idWalk {walkTcAnnotation = annotation, walkCheckedType = \ty -> Collect (Just (ty :))})
   where
-    step item = Collect (Just (item :))
+    annotation item = Collect (Just ((tcAnnType item : tcAnnTypeArgs item <> tcAnnTermArgTypes item) ++))
 
 -- | The information of an expression wrapper. 'Nothing' removes the
 -- wrapper.
