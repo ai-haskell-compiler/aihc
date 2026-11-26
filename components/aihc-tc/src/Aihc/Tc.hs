@@ -119,7 +119,6 @@ module Aihc.Tc
     runtimeRepOfTypeInEnv,
     isUnliftedTypeInEnv,
     TcAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -138,7 +137,7 @@ where
 import Aihc.Parser.Syntax (Extension (..))
 import Aihc.Resolve (ResolvedModule (..))
 import Aihc.Resolve.Syntax qualified as R
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Bindings (moduleBindings, moduleDiagnostics)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, internalAbortDiagnostic)

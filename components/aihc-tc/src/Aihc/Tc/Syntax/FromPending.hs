@@ -17,7 +17,7 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (TcClassAnnotation, TcInstanceAnnotation, TcInstanceMethodAnnotation)
+import Aihc.Tc.Annotations (TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
@@ -41,6 +41,7 @@ data Finalizers m = Finalizers
     finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
     finalizeClass :: TcClassAnnotation -> m TcClassAnnotation,
+    finalizeDerivingPlan :: TcDerivingPlan -> m TcDerivingPlan,
     finalizeInstance :: TcInstanceAnnotation -> m TcInstanceAnnotation,
     finalizeInstanceMethod :: TcInstanceMethodAnnotation -> m TcInstanceMethodAnnotation
   }
@@ -54,6 +55,7 @@ plainFinalizers =
       finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
       finalizeClass = pure,
+      finalizeDerivingPlan = pure,
       finalizeInstance = pure,
       finalizeInstanceMethod = pure
     }
@@ -647,7 +649,7 @@ instance FromPending Pending.DerivingClause where
   type Final Pending.DerivingClause = DerivingClause
   fromPending info node =
     case node of
-      Pending.DerivingClause x1 x2 -> DerivingClause <$> fromPending info x1 <*> fromPending info x2
+      Pending.DerivingClause x1 x2 x3 -> DerivingClause <$> fromPending info x1 <*> fromPending info x2 <*> traverse (finalizeDerivingPlan info) x3
 
 instance FromPending Pending.DerivingStrategy where
   type Final Pending.DerivingStrategy = DerivingStrategy
@@ -662,7 +664,7 @@ instance FromPending Pending.StandaloneDerivingDecl where
   type Final Pending.StandaloneDerivingDecl = StandaloneDerivingDecl
   fromPending info node =
     case node of
-      Pending.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 -> StandaloneDerivingDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 x7 -> StandaloneDerivingDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> traverse (finalizeDerivingPlan info) x7
 
 instance FromPending Pending.ClassDecl where
   type Final Pending.ClassDecl = ClassDecl

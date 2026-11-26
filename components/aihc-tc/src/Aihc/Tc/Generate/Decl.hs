@@ -1360,16 +1360,20 @@ annotateDeclDerivingTc extensions origin = go Nothing
         DeclAnn annotation inner -> DeclAnn annotation <$> go (annotationSpan annotation <|> declSpan) inner
         DeclTc info inner -> DeclTc info <$> go declSpan inner
         DeclError err inner -> DeclError err <$> go declSpan inner
-        DeclData dataDecl ->
-          annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
-        DeclNewtype newtypeDecl ->
-          annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
+        DeclData dataDecl -> do
+          clauses <- annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl)
+          pure (DeclData dataDecl {dataDeclDeriving = clauses})
+        DeclNewtype newtypeDecl -> do
+          clauses <- annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl)
+          pure (DeclNewtype newtypeDecl {newtypeDeclDeriving = clauses})
         DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
         DeclDataFamilyInst familyInst
           | not (null (dataFamilyInstDeriving familyInst)) -> do
               maybeInfo <- lookupDataFamilyInstanceInfo origin familyInst
               case maybeInfo of
-                Just info -> annotateDataFamilyInstDerivingTc extensions info (dataFamilyInstDeriving familyInst) decl
+                Just info -> do
+                  clauses <- annotateDataFamilyInstDerivingTc extensions info (dataFamilyInstDeriving familyInst)
+                  pure (DeclDataFamilyInst familyInst {dataFamilyInstDeriving = clauses})
                 Nothing -> do
                   emitWarning declSpan (OtherError "the data family instance has no checked metadata; no instance is derived")
                   pure decl

@@ -605,8 +605,8 @@ instance Walkable FieldDecl where
     FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty
 
 instance Walkable DerivingClause where
-  walk w (DerivingClause strategy classes) =
-    DerivingClause <$> walk w strategy <*> walk w classes
+  walk w (DerivingClause strategy classes plans) =
+    DerivingClause <$> walk w strategy <*> walk w classes <*> pure plans
 
 instance Walkable DerivingStrategy where
   walk w strategy =
@@ -617,7 +617,7 @@ instance Walkable DerivingStrategy where
       DerivingVia ty -> DerivingVia <$> walk w ty
 
 instance Walkable StandaloneDerivingDecl where
-  walk w (StandaloneDerivingDecl strategy pragmas warning binders context instHead) =
+  walk w (StandaloneDerivingDecl strategy pragmas warning binders context instHead plan) =
     StandaloneDerivingDecl
       <$> walk w strategy
       <*> pure pragmas
@@ -625,6 +625,7 @@ instance Walkable StandaloneDerivingDecl where
       <*> walk w binders
       <*> walk w context
       <*> walk w instHead
+      <*> pure plan
 
 -- Classes and instances
 

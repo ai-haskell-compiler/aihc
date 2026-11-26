@@ -20,12 +20,11 @@ where
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Tc.Annotations
   ( TcDerivedInstance (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, declDerivingPlans, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
@@ -57,7 +56,6 @@ import Aihc.Tc.Syntax.Pending
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
-    TcInfo (..),
     TupleFlavor (..),
     TyVarBSpecificity (..),
     TyVarBVisibility (..),
@@ -71,7 +69,6 @@ import Aihc.Tc.Syntax.Pending
     ValueDecl (..),
     mkSpanAnnotation,
     mkUnqualifiedName,
-    peelDeclAnn,
     qualifyName,
   )
 import Aihc.Tc.Types
@@ -99,20 +96,14 @@ declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> Packag
 declDerivedInstances selected references primPackage unlifted origin decl =
   case decl of
     DeclAnn _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
-    DeclTc info inner -> do
-      own <-
-        case info of
-          InfoDeriving derivingAnnotation -> do
-            kinds <- getKinds
-            catMaybes
-              <$> mapM
-                (generatePlan kinds references primPackage unlifted origin (peelDeclAnn inner))
-                (filter selected (tcDerivingPlans derivingAnnotation))
-          _ -> pure []
-      rest <- declDerivedInstances selected references primPackage unlifted origin inner
-      pure (own <> rest)
+    DeclTc _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
     DeclError _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
-    _ -> pure []
+    _ ->
+      case filter selected (declDerivingPlans decl) of
+        [] -> pure []
+        plans -> do
+          kinds <- getKinds
+          catMaybes <$> mapM (generatePlan kinds references primPackage unlifted origin decl) plans
 
 -- | The generation context of one plan.
 data Gen = Gen

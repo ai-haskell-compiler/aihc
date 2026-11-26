@@ -12,7 +12,6 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -26,6 +25,11 @@ import Aihc.Tc.Syntax
   ( Annotation,
     ArithSeq (..),
     ClassDecl (..),
+    DataDecl (..),
+    DataFamilyInst (..),
+    DerivingClause (..),
+    NewtypeDecl (..),
+    StandaloneDerivingDecl (..),
     ClassDeclItem (..),
     Cmd (..),
     CompStmt (..),
@@ -70,7 +74,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter (Doc, pretty)
@@ -154,12 +158,12 @@ labelWalk =
       pure node
 
     -- The information in the typed fields of a node below its wrappers
-    -- gets the first span of the wrappers, after the information of the
+    -- gets the first span of the wrappers, before the information of the
     -- wrappers.
     wrappedFields :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> [Label]) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrappedFields peel fields children node = do
       let (anns, infos, base) = peelLeading peel node
-      addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos <> fields base)
+      addInfoLabels (spanFromAnnotations anns) (fields base <> map LabelInfo infos)
       _ <- children base
       pure node
 
@@ -340,7 +344,13 @@ declFields decl =
   case decl of
     DeclClass classDecl -> [LabelText (renderClassAnnotation annotation) | Just annotation <- [classDeclTc classDecl]]
     DeclInstance instanceDecl -> [LabelText (renderInstanceAnnotation annotation) | Just annotation <- [instanceDeclTc instanceDecl]]
+    DeclData dataDecl -> derivingLabels (concatMap derivingPlans (dataDeclDeriving dataDecl))
+    DeclNewtype newtypeDecl -> derivingLabels (concatMap derivingPlans (newtypeDeclDeriving newtypeDecl))
+    DeclDataFamilyInst familyInst -> derivingLabels (concatMap derivingPlans (dataFamilyInstDeriving familyInst))
+    DeclStandaloneDeriving derivingDecl -> derivingLabels (maybeToList (standaloneDerivingPlan derivingDecl))
     _ -> []
+  where
+    derivingLabels plans = [LabelText (renderDerivingPlans plans) | not (null plans)]
 
 addInfoLabels :: Maybe SourceSpan -> [Label] -> State (Labels ann) ()
 addInfoLabels span' infos = do
@@ -446,7 +456,6 @@ renderTcInfo :: Maybe Text -> TcInfo -> Maybe String
 renderTcInfo currentModule info =
   case info of
     InfoType annotation -> Just (renderTypeAnnotation currentModule annotation)
-    InfoDeriving annotation -> Just (renderDerivingAnnotation annotation)
     _ -> Nothing
 
 renderTypeAnnotation :: Maybe Text -> TcAnnotation -> String
@@ -478,9 +487,9 @@ renderClassMethod :: TcClassMethodAnnotation -> String
 renderClassMethod method =
   renderTcSignature (tcClassMethodName method) (tcClassMethodType method)
 
-renderDerivingAnnotation :: TcDerivingAnnotation -> String
-renderDerivingAnnotation annotation =
-  "deriving plans: " <> intercalate ", " (map renderDerivingPlan (tcDerivingPlans annotation))
+renderDerivingPlans :: [TcDerivingPlan] -> String
+renderDerivingPlans plans =
+  "deriving plans: " <> intercalate ", " (map renderDerivingPlan plans)
 
 renderDerivingPlan :: TcDerivingPlan -> String
 renderDerivingPlan plan =

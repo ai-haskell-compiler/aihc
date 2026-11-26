@@ -25,7 +25,6 @@ module Aihc.Tc.Annotations
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivedInstance (..),
@@ -365,10 +364,6 @@ data TcDerivedInstance = TcDerivedInstance
   }
   deriving (Eq, Show)
 
-newtype TcDerivingAnnotation = TcDerivingAnnotation
-  { tcDerivingPlans :: [TcDerivingPlan]
-  }
-  deriving (Eq, Show)
 
 -- | A marker in a checked @rec@ statement: the next annotation is the
 -- occurrence annotation of this group variable at the knot of the group.

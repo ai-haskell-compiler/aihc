@@ -277,7 +277,7 @@ import Aihc.Tc.Annotations
     PendingTcMatchArityCast,
     TcAnnotation,
     TcClassAnnotation,
-    TcDerivingAnnotation,
+    TcDerivingPlan,
     TcDerivedInstance,
     TcForeignImportAnnotation,
     TcInstanceAnnotation,
@@ -305,7 +305,6 @@ data TcInfo
     InfoMatchArityCast !PendingTcMatchArityCast
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
-  | InfoDeriving !TcDerivingAnnotation
   | -- | The checked type of a record field selector.
     InfoSelectorType !TcType
   | -- | The next item of the statement is the occurrence type of this
@@ -1380,7 +1379,10 @@ data FieldDecl = FieldDecl
 -- Examples: @deriving Show@ and @deriving stock (Eq, Ord)@.
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: Either Name [Type]
+    derivingClasses :: Either Name [Type],
+    -- | The checked plans of the instances that the clause generates. The
+    -- type checker sets them.
+    derivingPlans :: [TcDerivingPlan]
   }
   deriving (Eq, Show)
 
@@ -1404,7 +1406,10 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingWarning :: Maybe Pragma,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
-    standaloneDerivingHead :: Type
+    standaloneDerivingHead :: Type,
+    -- | The checked plan of the instance that the declaration generates.
+    -- The type checker sets it.
+    standaloneDerivingPlan :: Maybe TcDerivingPlan
   }
   deriving (Eq, Show)
 

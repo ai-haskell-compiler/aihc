@@ -19,7 +19,6 @@ import Aihc.Tc.Annotations
     TcClassMethodAnnotation (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -92,6 +91,8 @@ finalizeSyntax =
           info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
         finalizeClass = \annotation ->
           annotation <$ rejectMeta "finalized class annotation" (firstMetaClassAnnotation annotation),
+        finalizeDerivingPlan = \plan ->
+          plan <$ rejectMeta "finalized deriving annotation" (firstMetaDerivingPlan plan),
         finalizeInstance = finalizeInstanceAnnotation,
         finalizeInstanceMethod = \(TcInstanceMethodAnnotation name ty) -> do
           finalized <- finalizeType ty
@@ -142,7 +143,6 @@ finalizeInfo item =
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
     InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
-    InfoDeriving annotation -> checked (Final.InfoDeriving annotation)
     InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
     InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
   where
@@ -526,7 +526,6 @@ rejectMetaFinalInfo :: Final.TcInfo -> TcM ()
 rejectMetaFinalInfo item =
   case item of
     Final.InfoType annotation -> reject "type annotation" (firstMetaTcAnnotation annotation)
-    Final.InfoDeriving annotation -> reject "deriving annotation" (firstMetaDerivingAnnotation annotation)
     _ -> pure ()
   where
     reject context = rejectMeta ("finalized " <> context)
@@ -560,10 +559,6 @@ firstMetaClassAnnotation classAnnotation =
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
   firstMetaType (tcClassMethodType method) <|> firstMetaType (tcClassMethodDictType method)
-
-firstMetaDerivingAnnotation :: TcDerivingAnnotation -> Maybe Unique
-firstMetaDerivingAnnotation annotation =
-  firstJusts (map firstMetaDerivingPlan (tcDerivingPlans annotation))
 
 firstMetaDerivingPlan :: TcDerivingPlan -> Maybe Unique
 firstMetaDerivingPlan plan =

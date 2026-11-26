@@ -13,7 +13,6 @@ where
 
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -35,7 +34,6 @@ import Aihc.Tc.Syntax.Pending
     Name (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
-    TcInfo (..),
     Type (..),
     UnqualifiedName,
     annotationSpan,
@@ -54,21 +52,22 @@ import Control.Applicative ((<|>))
 import Control.Monad (filterM, zipWithM, zipWithM_, (<=<))
 import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, listToMaybe, maybeToList)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-annotateAttachedDerivingTc :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> Decl -> TcM Decl
-annotateAttachedDerivingTc extensions targetFlavor targetHead clauses decl = do
+-- | Give each deriving clause of a declaration its checked plans.
+annotateAttachedDerivingTc :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [DerivingClause]
+annotateAttachedDerivingTc extensions targetFlavor targetHead clauses = do
   plans <- checkAttachedDerivingPlans extensions targetFlavor targetHead clauses
-  pure (annotateDerivingPlans plans decl)
+  pure (annotateDerivingPlans plans clauses)
 
-annotateDerivingPlans :: [TcDerivingPlan] -> Decl -> Decl
-annotateDerivingPlans [] decl = decl
-annotateDerivingPlans plans decl =
-  DeclTc (InfoDeriving (TcDerivingAnnotation plans)) decl
+-- | Give each clause its plans. The two lists have the same length.
+annotateDerivingPlans :: [[TcDerivingPlan]] -> [DerivingClause] -> [DerivingClause]
+annotateDerivingPlans = zipWith (\plans clause -> clause {derivingPlans = plans})
 
-checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
+-- | The plans of each clause, in the sequence of the clauses.
+checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [[TcDerivingPlan]]
 checkAttachedDerivingPlans _ _ targetHead [] = do
   mapM_ (freshSkolemTv . tyVarBinderName) (binderHeadParams targetHead)
   pure []
@@ -94,7 +93,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
       signatureParams <- zipWithM signatureParam [length rawParams + 1 ..] (drop (length rawParams) argumentKinds)
       params <- mapM defaultParam (rawParams <> signatureParams)
       dataType <- traverse derivingDataType =<< lookupDataType (tciTyCon info)
-      concat <$> mapM (checkClause info dataType params) clauses
+      mapM (checkClause info dataType params) clauses
   where
     defaultParam param = do
       tyVar <- defaultTyVarKinds (paramTyVar param)
@@ -127,14 +126,14 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
 -- family applied to the instance arguments, as in GHC. The planner takes
 -- the constructors of the instance through a datatype record whose
 -- parameters stand for the instance arguments ('familyInstanceDataType').
-annotateDataFamilyInstDerivingTc :: [Extension] -> DataFamilyInstanceInfo -> [DerivingClause] -> Decl -> TcM Decl
-annotateDataFamilyInstDerivingTc extensions info clauses decl = do
+annotateDataFamilyInstDerivingTc :: [Extension] -> DataFamilyInstanceInfo -> [DerivingClause] -> TcM [DerivingClause]
+annotateDataFamilyInstDerivingTc extensions info clauses = do
   dataType <- familyInstanceDataType info
   let targetFlavor = if dfiiIsNewtype info then NewtypeTyCon else DataTyCon
       params = [ParamInfo {paramName = tvName tyVar, paramTyVar = tyVar, paramKind = tvKind tyVar} | tyVar <- dfiiTyVars info]
       tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
-  plans <- concat <$> mapM (checkClause dataType targetFlavor params tvEnv) clauses
-  pure (annotateDerivingPlans plans decl)
+  plans <- mapM (checkClause dataType targetFlavor params tvEnv) clauses
+  pure (annotateDerivingPlans plans clauses)
   where
     checkClause dataType targetFlavor params tvEnv clause = do
       classHeads <- attachedDerivingClassHeads clause
@@ -361,8 +360,8 @@ kindAccepts expected actual =
 annotateStandaloneDerivingTc :: [Extension] -> StandaloneDerivingDecl -> TcM Decl
 annotateStandaloneDerivingTc extensions derivingDecl = do
   (maybePlan, hadErrors) <- withErrorTracking (checkStandaloneDerivingPlan extensions derivingDecl)
-  let plans = if hadErrors then [] else maybeToList maybePlan
-  pure (annotateDerivingPlans plans (DeclStandaloneDeriving derivingDecl))
+  let plan = if hadErrors then Nothing else maybePlan
+  pure (DeclStandaloneDeriving derivingDecl {standaloneDerivingPlan = plan})
 
 checkStandaloneDerivingPlan :: [Extension] -> StandaloneDerivingDecl -> TcM (Maybe TcDerivingPlan)
 checkStandaloneDerivingPlan extensions derivingDecl =

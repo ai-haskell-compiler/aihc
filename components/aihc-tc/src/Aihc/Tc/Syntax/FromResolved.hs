@@ -583,7 +583,7 @@ instance FromResolved R.DerivingClause where
   type ToPending R.DerivingClause = DerivingClause
   fromResolved node =
     case node of
-      R.DerivingClause x1 x2 -> DerivingClause (fromResolved x1) (fromResolved x2)
+      R.DerivingClause x1 x2 -> DerivingClause (fromResolved x1) (fromResolved x2) []
 
 instance FromResolved R.DerivingStrategy where
   type ToPending R.DerivingStrategy = DerivingStrategy
@@ -598,7 +598,7 @@ instance FromResolved R.StandaloneDerivingDecl where
   type ToPending R.StandaloneDerivingDecl = StandaloneDerivingDecl
   fromResolved node =
     case node of
-      R.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 -> StandaloneDerivingDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
+      R.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 -> StandaloneDerivingDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.ClassDecl where
   type ToPending R.ClassDecl = ClassDecl
