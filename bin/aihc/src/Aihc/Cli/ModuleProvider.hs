@@ -16,6 +16,7 @@ module Aihc.Cli.ModuleProvider
     ModuleFacts (..),
     newModuleProvider,
     newProviderCache,
+    providerCacheForGraph,
     providerPackagesOf,
     providerModuleOrigin,
     providerInterfacePaths,
@@ -193,6 +194,14 @@ data ProviderCache = ProviderCache
 -- | An empty cache for the providers of one graph.
 newProviderCache :: IO ProviderCache
 newProviderCache = ProviderCache <$> newMemo <*> newMemo <*> newMemo <*> newMemo <*> newMemo
+
+-- | The cache for one more graph, from a cache that an earlier graph used.
+-- The graph keeps the facts of the store packages, because a published
+-- store package does not change. The optimizer interfaces get a new
+-- table: the key of an interface is its path, and a later graph can write
+-- a different interface of the package that it builds at the same path.
+providerCacheForGraph :: ProviderCache -> IO ProviderCache
+providerCacheForGraph cache = (\interfaces -> cache {cacheInterfaces = interfaces}) <$> newMemo
 
 -- | A provider over the dependencies of a package, each with the modules
 -- it exposes and where its facts come from, and the locator for every

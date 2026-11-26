@@ -111,6 +111,7 @@ import Aihc.Cli.ModuleProvider
     moduleNameDirectory,
     newModuleProvider,
     newProviderCache,
+    providerCacheForGraph,
     providerInstanceFacts,
     providerInterfacePaths,
     providerModuleOrigin,
@@ -585,7 +586,13 @@ data ModuleCompileConfig = ModuleCompileConfig
     -- give a result that the sandbox does not allow, so the package gets a
     -- store key of its own. 'slotConfig' sets it from
     -- 'compileNativeSplicePackages'.
-    compileNativeSplices :: !Bool
+    compileNativeSplices :: !Bool,
+    -- | The cache of the store facts for each install of this config. A
+    -- long session, such as @aihc repl@, gives one cache to all of its
+    -- installs, so each install does not decode the same facts again.
+    -- Give a cache only when no store package changes between the
+    -- installs. Without a cache, each install makes a new cache.
+    compileProviderCache :: !(Maybe ProviderCache)
   }
 
 -- | What 'compileObserver' receives.
@@ -815,7 +822,8 @@ newModuleCompileConfig target storeTargetRoot lto level = do
         compileObserver = Nothing,
         compileSplices = Nothing,
         compileNativeSplicePackages = [],
-        compileNativeSplices = False
+        compileNativeSplices = False,
+        compileProviderCache = Nothing
       }
 
 -- | The config of a package the user did not name. The flags that keep the
@@ -1134,7 +1142,7 @@ installGraph config locations plans components = do
   executablesRef <- newIORef []
   temporaryRoots <- newIORef Set.empty
   phaseTimings <- newIORef mempty
-  providerCache <- newProviderCache
+  providerCache <- maybe newProviderCache providerCacheForGraph (compileProviderCache config)
   spliceLock <- newMVar ()
   let shared =
         InstallShared

@@ -214,7 +214,8 @@ runFrontend options = do
             compileObserver = Nothing,
             compileSplices = Nothing,
             compileNativeSplicePackages = [],
-            compileNativeSplices = False
+            compileNativeSplices = False,
+            compileProviderCache = Nothing
           }
   (_, totals) <-
     foldM
