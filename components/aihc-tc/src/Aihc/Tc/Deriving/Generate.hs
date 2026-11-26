@@ -1479,7 +1479,7 @@ associatedItems gen representation = do
       | otherwise =
           case (familyArguments heads, familyArguments (init heads <> [representation])) of
             (Just lhsArguments, Just rhsArguments) ->
-              pure (Just (InstanceItemTypeFamilyInst [] (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments))))
+              pure (Just (InstanceItemTypeFamilyInst (TypeFamilyInst [] TypeHeadPrefix (familyType lhsArguments) (familyType rhsArguments) Nothing)))
             _ -> reject
       where
         -- A family parameter that is not a class parameter, as the @a@ of
@@ -1535,12 +1535,12 @@ genericItems gen mode dataType =
                 | otherwise = fromMaybe [] (genericKindBinders gen dataType)
               equation =
                 InstanceItemTypeFamilyInst
-                  []
                   ( TypeFamilyInst
                       equationBinders
                       TypeHeadPrefix
                       (applyTypes (TCon (tyConNameSyntax (genSpan gen) repTyCon) Unpromoted) headTypes)
                       (genericRepType gen dataType constructors)
+                      Nothing
                   )
           fromMatches <-
             if null constructors

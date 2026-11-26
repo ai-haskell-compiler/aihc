@@ -278,11 +278,9 @@ renderBinderName uname =
 -- | The package and the name of a checked module.
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $
-    listToMaybe
-      [ (packageIdText packageId, moduleName')
-      | InfoModuleIdentity (TcModuleIdentity packageId moduleName') <- moduleTc resolvedModule
-      ]
+  case moduleIdentity resolvedModule of
+    Just (TcModuleIdentity packageId moduleName') -> (packageIdText packageId, moduleName')
+    Nothing -> ("", fromMaybe "Main" (moduleName resolvedModule))
 
 -- | The variables that a pattern binds, in source order. Every pattern form
 -- that can hold a sub-pattern is walked, so a tuple, list, record, view,

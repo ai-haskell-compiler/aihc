@@ -318,10 +318,6 @@ data TcInfo
   | -- | The next item of the statement is the occurrence type of this
     -- group variable at the knot of a @rec@ group.
     InfoRecKnotOccurrence !Entity
-  | InfoModuleIdentity !TcModuleIdentity
-  | InfoForeignImport !TcForeignImportAnnotation
-  | InfoTypeFamilyInstance !TypeFamilyInstanceInfo
-  | InfoDataFamilyInstance !DataFamilyInstanceInfo
   | -- | The checked equations of a pattern synonym.
     InfoPatSyn !PatSynEquations
   deriving (Eq, Show)
@@ -709,8 +705,8 @@ data UnqualifiedName = UnqualifiedName
 -- Example: @module M (x) where import Data.List; x = 1@.
 data Module = Module
   { moduleAnns :: [Annotation],
-    -- | What the type checker found for the whole module.
-    moduleTc :: [TcInfo],
+    -- | The package and the name of the module. The type checker sets it.
+    moduleIdentity :: Maybe TcModuleIdentity,
     moduleHead :: Maybe ModuleHead,
     moduleLanguagePragmas :: [ExtensionSetting],
     moduleImports :: [ImportDecl],
@@ -1284,7 +1280,9 @@ data TypeFamilyInst = TypeFamilyInst
   { typeFamilyInstForall :: [TyVarBinder],
     typeFamilyInstHeadForm :: TypeHeadForm,
     typeFamilyInstLhs :: Type,
-    typeFamilyInstRhs :: Type
+    typeFamilyInstRhs :: Type,
+    -- | The checked equation of the instance. The type checker sets it.
+    typeFamilyInstInfo :: Maybe TypeFamilyInstanceInfo
   }
   deriving (Eq, Show)
 
@@ -1300,7 +1298,9 @@ data DataFamilyInst = DataFamilyInst
     -- | Optional inline result kind annotation (@:: Kind@) before @=@ or @where@
     dataFamilyInstKind :: Maybe Type,
     dataFamilyInstConstructors :: [DataConDecl],
-    dataFamilyInstDeriving :: [DerivingClause]
+    dataFamilyInstDeriving :: [DerivingClause],
+    -- | The checked facts of the instance. The type checker sets them.
+    dataFamilyInstInfo :: Maybe DataFamilyInstanceInfo
   }
   deriving (Eq, Show)
 
@@ -1478,9 +1478,8 @@ data InstanceDeclItem
     InstanceItemTypeSig [BinderName] Type
   | -- | @infixr 5 :+:@
     InstanceItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | -- | @type F Int = Bool@. The information is the equation of the
-    -- instance.
-    InstanceItemTypeFamilyInst [TcInfo] TypeFamilyInst
+  | -- | @type F Int = Bool@
+    InstanceItemTypeFamilyInst TypeFamilyInst
   | -- | @data instance DF Int = DFInt@
     InstanceItemDataFamilyInst DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
@@ -1495,7 +1494,10 @@ data ForeignDecl = ForeignDecl
     foreignSafety :: Maybe ForeignSafety,
     foreignEntity :: ForeignEntitySpec,
     foreignName :: UnqualifiedName,
-    foreignType :: Type
+    foreignType :: Type,
+    -- | The checked plan of a @ccall@ or @capi@ import. The type checker
+    -- sets it.
+    foreignPlan :: Maybe TcForeignImportAnnotation
   }
   deriving (Eq, Show)
 

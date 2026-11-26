@@ -1043,26 +1043,15 @@ liftThrough proofs ty
         TcQualTy _ body -> mentions body
         _ -> False
 
--- | The checked plan of a foreign import, if the item is one.
-infoForeignPlan :: Syn.TcInfo -> Maybe TcForeignImportAnnotation
-infoForeignPlan item =
-  case item of
-    Syn.InfoForeignImport plan -> Just plan
-    _ -> Nothing
-
 annotatedForeignDecl :: Syn.Decl -> Maybe (TcAnnotation, Maybe TcForeignImportAnnotation, Syn.ForeignDecl)
-annotatedForeignDecl = go Nothing Nothing
+annotatedForeignDecl = go Nothing
   where
-    go maybeType maybePlan declaration =
+    go maybeType declaration =
       case declaration of
-        Syn.DeclTc info inner ->
-          go
-            (infoType info <|> maybeType)
-            (infoForeignPlan info <|> maybePlan)
-            inner
-        Syn.DeclAnn _ inner -> go maybeType maybePlan inner
-        Syn.DeclError _ inner -> go maybeType maybePlan inner
-        Syn.DeclForeign foreignDecl -> (,,foreignDecl) <$> maybeType <*> pure maybePlan
+        Syn.DeclTc info inner -> go (infoType info <|> maybeType) inner
+        Syn.DeclAnn _ inner -> go maybeType inner
+        Syn.DeclError _ inner -> go maybeType inner
+        Syn.DeclForeign foreignDecl -> (,Syn.foreignPlan foreignDecl,foreignDecl) <$> maybeType
         _ -> Nothing
 
 -- | A foreign import declares no System FC value. Each use of the import

@@ -35,7 +35,7 @@ import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..))
+import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
 import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
@@ -74,7 +74,23 @@ import Data.Set qualified as Set
 -- Each item of pending information becomes final information. The change
 -- covers every syntax constructor, so a pending item cannot escape.
 finalizeModuleTc :: Module -> TcM Final.Module
-finalizeModuleTc = fromPending finalizeInfo
+finalizeModuleTc = finalizeSyntax
+
+-- | Change a part of the tree with the function for each kind of
+-- information.
+finalizeSyntax :: (FromPending a) => a -> TcM (Final a)
+finalizeSyntax =
+  fromPending
+    Finalizers
+      { finalizeTcInfo = finalizeInfo,
+        -- The checker writes the facts of a family instance as final
+        -- information. They keep their value, but they must not have a
+        -- meta variable.
+        finalizeTypeFamilyInstance = \info ->
+          info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
+        finalizeDataFamilyInstance = \info ->
+          info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info)
+      }
 
 -- | Finalize one item of information. A cast whose proof is not needed
 -- goes away.
@@ -118,7 +134,7 @@ finalizeInfo item =
     InfoInstance instanceAnnotation -> Just . Final.InfoInstance <$> finalizeInstanceAnnotation instanceAnnotation
     -- The matcher, builder, and selector equations are syntax in the
     -- information. Each one changes as the tree does.
-    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> fromPending finalizeInfo equations
+    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> finalizeSyntax equations
     -- The checker writes the types of declarations as final information.
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)
@@ -131,10 +147,6 @@ finalizeInfo item =
     InfoCoercedDeriving plan -> checked (Final.InfoCoercedDeriving plan)
     InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
     InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
-    InfoModuleIdentity identity -> checked (Final.InfoModuleIdentity identity)
-    InfoForeignImport annotation -> checked (Final.InfoForeignImport annotation)
-    InfoTypeFamilyInstance info -> checked (Final.InfoTypeFamilyInstance info)
-    InfoDataFamilyInstance info -> checked (Final.InfoDataFamilyInstance info)
   where
     -- Information that the checker writes as final keeps its value, but
     -- it must not have a meta variable.
@@ -520,8 +532,6 @@ rejectMetaFinalInfo item =
     Final.InfoDeriving annotation -> reject "deriving annotation" (firstMetaDerivingAnnotation annotation)
     Final.InfoInstance annotation -> reject "instance annotation" (firstMetaInstanceAnnotation annotation)
     Final.InfoInstanceMethod annotation -> reject "instance method annotation" (firstMetaInstanceMethodAnnotation annotation)
-    Final.InfoDataFamilyInstance info -> reject "data-family instance annotation" (firstMetaDataFamilyInstance info)
-    Final.InfoTypeFamilyInstance info -> reject "type-family instance annotation" (firstMetaTypeFamilyInstance info)
     _ -> pure ()
   where
     reject context = rejectMeta ("finalized " <> context)
