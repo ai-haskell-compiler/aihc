@@ -28,6 +28,8 @@ module Aihc.Cli.Install
     installPlans,
     installWith,
     installWithConfig,
+    planInstall,
+    installPlanned,
     installTargetRoot,
     TargetRoot (..),
     newModuleCompileConfig,
@@ -733,15 +735,18 @@ installWith reporter options = installWithConfig reporter options id
 -- give.
 installWithConfig :: ProgressReporter -> InstallOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> IO InstallResult
 installWithConfig reporter options adjust = do
+  plan <- planInstall reporter options
+  installPlanned reporter options adjust plan
+
+-- | Solve the plan of an install. 'installPlanned' then installs the root
+-- of the plan. A caller that installs the same package many times with the
+-- same dependencies, such as the repl, can solve the plan one time.
+planInstall :: ProgressReporter -> InstallOptions -> IO PackagePlan
+planInstall reporter options = do
   when (installPositionIndependent options && installTarget options /= Wasm32Wasip3) $
     ioError (userError "--position-independent requires the wasm32-wasip3 target")
-  storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
-  let target = installTarget options
-      targetDirectory = nativeTargetStoreDirectory target
-      useColor = progressColor reporter
-      report = progressReport reporter
-  let verbose message = when (installVerbose options) (report (ProgressLog message))
-      printTimings message = when (installPrintTimings options) (report (ProgressLog message))
+  let report = progressReport reporter
+      verbose message = when (installVerbose options) (report (ProgressLog message))
   -- The Hackage messages go through the reporter. A direct write to the
   -- handle moves the cursor under the live frame, and the next frame then
   -- erases the wrong lines.
@@ -749,11 +754,26 @@ installWithConfig reporter options adjust = do
   TargetRoot root origin lockDirectory components project <- installTargetRoot (planProject (installPlanOptions options)) (installPackageTarget options)
   unless (null components) $
     ioError (userError (installPackageTarget options <> " names an executable or a test suite, and install builds the library of a package. Use build for an executable and test for a test suite"))
-  request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget target) project (maybe [] pure (installWorkspace options)) lockDirectory verbose
+  request <- planRequestFor hackageSource (installPlanOptions options) (cabalPlatformForTarget (installTarget options)) project (maybe [] pure (installWorkspace options)) lockDirectory verbose
   planned <- planPackages request {requestRoots = [root]}
   plan <- case plannedRoots planned of
     [rootPlan] -> pure rootPlan
     _ -> ioError (userError "The plan has no root")
+  -- The plan finds the package being installed by its name, which marks
+  -- it local. What the user asked for decides instead: a directory is local,
+  -- a Hackage release is not.
+  pure plan {planOrigin = origin}
+
+-- | Install the root of a plan from 'planInstall'.
+installPlanned :: ProgressReporter -> InstallOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> PackagePlan -> IO InstallResult
+installPlanned reporter options adjust plan = do
+  storeRoot <- maybe defaultStoreRoot pure (installStoreRoot options)
+  let target = installTarget options
+      targetDirectory = nativeTargetStoreDirectory target
+      useColor = progressColor reporter
+      report = progressReport reporter
+  let verbose message = when (installVerbose options) (report (ProgressLog message))
+      printTimings message = when (installPrintTimings options) (report (ProgressLog message))
   report (ProgressPlan (planProgressItems [plan]))
   buildRoot <- maybe (pure (defaultBuildRoot (planSourcePath plan))) pure (installBuildRoot options)
   levelConfig <- newModuleCompileConfig target (storeRoot </> targetDirectory) (installLto options) (installOptimization options)
@@ -779,10 +799,7 @@ installWithConfig reporter options adjust = do
             locationImmutable = installImmutable options,
             locationReinstall = installReinstall options
           }
-  -- The plan finds the package being installed by its name, which marks
-  -- it local. What the user asked for decides instead: a directory is local,
-  -- a Hackage release is not.
-  installedResult <$> installPackagePlan config locations plan {planOrigin = origin}
+  installedResult <$> installPackagePlan config locations plan
 
 -- | The compile config of a command at the given level, with no output
 -- kept, no lint, and no messages. Each command then sets what its own

@@ -56,11 +56,12 @@ module Aihc.Cli.Repl
 where
 
 import Aihc.Cli.Build (buildWithConfig)
-import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
+import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installPlanned, planInstall)
 import Aihc.Cli.ModuleProvider (newProviderCache)
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), ReplOptions (..), defaultPlanOptions)
 import Aihc.Cli.Progress (ProgressReporter, quietProgress, withProgress)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..))
+import Aihc.PackagePlan (PackagePlan (..), parseSourcePackageDescriptionAt)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Decl (..), Extension, LanguageEdition (..), Module (..), effectiveExtensions, parseExtensionSettingName)
 import Aihc.Resolve (ExportEntry (..), ModuleUnit (..), Package (..), PackageId (..), exportsEntries, moduleDeclarationExports)
@@ -128,7 +129,12 @@ data Session = Session
     sessionImports :: !(IORef [Text]),
     -- | The settings of language extensions, in the order of the inputs. An
     -- example is @NoImplicitPrelude@.
-    sessionExtensions :: !(IORef [Text])
+    sessionExtensions :: !(IORef [Text]),
+    -- | The plan of the session package, after the first input. The
+    -- dependencies of the session package do not change, so the plan of
+    -- the first input is correct for each later input. Only the module
+    -- list of the package changes.
+    sessionPlan :: !(IORef (Maybe PackagePlan))
   }
 
 -- | A module of an earlier input.
@@ -168,7 +174,7 @@ replSession withReporter given options streams =
               EngineStderr -> replWriteError streams
       withOutputEngine write (Just readable) image $ \engine -> do
         startGuest engine
-        session <- Session engine streams adjust options root <$> newIORef 1 <*> newIORef [] <*> newIORef [] <*> newIORef []
+        session <- Session engine streams adjust options root <$> newIORef 1 <*> newIORef [] <*> newIORef [] <*> newIORef [] <*> newIORef Nothing
         loop session
 
 -- | Read inputs until the end of the input or the command @:quit@.
@@ -664,7 +670,11 @@ compileForm session form = do
       names = map (moduleName . sessionModuleNumber) modules <> [moduleName number]
   writeFile (directory </> T.unpack sessionPackage <.> "cabal") (packageDescription (sessionOptions session) names)
   TIO.writeFile source (moduleText extensions imports modules number form)
-  outcome <- try (installWithConfig (quietProgress stderr) (packageOptions (sessionOptions session) root) (sessionAdjust session))
+  let options = packageOptions (sessionOptions session) root
+      reporter = quietProgress stderr
+  outcome <- try $ do
+    plan <- sessionPackagePlan session reporter options directory
+    installPlanned reporter options (sessionAdjust session) plan
   case outcome of
     Left failure -> do
       removePathForcibly source
@@ -679,6 +689,22 @@ compileForm session form = do
           createDirectoryIfMissing True (takeDirectory shared)
           linkSharedModule shared [object] []
           pure (Right (number, Just shared))
+
+-- | The plan of the session package for the current input. The first input
+-- solves the plan. A later input only reads the new Cabal file of the
+-- session package, because its module list changes. Thus a later input
+-- does not run the solver and does not ask Hackage.
+sessionPackagePlan :: Session -> ProgressReporter -> InstallOptions -> FilePath -> IO PackagePlan
+sessionPackagePlan session reporter options directory = do
+  known <- readIORef (sessionPlan session)
+  case known of
+    Just plan -> do
+      (cabalFile, description) <- parseSourcePackageDescriptionAt directory
+      pure plan {planCabalFile = cabalFile, planDescription = description}
+    Nothing -> do
+      plan <- planInstall reporter options
+      writeIORef (sessionPlan session) (Just plan)
+      pure plan
 
 -- | The message of a failure of the compiler. The name of the generated
 -- file becomes @<interactive>@.
