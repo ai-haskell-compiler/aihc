@@ -361,6 +361,11 @@ typedef struct AihcGcWork {
      collection takes a block without the region lock. */
   struct AihcHeapBlock *spare_blocks;
   size_t spare_block_count;
+  /* The worklists of a promotion by a copy: the young originals that have
+     a forwarding header to their copies, and the copies whose fields are
+     not promoted yet. They keep their storage between promotions. */
+  AihcValueWorklist promote_originals;
+  AihcValueWorklist promote_pending;
 } AihcGcWork;
 
 static AihcGcWork aihc_gc_works[AIHC_CAPABILITY_MAX];
@@ -1851,6 +1856,14 @@ static void aihc_write_barrier_update_unlocked(AihcCapability *capability,
   if (capability->machine->gen2_cycle_active) {
     aihc_shade_fields(capability, object);
   }
+  /* With several capabilities, the update of a global object stores a
+     global value: the escape promoted it. A global object names no object
+     of a local heap, so it needs no entry, and a local collection would
+     drop the entry. */
+  if (capability->machine->capability_count > 1 &&
+      !aihc_value_is_young(capability->machine, object)) {
+    return;
+  }
   aihc_remember_unique(capability, object);
 }
 
@@ -1892,6 +1905,21 @@ void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
   if (keep) {
     aihc_keep_caf_unlocked(object);
   }
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
+}
+
+/* The barrier of the update of a thunk of the local heap. A local object
+   is not static, so it is no CAF. */
+void aihc_write_barrier_update_local(AihcCapability *capability,
+                                     AihcValue *object) {
+  object = aihc_untag_pointer(object);
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_update_unlocked(capability, object);
   if (locked) {
     aihc_heap_unlock(capability->machine);
   }
@@ -4725,19 +4753,9 @@ static AihcPromoteRule aihc_promote_rule(const AihcValue *value,
   }
 }
 
-/* The state of one promotion: the copies of the originals it reached, and
-   the copies whose fields it has not promoted yet. */
+/* The state of one check of a young graph before an escape collection. */
 typedef struct {
   AihcMachine *machine;
-  /* The capability whose gen2 segments take the copies, and the slot bytes
-     the copies took. */
-  AihcCapability *capability;
-  uint64_t gen2_slot_bytes;
-  AihcValue **originals;
-  AihcValue **copies;
-  size_t capacity;
-  size_t count;
-  AihcValueWorklist pending;
   /* The young objects the check reached, and the check result. */
   AihcAddressSet seen;
   AihcValueWorklist check;
@@ -4753,58 +4771,6 @@ typedef struct {
      collection then moves every young survivor. */
   int reaches_queue;
 } AihcPromotion;
-
-static size_t aihc_promotion_slot(const AihcPromotion *promotion,
-                                  const AihcValue *original) {
-  return aihc_static_slot_of((uintptr_t)original, promotion->capacity);
-}
-
-static AihcValue *aihc_promotion_lookup(const AihcPromotion *promotion,
-                                        const AihcValue *original) {
-  if (promotion->capacity == 0) {
-    return NULL;
-  }
-  size_t slot = aihc_promotion_slot(promotion, original);
-  while (promotion->originals[slot] != NULL) {
-    if (promotion->originals[slot] == original) {
-      return promotion->copies[slot];
-    }
-    slot = (slot + 1) & (promotion->capacity - 1);
-  }
-  return NULL;
-}
-
-static void aihc_promotion_insert(AihcPromotion *promotion, AihcValue *original,
-                                  AihcValue *copy) {
-  if (promotion->count * 2 >= promotion->capacity) {
-    size_t old_capacity = promotion->capacity;
-    AihcValue **old_originals = promotion->originals;
-    AihcValue **old_copies = promotion->copies;
-    promotion->capacity = old_capacity == 0 ? 64 : old_capacity * 2;
-    promotion->originals =
-        calloc(promotion->capacity, sizeof(*promotion->originals));
-    promotion->copies = calloc(promotion->capacity, sizeof(*promotion->copies));
-    if (promotion->originals == NULL || promotion->copies == NULL) {
-      aihc_fail("out of memory");
-    }
-    promotion->count = 0;
-    for (size_t index = 0; index < old_capacity; ++index) {
-      if (old_originals[index] != NULL) {
-        aihc_promotion_insert(promotion, old_originals[index],
-                              old_copies[index]);
-      }
-    }
-    free(old_originals);
-    free(old_copies);
-  }
-  size_t slot = aihc_promotion_slot(promotion, original);
-  while (promotion->originals[slot] != NULL) {
-    slot = (slot + 1) & (promotion->capacity - 1);
-  }
-  promotion->originals[slot] = original;
-  promotion->copies[slot] = copy;
-  ++promotion->count;
-}
 
 /* The check: a visitor that queues each young object it has not seen. */
 static AihcSlot aihc_promote_check_slot(AihcSlot slot, void *opaque) {
@@ -4873,17 +4839,63 @@ static int aihc_promote_needs_collection(AihcPromotion *promotion,
   return collect;
 }
 
-static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque);
+/* The state of one promotion by a copy. Each original that the copy
+   reached has a forwarding header to its copy until the promotion ends, so
+   a second reference finds the copy without a table. No other capability
+   reaches a local object, and the promotion runs no collection, so no
+   other code reads these headers. */
+typedef struct {
+  AihcMachine *machine;
+  /* The capability whose gen2 segments take the copies, and the slot bytes
+     the copies took. */
+  AihcCapability *capability;
+  uint64_t gen2_slot_bytes;
+  AihcValueWorklist *originals;
+  AihcValueWorklist *pending;
+  /* Whether the pause walk ran, so an unclaimed thunk is not under
+     evaluation. */
+  int copy_thunks;
+  /* Whether the copy reached an object that only a collection promotes. */
+  int blocked;
+} AihcPromoteCopy;
 
-/* Promote one young object and return its global copy. */
-static AihcValue *aihc_promote_object(AihcPromotion *promotion,
-                                      AihcValue *original) {
-  AihcValue *known = aihc_promotion_lookup(promotion, original);
-  if (known != NULL) {
-    return known;
+/* A reference to a young indirection or a young evaluated thunk goes to its
+   target, as in aihc_promote_follow. A forwarded original is a copied
+   object, which is neither. */
+static AihcSlot aihc_promote_copy_follow(const AihcMachine *machine,
+                                         AihcSlot slot) {
+  AihcValue *value = aihc_untag(slot);
+  while (aihc_promote_is_young(machine, value) &&
+         !aihc_header_is_forward(value->header) &&
+         aihc_follows_to_field_zero(value)) {
+    slot = value->fields[0];
+    value = aihc_untag(slot);
   }
-  AihcMachine *machine = promotion->machine;
-  if (aihc_promote_rule(original, 1) == AIHC_PROMOTE_IN_PLACE) {
+  return slot;
+}
+
+/* Promote one young object and return its global copy. An object that
+   only a collection promotes blocks the copy, and the result is then the
+   original. */
+static AihcValue *aihc_promote_object(AihcPromoteCopy *state,
+                                      AihcValue *original) {
+  AihcSlot header = original->header;
+  if (aihc_header_is_forward(header)) {
+    return aihc_header_forward(header);
+  }
+  if (state->blocked) {
+    return original;
+  }
+  AihcPromoteRule rule = aihc_promote_rule(original, state->copy_thunks);
+  if (rule == AIHC_PROMOTE_COLLECT) {
+    state->blocked = 1;
+    return original;
+  }
+  AihcMachine *machine = state->machine;
+  if (rule == AIHC_PROMOTE_IN_PLACE) {
+    /* The block has no pointer fields, so it can stay in gen2 when a later
+       object blocks the copy. In gen2, the block is no longer young, and a
+       second reference does not reach this function. */
     AihcPinnedBlock *block = aihc_pinned_block_of(original);
     unsigned generation = aihc_pinned_generation(block);
     aihc_fixed_move(machine, generation, 2, aihc_pinned_bytes(block));
@@ -4891,46 +4903,100 @@ static AihcValue *aihc_promote_object(AihcPromotion *promotion,
     if (machine->gen2_cycle_active) {
       block->bytes |= AIHC_PINNED_CYCLE_MARK;
     }
-    aihc_promotion_insert(promotion, original, original);
     return original;
   }
   uint64_t words = aihc_gc_words(original);
+  int byte_array = aihc_value_kind(original) == AIHC_OBJECT_BYTE_ARRAY;
   size_t bytes = sizeof(AihcSlot) * words;
-  AihcValue *copy = (AihcValue *)aihc_gen2_allocate(
-      promotion->capability, bytes, &promotion->gen2_slot_bytes);
-  memcpy(copy, original, bytes);
-  aihc_promotion_insert(promotion, original, copy);
-  if (aihc_value_kind(original) == AIHC_OBJECT_BYTE_ARRAY) {
-    /* A byte array has no pointer fields. */
-    return copy;
-  }
-  aihc_value_worklist_push(&promotion->pending, copy);
-  if (aihc_value_info_table(original)->object_kind == AIHC_OBJECT_THUNK) {
-    /* The original becomes an indirection to the copy. The rest of the
-       thunk becomes slop, which reads as zero words. */
-    original->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
-    original->fields[0] = (AihcSlot)(uintptr_t)copy;
-    for (uint64_t index = 1; index + 1 < words; ++index) {
-      original->fields[index] = 0;
+  AihcValue *copy;
+  /* Most objects have a few words, as in aihc_copy. */
+  if (words <= 8) {
+    copy = (AihcValue *)aihc_gen2_allocate_small(state->capability, words,
+                                                 &state->gen2_slot_bytes);
+    AihcSlot *to = (AihcSlot *)copy;
+    const AihcSlot *from = (const AihcSlot *)original;
+    for (uint64_t index = 0; index < words; ++index) {
+      to[index] = from[index];
     }
+  } else {
+    copy = (AihcValue *)aihc_gen2_allocate(state->capability, bytes,
+                                           &state->gen2_slot_bytes);
+    memcpy(copy, original, bytes);
+  }
+  original->header = (AihcSlot)(uintptr_t)copy | AIHC_HEADER_FORWARD |
+                     AIHC_HEADER_FORWARD_GEN2;
+  aihc_value_worklist_push(state->originals, original);
+  if (!byte_array) {
+    /* A byte array has no pointer fields. */
+    aihc_value_worklist_push(state->pending, copy);
   }
   return copy;
 }
 
 static AihcSlot aihc_promote_slot(AihcSlot slot, void *opaque) {
-  AihcPromotion *promotion = opaque;
-  AihcSlot followed = aihc_promote_follow(promotion->machine, slot);
+  AihcPromoteCopy *state = opaque;
+  AihcSlot followed = aihc_promote_copy_follow(state->machine, slot);
   AihcValue *value = aihc_untag(followed);
-  if (!aihc_promote_is_young(promotion->machine, value)) {
+  if (!aihc_promote_is_young(state->machine, value)) {
     return followed;
   }
-  return aihc_tag_pointer(aihc_promote_object(promotion, value),
+  return aihc_tag_pointer(aihc_promote_object(state, value),
                           aihc_tag_of(followed));
 }
 
+/* Give back the gen2 slot of a copy that a blocked promotion made. The
+   slot is in a segment that this capability took for its allocation, and
+   a sweep reaches only the segments of a finished cycle, so no other
+   capability changes the occupied map of the segment now. A mutator can
+   shade a slot of the segment, so the mark is cleared with an atomic AND.
+   Every slot below the cursor stays occupied. The result is the bytes of
+   the slot. */
+static uint64_t aihc_gen2_release_copy(AihcValue *copy) {
+  AihcSegment *segment = aihc_segment_of(copy);
+  uint32_t slot = aihc_segment_slot_of(segment, copy);
+  uint64_t bit = UINT64_C(1) << (slot & 63U);
+  segment->occupied[slot >> 6] &= ~bit;
+  __atomic_fetch_and(&segment->bitmap[slot >> 6], ~bit, __ATOMIC_RELAXED);
+  if (slot < segment->cursor) {
+    segment->cursor = slot;
+  }
+  return aihc_segment_slot_bytes(segment);
+}
+
+/* The end of a promotion by a copy: each original gets its header back.
+   After a complete copy, an unclaimed thunk becomes an indirection to its
+   copy, so the evaluation is shared. The rest of the thunk becomes slop,
+   which reads as zero words. After a blocked copy, each copy goes, so the
+   escape collection finds the heap as the promotion found it. */
+static void aihc_promote_restore(AihcPromoteCopy *state) {
+  AihcValueWorklist *originals = state->originals;
+  for (size_t index = 0; index < originals->count; ++index) {
+    AihcValue *original = originals->items[index];
+    AihcValue *copy = aihc_header_forward(original->header);
+    uint64_t words = aihc_gc_words(copy);
+    if (state->blocked) {
+      original->header = copy->header;
+      state->gen2_slot_bytes -= aihc_gen2_release_copy(copy);
+    } else if (aihc_value_info_table(copy)->object_kind == AIHC_OBJECT_THUNK) {
+      original->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
+      original->fields[0] = (AihcSlot)(uintptr_t)copy;
+      for (uint64_t field = 1; field + 1 < words; ++field) {
+        original->fields[field] = 0;
+      }
+    } else {
+      original->header = copy->header;
+    }
+  }
+  originals->count = 0;
+  state->pending->count = 0;
+}
+
 /* Promote a value by a copy, or give zero when the promotion needs a
-   collection. The result keeps the pointer tag of the value. */
-static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
+   collection. The result keeps the pointer tag of the value. With
+   no_evaluations, no young thunk of the graph is under evaluation, and the
+   copy needs no pause walk. */
+static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot,
+                                  int no_evaluations) {
   AihcMachine *machine = capability->machine;
   AihcValue *top = capability->pause_top;
   capability->pause_top = NULL;
@@ -4939,35 +5005,39 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
   if (!aihc_promote_is_young(machine, value)) {
     return slot;
   }
-  /* The pause walk claims each thunk under evaluation, so the check finds
-     it claimed. */
-  if (top != NULL) {
+  /* The pause walk claims each thunk under evaluation, so the copy finds
+     it claimed, and copies each unclaimed thunk. */
+  int copy_thunks = no_evaluations || top != NULL;
+  if (!no_evaluations && top != NULL) {
     aihc_pause(capability, capability->current_thread, top);
   }
-  AihcPromotion promotion = {
-      .machine = machine, .capability = capability, .copy_thunks = top != NULL};
-  int collect = aihc_promote_needs_collection(&promotion, value);
-  free(promotion.seen.slots);
-  free(promotion.check.items);
-  if (collect) {
-    AihcGcWork *work = &aihc_gc_works[capability->index];
+  AihcGcWork *work = &aihc_gc_works[capability->index];
+  AihcPromoteCopy state = {.machine = machine,
+                           .capability = capability,
+                           .originals = &work->promote_originals,
+                           .pending = &work->promote_pending,
+                           .copy_thunks = copy_thunks};
+  AihcValue *copy = aihc_promote_object(&state, value);
+  while (!state.blocked && state.pending->count != 0) {
+    AihcValue *object = state.pending->items[--state.pending->count];
+    aihc_visit_plain_fields(object, aihc_promote_slot, &state);
+  }
+  aihc_promote_restore(&state);
+  aihc_gen2_account(machine, state.gen2_slot_bytes);
+  if (state.blocked) {
+    /* The check walks the whole young graph, so the escape collection
+       knows whether the graph reaches gen1 or a blackhole queue. */
+    AihcPromotion promotion = {.machine = machine, .copy_thunks = copy_thunks};
+    (void)aihc_promote_needs_collection(&promotion, value);
+    free(promotion.seen.slots);
+    free(promotion.check.items);
     work->escape_value = promotion.reaches_queue ? 0 : slot;
     work->escape_reaches_gen1 = promotion.reaches_gen1;
     return 0;
   }
-  AihcSlot copy = aihc_tag_pointer(aihc_promote_object(&promotion, value),
-                                   aihc_tag_of(slot));
-  while (promotion.pending.count != 0) {
-    AihcValue *object = promotion.pending.items[--promotion.pending.count];
-    aihc_visit_plain_fields(object, aihc_promote_slot, &promotion);
-  }
-  free(promotion.pending.items);
-  free(promotion.originals);
-  free(promotion.copies);
-  aihc_gen2_account(machine, promotion.gen2_slot_bytes);
   /* The verifier of the next collection checks the copies. The nursery is
      not empty here, so the verifier cannot run now. */
-  return copy;
+  return aihc_tag_pointer(copy, aihc_tag_of(slot));
 }
 
 /* The escape collection after a promotion that needed one. It moves the
@@ -5010,7 +5080,8 @@ void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
 }
 
 static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
-                                     const AihcValue *object, AihcSlot value) {
+                                     const AihcValue *object, AihcSlot value,
+                                     int no_evaluations) {
   AihcMachine *machine = capability->machine;
   if (machine->capability_count < 2 ||
       aihc_promote_is_young(machine, aihc_untag_pointer(object)) ||
@@ -5018,7 +5089,7 @@ static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
     capability->pause_top = NULL;
     return value;
   }
-  AihcSlot copy = aihc_promote_copy(capability, value);
+  AihcSlot copy = aihc_promote_copy(capability, value, no_evaluations);
   return copy == 0 ? AIHC_ESCAPE_COLLECT : copy;
 }
 
@@ -5028,14 +5099,28 @@ static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
    lock for its claims, and the segment lists take the gen2 lock. */
 AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value) {
-  return aihc_escape_unlocked(capability, object, value);
+  return aihc_escape_unlocked(capability, object, value, 0);
+}
+
+/* The update of a global thunk with its value. The free variables of the
+   thunk are global, and a global object names no young object. Thus each
+   young object of the value is new since the evaluation of the thunk
+   started. A young thunk under evaluation has an update frame above the
+   frame of this update, and the update comes after that frame returned.
+   So no young thunk of the value is under evaluation, and a copy of an
+   unclaimed thunk needs no pause walk. The walk would also claim each
+   global thunk under evaluation under the object lock, and the update of
+   each claimed thunk takes the lock again. */
+AihcSlot aihc_escape_update(AihcCapability *capability, const AihcValue *object,
+                            AihcSlot value) {
+  return aihc_escape_unlocked(capability, object, value, 1);
 }
 
 AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
                         uint64_t root_count, AihcSlot *roots,
                         const AihcSrt *srt) {
   AihcValue *copy = (AihcValue *)(uintptr_t)aihc_promote_copy(
-      capability, (AihcSlot)(uintptr_t)value);
+      capability, (AihcSlot)(uintptr_t)value, 0);
   if (copy == NULL) {
     /* The value is one more root of a collection that moves every young
        survivor into gen2. */
