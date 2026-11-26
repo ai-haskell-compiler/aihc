@@ -76,6 +76,7 @@ With more than one capability, an update and a pointer store into a global objec
 GC-GRIN puts a store safepoint before each such store, with the live roots and the top frame of the thread.
 The barrier gives the value to store, which is the global copy for an escape.
 Before a copy, the runtime runs the pause walk from the top frame, so a thunk under evaluation is claimed and takes the collection.
+The update of a global thunk with its value needs no pause walk: each young object of the value is new since the evaluation of the thunk started, so no young thunk of the value is under evaluation.
 A copy puts a forwarding header on each young original until the copy is complete, so a second reference finds the copy without a table.
 When the promotion needs a collection, the store site spills its roots, collects, and runs the store again from the safepoint.
 A store safepoint ends a heap reservation, because the collection resets the nursery.

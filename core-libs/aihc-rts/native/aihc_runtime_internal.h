@@ -596,6 +596,9 @@ void aihc_remember(AihcCapability *capability, AihcValue *object);
 /* The write barrier of an update. A blackhole is updated once, so its
    remembered-set entry cannot repeat and needs no compaction. */
 void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object);
+/* The same barrier for a thunk of the local heap of the capability. */
+void aihc_write_barrier_update_local(AihcCapability *capability,
+                                     AihcValue *object);
 /* Replace the nursery of a capability with an empty one of the given bytes.
    The collector fuzz driver uses it to force frequent collections. */
 void aihc_nursery_replace(AihcCapability *capability, size_t bytes);
@@ -741,6 +744,10 @@ AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
    result is AIHC_ESCAPE_COLLECT when the promotion needs a collection. */
 AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value);
+/* The escape of the update of a global thunk with its value, which is
+   evaluated: see aihc_escape_update in aihc_gc.c. */
+AihcSlot aihc_escape_update(AihcCapability *capability, const AihcValue *object,
+                            AihcSlot value);
 /* Whether a value is young: in a nursery, in gen1, or a young pinned block.
    Until local collection is enforced, every young object counts as
    local. */

@@ -3323,12 +3323,40 @@ static AihcValue *aihc_update_blackhole_mode(AihcCapability *capability,
   if (kind != AIHC_OBJECT_THUNK) {
     aihc_fail("attempted to update a cell that is not a thunk");
   }
-  /* The promotion comes before the object lock, because it can collect. */
-  AihcSlot stored = aihc_escape(capability, object, (AihcSlot)(uintptr_t)value);
+  AihcMachine *machine = capability->machine;
+  /* A thunk of the local heap is reachable only by the threads of this
+     capability, which do not run now. Its update is no escape, and without
+     a queue it needs no lock. Most thunks that reach this function are old
+     thunks of gen1, which the inline update leaves here. */
+  if (aihc_value_is_young(machine, object)) {
+    AihcSlot local_header = __atomic_load_n(&object->header, __ATOMIC_ACQUIRE);
+    AihcBlackholeQueue *local_queue = NULL;
+    if ((local_header & AIHC_HEADER_TAG_MASK) != AIHC_HEADER_TAG_MASK) {
+      if ((local_header & AIHC_HEADER_EVALUATING) != 0) {
+        (void)aihc_thunk_owner(object, &local_queue);
+      }
+      if (local_queue == NULL) {
+        capability->pause_top = NULL;
+        aihc_write_barrier_update_local(capability, object);
+        __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&object->header,
+                         local_header | AIHC_HEADER_EVALUATING,
+                         __ATOMIC_RELEASE);
+        return value;
+      }
+    }
+  }
+  /* The promotion comes before the object lock, because it can collect. A
+     frozen evaluation gives an AP_STACK thunk, whose frames can name a
+     thunk under evaluation, so it takes the general escape. */
+  AihcSlot stored =
+      mode == AIHC_WAKE_VALUE
+          ? aihc_escape_update(capability, object, (AihcSlot)(uintptr_t)value)
+          : aihc_escape(capability, object, (AihcSlot)(uintptr_t)value);
   if (stored == AIHC_ESCAPE_COLLECT) {
     return NULL;
   }
-  AihcMachine *machine = capability->machine;
   /* The update deletes the owner or the queue in field zero and every free
      variable, so the barrier shades them. */
   aihc_count_escape(capability, object, (AihcSlot)(uintptr_t)value);

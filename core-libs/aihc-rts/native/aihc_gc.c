@@ -1856,6 +1856,14 @@ static void aihc_write_barrier_update_unlocked(AihcCapability *capability,
   if (capability->machine->gen2_cycle_active) {
     aihc_shade_fields(capability, object);
   }
+  /* With several capabilities, the update of a global object stores a
+     global value: the escape promoted it. A global object names no object
+     of a local heap, so it needs no entry, and a local collection would
+     drop the entry. */
+  if (capability->machine->capability_count > 1 &&
+      !aihc_value_is_young(capability->machine, object)) {
+    return;
+  }
   aihc_remember_unique(capability, object);
 }
 
@@ -1897,6 +1905,21 @@ void aihc_write_barrier_update(AihcCapability *capability, AihcValue *object) {
   if (keep) {
     aihc_keep_caf_unlocked(object);
   }
+  if (locked) {
+    aihc_heap_unlock(capability->machine);
+  }
+}
+
+/* The barrier of the update of a thunk of the local heap. A local object
+   is not static, so it is no CAF. */
+void aihc_write_barrier_update_local(AihcCapability *capability,
+                                     AihcValue *object) {
+  object = aihc_untag_pointer(object);
+  int locked = capability->machine->gen2_cycle_active != 0;
+  if (locked) {
+    aihc_heap_lock(capability->machine);
+  }
+  aihc_write_barrier_update_unlocked(capability, object);
   if (locked) {
     aihc_heap_unlock(capability->machine);
   }
@@ -4969,8 +4992,11 @@ static void aihc_promote_restore(AihcPromoteCopy *state) {
 }
 
 /* Promote a value by a copy, or give zero when the promotion needs a
-   collection. The result keeps the pointer tag of the value. */
-static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
+   collection. The result keeps the pointer tag of the value. With
+   no_evaluations, no young thunk of the graph is under evaluation, and the
+   copy needs no pause walk. */
+static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot,
+                                  int no_evaluations) {
   AihcMachine *machine = capability->machine;
   AihcValue *top = capability->pause_top;
   capability->pause_top = NULL;
@@ -4980,8 +5006,9 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
     return slot;
   }
   /* The pause walk claims each thunk under evaluation, so the copy finds
-     it claimed. */
-  if (top != NULL) {
+     it claimed, and copies each unclaimed thunk. */
+  int copy_thunks = no_evaluations || top != NULL;
+  if (!no_evaluations && top != NULL) {
     aihc_pause(capability, capability->current_thread, top);
   }
   AihcGcWork *work = &aihc_gc_works[capability->index];
@@ -4989,7 +5016,7 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
                            .capability = capability,
                            .originals = &work->promote_originals,
                            .pending = &work->promote_pending,
-                           .copy_thunks = top != NULL};
+                           .copy_thunks = copy_thunks};
   AihcValue *copy = aihc_promote_object(&state, value);
   while (!state.blocked && state.pending->count != 0) {
     AihcValue *object = state.pending->items[--state.pending->count];
@@ -5000,7 +5027,7 @@ static AihcSlot aihc_promote_copy(AihcCapability *capability, AihcSlot slot) {
   if (state.blocked) {
     /* The check walks the whole young graph, so the escape collection
        knows whether the graph reaches gen1 or a blackhole queue. */
-    AihcPromotion promotion = {.machine = machine, .copy_thunks = top != NULL};
+    AihcPromotion promotion = {.machine = machine, .copy_thunks = copy_thunks};
     (void)aihc_promote_needs_collection(&promotion, value);
     free(promotion.seen.slots);
     free(promotion.check.items);
@@ -5053,7 +5080,8 @@ void aihc_promote_all(AihcCapability *capability, AihcGcReason reason,
 }
 
 static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
-                                     const AihcValue *object, AihcSlot value) {
+                                     const AihcValue *object, AihcSlot value,
+                                     int no_evaluations) {
   AihcMachine *machine = capability->machine;
   if (machine->capability_count < 2 ||
       aihc_promote_is_young(machine, aihc_untag_pointer(object)) ||
@@ -5061,7 +5089,7 @@ static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
     capability->pause_top = NULL;
     return value;
   }
-  AihcSlot copy = aihc_promote_copy(capability, value);
+  AihcSlot copy = aihc_promote_copy(capability, value, no_evaluations);
   return copy == 0 ? AIHC_ESCAPE_COLLECT : copy;
 }
 
@@ -5071,14 +5099,28 @@ static AihcSlot aihc_escape_unlocked(AihcCapability *capability,
    lock for its claims, and the segment lists take the gen2 lock. */
 AihcSlot aihc_escape(AihcCapability *capability, const AihcValue *object,
                      AihcSlot value) {
-  return aihc_escape_unlocked(capability, object, value);
+  return aihc_escape_unlocked(capability, object, value, 0);
+}
+
+/* The update of a global thunk with its value. The free variables of the
+   thunk are global, and a global object names no young object. Thus each
+   young object of the value is new since the evaluation of the thunk
+   started. A young thunk under evaluation has an update frame above the
+   frame of this update, and the update comes after that frame returned.
+   So no young thunk of the value is under evaluation, and a copy of an
+   unclaimed thunk needs no pause walk. The walk would also claim each
+   global thunk under evaluation under the object lock, and the update of
+   each claimed thunk takes the lock again. */
+AihcSlot aihc_escape_update(AihcCapability *capability, const AihcValue *object,
+                            AihcSlot value) {
+  return aihc_escape_unlocked(capability, object, value, 1);
 }
 
 AihcValue *aihc_promote(AihcCapability *capability, AihcValue *value,
                         uint64_t root_count, AihcSlot *roots,
                         const AihcSrt *srt) {
   AihcValue *copy = (AihcValue *)(uintptr_t)aihc_promote_copy(
-      capability, (AihcSlot)(uintptr_t)value);
+      capability, (AihcSlot)(uintptr_t)value, 0);
   if (copy == NULL) {
     /* The value is one more root of a collection that moves every young
        survivor into gen2. */
