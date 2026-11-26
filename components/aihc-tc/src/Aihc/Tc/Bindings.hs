@@ -24,7 +24,7 @@ import Aihc.Tc.Wiring (BuiltinDataCon (..), TcWiring, builtinDataCon, mkTcKinds)
 import Control.Applicative ((<|>))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
 -- | One data constructor that a declaration binds: a constructor the
@@ -174,7 +174,7 @@ recordFieldsOf declaration =
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
 binderCheckedType name =
-  listToMaybe [tcAnnType annotation | InfoType annotation <- unqualifiedNameTc name]
+  tcAnnType <$> unqualifiedNameTc name
 
 dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =

@@ -10,7 +10,8 @@
 -- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
 --   for a whole node.
 -- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
---   an equation, a rule, or a module.
+--   a rule, a declaration, or a module. Each field has the type of its
+--   information.
 --
 -- Some of this information is pending. It has meta variables and evidence
 -- variables that the solver has not filled in yet. "Aihc.Tc.Finalize"
@@ -24,12 +25,12 @@
 -- different tree has its own copy.
 module Aihc.Tc.Syntax.Pending
   ( -- * Type checker information
-    TcInfo (..),
     ExprTc (..),
     PatternTc (..),
     PatSynEquations (..),
-    infoPending,
-    infoIsPending,
+    namePending,
+    addNamePending,
+    addNameCast,
     annotateDecl,
     annotateRhsCast,
     annotateExprCast,
@@ -290,21 +291,9 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Types (TcType)
+import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-
--- | One item that the type checker found for a node of the tree. Some
--- items are pending: the solver must fill in their meta variables and
--- evidence variables before the phases after the type checker read them.
-data TcInfo
-  = -- | The pending type of a node, with its type arguments and evidence.
-    InfoType !PendingTcAnnotation
-  | -- | A type that the checker writes as final, such as the type of a
-    -- declaration.
-    InfoCheckedType !TcAnnotation
-  | -- | A pending cast of a node to a type that an equality proves.
-    InfoCast !PendingTcCastAnnotation
-  deriving (Eq, Show)
 
 -- | What the type checker found for a whole expression.
 data ExprTc
@@ -373,17 +362,17 @@ type OperatorName = UnqualifiedName
 
 -- | A name with no annotation and no resolution.
 mkName :: Maybe Text -> NameType -> Text -> Name
-mkName qualifier ty txt = Name qualifier ty txt [] Nothing []
+mkName qualifier ty txt = Name qualifier ty txt [] Nothing Nothing Nothing
 
 -- | An unqualified name with no annotation and no resolution.
 mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
-mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing []
+mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing Nothing
 
 -- | A qualified name from an unqualified name. The name keeps its
 -- annotations, its resolution, and its type checker information.
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name)
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name) Nothing
 
 -- | The successful resolution of a name occurrence, in any namespace.
 nameResolved :: Name -> Maybe Resolved
@@ -684,9 +673,13 @@ data Name = Name
     -- | What the resolver found for this occurrence. 'Nothing' when the
     -- resolver does not resolve a name in this position.
     nameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this occurrence, in the order that
-    -- it found it.
-    nameTc :: [TcInfo]
+    -- | The type that the type checker found for this occurrence, with its
+    -- type arguments and evidence.
+    nameTc :: Maybe WorkingTcAnnotation,
+    -- | The cast of this occurrence to a type that an equality proves. A
+    -- method name of a statement and the operator of a section can have
+    -- it, because they have no expression node.
+    nameCast :: Maybe PendingTcCastAnnotation
   }
   deriving (Eq, Show)
 
@@ -699,8 +692,9 @@ data UnqualifiedName = UnqualifiedName
     -- | What the resolver found for this binder or occurrence. 'Nothing'
     -- when the resolver does not resolve a name in this position.
     unqualifiedNameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this binder or occurrence.
-    unqualifiedNameTc :: [TcInfo]
+    -- | The type that the type checker found for this binder or
+    -- occurrence.
+    unqualifiedNameTc :: Maybe WorkingTcAnnotation
   }
   deriving (Eq, Show)
 
@@ -1838,16 +1832,21 @@ annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
 annotateBranchCast ty evidence =
   ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
--- | The pending type of an item of information, if it is one.
-infoPending :: TcInfo -> Maybe PendingTcAnnotation
-infoPending item =
-  case item of
-    InfoType pending -> Just pending
+-- | The pending annotation of a name occurrence, if it has one.
+namePending :: Name -> Maybe PendingTcAnnotation
+namePending name =
+  case nameTc name of
+    Just (WorkingPending pending) -> Just pending
     _ -> Nothing
 
--- | Whether an item of information is a pending type.
-infoIsPending :: TcInfo -> Bool
-infoIsPending item =
-  case item of
-    InfoType _ -> True
-    _ -> False
+-- | Give a name occurrence a pending annotation. A name that has an
+-- annotation keeps it.
+addNamePending :: PendingTcAnnotation -> Name -> Name
+addNamePending pending name =
+  name {nameTc = nameTc name <|> Just (WorkingPending pending)}
+
+-- | Give a name occurrence a cast onto the right type of its wanted
+-- equality. A name that has a cast keeps it.
+addNameCast :: TcType -> EvVar -> Name -> Name
+addNameCast ty evidence name =
+  name {nameCast = nameCast name <|> Just (PendingTcCastAnnotation ty evidence CastToRight)}

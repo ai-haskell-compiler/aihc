@@ -47,8 +47,6 @@ data Walk f = Walk
     -- | Every resolution result, where it is attached: on a name or on a
     -- binder.
     walkResolution :: ResolutionResult -> f ResolutionResult,
-    -- | Every item of type checker information, where it is attached.
-    walkTcInfo :: TcInfo -> f TcInfo,
     -- | Every type annotation that a node holds in a typed field or in a
     -- wrapper, where it is attached.
     walkTcAnnotation :: TcAnnotation -> f TcAnnotation,
@@ -83,7 +81,6 @@ idWalk =
   Walk
     { walkAnnotation = pure,
       walkResolution = pure,
-      walkTcInfo = pure,
       walkTcAnnotation = pure,
       walkCheckedType = pure,
       walkAnnotationList = id,
@@ -114,10 +111,6 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The type checker information of one node.
-walkInfos :: (Applicative f) => Walk f -> [TcInfo] -> f [TcInfo]
-walkInfos w = traverse (walkTcInfo w)
-
 -- | The information of an expression wrapper.
 walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f ExprTc
 walkExprTc w item =
@@ -133,7 +126,7 @@ walkPatternTc w item =
     PatternCast _ -> pure item
     PatternInstantiation -> pure item
 
--- | The annotation of a declaration wrapper.
+-- | The annotation of a declaration wrapper, a name, or a binder.
 walkDeclTc :: (Applicative f) => Walk f -> TcAnnotation -> f TcAnnotation
 walkDeclTc = walkTcAnnotation
 
@@ -231,17 +224,17 @@ instance (Walkable a, Walkable b) => Walkable (a, b) where
 
 instance Walkable Name where
   walk w = walkName w $ \name ->
-    (\anns resolution infos -> name {nameAnns = anns, nameResolution = resolution, nameTc = infos})
+    (\anns resolution annotation -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation})
       <$> walkAnns w (nameAnns name)
       <*> walkMaybeResolution w (nameResolution name)
-      <*> walkInfos w (nameTc name)
+      <*> traverse (walkDeclTc w) (nameTc name)
 
 instance Walkable UnqualifiedName where
   walk w name =
-    (\anns resolution infos -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = infos})
+    (\anns resolution annotation -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = annotation})
       <$> walkAnns w (unqualifiedNameAnns name)
       <*> walkMaybeResolution w (unqualifiedNameResolution name)
-      <*> walkInfos w (unqualifiedNameTc name)
+      <*> traverse (walkDeclTc w) (unqualifiedNameTc name)
 
 -- Modules, exports, and imports
 

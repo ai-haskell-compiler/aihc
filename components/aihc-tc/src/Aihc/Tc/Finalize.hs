@@ -35,7 +35,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Syntax qualified as Final
 import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
-import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
+import Aihc.Tc.Syntax.Pending (Module)
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
   ( GlobalName,
@@ -81,8 +81,7 @@ finalizeSyntax :: (FromPending a) => a -> TcM (Final a)
 finalizeSyntax =
   fromPending
     Finalizers
-      { finalizeTcInfo = finalizeInfo,
-        -- The checker writes the facts of a family instance as final
+      {         -- The checker writes the facts of a family instance as final
         -- information. They keep their value, but they must not have a
         -- meta variable.
         finalizeTypeFamilyInstance = \info ->
@@ -93,7 +92,7 @@ finalizeSyntax =
         -- The checker writes the types of declarations as final
         -- information.
         finalizeCheckedAnnotation = \annotation -> do
-          rejectMetaFinalInfo (Final.InfoType annotation)
+          rejectMetaCheckedAnnotation annotation
           recordAnnotationKindArguments annotation,
         finalizeCast = finalizeCastAnnotation,
         finalizePendingType = \ty ->
@@ -103,7 +102,7 @@ finalizeSyntax =
         -- variable.
         finalizeCheckedType = \ty -> do
           let annotation = TcAnnotation ty [] [] [] [] []
-          rejectMetaFinalInfo (Final.InfoType annotation)
+          rejectMetaCheckedAnnotation annotation
           tcAnnType <$> recordAnnotationKindArguments annotation,
         finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
           evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
@@ -127,18 +126,6 @@ finalizeSyntax =
           rejectMeta "instance method annotation" (firstMetaType finalized)
           pure (TcInstanceMethodAnnotation name finalized)
       }
-
--- | Finalize one item of information. A cast whose proof is not needed
--- goes away.
-finalizeInfo :: TcInfo -> TcM (Maybe Final.TcInfo)
-finalizeInfo item =
-  case item of
-    InfoCast pending -> fmap Final.InfoCast <$> finalizeCastAnnotation pending
-    InfoType pending -> Just . Final.InfoType <$> annotationForPendingTc pending
-    -- The checker writes the types of declarations as final information.
-    InfoCheckedType annotation -> do
-      rejectMetaFinalInfo (Final.InfoType annotation)
-      Just . Final.InfoType <$> recordAnnotationKindArguments annotation
 
 -- | Finalize a cast. A cast whose proof is not needed goes away.
 finalizeCastAnnotation :: PendingTcCastAnnotation -> TcM (Maybe TcCastAnnotation)
@@ -529,14 +516,11 @@ rejectMetaTcAnnotation ann =
             <> renderTcType (tidyType kinds (tcAnnType ann))
         )
 
--- | Abort when an item of final information has a meta variable.
-rejectMetaFinalInfo :: Final.TcInfo -> TcM ()
-rejectMetaFinalInfo item =
-  case item of
-    Final.InfoType annotation -> reject "type annotation" (firstMetaTcAnnotation annotation)
-    _ -> pure ()
-  where
-    reject context = rejectMeta ("finalized " <> context)
+-- | Abort when an annotation that the checker wrote as final has a meta
+-- variable.
+rejectMetaCheckedAnnotation :: TcAnnotation -> TcM ()
+rejectMetaCheckedAnnotation annotation =
+  rejectMeta "finalized type annotation" (firstMetaTcAnnotation annotation)
 
 rejectMeta :: String -> Maybe Unique -> TcM ()
 rejectMeta context maybeMeta =

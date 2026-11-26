@@ -9,7 +9,8 @@
 -- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
 --   for a whole node.
 -- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
---   an equation, a rule, or a module.
+--   a rule, a declaration, or a module. Each field has the type of its
+--   information.
 -- * 'moduleTcDiagnostics' holds the diagnostics of the module.
 --
 -- All information is final. "Aihc.Tc.Finalize" makes this tree from the
@@ -22,7 +23,6 @@
 -- different tree has its own copy.
 module Aihc.Tc.Syntax
   ( -- * Type checker information
-    TcInfo (..),
     ExprTc (..),
     PatternTc (..),
     PatSynEquations (..),
@@ -288,15 +288,6 @@ import Aihc.Tc.Types (TcType)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
--- | One item that the type checker found for a node of the tree.
-data TcInfo
-  = -- | The type of a node, with its type arguments and evidence.
-    InfoType !TcAnnotation
-  | -- | A cast of a node to a type. Without a coercion, the cast is a
-    -- reflexive proof that keeps the type.
-    InfoCast !TcCastAnnotation
-  deriving (Eq, Show)
-
 -- | What the type checker found for a whole expression.
 data ExprTc
   = -- | The type of the expression, with its type arguments and evidence.
@@ -364,17 +355,17 @@ type OperatorName = UnqualifiedName
 
 -- | A name with no annotation and no resolution.
 mkName :: Maybe Text -> NameType -> Text -> Name
-mkName qualifier ty txt = Name qualifier ty txt [] Nothing []
+mkName qualifier ty txt = Name qualifier ty txt [] Nothing Nothing Nothing
 
 -- | An unqualified name with no annotation and no resolution.
 mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
-mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing []
+mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing Nothing
 
 -- | A qualified name from an unqualified name. The name keeps its
 -- annotations, its resolution, and its type checker information.
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name)
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name) Nothing
 
 -- | The successful resolution of a name occurrence, in any namespace.
 nameResolved :: Name -> Maybe Resolved
@@ -675,9 +666,13 @@ data Name = Name
     -- | What the resolver found for this occurrence. 'Nothing' when the
     -- resolver does not resolve a name in this position.
     nameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this occurrence, in the order that
-    -- it found it.
-    nameTc :: [TcInfo]
+    -- | The type that the type checker found for this occurrence, with its
+    -- type arguments and evidence.
+    nameTc :: Maybe TcAnnotation,
+    -- | The cast of this occurrence to a type that an equality proves. A
+    -- method name of a statement and the operator of a section can have
+    -- it, because they have no expression node.
+    nameCast :: Maybe TcCastAnnotation
   }
   deriving (Eq, Show)
 
@@ -690,8 +685,9 @@ data UnqualifiedName = UnqualifiedName
     -- | What the resolver found for this binder or occurrence. 'Nothing'
     -- when the resolver does not resolve a name in this position.
     unqualifiedNameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this binder or occurrence.
-    unqualifiedNameTc :: [TcInfo]
+    -- | The type that the type checker found for this binder or
+    -- occurrence.
+    unqualifiedNameTc :: Maybe TcAnnotation
   }
   deriving (Eq, Show)
 

@@ -199,13 +199,13 @@ instance FromResolved R.Name where
   type ToPending R.Name = Name
   fromResolved node =
     case node of
-      R.Name x1 x2 x3 x4 x5 -> Name (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) []
+      R.Name x1 x2 x3 x4 x5 -> Name (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) Nothing Nothing
 
 instance FromResolved R.UnqualifiedName where
   type ToPending R.UnqualifiedName = UnqualifiedName
   fromResolved node =
     case node of
-      R.UnqualifiedName x1 x2 x3 x4 -> UnqualifiedName (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) []
+      R.UnqualifiedName x1 x2 x3 x4 -> UnqualifiedName (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.Module where
   type ToPending R.Module = Module

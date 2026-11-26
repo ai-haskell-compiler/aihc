@@ -48,8 +48,6 @@ data Walk f = Walk
     -- | Every resolution result, where it is attached: on a name or on a
     -- binder.
     walkResolution :: ResolutionResult -> f ResolutionResult,
-    -- | Every item of type checker information, where it is attached.
-    walkTcInfo :: TcInfo -> f TcInfo,
     -- | Every type annotation that a node holds in a typed field or in a
     -- wrapper, where it is attached.
     walkTcAnnotation :: PendingTcAnnotation -> f PendingTcAnnotation,
@@ -84,7 +82,6 @@ idWalk =
   Walk
     { walkAnnotation = pure,
       walkResolution = pure,
-      walkTcInfo = pure,
       walkTcAnnotation = pure,
       walkCheckedType = pure,
       walkAnnotationList = id,
@@ -115,15 +112,11 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The type checker information of one node.
-walkInfos :: (Applicative f) => Walk f -> [TcInfo] -> f [TcInfo]
-walkInfos w = traverse (walkTcInfo w)
-
 -- | The pending type annotations of a piece of syntax, in source order.
 collectPendingAnnotations :: (Walkable a) => a -> [PendingTcAnnotation]
-collectPendingAnnotations = runCollect (walk idWalk {walkTcInfo = step . infoPending, walkTcAnnotation = step . Just})
+collectPendingAnnotations = runCollect (walk idWalk {walkTcAnnotation = step})
   where
-    step item = Collect (fmap (:) item)
+    step item = Collect (Just (item :))
 
 -- | The information of an expression wrapper.
 walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f ExprTc
@@ -140,8 +133,8 @@ walkPatternTc w item =
     PatternCast _ -> pure item
     PatternInstantiation -> pure item
 
--- | The annotation of a declaration wrapper. The walk does not visit an
--- annotation that the checker wrote as final.
+-- | The annotation of a declaration wrapper, a name, or a binder. The walk
+-- does not visit an annotation that the checker wrote as final.
 walkDeclTc :: (Applicative f) => Walk f -> WorkingTcAnnotation -> f WorkingTcAnnotation
 walkDeclTc w item =
   case item of
@@ -242,17 +235,17 @@ instance (Walkable a, Walkable b) => Walkable (a, b) where
 
 instance Walkable Name where
   walk w = walkName w $ \name ->
-    (\anns resolution infos -> name {nameAnns = anns, nameResolution = resolution, nameTc = infos})
+    (\anns resolution annotation -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation})
       <$> walkAnns w (nameAnns name)
       <*> walkMaybeResolution w (nameResolution name)
-      <*> walkInfos w (nameTc name)
+      <*> traverse (walkDeclTc w) (nameTc name)
 
 instance Walkable UnqualifiedName where
   walk w name =
-    (\anns resolution infos -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = infos})
+    (\anns resolution annotation -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = annotation})
       <$> walkAnns w (unqualifiedNameAnns name)
       <*> walkMaybeResolution w (unqualifiedNameResolution name)
-      <*> walkInfos w (unqualifiedNameTc name)
+      <*> traverse (walkDeclTc w) (unqualifiedNameTc name)
 
 -- Modules, exports, and imports
 

@@ -57,7 +57,6 @@ import Aihc.Tc.Syntax
     PatternTc (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
-    TcInfo (..),
     Type (..),
     annotationSpan,
     arithSeqMethod,
@@ -77,7 +76,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter (Doc, pretty)
@@ -130,7 +129,7 @@ labelWalk =
     { walkAnnotationList = \children anns -> do
         modify' (\labels -> labels {labelsListSpan = spanFromAnnotations anns})
         children anns,
-      walkTcInfo = \info -> do
+      walkTcAnnotation = \info -> do
         span' <- gets labelsListSpan
         addInfoLabels span' [LabelInfo info]
         pure info,
@@ -157,7 +156,7 @@ labelWalk =
   where
     -- Label the information of the leading wrappers at their first span.
     -- Then walk the children of the node below the wrappers.
-    wrapped :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrapped :: (node -> Maybe (Maybe Annotation, Maybe TcAnnotation, node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrapped peel children node = do
       let (anns, infos, base) = peelLeading peel node
       addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos)
@@ -167,7 +166,7 @@ labelWalk =
     -- The information in the typed fields of a node below its wrappers
     -- gets the first span of the wrappers, before the information of the
     -- wrappers.
-    wrappedFields :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> [Label]) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrappedFields :: (node -> Maybe (Maybe Annotation, Maybe TcAnnotation, node)) -> (node -> [Label]) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrappedFields peel fields children node = do
       let (anns, infos, base) = peelLeading peel node
       addInfoLabels (spanFromAnnotations anns) (fields base <> map LabelInfo infos)
@@ -176,7 +175,7 @@ labelWalk =
 
     -- The information of a node below its wrappers gets the first span
     -- of the wrappers, after the information of the wrappers.
-    wrappedOwn :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> ([Label], node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrappedOwn :: (node -> Maybe (Maybe Annotation, Maybe TcAnnotation, node)) -> (node -> ([Label], node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrappedOwn peel own children node = do
       let (anns, infos, base) = peelLeading peel node
           (ownInfos, base') = own base
@@ -207,8 +206,8 @@ labelWalk =
     -- sequence, before the information of its wrappers.
     arithSeqLabels children node = do
       let (anns, infos, base) = peelLeading peelArithSeq node
-          methodInfos = foldMap nameTc (arithSeqMethod base)
-          base' = mapArithSeqMethod (\name -> name {nameTc = []}) base
+          methodInfos = maybeToList (arithSeqMethod base >>= nameTc)
+          base' = mapArithSeqMethod (\name -> name {nameTc = Nothing}) base
       addInfoLabels (spanFromAnnotations anns) (map LabelInfo (methodInfos <> infos))
       _ <- children base'
       pure node
@@ -231,21 +230,21 @@ labelWalk =
 
 -- | The information of the names of the match of a pattern, and the
 -- pattern with no information in these names.
-patternMatch :: Pattern -> ([TcInfo], Pattern)
+patternMatch :: Pattern -> ([TcAnnotation], Pattern)
 patternMatch pat =
   case pat of
     PLit match literal -> (literalInfos match, PLit (literalWithout match) literal)
     PNegLit match literal -> (literalInfos match, PNegLit (literalWithout match) literal)
     PNPlusK match name literal ->
-      ( concatMap nameTc (nPlusKMatchNames match),
+      ( mapMaybe nameTc (nPlusKMatchNames match),
         PNPlusK (NPlusKMatch (without <$> nPlusKType match) (without (nPlusKFromInteger match)) (without (nPlusKGreaterEqual match)) (without (nPlusKMinus match))) name literal
       )
     PList (Just match) items ->
-      (concatMap nameTc (listMatchNames match), PList (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
+      (mapMaybe nameTc (listMatchNames match), PList (Just (ListMatch (without (listMatchToList match)) (without (listMatchFromListN match)))) items)
     _ -> ([], pat)
   where
-    without name = name {nameTc = []}
-    literalInfos = concatMap nameTc . literalMatchNames
+    without name = name {nameTc = Nothing}
+    literalInfos = mapMaybe nameTc . literalMatchNames
     literalWithout match =
       case match of
         LiteralMatchFixed -> LiteralMatchFixed
@@ -257,21 +256,21 @@ patternMatch pat =
 -- with no information in these names. The methods go from the outside in:
 -- @>>=@ before @fail@, and @mfix@, @return@, and @>>=@ for a @rec@
 -- statement.
-doStmtMethods :: DoStmt body -> ([TcInfo], DoStmt body)
+doStmtMethods :: DoStmt body -> ([TcAnnotation], DoStmt body)
 doStmtMethods stmt =
   case stmt of
     DoBind (Just methods@(DoBindMethods method failure)) pat body ->
-      (concatMap nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
-    DoExpr (Just method) body -> (nameTc method, DoExpr (Just (without method)) body)
+      (mapMaybe nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
+    DoExpr (Just method) body -> (maybeToList (nameTc method), DoExpr (Just (without method)) body)
     DoRecStmt tc (Just methods@(DoRecMethods mfix return' bind)) stmts ->
-      (concatMap nameTc (doRecMethodsNames methods) <> recInfos tc, DoRecStmt Nothing (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
+      (mapMaybe nameTc (doRecMethodsNames methods) <> recInfos tc, DoRecStmt Nothing (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
     DoRecStmt tc Nothing stmts -> (recInfos tc, DoRecStmt Nothing Nothing stmts)
     _ -> ([], stmt)
   where
-    without name = name {nameTc = []}
+    without name = name {nameTc = Nothing}
     -- The tuple annotation of a @rec@ statement, then the occurrence
     -- annotation of each knot variable.
-    recInfos = maybe [] (\checked -> map InfoType (tcRecTuple checked : map snd (tcRecKnotOccurrences checked)))
+    recInfos = maybe [] (\checked -> tcRecTuple checked : map snd (tcRecKnotOccurrences checked))
 
 -- | The label of the checked type of a constructor declaration, and the
 -- declaration with no checked type.
@@ -303,7 +302,7 @@ compStmtOwn stmt =
     CompGroupByUsing tc key function -> (label tc, CompGroupByUsing Nothing key function)
     CompAnn _ _ -> ([], stmt)
   where
-    label = maybe [] (\annotation -> [LabelInfo (InfoType annotation)])
+    label = maybe [] (\annotation -> [LabelInfo annotation])
 
 -- | The labels of the typed fields of a class item.
 classItemFields :: ClassDeclItem -> [Label]
@@ -321,26 +320,26 @@ instanceItemFields item =
 
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
-exprSyntax :: Expr -> ([TcInfo], Expr)
+exprSyntax :: Expr -> ([TcAnnotation], Expr)
 exprSyntax expr =
   case expr of
     EInt syntax value numericType text -> (literalInfos syntax, EInt (literalWithout syntax) value numericType text)
     EFloat syntax value floatType text -> (literalInfos syntax, EFloat (literalWithout syntax) value floatType text)
-    ECharHash ty value text -> (nameTc ty, ECharHash (without ty) value text)
-    EString conversion value text -> (foldMap nameTc conversion, EString (without <$> conversion) value text)
-    EStringHash ty value text -> (nameTc ty, EStringHash (without ty) value text)
-    EIf method condition thenExpr elseExpr -> (foldMap nameTc method, EIf (without <$> method) condition thenExpr elseExpr)
-    ENegate method inner -> (nameTc method, ENegate (without method) inner)
-    EArithSeq method sequence' -> (foldMap nameTc method, EArithSeq (without <$> method) sequence')
-    EGetField method record field -> (nameTc method, EGetField (without method) record field)
-    EGetFieldProjection method fields -> (nameTc method, EGetFieldProjection (without method) fields)
+    ECharHash ty value text -> (maybeToList (nameTc ty), ECharHash (without ty) value text)
+    EString conversion value text -> (maybeToList (conversion >>= nameTc), EString (without <$> conversion) value text)
+    EStringHash ty value text -> (maybeToList (nameTc ty), EStringHash (without ty) value text)
+    EIf method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf (without <$> method) condition thenExpr elseExpr)
+    ENegate method inner -> (maybeToList (nameTc method), ENegate (without method) inner)
+    EArithSeq method sequence' -> (maybeToList (method >>= nameTc), EArithSeq (without <$> method) sequence')
+    EGetField method record field -> (maybeToList (nameTc method), EGetField (without method) record field)
+    EGetFieldProjection method fields -> (maybeToList (nameTc method), EGetFieldProjection (without method) fields)
     -- The conversion of an overloaded list goes before the ordinary list.
-    EList syntax method items -> (foldMap nameTc method <> nameTc syntax, EList (without syntax) (without <$> method) items)
-    ETuple syntax flavor items -> (nameTc syntax, ETuple (without syntax) flavor items)
+    EList syntax method items -> (maybeToList (method >>= nameTc) <> maybeToList (nameTc syntax), EList (without syntax) (without <$> method) items)
+    ETuple syntax flavor items -> (maybeToList (nameTc syntax), ETuple (without syntax) flavor items)
     _ -> ([], expr)
   where
-    without name = name {nameTc = []}
-    literalInfos = concatMap nameTc . literalSyntaxNames
+    without name = name {nameTc = Nothing}
+    literalInfos = mapMaybe nameTc . literalSyntaxNames
     literalWithout syntax =
       case syntax of
         LiteralSyntaxPrimitive ty -> LiteralSyntaxPrimitive (without ty)
@@ -349,7 +348,7 @@ exprSyntax expr =
 -- | One label of a node: an item of information, or the text of the
 -- information in a typed field.
 data Label
-  = LabelInfo TcInfo
+  = LabelInfo TcAnnotation
   | -- | A checked type with no elaboration.
     LabelType TcType
   | LabelText String
@@ -373,7 +372,7 @@ addInfoLabels span' infos = do
   currentModule <- gets labelsModule
   let labelText label =
         case label of
-          LabelInfo info -> renderTcInfo currentModule info
+          LabelInfo info -> Just (renderTypeAnnotation currentModule info)
           LabelType ty -> Just (renderTypeAnnotation currentModule (TcAnnotation ty [] [] [] [] []))
           LabelText text -> Just text
   case [label | info <- infos, Just label <- [labelText info]] of
@@ -385,7 +384,7 @@ placedAt :: String -> Maybe SourceSpan -> SourceSpan
 placedAt label =
   fromMaybe (error ("renderAnnotatedTcResults: a label has no source span: " <> show label))
 
-peelLeading :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> node -> ([Annotation], [TcInfo], node)
+peelLeading :: (node -> Maybe (Maybe Annotation, Maybe TcAnnotation, node)) -> node -> ([Annotation], [TcAnnotation], node)
 peelLeading peel =
   go [] []
   where
@@ -394,73 +393,73 @@ peelLeading peel =
         Just (ann, info, inner) -> go (maybe anns (: anns) ann) (maybe infos (: infos) info) inner
         Nothing -> (reverse anns, reverse infos, node)
 
-peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcInfo, Expr)
+peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcAnnotation, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
-peelExpr (ETc (ExprType annotation) inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelExpr (ETc (ExprType annotation) inner) = Just (Nothing, Just annotation, inner)
 peelExpr (ETc (ExprCast _) inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 
-peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcInfo, Pattern)
+peelPattern :: Pattern -> Maybe (Maybe Annotation, Maybe TcAnnotation, Pattern)
 peelPattern (PAnn ann inner) = Just (Just ann, Nothing, inner)
-peelPattern (PTc (PatternType annotation) inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelPattern (PTc (PatternType annotation) inner) = Just (Nothing, Just annotation, inner)
 peelPattern (PTc _ inner) = Just (Nothing, Nothing, inner)
 peelPattern _ = Nothing
 
-peelType :: Type -> Maybe (Maybe Annotation, Maybe TcInfo, Type)
+peelType :: Type -> Maybe (Maybe Annotation, Maybe TcAnnotation, Type)
 peelType (TAnn ann inner) = Just (Just ann, Nothing, inner)
 peelType _ = Nothing
 
-peelDecl :: Decl -> Maybe (Maybe Annotation, Maybe TcInfo, Decl)
+peelDecl :: Decl -> Maybe (Maybe Annotation, Maybe TcAnnotation, Decl)
 peelDecl (DeclAnn ann inner) = Just (Just ann, Nothing, inner)
-peelDecl (DeclTc annotation inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelDecl (DeclTc annotation inner) = Just (Nothing, Just annotation, inner)
 peelDecl (DeclError _ inner) = Just (Nothing, Nothing, inner)
 peelDecl _ = Nothing
 
-peelDataCon :: DataConDecl -> Maybe (Maybe Annotation, Maybe TcInfo, DataConDecl)
+peelDataCon :: DataConDecl -> Maybe (Maybe Annotation, Maybe TcAnnotation, DataConDecl)
 peelDataCon (DataConAnn ann inner) = Just (Just ann, Nothing, inner)
 peelDataCon _ = Nothing
 
-peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcInfo, Literal)
+peelLiteral :: Literal -> Maybe (Maybe Annotation, Maybe TcAnnotation, Literal)
 peelLiteral (LitAnn ann inner) = Just (Just ann, Nothing, inner)
-peelLiteral (LitTc annotation inner) = Just (Nothing, Just (InfoType annotation), inner)
+peelLiteral (LitTc annotation inner) = Just (Nothing, Just annotation, inner)
 peelLiteral _ = Nothing
 
-peelGuard :: GuardQualifier -> Maybe (Maybe Annotation, Maybe TcInfo, GuardQualifier)
+peelGuard :: GuardQualifier -> Maybe (Maybe Annotation, Maybe TcAnnotation, GuardQualifier)
 peelGuard (GuardAnn ann inner) = Just (Just ann, Nothing, inner)
 peelGuard _ = Nothing
 
-peelDo :: DoStmt body -> Maybe (Maybe Annotation, Maybe TcInfo, DoStmt body)
+peelDo :: DoStmt body -> Maybe (Maybe Annotation, Maybe TcAnnotation, DoStmt body)
 peelDo (DoAnn ann inner) = Just (Just ann, Nothing, inner)
 peelDo (DoRecKnot _ inner) = Just (Nothing, Nothing, inner)
 peelDo _ = Nothing
 
-peelComp :: CompStmt -> Maybe (Maybe Annotation, Maybe TcInfo, CompStmt)
+peelComp :: CompStmt -> Maybe (Maybe Annotation, Maybe TcAnnotation, CompStmt)
 peelComp (CompAnn ann inner) = Just (Just ann, Nothing, inner)
 peelComp _ = Nothing
 
-peelArithSeq :: ArithSeq -> Maybe (Maybe Annotation, Maybe TcInfo, ArithSeq)
+peelArithSeq :: ArithSeq -> Maybe (Maybe Annotation, Maybe TcAnnotation, ArithSeq)
 peelArithSeq (ArithSeqAnn ann inner) = Just (Just ann, Nothing, inner)
 peelArithSeq _ = Nothing
 
-peelClassItem :: ClassDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, ClassDeclItem)
+peelClassItem :: ClassDeclItem -> Maybe (Maybe Annotation, Maybe TcAnnotation, ClassDeclItem)
 peelClassItem (ClassItemAnn ann inner) = Just (Just ann, Nothing, inner)
 peelClassItem (ClassItemError _ inner) = Just (Nothing, Nothing, inner)
 peelClassItem _ = Nothing
 
-peelInstanceItem :: InstanceDeclItem -> Maybe (Maybe Annotation, Maybe TcInfo, InstanceDeclItem)
+peelInstanceItem :: InstanceDeclItem -> Maybe (Maybe Annotation, Maybe TcAnnotation, InstanceDeclItem)
 peelInstanceItem (InstanceItemAnn ann inner) = Just (Just ann, Nothing, inner)
 peelInstanceItem (InstanceItemError _ inner) = Just (Nothing, Nothing, inner)
 peelInstanceItem _ = Nothing
 
-peelCmd :: Cmd -> Maybe (Maybe Annotation, Maybe TcInfo, Cmd)
+peelCmd :: Cmd -> Maybe (Maybe Annotation, Maybe TcAnnotation, Cmd)
 peelCmd (CmdAnn ann inner) = Just (Just ann, Nothing, inner)
 peelCmd _ = Nothing
 
-peelExport :: ExportSpec -> Maybe (Maybe Annotation, Maybe TcInfo, ExportSpec)
+peelExport :: ExportSpec -> Maybe (Maybe Annotation, Maybe TcAnnotation, ExportSpec)
 peelExport (ExportAnn ann inner) = Just (Just ann, Nothing, inner)
 peelExport _ = Nothing
 
-peelImport :: ImportItem -> Maybe (Maybe Annotation, Maybe TcInfo, ImportItem)
+peelImport :: ImportItem -> Maybe (Maybe Annotation, Maybe TcAnnotation, ImportItem)
 peelImport (ImportAnn ann inner) = Just (Just ann, Nothing, inner)
 peelImport (ImportItemError _ inner) = Just (Nothing, Nothing, inner)
 peelImport _ = Nothing
@@ -468,14 +467,6 @@ peelImport _ = Nothing
 spanFromAnnotations :: [Annotation] -> Maybe SourceSpan
 spanFromAnnotations =
   foldr ((<|>) . annotationSpan) Nothing
-
--- | The label of one item of type checker information, if the golden
--- output shows that item.
-renderTcInfo :: Maybe Text -> TcInfo -> Maybe String
-renderTcInfo currentModule info =
-  case info of
-    InfoType annotation -> Just (renderTypeAnnotation currentModule annotation)
-    _ -> Nothing
 
 renderTypeAnnotation :: Maybe Text -> TcAnnotation -> String
 renderTypeAnnotation currentModule ann =

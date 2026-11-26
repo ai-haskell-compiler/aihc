@@ -24,7 +24,7 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Resolved (..), resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), pendingAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), pendingAnnotation, WorkingTcAnnotation (..))
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -55,13 +55,11 @@ import Aihc.Tc.Syntax.Pending
     Pattern (..),
     RecordField (..),
     SourceSpan,
-    TcInfo (..),
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
     annotationSpan,
-    infoIsPending,
     mkSpanAnnotation,
     nameText,
     peelDeclAnn,
@@ -69,6 +67,7 @@ import Aihc.Tc.Syntax.Pending
     peelPatternAnn,
     resolvedBinderEntity,
     PatternTc (..),
+    addNamePending,
   )
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -78,7 +77,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -911,7 +910,7 @@ checkPatternMethodWithExpected sp name expectedTypes = do
   (annotationTy, expectedTy) <- expectedTypes actualTy
   methodEq <- wantedMethodEq sp displayName actualTy expectedTy
   let pending = pendingAnnotation annotationTy typeArgs (map ctEvVar methodCts) []
-  pure (name {nameTc = nameTc name <> [InfoType pending]}, methodCts <> [methodEq])
+  pure (addNamePending pending name, methodCts <> [methodEq])
 
 wantedMethodEq :: Maybe SourceSpan -> Text -> TcType -> TcType -> TcM Ct
 wantedMethodEq sp method actual expected = do
@@ -974,10 +973,10 @@ reannotatePatternBinders pendings = mapPatternBinderNames replaceBinderAnnotatio
       case lookup (unqualifiedNameText name) pendings of
         Nothing -> name
         Just pending ->
-          name
-            { unqualifiedNameTc =
-                [item | item <- unqualifiedNameTc name, not (infoIsPending item)] <> [InfoType pending]
-            }
+          case unqualifiedNameTc name of
+            -- A binder keeps an annotation that the checker wrote as final.
+            Just (WorkingChecked _) -> name
+            _ -> name {unqualifiedNameTc = Just (WorkingPending pending)}
 
 -- | Apply a function to every named binder of a pattern.
 mapPatternBinderNames :: (UnqualifiedName -> UnqualifiedName) -> Pattern -> Pattern
@@ -1014,8 +1013,8 @@ annotateBinderName bindings name =
   case lookup name bindings of
     Nothing -> name
     Just ty
-      | any infoIsPending (unqualifiedNameTc name) -> name
-      | otherwise -> name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoType (pendingAnnotation ty [] [] [])]}
+      | isJust (unqualifiedNameTc name) -> name
+      | otherwise -> name {unqualifiedNameTc = Just (WorkingPending (pendingAnnotation ty [] [] []))}
 
 checkConPattern :: Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern sp originalPat conSyntax subPats scrutTy = do

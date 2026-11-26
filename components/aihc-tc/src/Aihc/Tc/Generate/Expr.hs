@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -54,7 +54,6 @@ import Aihc.Tc.Syntax.Pending
     RecordField (..),
     Rhs (..),
     SourceSpan,
-    TcInfo (..),
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
@@ -66,8 +65,9 @@ import Aihc.Tc.Syntax.Pending
     annotateSigCast,
     annotationSpan,
     arithSeqMethod,
-    infoIsPending,
-    infoPending,
+    addNameCast,
+    addNamePending,
+    namePending,
     mapArithSeqMethod,
     mkSpanAnnotation,
     peelExprAnn,
@@ -545,7 +545,7 @@ annotatePendingExprAt (Just sp) ann =
 
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
-  name {nameTc = nameTc name <> [InfoType ann]}
+  addNamePending ann name
 
 -- | Give the method name of a do statement its checked type, and the cast
 -- onto the type that the statement uses it at. The cast goes first. The
@@ -554,7 +554,7 @@ annotatePendingName ann name =
 -- fit the statement.
 annotateDoMethodName :: TcType -> EvVar -> PendingTcAnnotation -> Name -> Name
 annotateDoMethodName ty evidence pending name =
-  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight), InfoType pending]}
+  addNamePending pending (addNameCast ty evidence name)
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -563,7 +563,7 @@ annotateDoMethodName ty evidence pending name =
 -- section can have the result type @v@.
 annotateOperatorCast :: TcType -> EvVar -> Name -> Name
 annotateOperatorCast ty evidence name =
-  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight)]}
+  addNameCast ty evidence name
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
@@ -1181,9 +1181,9 @@ uniqueKey (Unique key) = key
 
 nameTypeArgs :: Name -> [TcType]
 nameTypeArgs name =
-  case mapMaybe infoPending (nameTc name) of
-    pending : _ -> pendingTcAnnTypeArgs pending
-    [] -> []
+  case namePending name of
+    Just pending -> pendingTcAnnTypeArgs pending
+    Nothing -> []
 
 -- | The first pass over the frames. The remaining type arguments are the
 -- instantiation's type arguments that visible type applications have not
@@ -1410,11 +1410,11 @@ prefixOperatorHead expr =
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
     ETc ann inner -> ETc ann (prefixOperatorHead inner)
     EVar name ->
-      case mapMaybe infoPending (nameTc name) of
-        pending : _ ->
-          let plainName = name {nameTc = filter (not . infoIsPending) (nameTc name)}
+      case namePending name of
+        Just pending ->
+          let plainName = name {nameTc = Nothing}
            in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
-        [] -> expr
+        Nothing -> expr
     _ -> expr
 
 -- | Check an argument against a polytype. The argument is inferred and

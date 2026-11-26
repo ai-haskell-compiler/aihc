@@ -52,7 +52,6 @@ import Aihc.Tc.Syntax.Pending
     ResolutionResult (..),
     Rhs (..),
     SourceSpan,
-    TcInfo (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -73,6 +72,7 @@ import Aihc.Tc.Syntax.Pending
     unqualifiedNameText,
     PatternTc (..),
     ExprTc (..),
+    addNamePending,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)
@@ -298,7 +298,7 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
       pending <- occurrencePending schemes name
       pure $ case pending of
         Nothing -> name
-        Just annotation -> name {nameTc = nameTc name <> [InfoType annotation]}
+        Just annotation -> addNamePending annotation name
 
     occurrencePending schemes name =
       case nameResolved name of

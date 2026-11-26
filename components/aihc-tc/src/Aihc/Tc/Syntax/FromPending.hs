@@ -31,17 +31,10 @@ import Data.Text (Text)
 wrapInfo :: (item -> node -> node) -> Maybe item -> node -> node
 wrapInfo wrap item node = maybe node (`wrap` node) item
 
--- | Change a list of information items, and remove the items that the
--- function removes.
-infos :: (Monad m) => Finalizers m -> [Pending.TcInfo] -> m [TcInfo]
-infos info items = catMaybes <$> traverse (finalizeTcInfo info) items
-
 -- | The functions that change pending information into final information.
 -- Each kind of information has one function.
 data Finalizers m = Finalizers
-  { -- | Change one item of information, or remove it.
-    finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
-    finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
+  { finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
     -- | Change an annotation, or remove it.
     finalizeAnnotation :: PendingTcAnnotation -> m (Maybe TcAnnotation),
@@ -61,13 +54,12 @@ data Finalizers m = Finalizers
     finalizeInstanceMethod :: TcInstanceMethodAnnotation -> m TcInstanceMethodAnnotation
   }
 
--- | The functions that remove each item of 'TcInfo' and keep all other
--- information as it is.
+-- | The functions that remove each annotation and each cast, and keep all
+-- other information as it is.
 plainFinalizers :: (Applicative m) => Finalizers m
 plainFinalizers =
   Finalizers
-    { finalizeTcInfo = const (pure Nothing),
-      finalizeTypeFamilyInstance = pure,
+    { finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
       finalizeAnnotation = const (pure Nothing),
       finalizeCheckedAnnotation = pure,
@@ -327,13 +319,13 @@ instance FromPending Pending.Name where
   type Final Pending.Name = Name
   fromPending info node =
     case node of
-      Pending.Name x1 x2 x3 x4 x5 x6 -> Name <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> infos info x6
+      Pending.Name x1 x2 x3 x4 x5 x6 x7 -> Name <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> (join <$> traverse (declTc info) x6) <*> (join <$> traverse (finalizeCast info) x7)
 
 instance FromPending Pending.UnqualifiedName where
   type Final Pending.UnqualifiedName = UnqualifiedName
   fromPending info node =
     case node of
-      Pending.UnqualifiedName x1 x2 x3 x4 x5 -> UnqualifiedName <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> infos info x5
+      Pending.UnqualifiedName x1 x2 x3 x4 x5 -> UnqualifiedName <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> (join <$> traverse (declTc info) x5)
 
 instance FromPending Pending.Module where
   type Final Pending.Module = Module

@@ -37,6 +37,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
     renderTcType,
+    WorkingTcAnnotation (..),
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
@@ -124,7 +125,6 @@ import Aihc.Tc.Syntax.Pending
     RuleBinder (..),
     RuleDecl (..),
     SourceSpan,
-    TcInfo (..),
     TupleFlavor (..),
     TyVarBVisibility (..),
     TyVarBinder (..),
@@ -1549,7 +1549,7 @@ annotateTypeFamilyHead tcAnn ty =
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
-  name {nameTc = nameTc name <> [InfoCheckedType tcAnn]}
+  name {nameTc = nameTc name <|> Just (WorkingChecked tcAnn)}
 
 annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
@@ -1609,7 +1609,7 @@ annotateBinderHeadName tcAnn head' =
 
 annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
-  name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoCheckedType tcAnn]}
+  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just (WorkingChecked tcAnn)}
 
 annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc parent dataConDecl = do
@@ -3815,7 +3815,7 @@ patSynUse key name argBinders =
     nameType'
       | ":" `T.isPrefixOf` name = NameConSym
       | otherwise = NameConId
-    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key))) []
+    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key))) Nothing Nothing
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
@@ -3887,7 +3887,7 @@ synthesizedLocal unique text =
     text
     []
     (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
-    []
+    Nothing
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -3976,7 +3976,7 @@ patternToExpr pat =
 -- type checker makes. The type checker does not read its resolution, so the
 -- name has none.
 syntaxName :: Text -> Name
-syntaxName text = Name Nothing NameConSym text [] Nothing []
+syntaxName text = Name Nothing NameConSym text [] Nothing Nothing Nothing
 
 -- | An annotated literal pattern as an expression.
 --
@@ -4018,7 +4018,7 @@ negatedLiteralPatternToExpr = go []
           let negation = case match of
                 LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
+          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
         _ -> Nothing
 
 -- | The information of a pattern wrapper as an expression wrapper. The
