@@ -3919,7 +3919,7 @@ patSynMatcherMatch pat argBinders =
     -- and a binder of that type has no fixed representation.
     success = foldl EApp (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
     failed = EApp (localVar failure) unit
-    unit = ETuple (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
+    unit = ETuple Nothing (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
 
 -- | The checked pattern inside a checked matcher equation.
 matcherPattern :: Match -> Maybe Pattern
@@ -3948,16 +3948,16 @@ patternToExpr pat =
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
     PTc info inner -> patternTcExpr info <$> patternToExpr inner
     PVar name -> Just (localVar name)
-    PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
+    PTuple flavor items -> ETuple Nothing (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
     -- @toList@ of the match goes.
     PList match items ->
-      EList (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
+      EList Nothing (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
     PBuiltinCon (BuiltinTuple flavor arity) _ items
-      | length items == arity -> ETuple (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
+      | length items == arity -> ETuple Nothing (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
-    PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
+    PUnboxedSum alt arity inner -> EUnboxedSum Nothing alt arity <$> patternToExpr inner
     -- A record pattern with a wildcard has no expression: the wildcard
     -- binds the names of the fields.
     PRecord name fields False -> (\fields' -> ERecordCon name fields' False) <$> mapM recordField fields

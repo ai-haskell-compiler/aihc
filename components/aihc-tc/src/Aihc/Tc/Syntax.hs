@@ -1591,11 +1591,11 @@ data Expr
     -- type is the type of the block. The type checker sets it.
     EDo (Maybe TcType) [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
-    EListComp Expr [CompStmt]
+    EListComp (Maybe TcAnnotation) Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
-    EListCompParallel Expr [[CompStmt]]
+    EListCompParallel (Maybe TcAnnotation) Expr [[CompStmt]]
   | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
-    EArithSeq (Maybe Name) ArithSeq
+    EArithSeq (Maybe TcType) (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
     ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | -- | @r { x = 1 }@
@@ -1611,11 +1611,11 @@ data Expr
     EParen Expr
   | -- | @[x, y]@. The first name is the list syntax. Under
     -- @OverloadedLists@, the second name is @fromListN@.
-    EList Name (Maybe Name) [Expr]
+    EList (Maybe TcAnnotation) Name (Maybe Name) [Expr]
   | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
-    ETuple Name TupleFlavor [Maybe Expr]
+    ETuple (Maybe TcAnnotation) Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
-    EUnboxedSum Int Int Expr
+    EUnboxedSum (Maybe TcAnnotation) Int Int Expr
   | -- | @f \@Type@
     ETypeApp Expr Type
   | -- | @f x@

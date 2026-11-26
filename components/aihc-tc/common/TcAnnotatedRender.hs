@@ -332,9 +332,16 @@ exprOwnType expr =
     ELambdaCases ty alternatives -> (typeLabel ty, ELambdaCases Nothing alternatives)
     ECase ty scrutinee alternatives -> (typeLabel ty, ECase Nothing scrutinee alternatives)
     EDo ty statements flavor -> (typeLabel ty, EDo Nothing statements flavor)
+    EArithSeq ty method sequence' -> (typeLabel ty, EArithSeq Nothing method sequence')
+    EList tc syntax method items -> (annotationLabel tc, EList Nothing syntax method items)
+    ETuple tc syntax flavor items -> (annotationLabel tc, ETuple Nothing syntax flavor items)
+    EUnboxedSum tc position arity inner -> (annotationLabel tc, EUnboxedSum Nothing position arity inner)
+    EListComp tc body statements -> (annotationLabel tc, EListComp Nothing body statements)
+    EListCompParallel tc body branches -> (annotationLabel tc, EListCompParallel Nothing body branches)
     _ -> ([], expr)
   where
     typeLabel = maybe [] (\ty -> [LabelType ty])
+    annotationLabel = maybe [] (\annotation -> [LabelInfo annotation])
 
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
@@ -348,12 +355,12 @@ exprSyntax expr =
     EStringHash ty value text -> (maybeToList (nameTc ty), EStringHash (without ty) value text)
     EIf ty method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf ty (without <$> method) condition thenExpr elseExpr)
     ENegate method inner -> (maybeToList (nameTc method), ENegate (without method) inner)
-    EArithSeq method sequence' -> (maybeToList (method >>= nameTc), EArithSeq (without <$> method) sequence')
+    EArithSeq ty method sequence' -> (maybeToList (method >>= nameTc), EArithSeq ty (without <$> method) sequence')
     EGetField method record field -> (maybeToList (nameTc method), EGetField (without method) record field)
     EGetFieldProjection method fields -> (maybeToList (nameTc method), EGetFieldProjection (without method) fields)
     -- The conversion of an overloaded list goes before the ordinary list.
-    EList syntax method items -> (maybeToList (method >>= nameTc) <> maybeToList (nameTc syntax), EList (without syntax) (without <$> method) items)
-    ETuple syntax flavor items -> (maybeToList (nameTc syntax), ETuple (without syntax) flavor items)
+    EList tc syntax method items -> (maybeToList (method >>= nameTc) <> maybeToList (nameTc syntax), EList tc (without syntax) (without <$> method) items)
+    ETuple tc syntax flavor items -> (maybeToList (nameTc syntax), ETuple tc (without syntax) flavor items)
     _ -> ([], expr)
   where
     without name = name {nameTc = Nothing}

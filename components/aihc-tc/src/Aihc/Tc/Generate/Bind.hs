@@ -1425,11 +1425,11 @@ exprSyntaxNames expr =
     EStringHash typeName _ _ -> [typeName]
     EIf _ method _ _ _ -> maybeToList method
     ENegate method _ -> [method]
-    EArithSeq method _ -> maybeToList method
+    EArithSeq _ method _ -> maybeToList method
     EGetField method _ _ -> [method]
     EGetFieldProjection method _ -> [method]
-    EList syntax method _ -> syntax : maybeToList method
-    ETuple syntax _ _ -> [syntax]
+    EList _ syntax method _ -> syntax : maybeToList method
+    ETuple _ syntax _ _ -> [syntax]
     _ -> []
 
 freeVarsExprChildren :: Expr -> TcM (Set.Set Entity)
@@ -1475,16 +1475,16 @@ freeVarsExprChildren expr =
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EPragma _ inner -> freeVarsExpr inner
-    EList _ _ items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq _ arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EList _ _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq _ _ arithSeq -> freeVarsArithSeq arithSeq
+    ETuple _ _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
     EDo _ stmts _ -> freeVarsDoStmts stmts
-    EListComp body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
-    EListCompParallel body branches -> do
+    EListComp _ body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
+    EListCompParallel _ body branches -> do
       bodyVars <- freeVarsExpr body
       branchVars <- mapM (\stmts -> freeVarsCompStmts stmts (pure Set.empty)) branches
       -- A parallel branch scopes over the body; its binders are removed
@@ -1502,7 +1502,7 @@ freeVarsExprChildren expr =
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
     EGetField _ record _ -> freeVarsExpr record
-    EUnboxedSum _ _ inner -> freeVarsExpr inner
+    EUnboxedSum _ _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 
 freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set Entity)

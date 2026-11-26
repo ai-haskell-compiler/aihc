@@ -3640,6 +3640,29 @@ desugarExpr expression =
     Syn.EPragma _ inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
+    -- An overloaded list applies fromListN to its length and to the
+    -- ordinary list. The list syntax name has the annotation of the
+    -- ordinary list.
+    Syn.EList (Just _) syntax (Just method) elements
+      | Just resolution <- syntaxResolved method -> do
+          method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+          listAnnotation <- requiredSyntaxAnnotation syntax
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (intRep kinds)
+          constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+          intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+          let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger (length elements))) intHashType)
+          ExApp (ExApp method' size) <$> desugarList listAnnotation elements
+    Syn.EArithSeq (Just _) (Just method) arithSeq
+      | Just resolution <- syntaxResolved method -> do
+          method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+          ExApp method' <$> desugarArithSeq arithSeq
+    Syn.EList (Just annotation) _ _ elements -> desugarList annotation elements
+    Syn.EListComp (Just annotation) element statements -> desugarListComp annotation element statements
+    Syn.EListCompParallel (Just annotation) element branches -> desugarListCompParallel annotation element branches
+    Syn.EArithSeq (Just _) _ arithSeq -> desugarArithSeq arithSeq
+    Syn.ETuple (Just annotation) _ flavor elements -> desugarTuple annotation flavor elements
+    Syn.EUnboxedSum (Just annotation) alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
     Syn.ELambdaPats functionType patterns body -> desugarLambda functionType patterns body
     Syn.ELambdaCase (Just functionType) alternatives -> desugarMatches functionType (map caseAlternativeMatch alternatives)
     Syn.ELambdaCase Nothing alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
@@ -3663,7 +3686,6 @@ desugarExpr expression =
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
-  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
   charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- mapM freshDictionaryBinder evidencePredicates
@@ -3684,22 +3706,6 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EString (Just conversion) value _
           | Just resolution <- syntaxResolved conversion ->
               desugarOverloadedString annotation resolution value
-        -- An overloaded list applies fromListN to its length and to the
-        -- ordinary list. The list syntax name has the annotation of the
-        -- ordinary list.
-        Syn.EList syntax (Just method) elements
-          | Just resolution <- syntaxResolved method -> do
-              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
-              listAnnotation <- requiredSyntaxAnnotation syntax
-              kinds <- valueKinds
-              representation <- convertRuntimeRep (intRep kinds)
-              constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
-              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger (length elements))) intHashType)
-              ExApp (ExApp method' size) <$> desugarList listAnnotation elements
-        Syn.EArithSeq (Just method) arithSeq
-          | Just resolution <- syntaxResolved method -> do
-              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
-              ExApp method' <$> desugarArithSeq arithSeq
         Syn.ENegate method operand
           | Just resolution <- syntaxResolved method,
             resolutionNamespace resolution == ResolutionNamespaceTerm,
@@ -3748,12 +3754,6 @@ desugarAnnotatedExpr annotation inner = do
           kinds <- valueKinds
           representation <- convertRuntimeRep (addrRep kinds)
           ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EList _ _ elements -> desugarList annotation elements
-        Syn.EListComp expression statements -> desugarListComp annotation expression statements
-        Syn.EListCompParallel expression branches -> desugarListCompParallel annotation expression branches
-        Syn.EArithSeq _ arithSeq -> desugarArithSeq arithSeq
-        Syn.ETuple _ flavor elements -> desugarTuple annotation flavor elements
-        Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
         Syn.EImplicitParam name ->
@@ -7305,6 +7305,12 @@ exprType expression =
     Syn.ELambdaCases functionType _ -> functionType
     Syn.ECase resultType _ _ -> resultType
     Syn.EDo resultType _ _ -> resultType
+    Syn.EArithSeq resultType _ _ -> resultType
+    Syn.EList annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.ETuple annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EUnboxedSum annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EListComp annotation _ _ -> tcAnnType <$> annotation
+    Syn.EListCompParallel annotation _ _ -> tcAnnType <$> annotation
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing

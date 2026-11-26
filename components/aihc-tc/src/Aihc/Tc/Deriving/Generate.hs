@@ -1436,7 +1436,7 @@ tuplePattern gen components = atPattern gen (PTuple Boxed (map (atPattern gen . 
 
 -- | A boxed tuple expression.
 tupleExpr :: Gen -> [Expr] -> Expr
-tupleExpr gen components = at gen (ETuple (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
+tupleExpr gen components = at gen (ETuple Nothing (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that
@@ -2053,7 +2053,7 @@ intHashLiteral gen value = at gen (EInt (LiteralSyntaxPrimitive (intHashName gen
 
 -- | An ordinary list expression.
 listExpr :: Gen -> [Expr] -> Expr
-listExpr gen = EList (syntaxName gen "[]") Nothing
+listExpr gen = EList Nothing (syntaxName gen "[]") Nothing
 
 -- | The name of built-in list or tuple syntax. The type checker does not
 -- read its resolution, so the name has none.

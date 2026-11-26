@@ -110,10 +110,10 @@ inferExprAt ambient expr = case expr of
   EString (Just conversion) _ _
     | Just resolution <- syntaxResolution conversion ->
         inferOverloadedLiteral ambient "fromString" [] resolution expr
-  EList syntax (Just method) items
+  EList _ syntax (Just method) items
     | Just resolution <- syntaxResolution method ->
         inferOverloadedList (resolutionSpan resolution <|> ambient) syntax method resolution items
-  EArithSeq (Just method) arithSeq
+  EArithSeq _ (Just method) arithSeq
     | Just resolution <- syntaxResolution method ->
         inferOverloadedSequence (resolutionSpan resolution <|> ambient) method resolution arithSeq
   _
@@ -196,21 +196,21 @@ inferExprAt ambient expr = case expr of
   ETc ann inner -> do
     (inner', ty, cts) <- inferExprAt ambient inner
     pure (ETc ann inner', ty, cts)
-  ETuple syntax flavor elems ->
+  ETuple _ syntax flavor elems ->
     inferTuple (exprSpan expr <|> ambient) syntax flavor elems
-  EUnboxedSum alternative arity inner -> do
+  EUnboxedSum _ alternative arity inner -> do
     (inner', innerType, constraints) <- inferExprAt ambient inner
     types <- mapM (\index -> if index == alternative then pure innerType else freshMetaTv) [0 .. arity - 1]
     sumType <- unboxedSumType types
     let pending = pendingAnnotation sumType types [] []
-    pure (annotatePendingExprAt ambient pending (EUnboxedSum alternative arity inner'), sumType, constraints)
-  EList syntax _ elems ->
+    pure (atSpan ambient (EUnboxedSum (Just pending) alternative arity inner'), sumType, constraints)
+  EList _ syntax _ elems ->
     inferList (exprSpan expr <|> ambient) syntax elems
-  EListComp body quals ->
+  EListComp _ body quals ->
     inferListComp (exprSpan expr <|> ambient) body quals
-  EListCompParallel body branches ->
+  EListCompParallel _ body branches ->
     inferListCompParallel (exprSpan expr <|> ambient) body branches
-  EArithSeq _ arithSeq ->
+  EArithSeq _ _ arithSeq ->
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
   EDo _ stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
@@ -650,7 +650,7 @@ checkExpr expected expression = case expression of
     case expectedParts of
       Just (argumentTypes, resultType) -> lambdaCasesWith (exprSpan expression) argumentTypes resultType alternatives
       Nothing -> inferExpr expression
-  EList syntax Nothing elements -> inferListWithExpected (Just expected) (exprSpan expression) syntax elements
+  EList _ syntax Nothing elements -> inferListWithExpected (Just expected) (exprSpan expression) syntax elements
   ECase _ scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
@@ -750,7 +750,7 @@ checksExpectedResult expression = case expression of
   ELambdaCase {} -> True
   ELambdaCases {} -> True
   -- An overloaded list does not give the expected type to its list.
-  EList _ method _ -> isNothing method
+  EList _ _ method _ -> isNothing method
   _ -> False
 
 -- | Split an expected type into the given number of argument types and a
@@ -1848,7 +1848,7 @@ inferTuple sp syntax flavor elems = do
       missingTys = [ty | (Nothing, ty, _) <- results]
       sectionTy = foldr TcFunTy tupleTy missingTys
       pending = pendingAnnotation sectionTy tys [] []
-  pure (annotatePendingExprAt sp pending (ETuple syntax flavor elems'), sectionTy, cts)
+  pure (atSpan sp (ETuple (Just pending) syntax flavor elems'), sectionTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -1874,8 +1874,8 @@ inferOverloadedList sp syntax method resolution items = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      list = EList (annotatePendingName listPending syntax) (Just (annotatePendingName methodPending method)) items'
-  pure (annotatePendingExprAt sp resultPending list, resultTy, listCts <> methodCts <> [methodEquality])
+      list = EList (Just resultPending) (annotatePendingName listPending syntax) (Just (annotatePendingName methodPending method)) items'
+  pure (atSpan sp list, resultTy, listCts <> methodCts <> [methodEquality])
 
 -- | An arithmetic sequence under OverloadedLists applies fromList to an
 -- ordinary list.
@@ -1891,9 +1891,8 @@ inferOverloadedSequence sp method resolution arithSeq = do
   let expectedMethodTy = TcFunTy listTy resultTy
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromList") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-      resultPending = pendingAnnotation resultTy [] [] []
-      sequence' = EArithSeq (Just (annotatePendingName methodPending method)) arithSeq'
-  pure (annotatePendingExprAt sp resultPending sequence', resultTy, listCts <> methodCts <> [methodEquality])
+      sequence' = EArithSeq (Just resultTy) (Just (annotatePendingName methodPending method)) arithSeq'
+  pure (atSpan sp sequence', resultTy, listCts <> methodCts <> [methodEquality])
 
 inferList :: Maybe SourceSpan -> Name -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList = inferListWithExpected Nothing
@@ -1901,7 +1900,7 @@ inferList = inferListWithExpected Nothing
 inferListWithExpected :: Maybe TcType -> Maybe SourceSpan -> Name -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferListWithExpected expected sp syntax elems = do
   (elems', pending, listTy, cts) <- inferListParts expected sp elems
-  pure (annotatePendingExprAt sp pending (EList syntax Nothing elems'), listTy, cts)
+  pure (atSpan sp (EList (Just pending) syntax Nothing elems'), listTy, cts)
 
 -- | Infer an ordinary list. The result has the checked elements, the
 -- annotation of the list, the list type, and the constraints.
@@ -1976,8 +1975,7 @@ inferListParts expected sp elems = do
 inferArithSeq :: Maybe SourceSpan -> ArithSeq -> TcM (Expr, TcType, [Ct])
 inferArithSeq sp arithSeq = do
   (arithSeq', resultTy, cts) <- inferArithSeqNode sp arithSeq
-  let pending = pendingAnnotation resultTy [] [] []
-  pure (annotatePendingExprAt sp pending (EArithSeq Nothing arithSeq'), resultTy, cts)
+  pure (atSpan sp (EArithSeq (Just resultTy) Nothing arithSeq'), resultTy, cts)
 
 inferArithSeqNode :: Maybe SourceSpan -> ArithSeq -> TcM (ArithSeq, TcType, [Ct])
 inferArithSeqNode sp arithSeq =
@@ -2063,7 +2061,7 @@ inferListComp sp body quals = do
   (quals', body', bodyTy, cts) <- inferCompQuals listTyCon' sp quals (inferExpr body)
   let resultTy = TcTyCon listTyCon' [bodyTy]
       pending = pendingAnnotation resultTy [bodyTy] [] []
-  pure (annotatePendingExprAt sp pending (EListComp body' quals'), resultTy, cts)
+  pure (atSpan sp (EListComp (Just pending) body' quals'), resultTy, cts)
 
 -- | Check a parallel list comprehension. Its desugaring is
 --
@@ -2088,7 +2086,7 @@ inferListCompParallel sp body branches = do
       pending = pendingAnnotation resultTy [bodyTy] [] []
       branches' = [quals' | (quals', _, _) <- checked]
       branchCts = concat [cts | (_, _, cts) <- checked]
-  pure (annotatePendingExprAt sp pending (EListCompParallel body' branches'), resultTy, branchCts <> bodyCts)
+  pure (atSpan sp (EListCompParallel (Just pending) body' branches'), resultTy, branchCts <> bodyCts)
   where
     inferBranch listTyCon' quals = do
       keys <- mapM resolvedUnqualifiedTermKey (compStmtBinderNames quals)

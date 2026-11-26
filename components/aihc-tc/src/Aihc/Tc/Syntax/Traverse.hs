@@ -814,18 +814,18 @@ instance Walkable Expr where
       ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
       ECase ty scrutinee alternatives -> ECase <$> walkCheckedTypeOf w ty <*> walk w scrutinee <*> walk w alternatives
       EDo ty statements flavor -> EDo <$> walkCheckedTypeOf w ty <*> walk w statements <*> pure flavor
-      EListComp body statements -> EListComp <$> walk w body <*> walk w statements
-      EListCompParallel body branches -> EListCompParallel <$> walk w body <*> walk w branches
-      EArithSeq method sequence' -> EArithSeq <$> walk w method <*> walk w sequence'
+      EListComp tc body statements -> EListComp <$> traverse (walkTcAnnotation w) tc <*> walk w body <*> walk w statements
+      EListCompParallel tc body branches -> EListCompParallel <$> traverse (walkTcAnnotation w) tc <*> walk w body <*> walk w branches
+      EArithSeq ty method sequence' -> EArithSeq <$> walkCheckedTypeOf w ty <*> walk w method <*> walk w sequence'
       ERecordCon name fields wildcard -> ERecordCon <$> walk w name <*> walk w fields <*> pure wildcard
       ERecordUpd record fields -> ERecordUpd <$> walk w record <*> walk w fields
       EGetField method record field -> EGetField <$> walk w method <*> walk w record <*> walk w field
       EGetFieldProjection method fields -> EGetFieldProjection <$> walk w method <*> walk w fields
       ETypeSig inner ty -> ETypeSig <$> walk w inner <*> walk w ty
       EParen inner -> EParen <$> walk w inner
-      EList syntax method items -> EList <$> walk w syntax <*> walk w method <*> walk w items
-      ETuple syntax flavor items -> (`ETuple` flavor) <$> walk w syntax <*> walk w items
-      EUnboxedSum position arity inner -> EUnboxedSum position arity <$> walk w inner
+      EList tc syntax method items -> EList <$> traverse (walkTcAnnotation w) tc <*> walk w syntax <*> walk w method <*> walk w items
+      ETuple tc syntax flavor items -> (\tc' syntax' -> ETuple tc' syntax' flavor) <$> traverse (walkTcAnnotation w) tc <*> walk w syntax <*> walk w items
+      EUnboxedSum tc position arity inner -> (\tc' -> EUnboxedSum tc' position arity) <$> traverse (walkTcAnnotation w) tc <*> walk w inner
       ETypeApp function ty -> ETypeApp <$> walk w function <*> walk w ty
       EApp function argument -> EApp <$> walk w function <*> walk w argument
       ETHExpQuote inner -> ETHExpQuote <$> walk w inner
