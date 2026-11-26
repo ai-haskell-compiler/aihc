@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (TcAnnotated (..), TcAnnotation (..), TcOccurrence (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -203,7 +203,7 @@ inferExprAt ambient expr = case expr of
     types <- mapM (\index -> if index == alternative then pure innerType else freshMetaTv) [0 .. arity - 1]
     sumType <- unboxedSumType types
     let pending = pendingAnnotation sumType types [] []
-    pure (atSpan ambient (EUnboxedSum (Just pending) alternative arity inner'), sumType, constraints)
+    pure (atSpan ambient (EUnboxedSum (Just (fromTcAnnotation pending)) alternative arity inner'), sumType, constraints)
   EList _ syntax _ elems ->
     inferList (exprSpan expr <|> ambient) syntax elems
   EListComp _ body quals ->
@@ -309,7 +309,7 @@ inferVar :: Maybe SourceSpan -> Name -> TcM (Expr, TcType, [Ct])
 inferVar ambient nameSyntax = do
   (mPending, ty, cts) <- inferNameOccurrence ambient nameSyntax
   -- The name of the variable holds the annotation of the occurrence.
-  let annotated = EVar nameSyntax {nameTc = mPending}
+  let annotated = EVar nameSyntax {nameTc = fromTcAnnotation <$> mPending}
       expr =
         case mPending of
           Just _ -> atSpan (sourceSpanFromAnns (nameAnns nameSyntax)) annotated
@@ -325,7 +325,7 @@ inferImplicitParam sp name = do
   ty <- freshMetaTv
   ev <- freshEvVar
   let ct = mkWantedCt (IParamPred name ty) ev (ImplicitParamOrigin name) sp
-      expr = atSpan sp (EImplicitParam (Just (pendingAnnotation ty [] [ev] [])) name)
+      expr = atSpan sp (EImplicitParam (Just (fromTcAnnotation (pendingAnnotation ty [] [ev] []))) name)
   pure (expr, ty, [ct])
 
 inferOperator :: Maybe SourceSpan -> Name -> TcM (Name, TcType, [Ct])
@@ -539,12 +539,12 @@ syntaxResolution name = nameResolution name >>= resolvedOf
 setLiteralTc :: TcAnnotation -> Expr -> Expr
 setLiteralTc annotation expr =
   case expr of
-    EInt _ syntax value numericType text -> EInt (Just annotation) syntax value numericType text
-    EFloat _ syntax value floatType text -> EFloat (Just annotation) syntax value floatType text
-    EChar _ value text -> EChar (Just annotation) value text
-    ECharHash _ typeName value text -> ECharHash (Just annotation) typeName value text
-    EString _ conversion value text -> EString (Just annotation) conversion value text
-    EStringHash _ typeName value text -> EStringHash (Just annotation) typeName value text
+    EInt _ syntax value numericType text -> EInt occurrence syntax value numericType text
+    EFloat _ syntax value floatType text -> EFloat occurrence syntax value floatType text
+    EChar _ value text -> EChar occurrence value text
+    ECharHash _ typeName value text -> ECharHash occurrence typeName value text
+    EString _ conversion value text -> EString occurrence conversion value text
+    EStringHash _ typeName value text -> EStringHash occurrence typeName value text
     EQuasiQuote _ quoter body -> EQuasiQuote quoteType quoter body
     ETHExpQuote _ inner -> ETHExpQuote quoteType inner
     ETHTypedQuote _ inner -> ETHTypedQuote quoteType inner
@@ -556,6 +556,7 @@ setLiteralTc annotation expr =
     _ -> expr
   where
     quoteType = Just (tcAnnType annotation)
+    occurrence = Just (fromTcAnnotation annotation)
 
 -- | Give an expression its source span, if it has one.
 atSpan :: Maybe SourceSpan -> Expr -> Expr
@@ -564,11 +565,11 @@ atSpan (Just sp) = EAnn (mkSpanAnnotation sp)
 
 -- | Wrap an expression with its instantiation, at a source span.
 instantiateExprAt :: Maybe SourceSpan -> TcAnnotation -> Expr -> Expr
-instantiateExprAt sp annotation = atSpan sp . ETc (ExprInst annotation)
+instantiateExprAt sp annotation = atSpan sp . ETc (ExprInst (fromTcAnnotation annotation))
 
 annotatePendingName :: TcAnnotation -> Name -> Name
 annotatePendingName ann name =
-  addNameTc ann name
+  addNameTc (fromTcAnnotation ann) name
 
 -- | Give the method name of a do statement its checked type, and the cast
 -- onto the type that the statement uses it at. The cast goes first. The
@@ -577,7 +578,7 @@ annotatePendingName ann name =
 -- fit the statement.
 annotateDoMethodName :: TcType -> EvVar -> TcAnnotation -> Name -> Name
 annotateDoMethodName ty evidence pending name =
-  addNameTc pending (addNameCast ty evidence name)
+  addNameTc (fromTcAnnotation pending) (addNameCast ty evidence name)
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -612,7 +613,7 @@ annotateLambdaPattern bindings argTy pat =
   let annotated = annotatePatternBindings bindings pat
    in if lambdaPatternCarriesBinderType annotated
         then annotated
-        else PTc (PatternType (pendingAnnotation argTy [] [] [])) annotated
+        else PTc (PatternType (fromTcAnnotation (pendingAnnotation argTy [] [] []))) annotated
 
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
@@ -1201,7 +1202,7 @@ uniqueKey (Unique key) = key
 nameTypeArgs :: Name -> [TcType]
 nameTypeArgs name =
   case nameTc name of
-    Just pending -> tcAnnTypeArgs pending
+    Just pending -> tcOccTypeArgs pending
     Nothing -> []
 
 -- | The first pass over the frames. The remaining type arguments are the
@@ -1520,7 +1521,7 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- leaves with the local givens, as a wanted that leaves a pattern
   -- branch does.
   let withArgumentGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
-      annotatedArg = atSpan sp (ETc (ExprAbs (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts))) castArg)
+      annotatedArg = atSpan sp (ETc (ExprAbs (fromTcAnnotation (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)))) castArg)
   pure (annotatedArg, map withArgumentGivens (residualEqualities <> residualDictionaries))
   where
     deferredConstraint (left, right) = do
@@ -1630,11 +1631,11 @@ pendingTypeArgs expr =
     EAnn _ inner -> pendingTypeArgs inner
     ETc info inner ->
       case info of
-        ExprInst pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)
+        ExprInst pending -> drop (tcOccInferredTypeArgs pending) (tcOccTypeArgs pending)
         ExprAbs _ -> []
         ExprCast _ -> pendingTypeArgs inner
     -- The name of a variable holds the annotation of the occurrence.
-    EVar name -> maybe [] (\pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)) (nameTc name)
+    EVar name -> maybe [] (\pending -> drop (tcOccInferredTypeArgs pending) (tcOccTypeArgs pending)) (nameTc name)
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner
@@ -1661,7 +1662,7 @@ inferPostfixSection sp inner op = do
       pending = pendingAnnotation resultTy [] [] []
       wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
       op'' = annotateOperatorCast operatorTy evidence op'
-  pure (atSpan sp (ESectionL (Just pending) inner' op''), resultTy, opCts <> innerCts <> [wanted])
+  pure (atSpan sp (ESectionL (Just (fromTcAnnotation pending)) inner' op''), resultTy, opCts <> innerCts <> [wanted])
 
 -- | A section operand of a polymorphic parameter type, such as a lens
 -- in @(.^ l)@, is checked against that polytype like an application
@@ -1675,7 +1676,7 @@ inferBinarySectionL sp inner op = do
       | isPolyType innerExpected -> do
           (inner', innerCts) <- checkHigherRankArgument sp innerExpected inner
           let pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          pure (atSpan sp (ESectionL (Just pending) inner' op'), sectionTy, opCts <> innerCts)
+          pure (atSpan sp (ESectionL (Just (fromTcAnnotation pending)) inner' op'), sectionTy, opCts <> innerCts)
     _ -> do
       (inner', innerTy, innerCts) <- inferExpr inner
       argumentTy <- freshMetaTv
@@ -1686,7 +1687,7 @@ inferBinarySectionL sp inner op = do
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
           wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
           op'' = annotateOperatorCast operatorTy evidence op'
-      pure (atSpan sp (ESectionL (Just pending) inner' op''), sectionTy, opCts <> innerCts <> [wanted])
+      pure (atSpan sp (ESectionL (Just (fromTcAnnotation pending)) inner' op''), sectionTy, opCts <> innerCts <> [wanted])
 
 inferSectionR :: Maybe SourceSpan -> Name -> Expr -> TcM (Expr, TcType, [Ct])
 inferSectionR sp op inner = do
@@ -1698,7 +1699,7 @@ inferSectionR sp op inner = do
           (inner', innerCts) <- checkHigherRankArgument sp innerExpected inner
           let sectionTy = TcFunTy argumentTy resultTy
               pending = pendingAnnotation sectionTy [] [] [argumentTy]
-          pure (atSpan sp (ESectionR (Just pending) op' inner'), sectionTy, opCts <> innerCts)
+          pure (atSpan sp (ESectionR (Just (fromTcAnnotation pending)) op' inner'), sectionTy, opCts <> innerCts)
     _ -> do
       (inner', innerTy, innerCts) <- inferExpr inner
       argumentTy <- freshMetaTv
@@ -1709,7 +1710,7 @@ inferSectionR sp op inner = do
           pending = pendingAnnotation sectionTy [] [] [argumentTy]
           wanted = mkWantedCt (EqPred opTy operatorTy) evidence (AppOrigin sp) sp
           op'' = annotateOperatorCast operatorTy evidence op'
-      pure (atSpan sp (ESectionR (Just pending) op'' inner'), sectionTy, opCts <> innerCts <> [wanted])
+      pure (atSpan sp (ESectionR (Just (fromTcAnnotation pending)) op'' inner'), sectionTy, opCts <> innerCts <> [wanted])
 
 inferIf :: Maybe SourceSpan -> Maybe Name -> Expr -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferIf sp method cond thenE elseE = do
@@ -1799,7 +1800,7 @@ inferGetFieldProjection sp method resolution fields = do
   let projectionTy = TcFunTy argumentTy resultTy
       pending = pendingAnnotation projectionTy [] [] [argumentTy]
   pure
-    ( atSpan sp (EGetFieldProjection (Just pending) method fields'),
+    ( atSpan sp (EGetFieldProjection (Just (fromTcAnnotation pending)) method fields'),
       projectionTy,
       cts
     )
@@ -1866,7 +1867,7 @@ inferTuple sp syntax flavor elems = do
       missingTys = [ty | (Nothing, ty, _) <- results]
       sectionTy = foldr TcFunTy tupleTy missingTys
       pending = pendingAnnotation sectionTy tys [] []
-  pure (atSpan sp (ETuple (Just pending) syntax flavor elems'), sectionTy, cts)
+  pure (atSpan sp (ETuple (Just (fromTcAnnotation pending)) syntax flavor elems'), sectionTy, cts)
   where
     inferElem Nothing = do
       ty <- freshMetaTv
@@ -1892,7 +1893,7 @@ inferOverloadedList sp syntax method resolution items = do
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "fromListN") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
       resultPending = pendingAnnotation resultTy [] [] []
-      list = EList (Just resultPending) (annotatePendingName listPending syntax) (Just (annotatePendingName methodPending method)) items'
+      list = EList (Just (fromTcAnnotation resultPending)) (annotatePendingName listPending syntax) (Just (annotatePendingName methodPending method)) items'
   pure (atSpan sp list, resultTy, listCts <> methodCts <> [methodEquality])
 
 -- | An arithmetic sequence under OverloadedLists applies fromList to an
@@ -1918,7 +1919,7 @@ inferList = inferListWithExpected Nothing
 inferListWithExpected :: Maybe TcType -> Maybe SourceSpan -> Name -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferListWithExpected expected sp syntax elems = do
   (elems', pending, listTy, cts) <- inferListParts expected sp elems
-  pure (atSpan sp (EList (Just pending) syntax Nothing elems'), listTy, cts)
+  pure (atSpan sp (EList (Just (fromTcAnnotation pending)) syntax Nothing elems'), listTy, cts)
 
 -- | Infer an ordinary list. The result has the checked elements, the
 -- annotation of the list, the list type, and the constraints.
@@ -2079,7 +2080,7 @@ inferListComp sp body quals = do
   (quals', body', bodyTy, cts) <- inferCompQuals listTyCon' sp quals (inferExpr body)
   let resultTy = TcTyCon listTyCon' [bodyTy]
       pending = pendingAnnotation resultTy [bodyTy] [] []
-  pure (atSpan sp (EListComp (Just pending) body' quals'), resultTy, cts)
+  pure (atSpan sp (EListComp (Just (fromTcAnnotation pending)) body' quals'), resultTy, cts)
 
 -- | Check a parallel list comprehension. Its desugaring is
 --
@@ -2104,7 +2105,7 @@ inferListCompParallel sp body branches = do
       pending = pendingAnnotation resultTy [bodyTy] [] []
       branches' = [quals' | (quals', _, _) <- checked]
       branchCts = concat [cts | (_, _, cts) <- checked]
-  pure (atSpan sp (EListCompParallel (Just pending) body' branches'), resultTy, branchCts <> bodyCts)
+  pure (atSpan sp (EListCompParallel (Just (fromTcAnnotation pending)) body' branches'), resultTy, branchCts <> bodyCts)
   where
     inferBranch listTyCon' quals = do
       keys <- mapM resolvedUnqualifiedTermKey (compStmtBinderNames quals)
@@ -2115,7 +2116,7 @@ inferListCompParallel sp body branches = do
       let tupleAnn = pendingAnnotation tupleTy binderTys [] []
           annotated =
             case quals' of
-              first : rest -> setCompStmtTc tupleAnn first : rest
+              first : rest -> setCompStmtTc (fromTcAnnotation tupleAnn) first : rest
               [] -> []
       pure (annotated, branchBinders, cts)
     -- After the last statement of a branch, equate the type of each
@@ -2209,7 +2210,7 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
       let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
           keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
           tupleAnn = pendingAnnotation tupleTy binderTys [] keyTys
-          qual' = setCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+          qual' = setCompStmtTc (fromTcAnnotation tupleAnn) (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
       pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
 
     transformBinderType sp key = do
@@ -2454,7 +2455,7 @@ inferRecStmt end expected ambient parts rest = do
           (annotateDoMethodName mfixTy mfixEv mfixPending mfixName)
           (annotateDoMethodName knotTy returnEv returnPending returnName)
           (annotateDoMethodName bindTy bindEv bindPending bindName)
-      recTc = TcRecStmt tuplePending knotOccurrences
+      recTc = TcRecStmt (fromTcAnnotation tuplePending) [(key, fromTcAnnotation occurrence) | (key, occurrence) <- knotOccurrences]
       stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt (Just recTc) (Just methods') stmts')
   pure
     ( stmt' : rest',

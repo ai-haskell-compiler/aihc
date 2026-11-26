@@ -285,9 +285,13 @@ import Aihc.Resolve
   )
 import Aihc.Tc.Annotations
   ( CastDirection (..),
-    TcAnnotation,
+    TcAbstraction,
+    TcAnnotated (..),
+    TcBinderAnnotation,
+    TcBoundTuple,
     TcCastAnnotation,
     TcClassAnnotation,
+    TcComposite,
     TcDerivedInstance,
     TcDerivingPlan,
     TcForeignImportAnnotation,
@@ -295,7 +299,10 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation,
     TcMatchArityCast,
     TcModuleIdentity,
+    TcOccurrence,
+    TcPatternAnnotation,
     TcRecStmt,
+    TcSection,
     pendingCast,
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
@@ -313,11 +320,11 @@ data ExprTc
     -- expression is applied to. An application and an expression with a
     -- signature can have it. A variable holds its instantiation on its
     -- name.
-    ExprInst !TcAnnotation
+    ExprInst !TcOccurrence
   | -- | The expression is checked against a polytype. The annotation gives
     -- the polytype, the type variables, and the evidence that the
     -- expression is abstracted over.
-    ExprAbs !TcAnnotation
+    ExprAbs !TcAbstraction
   | -- | A cast of the expression to a type that an equality proves.
     ExprCast !TcCastAnnotation
   deriving (Eq, Show)
@@ -325,7 +332,7 @@ data ExprTc
 -- | What the type checker found for a whole pattern.
 data PatternTc
   = -- | The type of the pattern, with its type arguments and evidence.
-    PatternType !TcAnnotation
+    PatternType !TcPatternAnnotation
   | -- | A cast of the pattern to a type that an equality proves.
     PatternCast !TcCastAnnotation
   | -- | The constructor pattern instantiates its type arguments. The
@@ -348,7 +355,7 @@ data Literal
   = -- | Metadata for the whole literal.
     LitAnn Annotation Literal
   | -- | The type of the whole literal.
-    LitTc TcAnnotation Literal
+    LitTc TcType Literal
   | -- | @1@, @1#@, @1#Word8@
     LitInt Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
@@ -391,7 +398,7 @@ mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing Nothing
 -- annotations, its resolution, and its type checker information.
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name) Nothing
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (fromTcAnnotation . toTcAnnotation <$> unqualifiedNameTc name) Nothing
 
 -- | The successful resolution of a name occurrence, in any namespace.
 nameResolved :: Name -> Maybe Resolved
@@ -628,7 +635,7 @@ setDataConTc ty decl =
 
 -- | What the type checker found for a comprehension statement, under its
 -- annotation wrappers.
-compStmtTc :: CompStmt -> Maybe TcAnnotation
+compStmtTc :: CompStmt -> Maybe TcBoundTuple
 compStmtTc stmt =
   case peelCompStmtAnn stmt of
     CompGen tc _ _ -> tc
@@ -642,7 +649,7 @@ compStmtTc stmt =
 
 -- | Set the annotation of a comprehension statement, under its annotation
 -- wrappers.
-setCompStmtTc :: TcAnnotation -> CompStmt -> CompStmt
+setCompStmtTc :: TcBoundTuple -> CompStmt -> CompStmt
 setCompStmtTc item stmt =
   case stmt of
     CompAnn ann inner -> CompAnn ann (setCompStmtTc item inner)
@@ -694,7 +701,7 @@ data Name = Name
     nameResolution :: Maybe ResolutionResult,
     -- | The type that the type checker found for this occurrence, with its
     -- type arguments and evidence.
-    nameTc :: Maybe TcAnnotation,
+    nameTc :: Maybe TcOccurrence,
     -- | The cast of this occurrence to a type that an equality proves. A
     -- method name of a statement and the operator of a section can have
     -- it, because they have no expression node.
@@ -713,7 +720,7 @@ data UnqualifiedName = UnqualifiedName
     unqualifiedNameResolution :: Maybe ResolutionResult,
     -- | The type that the type checker found for this binder or
     -- occurrence.
-    unqualifiedNameTc :: Maybe TcAnnotation
+    unqualifiedNameTc :: Maybe TcBinderAnnotation
   }
   deriving (Eq, Show)
 
@@ -819,7 +826,7 @@ data Decl
   = -- | Metadata for the whole declaration.
     DeclAnn Annotation Decl
   | -- | The type of the whole declaration.
-    DeclTc TcAnnotation Decl
+    DeclTc TcType Decl
   | -- | A resolve error for the whole declaration.
     DeclError ResolveError Decl
   | -- | @f x = x@ or @x = 1@
@@ -1547,21 +1554,21 @@ data Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
-    EImplicitParam (Maybe TcAnnotation) Text
+    EImplicitParam (Maybe TcOccurrence) Text
   | -- | @type T@ in a term position.
     ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt (Maybe TcAnnotation) LiteralSyntax Integer NumericType Text
+    EInt (Maybe TcOccurrence) LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat (Maybe TcAnnotation) LiteralSyntax Rational FloatType Text
+    EFloat (Maybe TcOccurrence) LiteralSyntax Rational FloatType Text
   | -- | @'x'@
-    EChar (Maybe TcAnnotation) Char Text
+    EChar (Maybe TcOccurrence) Char Text
   | -- | @'x'#@. The name is the type @Char#@.
-    ECharHash (Maybe TcAnnotation) Name Char Text
+    ECharHash (Maybe TcOccurrence) Name Char Text
   | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
-    EString (Maybe TcAnnotation) (Maybe Name) Text Text
+    EString (Maybe TcOccurrence) (Maybe Name) Text Text
   | -- | @"hello"#@. The name is the type @Addr#@.
-    EStringHash (Maybe TcAnnotation) Name Text Text
+    EStringHash (Maybe TcOccurrence) Name Text Text
   | -- | @#name@
     EOverloadedLabel Text Text
   | -- | @[qq| body |]@
@@ -1591,9 +1598,9 @@ data Expr
   | -- | @-x@. The name is @negate@.
     ENegate (Maybe TcType) Name Expr
   | -- | @(x +)@
-    ESectionL (Maybe TcAnnotation) Expr Name
+    ESectionL (Maybe TcSection) Expr Name
   | -- | @(+ x)@
-    ESectionR (Maybe TcAnnotation) Name Expr
+    ESectionR (Maybe TcSection) Name Expr
   | -- | @let x = 1 in x@
     ELetDecls [Decl] Expr
   | -- | @case x of { Just y -> y }@. The type is the type of the
@@ -1603,9 +1610,9 @@ data Expr
     -- type is the type of the block. The type checker sets it.
     EDo (Maybe TcType) [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
-    EListComp (Maybe TcAnnotation) Expr [CompStmt]
+    EListComp (Maybe TcComposite) Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
-    EListCompParallel (Maybe TcAnnotation) Expr [[CompStmt]]
+    EListCompParallel (Maybe TcComposite) Expr [[CompStmt]]
   | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
     EArithSeq (Maybe TcType) (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
@@ -1616,18 +1623,18 @@ data Expr
     EGetField (Maybe TcType) Name Expr Name
   | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
     -- @getField@.
-    EGetFieldProjection (Maybe TcAnnotation) Name [Name]
+    EGetFieldProjection (Maybe TcSection) Name [Name]
   | -- | @(expr :: ty)@
     ETypeSig Expr Type
   | -- | @(expr)@
     EParen Expr
   | -- | @[x, y]@. The first name is the list syntax. Under
     -- @OverloadedLists@, the second name is @fromListN@.
-    EList (Maybe TcAnnotation) Name (Maybe Name) [Expr]
+    EList (Maybe TcOccurrence) Name (Maybe Name) [Expr]
   | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
-    ETuple (Maybe TcAnnotation) Name TupleFlavor [Maybe Expr]
+    ETuple (Maybe TcComposite) Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
-    EUnboxedSum (Maybe TcAnnotation) Int Int Expr
+    EUnboxedSum (Maybe TcComposite) Int Int Expr
   | -- | @f \@Type@
     ETypeApp Expr Type
   | -- | @f x@
@@ -1699,7 +1706,7 @@ data DoStmt body
   | -- | @rec { stmts }@. The first field is what the type checker found
     -- for the statement. The methods are 'Nothing' for a statement that the
     -- resolver did not resolve.
-    DoRecStmt (Maybe (TcRecStmt TcAnnotation)) (Maybe DoRecMethods) [DoStmt body]
+    DoRecStmt (Maybe TcRecStmt) (Maybe DoRecMethods) [DoStmt body]
   deriving (Eq, Show)
 
 -- | The methods of the desugaring of a bind statement.
@@ -1766,19 +1773,19 @@ data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkSpanAnnotation').
     CompAnn Annotation CompStmt
   | -- | @x <- xs@
-    CompGen (Maybe TcAnnotation) Pattern Expr
+    CompGen (Maybe TcBoundTuple) Pattern Expr
   | -- | @x > 0@
-    CompGuard (Maybe TcAnnotation) Expr
+    CompGuard (Maybe TcBoundTuple) Expr
   | -- | @let y = f x@
-    CompLetDecls (Maybe TcAnnotation) [Decl]
+    CompLetDecls (Maybe TcBoundTuple) [Decl]
   | -- | @then f@ (TransformListComp)
-    CompThen (Maybe TcAnnotation) Expr
+    CompThen (Maybe TcBoundTuple) Expr
   | -- | @then f by e@ (TransformListComp)
-    CompThenBy (Maybe TcAnnotation) Expr Expr
+    CompThenBy (Maybe TcBoundTuple) Expr Expr
   | -- | @then group using f@ (TransformListComp)
-    CompGroupUsing (Maybe TcAnnotation) Expr
+    CompGroupUsing (Maybe TcBoundTuple) Expr
   | -- | @then group by e using f@ (TransformListComp)
-    CompGroupByUsing (Maybe TcAnnotation) Expr Expr
+    CompGroupByUsing (Maybe TcBoundTuple) Expr Expr
   deriving (Eq, Show)
 
 -- | An arithmetic sequence expression.
@@ -1817,7 +1824,7 @@ mapArithSeqMethod f arithSeq =
     ArithSeqAnn ann inner -> ArithSeqAnn ann (mapArithSeqMethod f inner)
 
 -- | Wrap a declaration with its checked type.
-annotateDecl :: TcAnnotation -> Decl -> Decl
+annotateDecl :: TcType -> Decl -> Decl
 annotateDecl = DeclTc
 
 -- | Cast a right-hand side onto the right type of its wanted equality.
@@ -1863,7 +1870,7 @@ annotateBranchCast ty evidence =
 
 -- | Give a name occurrence an annotation. A name that has an annotation
 -- keeps it.
-addNameTc :: TcAnnotation -> Name -> Name
+addNameTc :: TcOccurrence -> Name -> Name
 addNameTc annotation name =
   name {nameTc = nameTc name <|> Just annotation}
 

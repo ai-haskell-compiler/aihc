@@ -17,7 +17,8 @@ where
 
 import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations
-  ( TcAnnotation (..),
+  ( TcAnnotated (..),
+    TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDerivedInstance (..),
@@ -1544,7 +1545,7 @@ annotateTypeFamilyHead tcAnn ty =
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
-  name {nameTc = nameTc name <|> Just tcAnn}
+  name {nameTc = nameTc name <|> Just (fromTcAnnotation tcAnn)}
 
 annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
@@ -1604,7 +1605,7 @@ annotateBinderHeadName tcAnn head' =
 
 annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
-  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just tcAnn}
+  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just (fromTcAnnotation tcAnn)}
 
 annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc parent dataConDecl = do
@@ -2124,9 +2125,9 @@ primitiveMarshal sourceType constructors primitiveName abiType cType = do
 
 annotateDeclAt :: Maybe SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt Nothing tcAnn decl =
-  annotateDecl tcAnn decl
+  annotateDecl (tcAnnType tcAnn) decl
 annotateDeclAt (Just sp) tcAnn decl =
-  DeclAnn (mkSpanAnnotation sp) (annotateDecl tcAnn decl)
+  DeclAnn (mkSpanAnnotation sp) (annotateDecl (tcAnnType tcAnn) decl)
 
 valueDeclSpan :: ValueDecl -> Maybe SourceSpan
 valueDeclSpan valueDecl =
@@ -5192,7 +5193,7 @@ unqualifiedFromResolvedName name =
       unqualifiedNameText = nameText name,
       unqualifiedNameAnns = nameAnns name,
       unqualifiedNameResolution = nameResolution name,
-      unqualifiedNameTc = nameTc name
+      unqualifiedNameTc = fromTcAnnotation . toTcAnnotation <$> nameTc name
     }
 
 -- | The axiom name of one type family instance, within the module that holds

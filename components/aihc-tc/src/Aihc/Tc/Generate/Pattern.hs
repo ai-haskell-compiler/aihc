@@ -24,7 +24,7 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Resolved (..), resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), TcAnnotation (..), pendingAnnotation, pendingCast, pendingMatchArityCast)
+import Aihc.Tc.Annotations (CastDirection (..), TcAnnotated (..), TcAnnotation (..), pendingAnnotation, pendingCast, pendingMatchArityCast)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -337,8 +337,8 @@ checkedPatternType sp ty pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
 annotatePendingPatternAt :: Maybe SourceSpan -> TcAnnotation -> Pattern -> Pattern
-annotatePendingPatternAt Nothing pending = PTc (PatternType pending)
-annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (PatternType pending)
+annotatePendingPatternAt Nothing pending = PTc (PatternType (fromTcAnnotation pending))
+annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (PatternType (fromTcAnnotation pending))
 
 patternUsesBinderAnnotation :: Pattern -> Bool
 patternUsesBinderAnnotation pat =
@@ -644,7 +644,7 @@ checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
 
 checkedLiteral :: TcType -> Literal -> Literal
-checkedLiteral ty = LitTc (pendingAnnotation ty [] [] [])
+checkedLiteral = LitTc
 
 checkListPattern :: Maybe SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
 checkListPattern sp items scrutTy =
@@ -910,7 +910,7 @@ checkPatternMethodWithExpected sp name expectedTypes = do
   (annotationTy, expectedTy) <- expectedTypes actualTy
   methodEq <- wantedMethodEq sp displayName actualTy expectedTy
   let pending = pendingAnnotation annotationTy typeArgs (map ctEvVar methodCts) []
-  pure (addNameTc pending name, methodCts <> [methodEq])
+  pure (addNameTc (fromTcAnnotation pending) name, methodCts <> [methodEq])
 
 wantedMethodEq :: Maybe SourceSpan -> Text -> TcType -> TcType -> TcM Ct
 wantedMethodEq sp method actual expected = do
@@ -972,7 +972,7 @@ reannotatePatternBinders pendings = mapPatternBinderNames replaceBinderAnnotatio
     replaceBinderAnnotation name =
       case lookup (unqualifiedNameText name) pendings of
         Nothing -> name
-        Just pending -> name {unqualifiedNameTc = Just pending}
+        Just pending -> name {unqualifiedNameTc = Just (fromTcAnnotation pending)}
 
 -- | Apply a function to every named binder of a pattern.
 mapPatternBinderNames :: (UnqualifiedName -> UnqualifiedName) -> Pattern -> Pattern
@@ -1010,7 +1010,7 @@ annotateBinderName bindings name =
     Nothing -> name
     Just ty
       | isJust (unqualifiedNameTc name) -> name
-      | otherwise -> name {unqualifiedNameTc = Just (pendingAnnotation ty [] [] [])}
+      | otherwise -> name {unqualifiedNameTc = Just (fromTcAnnotation (pendingAnnotation ty [] [] []))}
 
 checkConPattern :: Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern sp originalPat conSyntax subPats scrutTy = do

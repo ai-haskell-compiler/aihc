@@ -27,6 +27,14 @@ module Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcRecStmt (..),
+    TcOccurrence (..),
+    TcAbstraction (..),
+    TcComposite (..),
+    TcSection (..),
+    TcBoundTuple (..),
+    TcBinderAnnotation (..),
+    TcPatternAnnotation (..),
+    TcAnnotated (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
     TcInstanceMethodAnnotation (..),
@@ -98,10 +106,13 @@ data CastDirection
 data TcMatchArityCast = TcMatchArityCast (Maybe Coercion) TcType
   deriving (Eq, Show)
 
--- | Annotation attached to AST nodes by the type checker.
+-- | The general form of an annotation of the type checker.
 --
--- Not every field is populated for every node. A variable reference gets
--- a type; a top-level binding gets the generalized scheme, etc.
+-- The tree does not hold this record. Each node holds a record that has
+-- only the fields of its annotation, such as 'TcOccurrence' or
+-- 'TcComposite'. The class 'TcAnnotated' changes such a record to and
+-- from the general form. The generator, the finalization pass, and the
+-- other walks use the general form.
 --
 -- The generator attaches the annotation before the solver has finished.
 -- The types can then have meta variables, and each evidence term is an
@@ -348,19 +359,137 @@ data TcDerivedInstance = TcDerivedInstance
   }
   deriving (Eq, Show)
 
--- | What the type checker found for a @rec@ statement. The parameter is
--- the annotation type of the tree.
-data TcRecStmt annotation = TcRecStmt
-  { -- | The tuple of the group variables: the tuple type, the types of the
-    -- variables as type arguments, and the type of the statement block as
-    -- its only term argument type.
-    tcRecTuple :: !annotation,
-    -- | The occurrence annotation of each generalized group variable at
-    -- the knot of the group. A let statement of the group generalized the
-    -- variable, and the knot takes one instance of it.
-    tcRecKnotOccurrences :: ![(Entity, annotation)]
+-- | What the type checker found for a @rec@ statement.
+data TcRecStmt = TcRecStmt
+  { -- | The tuple of the group variables. Its only term type is the type
+    -- of the statement block.
+    tcRecTuple :: !TcBoundTuple,
+    -- | The occurrence of each generalized group variable at the knot of
+    -- the group. A let statement of the group generalized the variable,
+    -- and the knot takes one instance of it.
+    tcRecKnotOccurrences :: ![(Entity, TcOccurrence)]
   }
   deriving (Eq, Show)
+
+-- | An occurrence of a name, or an expression that is instantiated as an
+-- occurrence is: its type, the type arguments, and the evidence that it
+-- is applied to.
+data TcOccurrence = TcOccurrence
+  { -- | The type of the instance.
+    tcOccType :: !TcType,
+    -- | Type arguments made explicit at this occurrence.
+    tcOccTypeArgs :: ![TcType],
+    -- | Evidence terms whose dictionaries must be passed at this occurrence.
+    tcOccEvidence :: ![EvTerm],
+    -- | How many leading type arguments instantiate inferred binders. A
+    -- visible type application skips them; the desugarer applies them all.
+    tcOccInferredTypeArgs :: !Int
+  }
+  deriving (Eq, Show)
+
+-- | An expression that is checked against a polytype: the polytype, and
+-- the type variables and the evidence that the expression is abstracted
+-- over.
+data TcAbstraction = TcAbstraction
+  { tcAbsType :: !TcType,
+    tcAbsTypeBinders :: ![TyVarId],
+    tcAbsEvidenceBinders :: ![EvTerm]
+  }
+  deriving (Eq, Show)
+
+-- | The type of an expression that has parts, and the types of the parts:
+-- the fields of a tuple, the alternatives of an unboxed sum, or the
+-- element of a list comprehension.
+data TcComposite = TcComposite
+  { tcCompositeType :: !TcType,
+    tcCompositeParts :: ![TcType]
+  }
+  deriving (Eq, Show)
+
+-- | The type of a section or of a record dot projection, and the type of
+-- the argument that it takes. A postfix operator section takes no
+-- argument.
+data TcSection = TcSection
+  { tcSectionType :: !TcType,
+    tcSectionArgumentType :: !(Maybe TcType)
+  }
+  deriving (Eq, Show)
+
+-- | The tuple of the variables that a statement binds: the tuple type and
+-- the types of the variables. The term types are the key type of a
+-- @then ... by@ statement, or the block type of a @rec@ statement.
+data TcBoundTuple = TcBoundTuple
+  { tcBoundTupleType :: !TcType,
+    tcBoundTupleBinderTypes :: ![TcType],
+    tcBoundTupleTermTypes :: ![TcType]
+  }
+  deriving (Eq, Show)
+
+-- | The type of a binder. A generalized binder of a pattern binding also
+-- has the type variables that it abstracts and the type arguments that
+-- its right-hand side takes.
+data TcBinderAnnotation = TcBinderAnnotation
+  { tcBinderAnnType :: !TcType,
+    tcBinderAnnTypeBinders :: ![TyVarId],
+    tcBinderAnnTypeArgs :: ![TcType]
+  }
+  deriving (Eq, Show)
+
+-- | The type of a pattern. A constructor pattern also has the type
+-- variables that it binds, the type arguments of the constructor, and
+-- the evidence of its context.
+data TcPatternAnnotation = TcPatternAnnotation
+  { tcPatType :: !TcType,
+    tcPatTypeBinders :: ![TyVarId],
+    tcPatTypeArgs :: ![TcType],
+    tcPatEvidence :: ![EvTerm]
+  }
+  deriving (Eq, Show)
+
+-- | An annotation of the tree that has a general form. A walk can visit
+-- each kind of annotation in this one form. The change from the general
+-- form keeps only the fields that the annotation has.
+class TcAnnotated a where
+  toTcAnnotation :: a -> TcAnnotation
+  fromTcAnnotation :: TcAnnotation -> a
+
+instance TcAnnotated TcAnnotation where
+  toTcAnnotation = id
+  fromTcAnnotation = id
+
+instance TcAnnotated TcOccurrence where
+  toTcAnnotation (TcOccurrence ty typeArgs evidence inferred) = TcAnnotation ty [] typeArgs evidence [] [] inferred
+  fromTcAnnotation annotation = TcOccurrence (tcAnnType annotation) (tcAnnTypeArgs annotation) (tcAnnEvidenceTerms annotation) (tcAnnInferredTypeArgs annotation)
+
+instance TcAnnotated TcAbstraction where
+  toTcAnnotation (TcAbstraction ty binders evidence) = TcAnnotation ty binders [] [] evidence [] 0
+  fromTcAnnotation annotation = TcAbstraction (tcAnnType annotation) (tcAnnTypeBinders annotation) (tcAnnEvidenceBinders annotation)
+
+instance TcAnnotated TcComposite where
+  toTcAnnotation (TcComposite ty parts) = TcAnnotation ty [] parts [] [] [] 0
+  fromTcAnnotation annotation = TcComposite (tcAnnType annotation) (tcAnnTypeArgs annotation)
+
+instance TcAnnotated TcSection where
+  toTcAnnotation (TcSection ty argument) = TcAnnotation ty [] [] [] [] (maybe [] pure argument) 0
+  fromTcAnnotation annotation =
+    TcSection
+      (tcAnnType annotation)
+      ( case tcAnnTermArgTypes annotation of
+          argument : _ -> Just argument
+          [] -> Nothing
+      )
+
+instance TcAnnotated TcBoundTuple where
+  toTcAnnotation (TcBoundTuple ty binders terms) = TcAnnotation ty [] binders [] [] terms 0
+  fromTcAnnotation annotation = TcBoundTuple (tcAnnType annotation) (tcAnnTypeArgs annotation) (tcAnnTermArgTypes annotation)
+
+instance TcAnnotated TcBinderAnnotation where
+  toTcAnnotation (TcBinderAnnotation ty binders typeArgs) = TcAnnotation ty binders typeArgs [] [] [] 0
+  fromTcAnnotation annotation = TcBinderAnnotation (tcAnnType annotation) (tcAnnTypeBinders annotation) (tcAnnTypeArgs annotation)
+
+instance TcAnnotated TcPatternAnnotation where
+  toTcAnnotation (TcPatternAnnotation ty binders typeArgs evidence) = TcAnnotation ty binders typeArgs evidence [] [] 0
+  fromTcAnnotation annotation = TcPatternAnnotation (tcAnnType annotation) (tcAnnTypeBinders annotation) (tcAnnTypeArgs annotation) (tcAnnEvidenceTerms annotation)
 
 -- | Checked evidence and casts for a derived instance that reuses another
 -- type's instance and coerces its methods: newtype deriving, which coerces
