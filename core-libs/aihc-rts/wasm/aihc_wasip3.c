@@ -94,6 +94,14 @@ static const wasi_http_types_result_void_error_code_t aihc_http_transmitted;
 static AihcWasiIo aihc_wasi_io;
 static AihcRootFrame *aihc_wasi_roots;
 
+/* Nonzero while the host lowers a value into the program. The canonical ABI
+   forbids a call of an import during the realloc call of a lowering, and
+   the allocation of a buffer can start a collection. */
+static int aihc_wasi_lowering;
+/* The last value of the monotonic clock. A clock read during a lowering
+   gives this value and does not call the clock import. */
+static uint64_t aihc_wasi_last_monotonic_ns;
+
 /* The canonical ABI can request storage only inside an explicit host scope. */
 void *aihc_wasi_allocate(uint64_t bytes) {
   if (aihc_wasi_roots == NULL) {
@@ -108,7 +116,10 @@ void *aihc_wasi_allocate(uint64_t bytes) {
    its buffer is a byte array that the collector owns. A request of a libc
    call, such as the list of preopened directories that its first path lookup
    asks for, comes outside any scope. The libc frees what it lifts, so its
-   buffers come from its own allocator. */
+   buffers come from its own allocator. A byte array can start a collection.
+   The buffers of the lowering are pinned and rooted in the scope, so the
+   collection keeps them in place. aihc_wasi_lowering stops the collector
+   from a call of the clock import. */
 void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
                            size_t new_size) {
   if (new_size == 0) {
@@ -118,7 +129,9 @@ void *aihc_wasi_reallocate(void *ptr, size_t old_size, size_t align,
     aihc_fail("unsupported canonical ABI alignment");
   }
   if (aihc_wasi_roots != NULL) {
+    aihc_wasi_lowering = 1;
     void *buffer = aihc_wasi_allocate(new_size);
+    aihc_wasi_lowering = 0;
     if (old_size != 0) {
       memcpy(buffer, ptr, old_size < new_size ? old_size : new_size);
     }
@@ -779,8 +792,13 @@ static int aihc_wasi_start(AihcWasiIoKind kind, unsigned char *bytes,
   return 1;
 }
 
+/* The collector reads the clock to measure its pause. A collection that
+   starts inside aihc_wasi_reallocate thus records the pause as zero. */
 uint64_t aihc_wasip3_monotonic_ns(void) {
-  return wasi_clocks_monotonic_clock_now();
+  if (!aihc_wasi_lowering) {
+    aihc_wasi_last_monotonic_ns = wasi_clocks_monotonic_clock_now();
+  }
+  return aihc_wasi_last_monotonic_ns;
 }
 
 int64_t aihc_wasip3_start_timer(uint64_t deadline) {
