@@ -120,7 +120,7 @@ inferExprAt ambient expr = case expr of
     | Just typeName <- primitiveLiteralTypeName expr,
       Just resolution <- syntaxResolution typeName ->
         inferPrimitiveLiteral resolution expr
-  EIf (Just method) cond thenE elseE
+  EIf _ (Just method) cond thenE elseE
     | Just resolution <- syntaxResolution method ->
         inferRebindableIf (resolutionSpan resolution <|> ambient) method resolution cond thenE elseE
   ENegate method inner
@@ -148,11 +148,11 @@ inferExprAt ambient expr = case expr of
     literalResult expr stringType
   EStringHash {} ->
     abortTc "primitive string literal is missing its resolver type annotation"
-  ELambdaPats pats body ->
+  ELambdaPats _ pats body ->
     inferLambda (exprSpan expr <|> ambient) pats body
-  ELambdaCase alts ->
+  ELambdaCase _ alts ->
     inferLambdaCase (exprSpan expr <|> ambient) alts
-  ELambdaCases alts ->
+  ELambdaCases _ alts ->
     inferLambdaCases (exprSpan expr <|> ambient) alts
   EApp {} ->
     inferApplicationSpine ambient expr
@@ -164,11 +164,11 @@ inferExprAt ambient expr = case expr of
     inferSectionL (exprSpan expr <|> ambient) inner op
   ESectionR op inner ->
     inferSectionR (exprSpan expr <|> ambient) op inner
-  EIf method cond thenE elseE ->
+  EIf _ method cond thenE elseE ->
     inferIf (exprSpan expr <|> ambient) method cond thenE elseE
-  EMultiWayIf alternatives ->
+  EMultiWayIf _ alternatives ->
     inferMultiWayIf (exprSpan expr <|> ambient) alternatives
-  ECase scrutinee alts ->
+  ECase _ scrutinee alts ->
     inferCase (exprSpan expr <|> ambient) scrutinee alts
   ERecordCon name fields wildcard ->
     inferRecordCon (sourceSpanFromAnns (nameAnns name) <|> ambient) name fields wildcard
@@ -212,7 +212,7 @@ inferExprAt ambient expr = case expr of
     inferListCompParallel (exprSpan expr <|> ambient) body branches
   EArithSeq _ arithSeq ->
     inferArithSeq (exprSpan expr <|> ambient) arithSeq
-  EDo stmts flavor ->
+  EDo _ stmts flavor ->
     inferDo (exprSpan expr <|> ambient) flavor stmts
   -- A Template Haskell quote or a quasi-quote compiles to a runtime
   -- error, so it has any type the context wants. The splices in an
@@ -536,6 +536,11 @@ annotatePendingExpr :: TcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
   ETc (ExprType ann)
 
+-- | Give an expression its source span, if it has one.
+atSpan :: Maybe SourceSpan -> Expr -> Expr
+atSpan Nothing = id
+atSpan (Just sp) = EAnn (mkSpanAnnotation sp)
+
 annotatePendingExprAt :: Maybe SourceSpan -> TcAnnotation -> Expr -> Expr
 annotatePendingExprAt Nothing ann =
   annotatePendingExpr ann
@@ -580,7 +585,7 @@ inferLambda sp pats body = do
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
       pats' = zipWith (annotateLambdaPattern (pcBindings patCheck)) argTys (pcPatterns patCheck)
-      lambda = annotatePendingExprAt sp (pendingAnnotation funTy [] [] []) (ELambdaPats pats' body')
+      lambda = atSpan sp (ELambdaPats (Just funTy) pats' body')
   pure (lambda, funTy, remainingCts)
 
 annotateLambdaPattern :: [(UnqualifiedName, TcType)] -> TcType -> Pattern -> Pattern
@@ -616,7 +621,7 @@ lambdaCaseWith sp argTy resTy alts = do
   -- The desugarer reads the type of the function from this annotation. A
   -- lambda-case with no alternative has no other source of it.
   let funTy = TcFunTy argTy resTy
-  pure (annotatePendingExprAt sp (pendingAnnotation funTy [] [] []) (ELambdaCase alts'), funTy, cts)
+  pure (atSpan sp (ELambdaCase (Just funTy) alts'), funTy, cts)
 
 -- | Pass the expected result into case branches before equality refinement.
 checkExpr :: TcType -> Expr -> TcM (Expr, TcType, [Ct])
@@ -634,28 +639,26 @@ checkExpr expected expression = case expression of
   EPragma pragma inner -> do
     (inner', ty, constraints) <- checkExpr expected inner
     pure (EPragma pragma inner', ty, constraints)
-  ELambdaPats patterns body -> checkLambda expected (exprSpan expression) patterns body
-  ELambdaCase alternatives -> do
+  ELambdaPats _ patterns body -> checkLambda expected (exprSpan expression) patterns body
+  ELambdaCase _ alternatives -> do
     expectedParts <- splitExpectedFunction 1 expected
     case expectedParts of
       Just ([argumentType], resultType) -> lambdaCaseWith (exprSpan expression) argumentType resultType alternatives
       _ -> inferExpr expression
-  ELambdaCases alternatives -> do
+  ELambdaCases _ alternatives -> do
     expectedParts <- splitExpectedFunction (lambdaCasesArity alternatives) expected
     case expectedParts of
       Just (argumentTypes, resultType) -> lambdaCasesWith (exprSpan expression) argumentTypes resultType alternatives
       Nothing -> inferExpr expression
   EList syntax Nothing elements -> inferListWithExpected (Just expected) (exprSpan expression) syntax elements
-  ECase scrutinee alternatives -> do
+  ECase _ scrutinee alternatives -> do
     (scrutinee', scrutineeType, constraints) <- inferExpr scrutinee
     prepareScrutinee constraints
     (alternatives', branchConstraints) <- inferCaseAlts (exprSpan expression) scrutineeType expected alternatives
-    let pending = pendingAnnotation expected [] [] []
-    pure (annotatePendingExprAt (exprSpan expression) pending (ECase scrutinee' alternatives'), expected, constraints <> branchConstraints)
-  EDo statements flavor | isMonadicDoFlavor flavor -> do
+    pure (atSpan (exprSpan expression) (ECase (Just expected) scrutinee' alternatives'), expected, constraints <> branchConstraints)
+  EDo _ statements flavor | isMonadicDoFlavor flavor -> do
     (statements', ty, constraints) <- inferDoStmtsWith (Just expected) (exprSpan expression) statements
-    let pending = pendingAnnotation ty [] [] []
-    pure (annotatePendingExprAt (exprSpan expression) pending (EDo statements' flavor), ty, constraints)
+    pure (atSpan (exprSpan expression) (EDo (Just ty) statements' flavor), ty, constraints)
   ELetDecls declarations body -> do
     (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
     pure (ELetDecls declarations' body', ty, constraints)
@@ -703,7 +706,7 @@ checkLambda expected sp patterns body = do
       constraints <- solvePatternBranch sp patternCheck resultType (bodyConstraints <> [equality])
       let functionType = foldr TcFunTy resultType argumentTypes
           patterns' = zipWith (annotateLambdaPattern (pcBindings patternCheck)) argumentTypes (pcPatterns patternCheck)
-          lambda = annotatePendingExprAt sp (pendingAnnotation functionType [] [] []) (ELambdaPats patterns' (annotateExprCast resultType (ctEvVar equality) body'))
+          lambda = atSpan sp (ELambdaPats (Just functionType) patterns' (annotateExprCast resultType (ctEvVar equality) body'))
       pure (lambda, functionType, constraints)
   where
     splitExpected ty [] = pure (Just ([], ty))
@@ -742,7 +745,7 @@ checksExpectedResult expression = case expression of
   EPragma _ inner -> checksExpectedResult inner
   ECase {} -> True
   ELetDecls {} -> True
-  EDo _ flavor -> isMonadicDoFlavor flavor
+  EDo _ _ flavor -> isMonadicDoFlavor flavor
   ELambdaPats {} -> True
   ELambdaCase {} -> True
   ELambdaCases {} -> True
@@ -779,8 +782,7 @@ inferCase sp scrutinee alts = do
   prepareScrutinee scrutCts
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp scrutTy resTy alts
-  let pending = pendingAnnotation resTy [] [] []
-  pure (annotatePendingExprAt sp pending (ECase scrutinee' alts'), resTy, scrutCts ++ altCts)
+  pure (atSpan sp (ECase (Just resTy) scrutinee' alts'), resTy, scrutCts ++ altCts)
 
 -- | Record construction is constructor application with the arguments in
 -- field declaration order.
@@ -804,7 +806,7 @@ inferRecordCon sp name fields wildcard = do
       | strict =
           abortTc ("record construction of " <> T.unpack (nameText name) <> " does not give the strict field " <> show (fromMaybe "<positional>" label) <> " at " <> show sp)
       | otherwise =
-          pure (ECase (EChar 'x' "'x'") [])
+          pure (ECase Nothing (EChar 'x' "'x'") [])
 
 -- | A record update is a case expression. Each alternative matches one
 -- head that has every updated field and rebuilds it with the new field
@@ -818,8 +820,7 @@ inferRecordUpdate sp record fields = do
   alts <- mapM updateAlternative heads
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp recordTy resTy alts
-  let pending = pendingAnnotation resTy [] [] []
-  pure (annotatePendingExprAt sp pending (ECase record' alts'), resTy, recordCts ++ altCts)
+  pure (atSpan sp (ECase (Just resTy) record' alts'), resTy, recordCts ++ altCts)
   where
     updateAlternative :: RecordHead -> TcM (CaseAlt Expr)
     updateAlternative head' = do
@@ -858,7 +859,7 @@ lambdaCasesWith sp argTys resTy alts = do
   results <- mapM (inferLambdaCaseAlt sp argTys resTy) alts
   let alts' = map fst results
       cts = concatMap snd results
-  pure (ELambdaCases alts', foldr TcFunTy resTy argTys, cts)
+  pure (ELambdaCases Nothing alts', foldr TcFunTy resTy argTys, cts)
 
 inferCaseAlts :: Maybe SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM ([CaseAlt Expr], [Ct])
 inferCaseAlts _sp _scrutTy _resTy [] = pure ([], [])
@@ -1703,19 +1704,17 @@ inferIf sp method cond thenE elseE = do
   elseEv <- freshEvVar
   let thenCt = mkWantedCt (EqPred thenTy resultTy) thenEv (AppOrigin sp) sp
       elseCt = mkWantedCt (EqPred elseTy resultTy) elseEv (AppOrigin sp) sp
-      pending = pendingAnnotation resultTy [] [] []
       cond'' = annotateBranchCast expectedBoolTy condEv cond'
       thenE'' = annotateBranchCast resultTy thenEv thenE'
       elseE'' = annotateBranchCast resultTy elseEv elseE'
-  pure (annotatePendingExprAt sp pending (EIf method cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
+  pure (atSpan sp (EIf (Just resultTy) method cond'' thenE'' elseE''), resultTy, condCts ++ thenCts ++ elseCts ++ [condCt, thenCt, elseCt])
 
 -- | A multi-way if is a guarded right-hand side without a binding. Each
 -- alternative has the result type.
 inferMultiWayIf :: Maybe SourceSpan -> [GuardedRhs Expr] -> TcM (Expr, TcType, [Ct])
 inferMultiWayIf sp alternatives = do
   (alternatives', resultTy, cts) <- inferGuardedRhss inferExpr alternatives
-  let pending = pendingAnnotation resultTy [] [] []
-  pure (annotatePendingExprAt sp pending (EMultiWayIf alternatives'), resultTy, cts)
+  pure (atSpan sp (EMultiWayIf (Just resultTy) alternatives'), resultTy, cts)
 
 -- | RebindableSyntax gives an if expression the in-scope ifThenElse.
 --
@@ -1733,9 +1732,8 @@ inferRebindableIf sp method resolution cond thenE elseE = do
   let expectedMethodTy = TcFunTy condTy (TcFunTy thenTy (TcFunTy elseTy resultTy))
       methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "ifThenElse") sp
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
-      resultPending = pendingAnnotation resultTy [] [] []
   pure
-    ( annotatePendingExprAt sp resultPending (EIf (Just (annotatePendingName methodPending method)) cond' thenE' elseE'),
+    ( atSpan sp (EIf (Just resultTy) (Just (annotatePendingName methodPending method)) cond' thenE' elseE'),
       resultTy,
       condCts <> thenCts <> elseCts <> methodCts <> [methodEquality]
     )
@@ -2214,12 +2212,11 @@ inferDo :: Maybe SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [
 inferDo sp flavor stmts
   | isMonadicDoFlavor flavor = do
       (stmts', resultTy, cts) <- inferDoStmts sp stmts
-      let pending = pendingAnnotation resultTy [] [] []
-      pure (annotatePendingExprAt sp pending (EDo stmts' flavor), resultTy, cts)
+      pure (atSpan sp (EDo (Just resultTy) stmts' flavor), resultTy, cts)
   | otherwise = do
       emitError sp (OtherError ("unsupported do flavor in TC MVP: " ++ show flavor))
       resultTy <- freshMetaTv
-      pure (EDo stmts flavor, resultTy, [])
+      pure (EDo Nothing stmts flavor, resultTy, [])
 
 -- | Whether a do block uses the built-in monad methods. The resolver puts
 -- each recursive segment of an @mdo@ block into a @rec@ statement, so an

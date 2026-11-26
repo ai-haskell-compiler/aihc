@@ -800,20 +800,20 @@ instance Walkable Expr where
       EStringHash typeName value text -> (\typeName' -> EStringHash typeName' value text) <$> walk w typeName
       EOverloadedLabel {} -> pure expr
       EQuasiQuote {} -> pure expr
-      EIf method condition thenExpr elseExpr ->
-        EIf <$> walk w method <*> walk w condition <*> walk w thenExpr <*> walk w elseExpr
-      EMultiWayIf alternatives -> EMultiWayIf <$> walk w alternatives
-      ELambdaPats pats body -> ELambdaPats <$> walk w pats <*> walk w body
-      ELambdaCase alternatives -> ELambdaCase <$> walk w alternatives
-      ELambdaCases alternatives -> ELambdaCases <$> walk w alternatives
+      EIf ty method condition thenExpr elseExpr ->
+        EIf <$> walkCheckedTypeOf w ty <*> walk w method <*> walk w condition <*> walk w thenExpr <*> walk w elseExpr
+      EMultiWayIf ty alternatives -> EMultiWayIf <$> walkCheckedTypeOf w ty <*> walk w alternatives
+      ELambdaPats ty pats body -> ELambdaPats <$> walkCheckedTypeOf w ty <*> walk w pats <*> walk w body
+      ELambdaCase ty alternatives -> ELambdaCase <$> walkCheckedTypeOf w ty <*> walk w alternatives
+      ELambdaCases ty alternatives -> ELambdaCases <$> walkCheckedTypeOf w ty <*> walk w alternatives
       EInfix lhs name rhs -> EInfix <$> walk w lhs <*> walk w name <*> walk w rhs
       EViewPat lhs rhs -> EViewPat <$> walk w lhs <*> walk w rhs
       ENegate method inner -> ENegate <$> walk w method <*> walk w inner
       ESectionL inner name -> ESectionL <$> walk w inner <*> walk w name
       ESectionR name inner -> ESectionR <$> walk w name <*> walk w inner
       ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
-      ECase scrutinee alternatives -> ECase <$> walk w scrutinee <*> walk w alternatives
-      EDo statements flavor -> EDo <$> walk w statements <*> pure flavor
+      ECase ty scrutinee alternatives -> ECase <$> walkCheckedTypeOf w ty <*> walk w scrutinee <*> walk w alternatives
+      EDo ty statements flavor -> EDo <$> walkCheckedTypeOf w ty <*> walk w statements <*> pure flavor
       EListComp body statements -> EListComp <$> walk w body <*> walk w statements
       EListCompParallel body branches -> EListCompParallel <$> walk w body <*> walk w branches
       EArithSeq method sequence' -> EArithSeq <$> walk w method <*> walk w sequence'

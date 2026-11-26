@@ -1954,13 +1954,14 @@ caseOf :: Gen -> Expr -> [(Pattern, Expr)] -> Expr
 caseOf gen scrutinee alternatives =
   at gen $
     ECase
+      Nothing
       scrutinee
       [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] [] body Nothing}
       | (pat, body) <- alternatives
       ]
 
 lambda :: Gen -> UnqualifiedName -> Expr -> Expr
-lambda gen parameter body = at gen (ELambdaPats [atPattern gen (PVar parameter)] body)
+lambda gen parameter body = at gen (ELambdaPats Nothing [atPattern gen (PVar parameter)] body)
 
 applyN :: Gen -> Expr -> [Expr] -> Expr
 applyN gen = foldl (\function argument -> at gen (EApp function argument))

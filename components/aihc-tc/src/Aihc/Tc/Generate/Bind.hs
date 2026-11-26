@@ -1423,7 +1423,7 @@ exprSyntaxNames expr =
     ECharHash typeName _ _ -> [typeName]
     EString conversion _ _ -> maybeToList conversion
     EStringHash typeName _ _ -> [typeName]
-    EIf method _ _ _ -> maybeToList method
+    EIf _ method _ _ _ -> maybeToList method
     ENegate method _ -> [method]
     EArithSeq method _ -> maybeToList method
     EGetField method _ _ -> [method]
@@ -1438,12 +1438,12 @@ freeVarsExprChildren expr =
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
     ETc _ inner -> freeVarsExpr inner
-    EIf _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
-    EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
-    ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
-    ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
+    EIf _ _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EMultiWayIf _ alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
+    ELambdaCase _ alts -> Set.unions <$> mapM freeVarsAlt alts
+    ELambdaCases _ alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
     EViewPat view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
-    ELambdaPats pats body -> do
+    ELambdaPats _ pats body -> do
       bodyVars <- freeVarsExpr body
       patVars <- Set.unions <$> mapM freeVarsPattern pats
       binders <- Set.unions <$> mapM patternBinderKeys pats
@@ -1467,7 +1467,7 @@ freeVarsExprChildren expr =
       bodyVars <- freeVarsExpr body
       localBinders <- declBinderKeys decls
       pure (Set.difference (declVars <> bodyVars) localBinders)
-    ECase scrut alts -> do
+    ECase _ scrut alts -> do
       scrutVars <- freeVarsExpr scrut
       altVars <- Set.unions <$> mapM freeVarsAlt alts
       pure (scrutVars <> altVars)
@@ -1482,7 +1482,7 @@ freeVarsExprChildren expr =
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
-    EDo stmts _ -> freeVarsDoStmts stmts
+    EDo _ stmts _ -> freeVarsDoStmts stmts
     EListComp body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
     EListCompParallel body branches -> do
       bodyVars <- freeVarsExpr body

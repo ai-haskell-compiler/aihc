@@ -188,8 +188,9 @@ labelWalk =
     -- the span of the expression, after the information of its wrappers.
     exprLabels children node = do
       let (anns, infos, base) = peelLeading peelExpr node
-          (syntaxInfos, base') = exprSyntax base
-      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (infos <> syntaxInfos))
+          (ownType, typeless) = exprOwnType base
+          (syntaxInfos, base') = exprSyntax typeless
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos <> ownType <> map LabelInfo syntaxInfos)
       _ <- children base'
       pure node
 
@@ -319,6 +320,22 @@ instanceItemFields item =
     InstanceItemBind tc _ -> [LabelText (renderInstanceMethodAnnotation annotation) | Just annotation <- [tc]]
     _ -> []
 
+-- | The label of the type that an expression holds in a field of its own,
+-- and the expression with no such type.
+exprOwnType :: Expr -> ([Label], Expr)
+exprOwnType expr =
+  case expr of
+    EIf ty method condition thenExpr elseExpr -> (typeLabel ty, EIf Nothing method condition thenExpr elseExpr)
+    EMultiWayIf ty alternatives -> (typeLabel ty, EMultiWayIf Nothing alternatives)
+    ELambdaPats ty pats body -> (typeLabel ty, ELambdaPats Nothing pats body)
+    ELambdaCase ty alternatives -> (typeLabel ty, ELambdaCase Nothing alternatives)
+    ELambdaCases ty alternatives -> (typeLabel ty, ELambdaCases Nothing alternatives)
+    ECase ty scrutinee alternatives -> (typeLabel ty, ECase Nothing scrutinee alternatives)
+    EDo ty statements flavor -> (typeLabel ty, EDo Nothing statements flavor)
+    _ -> ([], expr)
+  where
+    typeLabel = maybe [] (\ty -> [LabelType ty])
+
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
 exprSyntax :: Expr -> ([TcAnnotation], Expr)
@@ -329,7 +346,7 @@ exprSyntax expr =
     ECharHash ty value text -> (maybeToList (nameTc ty), ECharHash (without ty) value text)
     EString conversion value text -> (maybeToList (conversion >>= nameTc), EString (without <$> conversion) value text)
     EStringHash ty value text -> (maybeToList (nameTc ty), EStringHash (without ty) value text)
-    EIf method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf (without <$> method) condition thenExpr elseExpr)
+    EIf ty method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf ty (without <$> method) condition thenExpr elseExpr)
     ENegate method inner -> (maybeToList (nameTc method), ENegate (without method) inner)
     EArithSeq method sequence' -> (maybeToList (method >>= nameTc), EArithSeq (without <$> method) sequence')
     EGetField method record field -> (maybeToList (nameTc method), EGetField (without method) record field)

@@ -1554,17 +1554,22 @@ data Expr
     EOverloadedLabel Text Text
   | -- | @[qq| body |]@
     EQuasiQuote Text Text
-  | -- | @if c then t else e@. Under @RebindableSyntax@, the name is
+  | -- | @if c then t else e@. The type is the type of the expression. The
+    -- type checker sets it. Under @RebindableSyntax@, the name is
     -- @ifThenElse@.
-    EIf (Maybe Name) Expr Expr Expr
-  | -- | @if | g1 -> e1 | g2 -> e2@
-    EMultiWayIf [GuardedRhs Expr]
-  | -- | @\x y -> body@
-    ELambdaPats [Pattern] Expr
-  | -- | @\case { p -> e }@
-    ELambdaCase [CaseAlt Expr]
-  | -- | @\cases { p q -> e }@
-    ELambdaCases [LambdaCaseAlt]
+    EIf (Maybe TcType) (Maybe Name) Expr Expr Expr
+  | -- | @if | g1 -> e1 | g2 -> e2@. The type is the type of the
+    -- expression. The type checker sets it.
+    EMultiWayIf (Maybe TcType) [GuardedRhs Expr]
+  | -- | @\x y -> body@. The type is the function type of the lambda. The
+    -- type checker sets it.
+    ELambdaPats (Maybe TcType) [Pattern] Expr
+  | -- | @\case { p -> e }@. The type is the function type of the lambda.
+    -- The type checker sets it.
+    ELambdaCase (Maybe TcType) [CaseAlt Expr]
+  | -- | @\cases { p q -> e }@. The type is the function type of the
+    -- lambda. The type checker sets it.
+    ELambdaCases (Maybe TcType) [LambdaCaseAlt]
   | -- | @a + b@
     EInfix Expr Name Expr
   | -- | @f -> pat@ inside parentheses: the view-pattern arrow.
@@ -1579,10 +1584,12 @@ data Expr
     ESectionR Name Expr
   | -- | @let x = 1 in x@
     ELetDecls [Decl] Expr
-  | -- | @case x of { Just y -> y }@
-    ECase Expr [CaseAlt Expr]
-  | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@
-    EDo [DoStmt Expr] DoFlavor
+  | -- | @case x of { Just y -> y }@. The type is the type of the
+    -- expression. The type checker sets it.
+    ECase (Maybe TcType) Expr [CaseAlt Expr]
+  | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@. The
+    -- type is the type of the block. The type checker sets it.
+    EDo (Maybe TcType) [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
     EListComp Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@

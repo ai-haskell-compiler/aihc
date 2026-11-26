@@ -3827,7 +3827,7 @@ patSynSelectorMatch pat argBinder =
         UnguardedRhs
           []
           []
-          (ECase (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
+          (ECase Nothing (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
           Nothing
     }
   where
@@ -3902,6 +3902,7 @@ patSynMatcherMatch pat argBinders =
           []
           []
           ( ECase
+              Nothing
               (localVar scrutinee)
               [ CaseAlt [] pat (UnguardedRhs [] [] success Nothing),
                 CaseAlt [] PWildcard (UnguardedRhs [] [] failed Nothing)
@@ -3933,7 +3934,7 @@ matcherPattern match =
         ETc _ inner -> go inner
         EParen inner -> go inner
         EPragma _ inner -> go inner
-        ECase _ (alt : _) -> Just (caseAltPattern alt)
+        ECase _ _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
 -- | The pattern of an implicitly bidirectional pattern synonym as an

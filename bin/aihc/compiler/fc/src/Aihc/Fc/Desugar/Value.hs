@@ -3622,9 +3622,13 @@ desugarExpr expression =
         withCoercion proof (pure . ExCast inner')
     Syn.ETc (Syn.ExprType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
     Syn.ETc _ inner -> desugarExpr inner
-    Syn.EIf (Just method) _ _ _
-      | Just _ <- syntaxResolved method ->
-          failValue "rebindable if expression is missing its checked result type"
+    Syn.EIf resultType (Just method) condition thenExpression elseExpression
+      | Just resolution <- syntaxResolved method ->
+          case resultType of
+            Just _ -> do
+              methodAnnotation <- requiredSyntaxAnnotation method
+              desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
+            Nothing -> failValue "rebindable if expression is missing its checked result type"
     Syn.EAnn _ inner -> desugarExpr inner
     Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
@@ -3636,13 +3640,23 @@ desugarExpr expression =
     Syn.EPragma _ inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
-    Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
-    Syn.ELambdaCase alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
-    Syn.ELambdaCases alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
-    Syn.EIf _ condition thenExpression elseExpression -> do
+    Syn.ELambdaPats functionType patterns body -> desugarLambda functionType patterns body
+    Syn.ELambdaCase (Just functionType) alternatives -> desugarMatches functionType (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCase Nothing alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases (Just functionType) alternatives -> desugarMatches functionType (map lambdaCaseAltMatch alternatives)
+    Syn.ELambdaCases Nothing alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
+    Syn.EIf (Just resultType) _ condition thenExpression elseExpression ->
+      desugarIf resultType condition thenExpression elseExpression
+    Syn.EIf Nothing _ condition thenExpression elseExpression -> do
       resultType <- requiredExprType thenExpression
       desugarIf resultType condition thenExpression elseExpression
-    Syn.ECase {} -> failValue "case expression does not have a checked result type"
+    -- A multi-way if is a guarded right-hand side. A failed last guard
+    -- ends in an empty case on its own test value.
+    Syn.EMultiWayIf (Just resultType) alternatives ->
+      desugarGuardedRhss resultType Nothing alternatives
+    Syn.ECase (Just resultType) scrutinee alternatives -> desugarCase resultType scrutinee alternatives
+    Syn.ECase Nothing _ _ -> failValue "case expression does not have a checked result type"
+    Syn.EDo (Just resultType) statements _ -> desugarDo resultType statements
     Syn.ELetDecls declarations body ->
       desugarLocalDecls declarations (requiredExprType body) (desugarExpr body)
     unsupported -> failValue ("unsupported System FC expression: " <> take 80 (show unsupported))
@@ -3686,10 +3700,6 @@ desugarAnnotatedExpr annotation inner = do
           | Just resolution <- syntaxResolved method -> do
               method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
               ExApp method' <$> desugarArithSeq arithSeq
-        Syn.EIf (Just method) condition thenExpression elseExpression
-          | Just resolution <- syntaxResolved method -> do
-              methodAnnotation <- requiredSyntaxAnnotation method
-              desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
         Syn.ENegate method operand
           | Just resolution <- syntaxResolved method,
             resolutionNamespace resolution == ResolutionNamespaceTerm,
@@ -3746,21 +3756,10 @@ desugarAnnotatedExpr annotation inner = do
         Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
         Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
         Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-        Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
-        Syn.EIf _ condition thenExpression elseExpression ->
-          desugarIf (tcAnnType annotation) condition thenExpression elseExpression
-        -- A multi-way if is a guarded right-hand side. A failed last guard
-        -- ends in an empty case on its own test value.
-        Syn.EMultiWayIf alternatives ->
-          desugarGuardedRhss (tcAnnType annotation) Nothing alternatives
-        Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
         Syn.EImplicitParam name ->
           case tcAnnEvidenceTerms annotation of
             [evidence] -> desugarEvidence evidence
             _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
-        Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
-        Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
-        Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
         -- An expression signature that is a polytype desugars to a type
         -- lambda. The expression itself stands where a monotype is
         -- expected, so the annotation instantiates that polytype again.
@@ -7285,9 +7284,9 @@ inferExprType expression =
       types <- concat <$> mapM localGroupBinderTypes groups
       withBindingTypes types (inferExprType body)
     -- An if expression has the type of its branches.
-    Syn.EIf _ _ thenExpression _ -> inferExprType thenExpression
-    Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
-    Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
+    Syn.EIf _ _ _ thenExpression _ -> inferExprType thenExpression
+    Syn.ELambdaCase _ alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases _ alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
     unsupported -> failValue ("missing checked expression type: " <> take 80 (show unsupported))
 
 exprType :: Syn.Expr -> Maybe TcType
@@ -7299,7 +7298,13 @@ exprType expression =
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
-    Syn.EIf _ _ thenExpression _ -> exprType thenExpression
+    Syn.EIf resultType _ _ thenExpression _ -> resultType <|> exprType thenExpression
+    Syn.EMultiWayIf resultType _ -> resultType
+    Syn.ELambdaPats functionType _ _ -> functionType
+    Syn.ELambdaCase functionType _ -> functionType
+    Syn.ELambdaCases functionType _ -> functionType
+    Syn.ECase resultType _ _ -> resultType
+    Syn.EDo resultType _ _ -> resultType
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing
