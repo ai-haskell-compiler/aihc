@@ -647,13 +647,6 @@ patSynEquations item =
     Syn.InfoPatSyn equations -> Just equations
     _ -> Nothing
 
--- | The checked type of an instance method, if the item is one.
-instanceMethodInfo :: Syn.TcInfo -> Maybe TcInstanceMethodAnnotation
-instanceMethodInfo item =
-  case item of
-    Syn.InfoInstanceMethod annotation -> Just annotation
-    _ -> Nothing
-
 -- | The proof of a cast, if the item is a cast that needs one.
 infoCastProof :: Syn.TcInfo -> Maybe Ev.Coercion
 infoCastProof item =
@@ -824,8 +817,8 @@ desugarEarlyDecl declaration =
     Just (_, foreignPlan, foreignDecl) -> desugarForeign foreignPlan foreignDecl
     Nothing ->
       case declaration of
-        Syn.DeclTc (Syn.InfoClass classAnnotation) inner
-          | Syn.DeclClass classDecl <- Syn.peelDeclAnn inner ->
+        Syn.DeclClass classDecl
+          | Just classAnnotation <- Syn.classDeclTc classDecl ->
               (<>)
                 <$> desugarClassSelectors classDecl classAnnotation
                 <*> desugarClassDefaults classDecl
@@ -1301,9 +1294,9 @@ desugarClassDefaults classDecl = do
         Syn.ClassItemAnn _ inner -> defaultItem inner
         Syn.ClassItemError _ inner -> defaultItem inner
         Syn.ClassItemDefault tc valueDecl ->
-          case mapMaybe instanceMethodInfo tc of
-            annotation : _ -> pure [(annotation, valueDeclMatches valueDecl)]
-            [] -> failValue "class default method does not have a checked annotation"
+          case tc of
+            Just annotation -> pure [(annotation, valueDeclMatches valueDecl)]
+            Nothing -> failValue "class default method does not have a checked annotation"
         _ -> pure []
 
 -- | Merge the equations of each default method, keeping both the methods and
@@ -1412,13 +1405,13 @@ methodFieldType className classTyVars method = do
 desugarInstanceDecl :: Syn.Decl -> ValueM [Decl]
 desugarInstanceDecl declaration =
   case declaration of
-    Syn.DeclTc (Syn.InfoInstance instanceAnnotation) inner
-      | Syn.DeclInstance instanceDecl <- Syn.peelDeclAnn inner ->
-          desugarInstance instanceAnnotation instanceDecl
     Syn.DeclTc _ inner -> desugarInstanceDecl inner
     Syn.DeclAnn _ inner -> desugarInstanceDecl inner
     Syn.DeclError _ inner -> desugarInstanceDecl inner
-    Syn.DeclInstance {} -> failValue "missing type-checker annotation for instance declaration"
+    Syn.DeclInstance instanceDecl ->
+      case Syn.instanceDeclTc instanceDecl of
+        Just instanceAnnotation -> desugarInstance instanceAnnotation instanceDecl
+        Nothing -> failValue "missing type-checker annotation for instance declaration"
     _ -> pure []
 
 -- | The dictionary of one instance, and one worker for each of its
@@ -1701,8 +1694,7 @@ instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems inst
       case item of
         Syn.InstanceItemAnn _ inner -> itemMethods inner
         Syn.InstanceItemError _ inner -> itemMethods inner
-        Syn.InstanceItemBind tc valueDecl
-          | methodAnnotation : _ <- mapMaybe instanceMethodInfo tc -> methodItem methodAnnotation valueDecl
+        Syn.InstanceItemBind (Just methodAnnotation) valueDecl -> methodItem methodAnnotation valueDecl
         _ -> []
     methodItem methodAnnotation valueDecl =
       case valueDecl of

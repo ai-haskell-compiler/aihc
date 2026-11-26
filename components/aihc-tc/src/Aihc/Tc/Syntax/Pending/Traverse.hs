@@ -629,12 +629,13 @@ instance Walkable StandaloneDerivingDecl where
 -- Classes and instances
 
 instance Walkable ClassDecl where
-  walk w (ClassDecl context classHead fundeps items) =
+  walk w (ClassDecl context classHead fundeps items checked) =
     ClassDecl
       <$> walk w context
       <*> walk w classHead
       <*> walk w fundeps
       <*> walk w items
+      <*> pure checked
 
 instance Walkable FunctionalDependency where
   walk w fundep =
@@ -649,25 +650,27 @@ instance Walkable ClassDeclItem where
     ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
     ClassItemFixity assoc namespace precedence operators ->
       ClassItemFixity assoc namespace precedence <$> walk w operators
-    ClassItemDefault tc value -> ClassItemDefault <$> walkInfos w tc <*> walk w value
+    ClassItemDefault tc value -> ClassItemDefault tc <$> walk w value
     ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
     ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
     ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
     ClassItemPragma pragma -> pure (ClassItemPragma pragma)
 
 instance Walkable InstanceDecl where
-  walk w (InstanceDecl pragmas warning binders context instHead items) =
+  walk w (InstanceDecl pragmas warning binders context instHead items checked derived) =
     InstanceDecl pragmas warning
       <$> walk w binders
       <*> walk w context
       <*> walk w instHead
       <*> walk w items
+      <*> pure checked
+      <*> pure derived
 
 instance Walkable InstanceDeclItem where
   walk w = walkInstanceDeclItem w $ \case
     InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
     InstanceItemError err inner -> InstanceItemError err <$> walk w inner
-    InstanceItemBind tc value -> InstanceItemBind <$> walkInfos w tc <*> walk w value
+    InstanceItemBind tc value -> InstanceItemBind tc <$> walk w value
     InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
     InstanceItemFixity assoc namespace precedence operators ->
       InstanceItemFixity assoc namespace precedence <$> walk w operators

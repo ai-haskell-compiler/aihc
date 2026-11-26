@@ -19,7 +19,8 @@ where
 
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Tc.Annotations
-  ( TcDerivingAnnotation (..),
+  ( TcDerivedInstance (..),
+    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -156,33 +157,34 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                   surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
-                  markCoerced . markClause $
-                    DeclTc InfoDerivedInstance $
-                      maybe id (DeclAnn . mkSpanAnnotation) (genSpan gen) $
-                        DeclInstance
-                          InstanceDecl
-                            { instanceDeclPragmas = [],
-                              instanceDeclWarning = Nothing,
-                              instanceDeclForall = forallBinders,
-                              instanceDeclContext = surfaceContext,
-                              instanceDeclHead = surfaceHead,
-                              instanceDeclItems = generated
-                            }
+                  maybe id (DeclAnn . mkSpanAnnotation) (genSpan gen) $
+                    DeclInstance
+                      InstanceDecl
+                        { instanceDeclPragmas = [],
+                          instanceDeclWarning = Nothing,
+                          instanceDeclForall = forallBinders,
+                          instanceDeclContext = surfaceContext,
+                          instanceDeclHead = surfaceHead,
+                          instanceDeclItems = generated,
+                          instanceDeclTc = Nothing,
+                          instanceDeclDerived =
+                            Just
+                              TcDerivedInstance
+                                { -- An instance from a deriving clause, not from a
+                                  -- standalone deriving declaration, gets the
+                                  -- liberal coverage condition.
+                                  tcDerivedByClause = not (tcDerivingStandalone plan),
+                                  tcDerivedCoercedPlan = coercedPlan
+                                }
+                        }
   where
-    -- An instance from a deriving clause, not from a standalone deriving
-    -- declaration, gets the liberal coverage condition.
-    markClause declaration
-      | tcDerivingStandalone plan = declaration
-      | otherwise = DeclTc InfoDerivingClauseInstance declaration
     -- Both strategies that coerce another instance need the plan again when
     -- the generated header is checked, to prove the casts of its methods.
-    markCoerced declaration =
+    coercedPlan =
       case tcDerivingStrategy plan of
-        TcDerivingNewtype -> tagged
-        TcDerivingVia {} -> tagged
-        _ -> declaration
-      where
-        tagged = DeclTc (InfoCoercedDeriving plan) declaration
+        TcDerivingNewtype -> Just plan
+        TcDerivingVia {} -> Just plan
+        _ -> Nothing
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
@@ -1932,7 +1934,7 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
   maybe id (InstanceItemAnn . mkSpanAnnotation) (genSpan gen) $
-    InstanceItemBind [] (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
+    InstanceItemBind Nothing (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =

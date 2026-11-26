@@ -28,6 +28,7 @@ module Aihc.Tc.Annotations
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
+    TcDerivedInstance (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcRecKnotOccurrence (..),
@@ -348,6 +349,19 @@ data TcDerivingPlan = TcDerivingPlan
     tcDerivingClassMethods :: ![TcClassMethodAnnotation],
     tcDerivingDefaultMethods :: ![Text],
     tcDerivingDefaultSignatures :: ![(Text, [Pred])]
+  }
+  deriving (Eq, Show)
+
+-- | The origin of an instance that @deriving@ generated.
+data TcDerivedInstance = TcDerivedInstance
+  { -- | A @deriving@ clause of a data declaration generated the instance.
+    -- A standalone @deriving instance@ does not have this mark. GHC
+    -- checks the functional dependencies of such an instance with the
+    -- liberal coverage condition, also without UndecidableInstances,
+    -- because the user did not write its context.
+    tcDerivedByClause :: !Bool,
+    -- | The plan of a generated instance that reuses another instance.
+    tcDerivedCoercedPlan :: !(Maybe TcDerivingPlan)
   }
   deriving (Eq, Show)
 

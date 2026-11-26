@@ -278,7 +278,7 @@ import Aihc.Tc.Annotations
     TcAnnotation,
     TcClassAnnotation,
     TcDerivingAnnotation,
-    TcDerivingPlan,
+    TcDerivedInstance,
     TcForeignImportAnnotation,
     TcInstanceAnnotation,
     TcInstanceMethodAnnotation,
@@ -305,16 +305,7 @@ data TcInfo
     InfoMatchArityCast !PendingTcMatchArityCast
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
-  | InfoInstanceMethod !TcInstanceMethodAnnotation
-  | InfoInstance !TcInstanceAnnotation
-  | InfoClass !TcClassAnnotation
   | InfoDeriving !TcDerivingAnnotation
-  | -- | An instance that @deriving@ generated rather than the source.
-    InfoDerivedInstance
-  | -- | An instance that a @deriving@ clause generated.
-    InfoDerivingClauseInstance
-  | -- | A generated instance that reuses another instance.
-    InfoCoercedDeriving !TcDerivingPlan
   | -- | The checked type of a record field selector.
     InfoSelectorType !TcType
   | -- | The next item of the statement is the occurrence type of this
@@ -1423,7 +1414,9 @@ data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
     classDeclHead :: BinderHead UnqualifiedName,
     classDeclFundeps :: [FunctionalDependency],
-    classDeclItems :: [ClassDeclItem]
+    classDeclItems :: [ClassDeclItem],
+    -- | The checked facts of the class. The type checker sets them.
+    classDeclTc :: Maybe TcClassAnnotation
   }
   deriving (Eq, Show)
 
@@ -1439,9 +1432,9 @@ data ClassDeclItem
     ClassItemDefaultSig BinderName Type
   | -- | @infixr 5 :+:@
     ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | -- | A default method body such as @f x = True@. The information is
-    -- the type of the default method.
-    ClassItemDefault [TcInfo] ValueDecl
+  | -- | A default method body such as @f x = True@, with the checked type
+    -- of the default method.
+    ClassItemDefault (Maybe TcInstanceMethodAnnotation) ValueDecl
   | -- | @type family F a@
     ClassItemTypeFamilyDecl TypeFamilyDecl
   | -- | @data family DF a@
@@ -1460,7 +1453,12 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclHead :: Type,
-    instanceDeclItems :: [InstanceDeclItem]
+    instanceDeclItems :: [InstanceDeclItem],
+    -- | The checked facts of the instance. The type checker sets them.
+    instanceDeclTc :: Maybe TcInstanceAnnotation,
+    -- | The origin of an instance that @deriving@ generated. An instance of
+    -- the source does not have it.
+    instanceDeclDerived :: Maybe TcDerivedInstance
   }
   deriving (Eq, Show)
 
@@ -1470,9 +1468,9 @@ data InstanceDeclItem
     InstanceItemAnn Annotation InstanceDeclItem
   | -- | A resolve error for the whole instance item.
     InstanceItemError ResolveError InstanceDeclItem
-  | -- | A method body such as @show x = ...@. The information is the
-    -- checked type of the method.
-    InstanceItemBind [TcInfo] ValueDecl
+  | -- | A method body such as @show x = ...@, with the checked type of
+    -- the method.
+    InstanceItemBind (Maybe TcInstanceMethodAnnotation) ValueDecl
   | -- | @show :: T -> String@
     InstanceItemTypeSig [BinderName] Type
   | -- | @infixr 5 :+:@

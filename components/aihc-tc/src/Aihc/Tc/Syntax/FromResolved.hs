@@ -604,7 +604,7 @@ instance FromResolved R.ClassDecl where
   type ToPending R.ClassDecl = ClassDecl
   fromResolved node =
     case node of
-      R.ClassDecl x1 x2 x3 x4 -> ClassDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.ClassDecl x1 x2 x3 x4 -> ClassDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.ClassDeclItem where
   type ToPending R.ClassDeclItem = ClassDeclItem
@@ -615,7 +615,7 @@ instance FromResolved R.ClassDeclItem where
       R.ClassItemTypeSig x1 x2 -> ClassItemTypeSig (fromResolved x1) (fromResolved x2)
       R.ClassItemDefaultSig x1 x2 -> ClassItemDefaultSig (fromResolved x1) (fromResolved x2)
       R.ClassItemFixity x1 x2 x3 x4 -> ClassItemFixity (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.ClassItemDefault x1 -> ClassItemDefault [] (fromResolved x1)
+      R.ClassItemDefault x1 -> ClassItemDefault Nothing (fromResolved x1)
       R.ClassItemTypeFamilyDecl x1 -> ClassItemTypeFamilyDecl (fromResolved x1)
       R.ClassItemDataFamilyDecl x1 -> ClassItemDataFamilyDecl (fromResolved x1)
       R.ClassItemDefaultTypeInst x1 -> ClassItemDefaultTypeInst (fromResolved x1)
@@ -625,7 +625,7 @@ instance FromResolved R.InstanceDecl where
   type ToPending R.InstanceDecl = InstanceDecl
   fromResolved node =
     case node of
-      R.InstanceDecl x1 x2 x3 x4 x5 x6 -> InstanceDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
+      R.InstanceDecl x1 x2 x3 x4 x5 x6 -> InstanceDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing Nothing
 
 instance FromResolved R.InstanceDeclItem where
   type ToPending R.InstanceDeclItem = InstanceDeclItem
@@ -633,7 +633,7 @@ instance FromResolved R.InstanceDeclItem where
     case node of
       R.InstanceItemAnn x1 x2 -> InstanceItemAnn (fromResolved x1) (fromResolved x2)
       R.InstanceItemError x1 x2 -> InstanceItemError (fromResolved x1) (fromResolved x2)
-      R.InstanceItemBind x1 -> InstanceItemBind [] (fromResolved x1)
+      R.InstanceItemBind x1 -> InstanceItemBind Nothing (fromResolved x1)
       R.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig (fromResolved x1) (fromResolved x2)
       R.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
       R.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst (fromResolved x1)
