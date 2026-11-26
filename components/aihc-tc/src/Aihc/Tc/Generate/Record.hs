@@ -21,7 +21,7 @@ where
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..), globalTerm)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), RecordHead (..), TyConFlavor (..), dataConRecordHead, patSynRecordHead)
 import Aihc.Tc.Monad
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Name (..),
     NameType (..),
     RecordField (..),

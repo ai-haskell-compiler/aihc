@@ -17,8 +17,7 @@ where
 
 import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations
-  ( PendingTcAnnotation (..),
-    TcAnnotation (..),
+  ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDerivedInstance (..),
@@ -36,8 +35,8 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
-    WorkingTcAnnotation (..),
     renderTcType,
+    typeAnnotation,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
@@ -66,9 +65,7 @@ import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reclassifyIrreduciblePred)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Solve.Injective (improveInjectivity)
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromResolved (fromResolved)
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Annotation,
     BangType (..),
     BinderHead (..),
@@ -164,7 +161,8 @@ import Aihc.Tc.Syntax.Pending
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Tc.Syntax.Pending.Traverse (collectPendingAnnotations, collectResolutions)
+import Aihc.Tc.Syntax.FromResolved (fromResolved)
+import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcAnnotations)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -329,7 +327,7 @@ binderBindingName name =
 -- | Type-check a module, returning the same syntax tree annotated with the
 -- inferred interface. Call 'moduleBindings' when a flat compatibility view is
 -- needed by older callers.
-tcModule :: ResolvedModule -> TcM Final.Module
+tcModule :: ResolvedModule -> TcM Module
 tcModule resolved = do
   modules <- tcModuleScc [resolved]
   case modules of
@@ -340,7 +338,7 @@ tcModule resolved = do
 -- explicit signatures are registered for the whole component before any
 -- value body is checked, allowing a module to refer back to a signed binding
 -- in another member of the same import cycle.
-tcModuleScc :: [ResolvedModule] -> TcM [Final.Module]
+tcModuleScc :: [ResolvedModule] -> TcM [Module]
 tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
   initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
@@ -791,7 +789,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
         Just residualPreds'
           | failed -> pure rule
           | otherwise -> do
-              let interior = concatMap pendingTypes (collectPendingAnnotations lhs')
+              let interior = concatMap pendingTypes (collectTcAnnotations lhs')
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
               -- A binder signature can give a variable a kind that mentions a
               -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
@@ -829,7 +827,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
       pure ct {ctPred = predicate}
 
     pendingTypes pending =
-      pendingTcAnnType pending : pendingTcAnnTypeArgs pending <> pendingTcAnnTermArgTypes pending
+      tcAnnType pending : tcAnnTypeArgs pending <> tcAnnTermArgTypes pending
 
     withRuleBinders binders action =
       foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders
@@ -1394,7 +1392,7 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueTypes valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
-          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] [] []) (DeclValue valueDecl'))
+          pure (annotateDeclAt (valueDeclSpan valueDecl) (typeAnnotation ty) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
@@ -1410,7 +1408,7 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
     DeclStandaloneDeriving {} -> pure decl
     DeclPatSyn patSynDecl
       | Just ty <- Map.lookup (unqualifiedNameText (patSynDeclName patSynDecl)) checkedValueTypes ->
-          pure (annotateDeclAt (patSynBinderSpan (patSynDeclName patSynDecl)) (TcAnnotation ty [] [] [] [] []) decl)
+          pure (annotateDeclAt (patSynBinderSpan (patSynDeclName patSynDecl)) (typeAnnotation ty) decl)
     _ -> pure decl
 
 annotateInstanceHeaderTc :: (Text, Text) -> Bool -> Decl -> TcM Decl
@@ -1479,7 +1477,7 @@ annotateClassDefaultItem classTyCon item =
         Nothing -> pure item
         Just familyBinder -> do
           ty <- tyConBindingType familyBinder
-          let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] [] []) (typeFamilyDeclHead familyDecl)
+          let annotatedHead = annotateTypeFamilyHead (typeAnnotation ty) (typeFamilyDeclHead familyDecl)
           pure (ClassItemTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
     _ -> pure item
 
@@ -1504,7 +1502,7 @@ annotateDataDeclTc dataDecl = do
   ty <- tyConBindingType binder
   parent <- mkDeclaredTyCon binder tyName (dataDeclArity dataDecl)
   constructors <- mapM (annotateDataConDeclTc parent) (dataDeclConstructors dataDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
+  let annotatedHead = annotateBinderHeadName (typeAnnotation ty) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
@@ -1514,19 +1512,19 @@ annotateNewtypeDeclTc newtypeDecl = do
   ty <- tyConBindingType binder
   parent <- mkDeclaredTyCon binder tyName (newtypeDeclArity newtypeDecl)
   constructor <- mapM (annotateDataConDeclTc parent) (newtypeDeclConstructor newtypeDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
+  let annotatedHead = annotateBinderHeadName (typeAnnotation ty) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateTypeSynDeclTc :: TypeSynDecl -> TcM Decl
 annotateTypeSynDeclTc typeSynDecl = do
   ty <- tyConBindingType (binderHeadName (typeSynHead typeSynDecl))
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (typeSynHead typeSynDecl)
+  let annotatedHead = annotateBinderHeadName (typeAnnotation ty) (typeSynHead typeSynDecl)
   pure (DeclTypeSyn (typeSynDecl {typeSynHead = annotatedHead}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
   ty <- tyConBindingType (binderHeadName (dataFamilyDeclHead familyDecl))
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataFamilyDeclHead familyDecl)
+  let annotatedHead = annotateBinderHeadName (typeAnnotation ty) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
 
 annotateTypeFamilyDeclTc :: TypeFamilyDecl -> TcM Decl
@@ -1535,7 +1533,7 @@ annotateTypeFamilyDeclTc familyDecl =
     Nothing -> pure (DeclTypeFamilyDecl familyDecl)
     Just familyBinder -> do
       ty <- tyConBindingType familyBinder
-      let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] [] []) (typeFamilyDeclHead familyDecl)
+      let annotatedHead = annotateTypeFamilyHead (typeAnnotation ty) (typeFamilyDeclHead familyDecl)
       pure (DeclTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
 
 annotateTypeFamilyHead :: TcAnnotation -> Type -> Type
@@ -1549,7 +1547,7 @@ annotateTypeFamilyHead tcAnn ty =
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
-  name {nameTc = nameTc name <|> Just (WorkingChecked tcAnn)}
+  name {nameTc = nameTc name <|> Just tcAnn}
 
 annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
@@ -1609,7 +1607,7 @@ annotateBinderHeadName tcAnn head' =
 
 annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
-  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just (WorkingChecked tcAnn)}
+  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just tcAnn}
 
 annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc parent dataConDecl = do
@@ -1664,7 +1662,7 @@ annotateRecordSelectorNames parent declaration =
       let label = unqualifiedNameText name
           selector = Map.findWithDefault label label (recordSelectorNames [declaration])
       ty <- bindingType (tyConMemberTermKey parent selector)
-      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
+      pure (annotateUnqualifiedName (typeAnnotation ty) name)
 
 dataConBindingType :: Entity -> TcM TcType
 dataConBindingType key = do
@@ -1679,7 +1677,7 @@ annotateForeignDeclTc foreignDecl = do
   key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
   ty <- bindingType key
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
-      annotatedWith plan = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl {foreignPlan = plan})
+      annotatedWith plan = annotateDeclAt sourceSpan (typeAnnotation ty) (DeclForeign foreignDecl {foreignPlan = plan})
       annotated = annotatedWith Nothing
   case foreignCallConv foreignDecl of
     callConv | callConv == CCall || callConv == CApi -> do
@@ -3328,7 +3326,7 @@ tcTopLevelPatternBind sigs groupId d pat rhs = do
                       )
             typeArgs <- mapM (patternBindTypeArgument scheme) rhsTyVars
             zonkedTy <- zonkType (schemeToType scheme)
-            let pending = PendingTcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs 0 [] [] []
+            let pending = TcAnnotation (typeSchemeBody scheme) (typeSchemeTyVars scheme) typeArgs [] [] [] 0
             pure ((name, pending), TcBindingResult key (renderBinderName binder) zonkedTy)
           zonkedRhsTy <- zonkType (schemeToType rhsScheme)
           rhsKey <- patternRhsTermKey pat

@@ -2,9 +2,9 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 
--- | A hand-written walk over the syntax tree of "Aihc.Tc.Syntax". It
--- is a copy of "Aihc.Tc.Syntax.Pending.Traverse", which walks the tree
--- that the type checker works on. The walk does not go into the type checker information.
+-- | A hand-written walk over the syntax tree of "Aihc.Tc.Syntax". The
+-- walk visits the type checker information through the hooks
+-- 'walkTcAnnotation', 'walkCheckedType', and 'walkFacts'.
 --
 -- The type checker reads and rewrites the annotations of a whole module
 -- several times, and it rewrites some nodes.
@@ -25,6 +25,9 @@ module Aihc.Tc.Syntax.Traverse
   ( Walkable (..),
     Walk (..),
     idWalk,
+    FactWalk (..),
+    idFactWalk,
+    collectTcAnnotations,
     traverseAnnotations,
     annotationList,
     collectAnnotations,
@@ -35,9 +38,12 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
-import Aihc.Tc.Annotations (TcAnnotation, TcRecStmt (..))
+import Aihc.Tc.Annotations (TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
+import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Types (TcType)
+import Control.Monad (join)
+import Data.Maybe (catMaybes)
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it
 -- is. A caller sets the hooks it needs.
@@ -54,6 +60,8 @@ data Walk f = Walk
     -- where it is attached: on a rule, a rule binder, or a constructor
     -- declaration.
     walkCheckedType :: TcType -> f TcType,
+    -- | The other information that the type checker puts in typed fields.
+    walkFacts :: FactWalk f,
     -- | Every annotation list of a node that holds its annotations in a
     -- list, such as a name or a module. The argument walks the elements.
     walkAnnotationList :: ([Annotation] -> f [Annotation]) -> [Annotation] -> f [Annotation],
@@ -75,6 +83,43 @@ data Walk f = Walk
     walkImportItem :: (ImportItem -> f ImportItem) -> ImportItem -> f ImportItem
   }
 
+-- | The hooks for the information that the type checker puts in typed
+-- fields, other than type annotations. 'idFactWalk' leaves each item as it
+-- is. The finalization pass of the type checker sets these hooks.
+data FactWalk f = FactWalk
+  { -- | Every cast, where it is attached: in a wrapper, on a name, or on a
+    -- right-hand side. 'Nothing' removes the cast.
+    factCast :: TcCastAnnotation -> f (Maybe TcCastAnnotation),
+    -- | The arity cast of an equation. 'Nothing' removes the cast.
+    factMatchArityCast :: TcMatchArityCast -> f (Maybe TcMatchArityCast),
+    factTypeFamilyInstance :: TypeFamilyInstanceInfo -> f TypeFamilyInstanceInfo,
+    factDataFamilyInstance :: DataFamilyInstanceInfo -> f DataFamilyInstanceInfo,
+    factClass :: TcClassAnnotation -> f TcClassAnnotation,
+    factDerivingPlan :: TcDerivingPlan -> f TcDerivingPlan,
+    factInstance :: TcInstanceAnnotation -> f TcInstanceAnnotation,
+    factInstanceMethod :: TcInstanceMethodAnnotation -> f TcInstanceMethodAnnotation,
+    -- | The checked equations of a pattern synonym. The argument walks the
+    -- equations. 'idFactWalk' does not walk them, because they are not in
+    -- the source text.
+    factPatSynEquations :: (PatSynEquations -> f PatSynEquations) -> PatSynEquations -> f PatSynEquations
+  }
+
+-- | The hooks that change no information and do not walk the equations of
+-- a pattern synonym.
+idFactWalk :: (Applicative f) => FactWalk f
+idFactWalk =
+  FactWalk
+    { factCast = pure . Just,
+      factMatchArityCast = pure . Just,
+      factTypeFamilyInstance = pure,
+      factDataFamilyInstance = pure,
+      factClass = pure,
+      factDerivingPlan = pure,
+      factInstance = pure,
+      factInstanceMethod = pure,
+      factPatSynEquations = \_ equations -> pure equations
+    }
+
 -- | The walk that changes nothing.
 idWalk :: (Applicative f) => Walk f
 idWalk =
@@ -83,6 +128,7 @@ idWalk =
       walkResolution = pure,
       walkTcAnnotation = pure,
       walkCheckedType = pure,
+      walkFacts = idFactWalk,
       walkAnnotationList = id,
       walkName = id,
       walkExpr = id,
@@ -111,20 +157,39 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The information of an expression wrapper.
-walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f ExprTc
+-- | The type annotations of a piece of syntax, in source order.
+collectTcAnnotations :: (Walkable a) => a -> [TcAnnotation]
+collectTcAnnotations = runCollect (walk idWalk {walkTcAnnotation = step})
+  where
+    step item = Collect (Just (item :))
+
+-- | The information of an expression wrapper. 'Nothing' removes the
+-- wrapper.
+walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f (Maybe ExprTc)
 walkExprTc w item =
   case item of
-    ExprType annotation -> ExprType <$> walkTcAnnotation w annotation
-    ExprCast _ -> pure item
+    ExprType annotation -> Just . ExprType <$> walkTcAnnotation w annotation
+    ExprCast cast -> fmap ExprCast <$> factCast (walkFacts w) cast
 
--- | The information of a pattern wrapper.
-walkPatternTc :: (Applicative f) => Walk f -> PatternTc -> f PatternTc
+-- | The information of a pattern wrapper. 'Nothing' removes the wrapper.
+walkPatternTc :: (Applicative f) => Walk f -> PatternTc -> f (Maybe PatternTc)
 walkPatternTc w item =
   case item of
-    PatternType annotation -> PatternType <$> walkTcAnnotation w annotation
-    PatternCast _ -> pure item
-    PatternInstantiation -> pure item
+    PatternType annotation -> Just . PatternType <$> walkTcAnnotation w annotation
+    PatternCast cast -> fmap PatternCast <$> factCast (walkFacts w) cast
+    PatternInstantiation -> pure (Just item)
+
+-- | Wrap a node with its information, if the information stays.
+wrapTc :: (item -> node -> node) -> Maybe item -> node -> node
+wrapTc wrap item node = maybe node (`wrap` node) item
+
+-- | The casts of one node. A cast that the hook removes goes away.
+walkCasts :: (Applicative f) => Walk f -> [TcCastAnnotation] -> f [TcCastAnnotation]
+walkCasts w casts = catMaybes <$> traverse (factCast (walkFacts w)) casts
+
+-- | An item that its hook can remove, if the node has one.
+walkRemovable :: (Applicative f) => (item -> f (Maybe item)) -> Maybe item -> f (Maybe item)
+walkRemovable hook item = join <$> traverse hook item
 
 -- | The annotation of a declaration wrapper, a name, or a binder.
 walkDeclTc :: (Applicative f) => Walk f -> TcAnnotation -> f TcAnnotation
@@ -224,10 +289,11 @@ instance (Walkable a, Walkable b) => Walkable (a, b) where
 
 instance Walkable Name where
   walk w = walkName w $ \name ->
-    (\anns resolution annotation -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation})
+    (\anns resolution annotation cast -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation, nameCast = cast})
       <$> walkAnns w (nameAnns name)
       <*> walkMaybeResolution w (nameResolution name)
       <*> traverse (walkDeclTc w) (nameTc name)
+      <*> walkRemovable (factCast (walkFacts w)) (nameCast name)
 
 instance Walkable UnqualifiedName where
   walk w name =
@@ -361,11 +427,15 @@ instance Walkable MultiplicityTag where
 
 instance Walkable Match where
   walk w (Match anns arityCast headForm pats rhs) =
-    Match <$> walkAnns w anns <*> pure arityCast <*> pure headForm <*> walk w pats <*> walk w rhs
+    Match <$> walkAnns w anns <*> walkRemovable (factMatchArityCast (walkFacts w)) arityCast <*> pure headForm <*> walk w pats <*> walk w rhs
 
 instance Walkable PatSynDecl where
   walk w (PatSynDecl name args pat direction equations) =
-    PatSynDecl <$> walk w name <*> pure args <*> walk w pat <*> walk w direction <*> pure equations
+    PatSynDecl <$> walk w name <*> pure args <*> walk w pat <*> walk w direction <*> traverse (factPatSynEquations (walkFacts w) (walk w)) equations
+
+instance Walkable PatSynEquations where
+  walk w (PatSynEquations matcher builder selectors) =
+    PatSynEquations <$> walk w matcher <*> walk w builder <*> traverse (\(label, match) -> (label,) <$> walk w match) selectors
 
 instance Walkable PatSynDir where
   walk w direction =
@@ -378,9 +448,9 @@ instance (Walkable body) => Walkable (Rhs body) where
   walk w rhs =
     case rhs of
       UnguardedRhs anns infos body decls ->
-        UnguardedRhs <$> walkAnns w anns <*> pure infos <*> walk w body <*> walk w decls
+        UnguardedRhs <$> walkAnns w anns <*> walkCasts w infos <*> walk w body <*> walk w decls
       GuardedRhss anns infos guarded decls ->
-        GuardedRhss <$> walkAnns w anns <*> pure infos <*> walk w guarded <*> walk w decls
+        GuardedRhss <$> walkAnns w anns <*> walkCasts w infos <*> walk w guarded <*> walk w decls
 
 instance (Walkable body) => Walkable (GuardedRhs body) where
   walk w (GuardedRhs anns guards body) =
@@ -438,7 +508,7 @@ instance Walkable LiteralSyntax where
 instance Walkable Pattern where
   walk w = walkPattern w $ \case
     PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
-    PTc info inner -> PTc <$> walkPatternTc w info <*> walk w inner
+    PTc info inner -> wrapTc PTc <$> walkPatternTc w info <*> walk w inner
     PVar name -> PVar <$> walk w name
     PTypeBinder binder -> PTypeBinder <$> walk w binder
     PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
@@ -564,7 +634,7 @@ instance Walkable DataFamilyDecl where
 
 instance Walkable TypeFamilyInst where
   walk w (TypeFamilyInst binders headForm lhs rhs checked) =
-    TypeFamilyInst <$> walk w binders <*> pure headForm <*> walk w lhs <*> walk w rhs <*> pure checked
+    TypeFamilyInst <$> walk w binders <*> pure headForm <*> walk w lhs <*> walk w rhs <*> traverse (factTypeFamilyInstance (walkFacts w)) checked
 
 instance Walkable DataFamilyInst where
   walk w (DataFamilyInst isNewtype binders instHead kind constructors derivings checked) =
@@ -574,7 +644,7 @@ instance Walkable DataFamilyInst where
       <*> walk w kind
       <*> walk w constructors
       <*> walk w derivings
-      <*> pure checked
+      <*> traverse (factDataFamilyInstance (walkFacts w)) checked
 
 instance Walkable DataDecl where
   walk w (DataDecl pragma dataHead context kind constructors derivings) =
@@ -633,7 +703,7 @@ instance Walkable FieldDecl where
 
 instance Walkable DerivingClause where
   walk w (DerivingClause strategy classes plans) =
-    DerivingClause <$> walk w strategy <*> walk w classes <*> pure plans
+    DerivingClause <$> walk w strategy <*> walk w classes <*> traverse (factDerivingPlan (walkFacts w)) plans
 
 instance Walkable DerivingStrategy where
   walk w strategy =
@@ -652,7 +722,7 @@ instance Walkable StandaloneDerivingDecl where
       <*> walk w binders
       <*> walk w context
       <*> walk w instHead
-      <*> pure plan
+      <*> traverse (factDerivingPlan (walkFacts w)) plan
 
 -- Classes and instances
 
@@ -663,7 +733,7 @@ instance Walkable ClassDecl where
       <*> walk w classHead
       <*> walk w fundeps
       <*> walk w items
-      <*> pure checked
+      <*> traverse (factClass (walkFacts w)) checked
 
 instance Walkable FunctionalDependency where
   walk w fundep =
@@ -678,7 +748,7 @@ instance Walkable ClassDeclItem where
     ClassItemDefaultSig name ty -> ClassItemDefaultSig <$> walk w name <*> walk w ty
     ClassItemFixity assoc namespace precedence operators ->
       ClassItemFixity assoc namespace precedence <$> walk w operators
-    ClassItemDefault tc value -> ClassItemDefault tc <$> walk w value
+    ClassItemDefault tc value -> ClassItemDefault <$> traverse (factInstanceMethod (walkFacts w)) tc <*> walk w value
     ClassItemTypeFamilyDecl familyDecl -> ClassItemTypeFamilyDecl <$> walk w familyDecl
     ClassItemDataFamilyDecl familyDecl -> ClassItemDataFamilyDecl <$> walk w familyDecl
     ClassItemDefaultTypeInst familyInst -> ClassItemDefaultTypeInst <$> walk w familyInst
@@ -691,14 +761,14 @@ instance Walkable InstanceDecl where
       <*> walk w context
       <*> walk w instHead
       <*> walk w items
-      <*> pure checked
+      <*> traverse (factInstance (walkFacts w)) checked
       <*> pure derived
 
 instance Walkable InstanceDeclItem where
   walk w = walkInstanceDeclItem w $ \case
     InstanceItemAnn ann inner -> InstanceItemAnn <$> walkAnnotation w ann <*> walk w inner
     InstanceItemError err inner -> InstanceItemError err <$> walk w inner
-    InstanceItemBind tc value -> InstanceItemBind tc <$> walk w value
+    InstanceItemBind tc value -> InstanceItemBind <$> traverse (factInstanceMethod (walkFacts w)) tc <*> walk w value
     InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
     InstanceItemFixity assoc namespace precedence operators ->
       InstanceItemFixity assoc namespace precedence <$> walk w operators
@@ -718,7 +788,7 @@ instance Walkable Expr where
   walk w = walkExpr w $ \expr ->
     case expr of
       EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
-      ETc info inner -> ETc <$> walkExprTc w info <*> walk w inner
+      ETc info inner -> wrapTc ETc <$> walkExprTc w info <*> walk w inner
       EVar name -> EVar <$> walk w name
       EImplicitParam {} -> pure expr
       ETypeSyntax form ty -> ETypeSyntax form <$> walk w ty

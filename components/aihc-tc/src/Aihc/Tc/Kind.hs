@@ -57,7 +57,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (normalizeFamilyPred, reduceTypeFamilies)
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( BuiltinCon (..),
     ForallTelescope (..),
     ForallVis (..),

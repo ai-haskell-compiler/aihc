@@ -30,7 +30,7 @@ import Aihc.Tc
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
 import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
-import Aihc.Tc.Syntax.Pending (Type (TStar))
+import Aihc.Tc.Syntax (Type (TStar))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map

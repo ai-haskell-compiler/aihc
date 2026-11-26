@@ -18,6 +18,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcRecStmt (..),
+    typeAnnotation,
   )
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
@@ -373,7 +374,7 @@ addInfoLabels span' infos = do
   let labelText label =
         case label of
           LabelInfo info -> Just (renderTypeAnnotation currentModule info)
-          LabelType ty -> Just (renderTypeAnnotation currentModule (TcAnnotation ty [] [] [] [] []))
+          LabelType ty -> Just (renderTypeAnnotation currentModule (typeAnnotation ty))
           LabelText text -> Just text
   case [label | info <- infos, Just label <- [labelText info]] of
     [] -> pure ()

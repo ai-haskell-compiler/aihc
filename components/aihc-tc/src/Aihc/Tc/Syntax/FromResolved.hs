@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- | Copy a resolved syntax tree into the tree that the type checker works
--- on. The copy has no type checker information.
+-- | Copy a resolved syntax tree into the tree of the type checker. The copy
+-- has no type checker information.
 --
 -- Each instance has one case for each constructor of the data declaration.
 -- When a constructor changes in one tree, change its case here too.
@@ -12,221 +12,221 @@ where
 
 import Aihc.Parser.Syntax qualified as P
 import Aihc.Resolve.Syntax qualified as R
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
 import Data.Text (Text)
 
 class FromResolved a where
-  type ToPending a
-  fromResolved :: a -> ToPending a
+  type ToTc a
+  fromResolved :: a -> ToTc a
 
 instance (FromResolved a) => FromResolved [a] where
-  type ToPending [a] = [ToPending a]
+  type ToTc [a] = [ToTc a]
   fromResolved = fmap fromResolved
 
 instance (FromResolved a) => FromResolved (Maybe a) where
-  type ToPending (Maybe a) = Maybe (ToPending a)
+  type ToTc (Maybe a) = Maybe (ToTc a)
   fromResolved = fmap fromResolved
 
 instance (FromResolved a, FromResolved b) => FromResolved (a, b) where
-  type ToPending (a, b) = (ToPending a, ToPending b)
+  type ToTc (a, b) = (ToTc a, ToTc b)
   fromResolved (left, right) = (fromResolved left, fromResolved right)
 
 instance (FromResolved a, FromResolved b) => FromResolved (Either a b) where
-  type ToPending (Either a b) = Either (ToPending a) (ToPending b)
+  type ToTc (Either a b) = Either (ToTc a) (ToTc b)
   fromResolved = either (Left . fromResolved) (Right . fromResolved)
 
 instance FromResolved Annotation where
-  type ToPending Annotation = Annotation
+  type ToTc Annotation = Annotation
   fromResolved = id
 
 instance FromResolved ArrAppType where
-  type ToPending ArrAppType = ArrAppType
+  type ToTc ArrAppType = ArrAppType
   fromResolved = id
 
 instance FromResolved Bool where
-  type ToPending Bool = Bool
+  type ToTc Bool = Bool
   fromResolved = id
 
 instance FromResolved BuiltinCon where
-  type ToPending BuiltinCon = BuiltinCon
+  type ToTc BuiltinCon = BuiltinCon
   fromResolved = id
 
 instance FromResolved CallConv where
-  type ToPending CallConv = CallConv
+  type ToTc CallConv = CallConv
   fromResolved = id
 
 instance FromResolved Char where
-  type ToPending Char = Char
+  type ToTc Char = Char
   fromResolved = id
 
 instance FromResolved DoFlavor where
-  type ToPending DoFlavor = DoFlavor
+  type ToTc DoFlavor = DoFlavor
   fromResolved = id
 
 instance FromResolved ExtensionSetting where
-  type ToPending ExtensionSetting = ExtensionSetting
+  type ToTc ExtensionSetting = ExtensionSetting
   fromResolved = id
 
 instance FromResolved FixityAssoc where
-  type ToPending FixityAssoc = FixityAssoc
+  type ToTc FixityAssoc = FixityAssoc
   fromResolved = id
 
 instance FromResolved FloatType where
-  type ToPending FloatType = FloatType
+  type ToTc FloatType = FloatType
   fromResolved = id
 
 instance FromResolved ForallVis where
-  type ToPending ForallVis = ForallVis
+  type ToTc ForallVis = ForallVis
   fromResolved = id
 
 instance FromResolved ForeignDirection where
-  type ToPending ForeignDirection = ForeignDirection
+  type ToTc ForeignDirection = ForeignDirection
   fromResolved = id
 
 instance FromResolved ForeignEntitySpec where
-  type ToPending ForeignEntitySpec = ForeignEntitySpec
+  type ToTc ForeignEntitySpec = ForeignEntitySpec
   fromResolved = id
 
 instance FromResolved ForeignSafety where
-  type ToPending ForeignSafety = ForeignSafety
+  type ToTc ForeignSafety = ForeignSafety
   fromResolved = id
 
 instance FromResolved FunctionalDependency where
-  type ToPending FunctionalDependency = FunctionalDependency
+  type ToTc FunctionalDependency = FunctionalDependency
   fromResolved = id
 
 instance FromResolved IEBundledNamespace where
-  type ToPending IEBundledNamespace = IEBundledNamespace
+  type ToTc IEBundledNamespace = IEBundledNamespace
   fromResolved = id
 
 instance FromResolved IEEntityNamespace where
-  type ToPending IEEntityNamespace = IEEntityNamespace
+  type ToTc IEEntityNamespace = IEEntityNamespace
   fromResolved = id
 
 instance FromResolved ImportLevel where
-  type ToPending ImportLevel = ImportLevel
+  type ToTc ImportLevel = ImportLevel
   fromResolved = id
 
 instance FromResolved Int where
-  type ToPending Int = Int
+  type ToTc Int = Int
   fromResolved = id
 
 instance FromResolved Integer where
-  type ToPending Integer = Integer
+  type ToTc Integer = Integer
   fromResolved = id
 
 instance FromResolved MatchHeadForm where
-  type ToPending MatchHeadForm = MatchHeadForm
+  type ToTc MatchHeadForm = MatchHeadForm
   fromResolved = id
 
 instance FromResolved NameType where
-  type ToPending NameType = NameType
+  type ToTc NameType = NameType
   fromResolved = id
 
 instance FromResolved NumericType where
-  type ToPending NumericType = NumericType
+  type ToTc NumericType = NumericType
   fromResolved = id
 
 instance FromResolved PatSynArgs where
-  type ToPending PatSynArgs = PatSynArgs
+  type ToTc PatSynArgs = PatSynArgs
   fromResolved = id
 
 instance FromResolved Pragma where
-  type ToPending Pragma = Pragma
+  type ToTc Pragma = Pragma
   fromResolved = id
 
 instance FromResolved Rational where
-  type ToPending Rational = Rational
+  type ToTc Rational = Rational
   fromResolved = id
 
 instance FromResolved RecKnotVariables where
-  type ToPending RecKnotVariables = RecKnotVariables
+  type ToTc RecKnotVariables = RecKnotVariables
   fromResolved = id
 
 instance FromResolved ResolutionResult where
-  type ToPending ResolutionResult = ResolutionResult
+  type ToTc ResolutionResult = ResolutionResult
   fromResolved = id
 
 instance FromResolved ResolveError where
-  type ToPending ResolveError = ResolveError
+  type ToTc ResolveError = ResolveError
   fromResolved = id
 
 instance FromResolved Role where
-  type ToPending Role = Role
+  type ToTc Role = Role
   fromResolved = id
 
 instance FromResolved RuleActivation where
-  type ToPending RuleActivation = RuleActivation
+  type ToTc RuleActivation = RuleActivation
   fromResolved = id
 
 instance FromResolved Text where
-  type ToPending Text = Text
+  type ToTc Text = Text
   fromResolved = id
 
 instance FromResolved TupleFlavor where
-  type ToPending TupleFlavor = TupleFlavor
+  type ToTc TupleFlavor = TupleFlavor
   fromResolved = id
 
 instance FromResolved TyVarBSpecificity where
-  type ToPending TyVarBSpecificity = TyVarBSpecificity
+  type ToTc TyVarBSpecificity = TyVarBSpecificity
   fromResolved = id
 
 instance FromResolved TyVarBVisibility where
-  type ToPending TyVarBVisibility = TyVarBVisibility
+  type ToTc TyVarBVisibility = TyVarBVisibility
   fromResolved = id
 
 instance FromResolved TypeFamilyInjectivity where
-  type ToPending TypeFamilyInjectivity = TypeFamilyInjectivity
+  type ToTc TypeFamilyInjectivity = TypeFamilyInjectivity
   fromResolved = id
 
 instance FromResolved TypeHeadForm where
-  type ToPending TypeHeadForm = TypeHeadForm
+  type ToTc TypeHeadForm = TypeHeadForm
   fromResolved = id
 
 instance FromResolved TypeLiteral where
-  type ToPending TypeLiteral = TypeLiteral
+  type ToTc TypeLiteral = TypeLiteral
   fromResolved = id
 
 instance FromResolved TypePromotion where
-  type ToPending TypePromotion = TypePromotion
+  type ToTc TypePromotion = TypePromotion
   fromResolved = id
 
 instance FromResolved TypeSyntaxForm where
-  type ToPending TypeSyntaxForm = TypeSyntaxForm
+  type ToTc TypeSyntaxForm = TypeSyntaxForm
   fromResolved = id
 
 instance FromResolved R.Name where
-  type ToPending R.Name = Name
+  type ToTc R.Name = Name
   fromResolved node =
     case node of
       R.Name x1 x2 x3 x4 x5 -> Name (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) Nothing Nothing
 
 instance FromResolved R.UnqualifiedName where
-  type ToPending R.UnqualifiedName = UnqualifiedName
+  type ToTc R.UnqualifiedName = UnqualifiedName
   fromResolved node =
     case node of
       R.UnqualifiedName x1 x2 x3 x4 -> UnqualifiedName (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.Module where
-  type ToPending R.Module = Module
+  type ToTc R.Module = Module
   fromResolved node =
     case node of
-      R.Module x1 x2 x3 x4 x5 -> Module (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
+      R.Module x1 x2 x3 x4 x5 -> Module (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) []
 
 instance FromResolved R.ModuleHead where
-  type ToPending R.ModuleHead = ModuleHead
+  type ToTc R.ModuleHead = ModuleHead
   fromResolved node =
     case node of
       R.ModuleHead x1 x2 x3 x4 -> ModuleHead (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.IEBundledMember where
-  type ToPending R.IEBundledMember = IEBundledMember
+  type ToTc R.IEBundledMember = IEBundledMember
   fromResolved node =
     case node of
       R.IEBundledMember x1 x2 -> IEBundledMember (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ExportSpec where
-  type ToPending R.ExportSpec = ExportSpec
+  type ToTc R.ExportSpec = ExportSpec
   fromResolved node =
     case node of
       R.ExportModule x1 x2 -> ExportModule (fromResolved x1) (fromResolved x2)
@@ -238,19 +238,19 @@ instance FromResolved R.ExportSpec where
       R.ExportAnn x1 x2 -> ExportAnn (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ImportDecl where
-  type ToPending R.ImportDecl = ImportDecl
+  type ToTc R.ImportDecl = ImportDecl
   fromResolved node =
     case node of
       R.ImportDecl x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 -> ImportDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) (fromResolved x7) (fromResolved x8) (fromResolved x9) (fromResolved x10) (fromResolved x11)
 
 instance FromResolved R.ImportSpec where
-  type ToPending R.ImportSpec = ImportSpec
+  type ToTc R.ImportSpec = ImportSpec
   fromResolved node =
     case node of
       R.ImportSpec x1 x2 x3 -> ImportSpec (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.ImportItem where
-  type ToPending R.ImportItem = ImportItem
+  type ToTc R.ImportItem = ImportItem
   fromResolved node =
     case node of
       R.ImportItemVar x1 x2 -> ImportItemVar (fromResolved x1) (fromResolved x2)
@@ -262,7 +262,7 @@ instance FromResolved R.ImportItem where
       R.ImportItemError x1 x2 -> ImportItemError (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Decl where
-  type ToPending R.Decl = Decl
+  type ToTc R.Decl = Decl
   fromResolved node =
     case node of
       R.DeclAnn x1 x2 -> DeclAnn (fromResolved x1) (fromResolved x2)
@@ -293,19 +293,19 @@ instance FromResolved R.Decl where
       R.DeclRules x1 -> DeclRules (fromResolved x1)
 
 instance FromResolved R.RuleDecl where
-  type ToPending R.RuleDecl = RuleDecl
+  type ToTc R.RuleDecl = RuleDecl
   fromResolved node =
     case node of
       R.RuleDecl x1 x2 x3 x4 x5 x6 x7 x8 -> RuleDecl (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) (fromResolved x7) (fromResolved x8)
 
 instance FromResolved R.RuleBinder where
-  type ToPending R.RuleBinder = RuleBinder
+  type ToTc R.RuleBinder = RuleBinder
   fromResolved node =
     case node of
       R.RuleBinder x1 x2 x3 -> RuleBinder (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.MultiplicityTag where
-  type ToPending R.MultiplicityTag = MultiplicityTag
+  type ToTc R.MultiplicityTag = MultiplicityTag
   fromResolved node =
     case node of
       R.NoMultiplicityTag -> NoMultiplicityTag
@@ -313,20 +313,20 @@ instance FromResolved R.MultiplicityTag where
       R.ExplicitMultiplicityTag x1 -> ExplicitMultiplicityTag (fromResolved x1)
 
 instance FromResolved R.ValueDecl where
-  type ToPending R.ValueDecl = ValueDecl
+  type ToTc R.ValueDecl = ValueDecl
   fromResolved node =
     case node of
       R.FunctionBind x1 x2 -> FunctionBind (fromResolved x1) (fromResolved x2)
       R.PatternBind x1 x2 x3 -> PatternBind (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.Match where
-  type ToPending R.Match = Match
+  type ToTc R.Match = Match
   fromResolved node =
     case node of
       R.Match x1 x2 x3 x4 -> Match (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.PatSynDir where
-  type ToPending R.PatSynDir = PatSynDir
+  type ToTc R.PatSynDir = PatSynDir
   fromResolved node =
     case node of
       R.PatSynUnidirectional -> PatSynUnidirectional
@@ -334,26 +334,26 @@ instance FromResolved R.PatSynDir where
       R.PatSynExplicitBidirectional x1 -> PatSynExplicitBidirectional (fromResolved x1)
 
 instance FromResolved R.PatSynDecl where
-  type ToPending R.PatSynDecl = PatSynDecl
+  type ToTc R.PatSynDecl = PatSynDecl
   fromResolved node =
     case node of
       R.PatSynDecl x1 x2 x3 x4 -> PatSynDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance (FromResolved body) => FromResolved (R.Rhs body) where
-  type ToPending (R.Rhs body) = Rhs (ToPending body)
+  type ToTc (R.Rhs body) = Rhs (ToTc body)
   fromResolved node =
     case node of
       R.UnguardedRhs x1 x2 x3 -> UnguardedRhs (fromResolved x1) [] (fromResolved x2) (fromResolved x3)
       R.GuardedRhss x1 x2 x3 -> GuardedRhss (fromResolved x1) [] (fromResolved x2) (fromResolved x3)
 
 instance (FromResolved body) => FromResolved (R.GuardedRhs body) where
-  type ToPending (R.GuardedRhs body) = GuardedRhs (ToPending body)
+  type ToTc (R.GuardedRhs body) = GuardedRhs (ToTc body)
   fromResolved node =
     case node of
       R.GuardedRhs x1 x2 x3 -> GuardedRhs (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.GuardQualifier where
-  type ToPending R.GuardQualifier = GuardQualifier
+  type ToTc R.GuardQualifier = GuardQualifier
   fromResolved node =
     case node of
       R.GuardAnn x1 x2 -> GuardAnn (fromResolved x1) (fromResolved x2)
@@ -362,13 +362,13 @@ instance FromResolved R.GuardQualifier where
       R.GuardLet x1 -> GuardLet (fromResolved x1)
 
 instance (FromResolved a) => FromResolved (R.RecordField a) where
-  type ToPending (R.RecordField a) = RecordField (ToPending a)
+  type ToTc (R.RecordField a) = RecordField (ToTc a)
   fromResolved node =
     case node of
       R.RecordField x1 x2 x3 -> RecordField (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.LiteralMatch where
-  type ToPending R.LiteralMatch = LiteralMatch
+  type ToTc R.LiteralMatch = LiteralMatch
   fromResolved node =
     case node of
       R.LiteralMatchFixed -> LiteralMatchFixed
@@ -376,36 +376,36 @@ instance FromResolved R.LiteralMatch where
       R.LiteralMatchOverloaded x1 -> LiteralMatchOverloaded (fromResolved x1)
 
 instance FromResolved R.OverloadedLiteralMatch where
-  type ToPending R.OverloadedLiteralMatch = OverloadedLiteralMatch
+  type ToTc R.OverloadedLiteralMatch = OverloadedLiteralMatch
   fromResolved (R.OverloadedLiteralMatch x1 x2 x3 x4) =
     OverloadedLiteralMatch (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.NPlusKMatch where
-  type ToPending R.NPlusKMatch = NPlusKMatch
+  type ToTc R.NPlusKMatch = NPlusKMatch
   fromResolved (R.NPlusKMatch x1 x2 x3 x4) =
     NPlusKMatch (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.LiteralSyntax where
-  type ToPending R.LiteralSyntax = LiteralSyntax
+  type ToTc R.LiteralSyntax = LiteralSyntax
   fromResolved syntax =
     case syntax of
       R.LiteralSyntaxPrimitive x1 -> LiteralSyntaxPrimitive (fromResolved x1)
       R.LiteralSyntaxOverloaded x1 x2 -> LiteralSyntaxOverloaded (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.DoBindMethods where
-  type ToPending R.DoBindMethods = DoBindMethods
+  type ToTc R.DoBindMethods = DoBindMethods
   fromResolved (R.DoBindMethods x1 x2) = DoBindMethods (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.DoRecMethods where
-  type ToPending R.DoRecMethods = DoRecMethods
+  type ToTc R.DoRecMethods = DoRecMethods
   fromResolved (R.DoRecMethods x1 x2 x3) = DoRecMethods (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.ListMatch where
-  type ToPending R.ListMatch = ListMatch
+  type ToTc R.ListMatch = ListMatch
   fromResolved (R.ListMatch x1 x2) = ListMatch (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Pattern where
-  type ToPending R.Pattern = Pattern
+  type ToTc R.Pattern = Pattern
   fromResolved node =
     case node of
       R.PAnn x1 x2 -> PAnn (fromResolved x1) (fromResolved x2)
@@ -433,13 +433,13 @@ instance FromResolved R.Pattern where
       R.PSplice x1 -> PSplice (fromResolved x1)
 
 instance FromResolved R.ForallTelescope where
-  type ToPending R.ForallTelescope = ForallTelescope
+  type ToTc R.ForallTelescope = ForallTelescope
   fromResolved node =
     case node of
       R.ForallTelescope x1 x2 -> ForallTelescope (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ArrowKind where
-  type ToPending R.ArrowKind = ArrowKind
+  type ToTc R.ArrowKind = ArrowKind
   fromResolved node =
     case node of
       R.ArrowUnrestricted -> ArrowUnrestricted
@@ -447,7 +447,7 @@ instance FromResolved R.ArrowKind where
       R.ArrowExplicit x1 -> ArrowExplicit (fromResolved x1)
 
 instance FromResolved R.Type where
-  type ToPending R.Type = Type
+  type ToTc R.Type = Type
   fromResolved node =
     case node of
       R.TAnn x1 x2 -> TAnn (fromResolved x1) (fromResolved x2)
@@ -473,38 +473,38 @@ instance FromResolved R.Type where
       R.TWildcard -> TWildcard
 
 instance FromResolved R.TyVarBinder where
-  type ToPending R.TyVarBinder = TyVarBinder
+  type ToTc R.TyVarBinder = TyVarBinder
   fromResolved node =
     case node of
       R.TyVarBinder x1 x2 x3 x4 x5 -> TyVarBinder (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
 
 instance (FromResolved name) => FromResolved (R.BinderHead name) where
-  type ToPending (R.BinderHead name) = BinderHead (ToPending name)
+  type ToTc (R.BinderHead name) = BinderHead (ToTc name)
   fromResolved node =
     case node of
       R.PrefixBinderHead x1 x2 -> PrefixBinderHead (fromResolved x1) (fromResolved x2)
       R.InfixBinderHead x1 x2 x3 x4 -> InfixBinderHead (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.RoleAnnotation where
-  type ToPending R.RoleAnnotation = RoleAnnotation
+  type ToTc R.RoleAnnotation = RoleAnnotation
   fromResolved node =
     case node of
       R.RoleAnnotation x1 x2 -> RoleAnnotation (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.TypeSynDecl where
-  type ToPending R.TypeSynDecl = TypeSynDecl
+  type ToTc R.TypeSynDecl = TypeSynDecl
   fromResolved node =
     case node of
       R.TypeSynDecl x1 x2 -> TypeSynDecl (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.TypeFamilyDecl where
-  type ToPending R.TypeFamilyDecl = TypeFamilyDecl
+  type ToTc R.TypeFamilyDecl = TypeFamilyDecl
   fromResolved node =
     case node of
       R.TypeFamilyDecl x1 x2 x3 x4 x5 x6 -> TypeFamilyDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
 
 instance FromResolved R.TypeFamilyResultSig where
-  type ToPending R.TypeFamilyResultSig = TypeFamilyResultSig
+  type ToTc R.TypeFamilyResultSig = TypeFamilyResultSig
   fromResolved node =
     case node of
       R.TypeFamilyKindSig x1 -> TypeFamilyKindSig (fromResolved x1)
@@ -512,43 +512,43 @@ instance FromResolved R.TypeFamilyResultSig where
       R.TypeFamilyInjectiveSig x1 x2 -> TypeFamilyInjectiveSig (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.TypeFamilyEq where
-  type ToPending R.TypeFamilyEq = TypeFamilyEq
+  type ToTc R.TypeFamilyEq = TypeFamilyEq
   fromResolved node =
     case node of
       R.TypeFamilyEq x1 x2 x3 x4 x5 -> TypeFamilyEq (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
 
 instance FromResolved R.DataFamilyDecl where
-  type ToPending R.DataFamilyDecl = DataFamilyDecl
+  type ToTc R.DataFamilyDecl = DataFamilyDecl
   fromResolved node =
     case node of
       R.DataFamilyDecl x1 x2 -> DataFamilyDecl (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.TypeFamilyInst where
-  type ToPending R.TypeFamilyInst = TypeFamilyInst
+  type ToTc R.TypeFamilyInst = TypeFamilyInst
   fromResolved node =
     case node of
       R.TypeFamilyInst x1 x2 x3 x4 -> TypeFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.DataFamilyInst where
-  type ToPending R.DataFamilyInst = DataFamilyInst
+  type ToTc R.DataFamilyInst = DataFamilyInst
   fromResolved node =
     case node of
       R.DataFamilyInst x1 x2 x3 x4 x5 x6 -> DataFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.DataDecl where
-  type ToPending R.DataDecl = DataDecl
+  type ToTc R.DataDecl = DataDecl
   fromResolved node =
     case node of
       R.DataDecl x1 x2 x3 x4 x5 x6 -> DataDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
 
 instance FromResolved R.NewtypeDecl where
-  type ToPending R.NewtypeDecl = NewtypeDecl
+  type ToTc R.NewtypeDecl = NewtypeDecl
   fromResolved node =
     case node of
       R.NewtypeDecl x1 x2 x3 x4 x5 x6 -> NewtypeDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
 
 instance FromResolved R.DataConDecl where
-  type ToPending R.DataConDecl = DataConDecl
+  type ToTc R.DataConDecl = DataConDecl
   fromResolved node =
     case node of
       R.DataConAnn x1 x2 -> DataConAnn (fromResolved x1) (fromResolved x2)
@@ -561,32 +561,32 @@ instance FromResolved R.DataConDecl where
       R.ListCon x1 x2 x3 -> ListCon Nothing (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.GadtBody where
-  type ToPending R.GadtBody = GadtBody
+  type ToTc R.GadtBody = GadtBody
   fromResolved node =
     case node of
       R.GadtPrefixBody x1 x2 -> GadtPrefixBody (fromResolved x1) (fromResolved x2)
       R.GadtRecordBody x1 x2 -> GadtRecordBody (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.BangType where
-  type ToPending R.BangType = BangType
+  type ToTc R.BangType = BangType
   fromResolved node =
     case node of
       R.BangType x1 x2 x3 x4 x5 -> BangType (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
 
 instance FromResolved R.FieldDecl where
-  type ToPending R.FieldDecl = FieldDecl
+  type ToTc R.FieldDecl = FieldDecl
   fromResolved node =
     case node of
       R.FieldDecl x1 x2 x3 x4 -> FieldDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) []
 
 instance FromResolved R.DerivingClause where
-  type ToPending R.DerivingClause = DerivingClause
+  type ToTc R.DerivingClause = DerivingClause
   fromResolved node =
     case node of
       R.DerivingClause x1 x2 -> DerivingClause (fromResolved x1) (fromResolved x2) []
 
 instance FromResolved R.DerivingStrategy where
-  type ToPending R.DerivingStrategy = DerivingStrategy
+  type ToTc R.DerivingStrategy = DerivingStrategy
   fromResolved node =
     case node of
       R.DerivingStock -> DerivingStock
@@ -595,19 +595,19 @@ instance FromResolved R.DerivingStrategy where
       R.DerivingVia x1 -> DerivingVia (fromResolved x1)
 
 instance FromResolved R.StandaloneDerivingDecl where
-  type ToPending R.StandaloneDerivingDecl = StandaloneDerivingDecl
+  type ToTc R.StandaloneDerivingDecl = StandaloneDerivingDecl
   fromResolved node =
     case node of
       R.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 -> StandaloneDerivingDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.ClassDecl where
-  type ToPending R.ClassDecl = ClassDecl
+  type ToTc R.ClassDecl = ClassDecl
   fromResolved node =
     case node of
       R.ClassDecl x1 x2 x3 x4 -> ClassDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.ClassDeclItem where
-  type ToPending R.ClassDeclItem = ClassDeclItem
+  type ToTc R.ClassDeclItem = ClassDeclItem
   fromResolved node =
     case node of
       R.ClassItemAnn x1 x2 -> ClassItemAnn (fromResolved x1) (fromResolved x2)
@@ -622,13 +622,13 @@ instance FromResolved R.ClassDeclItem where
       R.ClassItemPragma x1 -> ClassItemPragma (fromResolved x1)
 
 instance FromResolved R.InstanceDecl where
-  type ToPending R.InstanceDecl = InstanceDecl
+  type ToTc R.InstanceDecl = InstanceDecl
   fromResolved node =
     case node of
       R.InstanceDecl x1 x2 x3 x4 x5 x6 -> InstanceDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing Nothing
 
 instance FromResolved R.InstanceDeclItem where
-  type ToPending R.InstanceDeclItem = InstanceDeclItem
+  type ToTc R.InstanceDeclItem = InstanceDeclItem
   fromResolved node =
     case node of
       R.InstanceItemAnn x1 x2 -> InstanceItemAnn (fromResolved x1) (fromResolved x2)
@@ -641,13 +641,13 @@ instance FromResolved R.InstanceDeclItem where
       R.InstanceItemPragma x1 -> InstanceItemPragma (fromResolved x1)
 
 instance FromResolved R.ForeignDecl where
-  type ToPending R.ForeignDecl = ForeignDecl
+  type ToTc R.ForeignDecl = ForeignDecl
   fromResolved node =
     case node of
       R.ForeignDecl x1 x2 x3 x4 x5 x6 -> ForeignDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.Expr where
-  type ToPending R.Expr = Expr
+  type ToTc R.Expr = Expr
   fromResolved node =
     case node of
       R.EAnn x1 x2 -> EAnn (fromResolved x1) (fromResolved x2)
@@ -702,19 +702,19 @@ instance FromResolved R.Expr where
       R.EPragma x1 x2 -> EPragma (fromResolved x1) (fromResolved x2)
 
 instance (FromResolved body) => FromResolved (R.CaseAlt body) where
-  type ToPending (R.CaseAlt body) = CaseAlt (ToPending body)
+  type ToTc (R.CaseAlt body) = CaseAlt (ToTc body)
   fromResolved node =
     case node of
       R.CaseAlt x1 x2 x3 -> CaseAlt (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance FromResolved R.LambdaCaseAlt where
-  type ToPending R.LambdaCaseAlt = LambdaCaseAlt
+  type ToTc R.LambdaCaseAlt = LambdaCaseAlt
   fromResolved node =
     case node of
       R.LambdaCaseAlt x1 x2 x3 -> LambdaCaseAlt (fromResolved x1) (fromResolved x2) (fromResolved x3)
 
 instance (FromResolved body) => FromResolved (R.DoStmt body) where
-  type ToPending (R.DoStmt body) = DoStmt (ToPending body)
+  type ToTc (R.DoStmt body) = DoStmt (ToTc body)
   fromResolved node =
     case node of
       R.DoAnn x1 x2 -> DoAnn (fromResolved x1) (fromResolved x2)
@@ -725,7 +725,7 @@ instance (FromResolved body) => FromResolved (R.DoStmt body) where
       R.DoRecStmt x1 x2 -> DoRecStmt Nothing (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Cmd where
-  type ToPending R.Cmd = Cmd
+  type ToTc R.Cmd = Cmd
   fromResolved node =
     case node of
       R.CmdAnn x1 x2 -> CmdAnn (fromResolved x1) (fromResolved x2)
@@ -740,7 +740,7 @@ instance FromResolved R.Cmd where
       R.CmdPar x1 -> CmdPar (fromResolved x1)
 
 instance FromResolved R.CompStmt where
-  type ToPending R.CompStmt = CompStmt
+  type ToTc R.CompStmt = CompStmt
   fromResolved node =
     case node of
       R.CompAnn x1 x2 -> CompAnn (fromResolved x1) (fromResolved x2)
@@ -753,7 +753,7 @@ instance FromResolved R.CompStmt where
       R.CompGroupByUsing x1 x2 -> CompGroupByUsing Nothing (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ArithSeq where
-  type ToPending R.ArithSeq = ArithSeq
+  type ToTc R.ArithSeq = ArithSeq
   fromResolved node =
     case node of
       R.ArithSeqAnn x1 x2 -> ArithSeqAnn (fromResolved x1) (fromResolved x2)
@@ -763,7 +763,7 @@ instance FromResolved R.ArithSeq where
       R.ArithSeqFromThenTo x1 x2 x3 x4 -> ArithSeqFromThenTo (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved P.Literal where
-  type ToPending P.Literal = Literal
+  type ToTc P.Literal = Literal
   fromResolved node =
     case node of
       P.LitAnn x1 x2 -> LitAnn (fromResolved x1) (fromResolved x2)

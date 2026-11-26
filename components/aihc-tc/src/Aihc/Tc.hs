@@ -147,15 +147,11 @@ import Aihc.Tc.Generate.Decl (TcBindingResult (..), defaultMethodName, tcModule,
 import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Syntax (Module)
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (FromPending (..), plainFinalizers)
 import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
-import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (unpackableConstructor)
 import Aihc.Tc.Wiring (mkTcKinds)
 import Aihc.Tc.Zonk (finalizeDiagnostics)
-import Data.Functor.Identity (Identity (..))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 
@@ -201,7 +197,7 @@ typecheckModuleSccWithFacts config = typecheckWithFacts (typecheckModuleSccWithS
 -- | Use the same module identity and interface rules for both check orders.
 --
 -- The check gives final syntax trees of the type checker.
-typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Final.Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
+typecheckWithFacts :: (TcState -> [ResolvedModule] -> ([Module], TcState)) -> FactEnv -> [ResolvedModule] -> ([Module], TcInterface)
 typecheckWithFacts check imported resolved
   -- Name resolution already checked imports and exports. Without declarations,
   -- the modules add no types, evidence, or diagnostics.
@@ -211,12 +207,7 @@ typecheckWithFacts check imported resolved
           (checkedModules, finalState) = check initialState resolved
        in (checkedModules, tcInterfaceDifference initialState finalState)
   where
-    annotateIdentity unit = uncheckedModule (withModuleIdentity (resolvedModulePackage unit) (fromResolved (resolvedModuleSyntax unit)))
-
--- | A module that the type checker did not check. It keeps only the
--- identity of the module.
-uncheckedModule :: Pending.Module -> Final.Module
-uncheckedModule = runIdentity . fromPending plainFinalizers
+    annotateIdentity unit = withModuleIdentity (resolvedModulePackage unit) (fromResolved (resolvedModuleSyntax unit))
 
 -- | The state before the check of a module group. The tables of terms,
 -- type constructors, data types, classes, pattern synonyms, and foreign
@@ -268,11 +259,11 @@ exportedGlobalTerms = Map.mapMaybe binderScheme
         TcIdBinder scheme _ -> Just scheme
         _ -> Nothing
 
-typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Final.Module], TcState)
+typecheckModuleSccWithState :: TcConfig -> TcState -> [ResolvedModule] -> ([Module], TcState)
 typecheckModuleSccWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( case map (uncheckedModule . fromResolved . resolvedModuleSyntax) resolved of
+      ( case map (fromResolved . resolvedModuleSyntax) resolved of
           [] -> []
           first : rest -> annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] first : rest,
         st
@@ -299,11 +290,11 @@ typecheckModuleSccWithState config st resolved =
           tcEnvPostfixOperators = any (elem PostfixOperators) extensions
         }
 
-typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Final.Module, TcState)
+typecheckModuleWithState :: TcConfig -> TcState -> ResolvedModule -> (Module, TcState)
 typecheckModuleWithState config st resolved =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule resolved <* finalizeDiagnostics) of
     Left abort ->
-      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (uncheckedModule (fromResolved (resolvedModuleSyntax resolved))),
+      ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] (fromResolved (resolvedModuleSyntax resolved)),
         st
       )
     Right (annotatedModule, st') ->

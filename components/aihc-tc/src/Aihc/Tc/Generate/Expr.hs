@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -32,7 +32,7 @@ import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyTyCon, reduceTypeFamilies)
 import Aihc.Tc.Solve.FunDep (improveFunDeps)
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Annotation,
     ArithSeq (..),
     CaseAlt (..),
@@ -60,7 +60,7 @@ import Aihc.Tc.Syntax.Pending
     Type (..),
     UnqualifiedName (..),
     addNameCast,
-    addNamePending,
+    addNameTc,
     annotateBranchCast,
     annotateExprCast,
     annotateFunCast,
@@ -70,12 +70,11 @@ import Aihc.Tc.Syntax.Pending
     arithSeqMethod,
     mapArithSeqMethod,
     mkSpanAnnotation,
-    namePending,
     peelExprAnn,
     qualifyName,
     setCompStmtTc,
   )
-import Aihc.Tc.Syntax.Pending.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
+import Aihc.Tc.Syntax.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyDeferring, unifyDeferringUnderGivens)
@@ -336,7 +335,7 @@ inferOperator ambient nameSyntax = do
           Nothing -> nameSyntax
   pure (name', ty, cts)
 
-inferNameOccurrence :: Maybe SourceSpan -> Name -> TcM (Maybe PendingTcAnnotation, TcType, [Ct])
+inferNameOccurrence :: Maybe SourceSpan -> Name -> TcM (Maybe TcAnnotation, TcType, [Ct])
 inferNameOccurrence ambient nameSyntax = do
   let sp = sourceSpanFromAnns (nameAnns nameSyntax) <|> ambient
       name = nameToText nameSyntax
@@ -400,10 +399,10 @@ rejectUnidirectionalPatSyn sp name target = do
           emitError sp (OtherError ("unidirectional pattern synonym " <> T.unpack name <> " cannot be used as an expression"))
     _ -> pure ()
 
-occurrenceAnnotation :: TcType -> [TcType] -> Int -> [EvVar] -> Maybe PendingTcAnnotation
+occurrenceAnnotation :: TcType -> [TcType] -> Int -> [EvVar] -> Maybe TcAnnotation
 occurrenceAnnotation ty typeArgs inferredCount evidenceVars
   | null typeArgs && null evidenceVars = Nothing
-  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars []) {pendingTcAnnInferredTypeArgs = inferredCount}
+  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars []) {tcAnnInferredTypeArgs = inferredCount}
 
 -- | Quantify free variables in an expression signature. Each name denotes
 -- one variable. Keep variables from the enclosing scope unchanged.
@@ -533,28 +532,28 @@ primitiveLiteralTypeName expr =
 syntaxResolution :: Name -> Maybe Resolved
 syntaxResolution name = nameResolution name >>= resolvedOf
 
-annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
+annotatePendingExpr :: TcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
   ETc (ExprType ann)
 
-annotatePendingExprAt :: Maybe SourceSpan -> PendingTcAnnotation -> Expr -> Expr
+annotatePendingExprAt :: Maybe SourceSpan -> TcAnnotation -> Expr -> Expr
 annotatePendingExprAt Nothing ann =
   annotatePendingExpr ann
 annotatePendingExprAt (Just sp) ann =
   EAnn (mkSpanAnnotation sp) . annotatePendingExpr ann
 
-annotatePendingName :: PendingTcAnnotation -> Name -> Name
+annotatePendingName :: TcAnnotation -> Name -> Name
 annotatePendingName ann name =
-  addNamePending ann name
+  addNameTc ann name
 
 -- | Give the method name of a do statement its checked type, and the cast
 -- onto the type that the statement uses it at. The cast goes first. The
 -- method is equated as @method ~ (action -> continuation -> block)@, so
 -- the proof runs forwards. A given equality can be what makes the method
 -- fit the statement.
-annotateDoMethodName :: TcType -> EvVar -> PendingTcAnnotation -> Name -> Name
+annotateDoMethodName :: TcType -> EvVar -> TcAnnotation -> Name -> Name
 annotateDoMethodName ty evidence pending name =
-  addNamePending pending (addNameCast ty evidence name)
+  addNameTc pending (addNameCast ty evidence name)
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -979,7 +978,7 @@ data ArgPlan = ArgPlan
   { argPlanSpan :: Maybe SourceSpan,
     -- | The instantiation of the function's polymorphic type before this
     -- argument, with its wanted constraints.
-    argPlanInstantiation :: Maybe (PendingTcAnnotation, [Ct]),
+    argPlanInstantiation :: Maybe (TcAnnotation, [Ct]),
     -- | The wanted equality that gives an unknown function type an arrow.
     argPlanArrowCts :: [Ct],
     -- | The arrow type the function is cast to, and the evidence of the
@@ -1181,8 +1180,8 @@ uniqueKey (Unique key) = key
 
 nameTypeArgs :: Name -> [TcType]
 nameTypeArgs name =
-  case namePending name of
-    Just pending -> pendingTcAnnTypeArgs pending
+  case nameTc name of
+    Just pending -> tcAnnTypeArgs pending
     Nothing -> []
 
 -- | The first pass over the frames. The remaining type arguments are the
@@ -1410,7 +1409,7 @@ prefixOperatorHead expr =
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
     ETc ann inner -> ETc ann (prefixOperatorHead inner)
     EVar name ->
-      case namePending name of
+      case nameTc name of
         Just pending ->
           let plainName = name {nameTc = Nothing}
            in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
@@ -1613,7 +1612,7 @@ pendingTypeArgs expr =
     EAnn _ inner -> pendingTypeArgs inner
     ETc info inner ->
       case info of
-        ExprType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
+        ExprType pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)
         ExprCast _ -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
@@ -1908,7 +1907,7 @@ inferListWithExpected expected sp syntax elems = do
 
 -- | Infer an ordinary list. The result has the checked elements, the
 -- annotation of the list, the list type, and the constraints.
-inferListParts :: Maybe TcType -> Maybe SourceSpan -> [Expr] -> TcM ([Expr], PendingTcAnnotation, TcType, [Ct])
+inferListParts :: Maybe TcType -> Maybe SourceSpan -> [Expr] -> TcM ([Expr], TcAnnotation, TcType, [Ct])
 inferListParts expected sp elems = do
   (nilCon, nilInstantiation) <- instantiateListConstructor sp tcWiringNilDataCon
   nilCts <- mapM (predToCt sp (tyConName nilCon)) (instPreds nilInstantiation)
@@ -2565,7 +2564,7 @@ resolvedLiteralCts sp literalResolution argumentTy = do
 -- the expected type. The evidence of that equality is the cast the
 -- desugarer puts on the method: a given equality can be what makes the
 -- method fit the statement.
-inferDoMethod :: Maybe SourceSpan -> Text -> Resolved -> TcType -> TcM (PendingTcAnnotation, EvVar, [Ct])
+inferDoMethod :: Maybe SourceSpan -> Text -> Resolved -> TcType -> TcM (TcAnnotation, EvVar, [Ct])
 inferDoMethod sp methodName resolution expectedTy = do
   (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp methodName resolution
   ev <- freshEvVar

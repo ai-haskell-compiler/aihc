@@ -34,10 +34,7 @@ library
     Aihc.Tc.Roles
     Aihc.Tc.Share
     Aihc.Tc.Syntax
-    Aihc.Tc.Syntax.FromPending
     Aihc.Tc.Syntax.FromResolved
-    Aihc.Tc.Syntax.Pending
-    Aihc.Tc.Syntax.Pending.Traverse
     Aihc.Tc.Syntax.Traverse
     Aihc.Tc.TypeLitFamily
     Aihc.Tc.TypeScheme

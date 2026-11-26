@@ -33,7 +33,7 @@ import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (.
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (zonkKind)
 import Aihc.Tc.Monad
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Annotation,
     ArrowKind (..),
     BuiltinCon (..),
