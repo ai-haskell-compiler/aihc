@@ -26,6 +26,7 @@ module Aihc.Tc.Deriving.Context
     functorClassTyCon,
     functorialFieldUses,
     typeTyVars,
+    declDerivingPlans,
     moduleDerivingPlans,
     replaceModulePlans,
     planKey,
@@ -34,8 +35,7 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Annotations
-  ( TcDerivingAnnotation (..),
-    TcDerivingContext (..),
+  ( TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
@@ -54,9 +54,13 @@ import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Syntax.Pending
-  ( Decl (..),
+  ( DataDecl (..),
+    DataFamilyInst (..),
+    Decl (..),
+    DerivingClause (..),
     Module (..),
-    TcInfo (..),
+    NewtypeDecl (..),
+    StandaloneDerivingDecl (..),
   )
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
@@ -66,7 +70,7 @@ import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe, maybeToList)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
 import Data.Text (Text)
@@ -878,13 +882,12 @@ declDerivingPlans :: Decl -> [TcDerivingPlan]
 declDerivingPlans decl =
   case decl of
     DeclAnn _ inner -> declDerivingPlans inner
-    DeclTc info inner ->
-      ( case info of
-          InfoDeriving derivingAnnotation -> tcDerivingPlans derivingAnnotation
-          _ -> []
-      )
-        <> declDerivingPlans inner
+    DeclTc _ inner -> declDerivingPlans inner
     DeclError _ inner -> declDerivingPlans inner
+    DeclData dataDecl -> concatMap derivingPlans (dataDeclDeriving dataDecl)
+    DeclNewtype newtypeDecl -> concatMap derivingPlans (newtypeDeclDeriving newtypeDecl)
+    DeclDataFamilyInst familyInst -> concatMap derivingPlans (dataFamilyInstDeriving familyInst)
+    DeclStandaloneDeriving derivingDecl -> maybeToList (standaloneDerivingPlan derivingDecl)
     _ -> []
 
 replaceModulePlans :: [TcDerivingPlan] -> Module -> Module
@@ -894,13 +897,14 @@ replaceModulePlans plans modu =
     replaceDecl decl =
       case decl of
         DeclAnn annotation inner -> DeclAnn annotation (replaceDecl inner)
-        DeclTc (InfoDeriving derivingAnnotation) inner ->
-          DeclTc
-            (InfoDeriving (derivingAnnotation {tcDerivingPlans = map replacePlan (tcDerivingPlans derivingAnnotation)}))
-            (replaceDecl inner)
         DeclTc info inner -> DeclTc info (replaceDecl inner)
         DeclError err inner -> DeclError err (replaceDecl inner)
+        DeclData dataDecl -> DeclData dataDecl {dataDeclDeriving = map replaceClause (dataDeclDeriving dataDecl)}
+        DeclNewtype newtypeDecl -> DeclNewtype newtypeDecl {newtypeDeclDeriving = map replaceClause (newtypeDeclDeriving newtypeDecl)}
+        DeclDataFamilyInst familyInst -> DeclDataFamilyInst familyInst {dataFamilyInstDeriving = map replaceClause (dataFamilyInstDeriving familyInst)}
+        DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving derivingDecl {standaloneDerivingPlan = replacePlan <$> standaloneDerivingPlan derivingDecl}
         _ -> decl
+    replaceClause clause = clause {derivingPlans = map replacePlan (derivingPlans clause)}
     replacePlan original =
       fromMaybe original (find ((== planKey original) . planKey) plans)
 

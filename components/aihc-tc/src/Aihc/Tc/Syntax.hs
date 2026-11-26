@@ -8,7 +8,7 @@
 --
 -- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
 --   for a whole node.
--- * Fields such as 'nameTc' and 'matchTc' hold the information for a name,
+-- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
 --   an equation, a rule, or a module.
 -- * 'moduleTcDiagnostics' holds the diagnostics of the module.
 --
@@ -271,7 +271,7 @@ import Aihc.Tc.Annotations
   ( TcAnnotation,
     TcCastAnnotation,
     TcClassAnnotation,
-    TcDerivingAnnotation,
+    TcDerivedInstance,
     TcDerivingPlan,
     TcForeignImportAnnotation,
     TcInstanceAnnotation,
@@ -292,24 +292,8 @@ data TcInfo
   | -- | A cast of a node to a type. Without a coercion, the cast is a
     -- reflexive proof that keeps the type.
     InfoCast !TcCastAnnotation
-  | -- | A cast that gives an equation the arity of its type.
-    InfoMatchArityCast !TcMatchArityCast
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
-  | InfoInstanceMethod !TcInstanceMethodAnnotation
-  | InfoInstance !TcInstanceAnnotation
-  | InfoClass !TcClassAnnotation
-  | InfoDeriving !TcDerivingAnnotation
-  | -- | An instance that @deriving@ generated rather than the source.
-    InfoDerivedInstance
-  | -- | An instance that a @deriving@ clause of a data declaration
-    -- generated. A standalone @deriving instance@ does not have it. GHC
-    -- checks the functional dependencies of such an instance with the
-    -- liberal coverage condition, also without UndecidableInstances,
-    -- because the user did not write its context.
-    InfoDerivingClauseInstance
-  | -- | A generated instance that reuses another instance.
-    InfoCoercedDeriving !TcDerivingPlan
   | -- | The checked type of the selector of a record field, on the field
     -- name of the constructor declaration. The System FC desugarer gives
     -- the desugared selector this type, so that the selector has the type
@@ -318,8 +302,6 @@ data TcInfo
   | -- | The next item of the statement is the occurrence type of this
     -- group variable at the knot of a @rec@ group.
     InfoRecKnotOccurrence !Entity
-  | -- | The checked equations of a pattern synonym.
-    InfoPatSyn !PatSynEquations
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -915,8 +897,9 @@ data ValueDecl
 -- Examples: @f x = x@ and @x :+: y = z@.
 data Match = Match
   { matchAnns :: [Annotation],
-    -- | What the type checker found for the equation.
-    matchTc :: [TcInfo],
+    -- | The cast that gives the equation the arity of its type. Only the
+    -- first equation of a function can have it. The type checker sets it.
+    matchArityCast :: Maybe TcMatchArityCast,
     matchHeadForm :: MatchHeadForm,
     matchPats :: [Pattern],
     matchRhs :: Rhs Expr
@@ -939,7 +922,10 @@ data PatSynDecl = PatSynDecl
   { patSynDeclName :: UnqualifiedName,
     patSynDeclArgs :: PatSynArgs,
     patSynDeclPat :: Pattern,
-    patSynDeclDir :: PatSynDir
+    patSynDeclDir :: PatSynDir,
+    -- | The checked equations of the pattern synonym. The type checker
+    -- sets them.
+    patSynDeclEquations :: Maybe PatSynEquations
   }
   deriving (Eq, Show)
 
@@ -1390,7 +1376,10 @@ data FieldDecl = FieldDecl
 -- Examples: @deriving Show@ and @deriving stock (Eq, Ord)@.
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: Either Name [Type]
+    derivingClasses :: Either Name [Type],
+    -- | The checked plans of the instances that the clause generates. The
+    -- type checker sets them.
+    derivingPlans :: [TcDerivingPlan]
   }
   deriving (Eq, Show)
 
@@ -1414,7 +1403,10 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingWarning :: Maybe Pragma,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
-    standaloneDerivingHead :: Type
+    standaloneDerivingHead :: Type,
+    -- | The checked plan of the instance that the declaration generates.
+    -- The type checker sets it.
+    standaloneDerivingPlan :: Maybe TcDerivingPlan
   }
   deriving (Eq, Show)
 
@@ -1424,7 +1416,9 @@ data ClassDecl = ClassDecl
   { classDeclContext :: Maybe [Type],
     classDeclHead :: BinderHead UnqualifiedName,
     classDeclFundeps :: [FunctionalDependency],
-    classDeclItems :: [ClassDeclItem]
+    classDeclItems :: [ClassDeclItem],
+    -- | The checked facts of the class. The type checker sets them.
+    classDeclTc :: Maybe TcClassAnnotation
   }
   deriving (Eq, Show)
 
@@ -1440,9 +1434,9 @@ data ClassDeclItem
     ClassItemDefaultSig BinderName Type
   | -- | @infixr 5 :+:@
     ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | -- | A default method body such as @f x = True@. The information is
-    -- the type of the default method.
-    ClassItemDefault [TcInfo] ValueDecl
+  | -- | A default method body such as @f x = True@, with the checked type
+    -- of the default method.
+    ClassItemDefault (Maybe TcInstanceMethodAnnotation) ValueDecl
   | -- | @type family F a@
     ClassItemTypeFamilyDecl TypeFamilyDecl
   | -- | @data family DF a@
@@ -1461,7 +1455,12 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclHead :: Type,
-    instanceDeclItems :: [InstanceDeclItem]
+    instanceDeclItems :: [InstanceDeclItem],
+    -- | The checked facts of the instance. The type checker sets them.
+    instanceDeclTc :: Maybe TcInstanceAnnotation,
+    -- | The origin of an instance that @deriving@ generated. An instance of
+    -- the source does not have it.
+    instanceDeclDerived :: Maybe TcDerivedInstance
   }
   deriving (Eq, Show)
 
@@ -1471,9 +1470,9 @@ data InstanceDeclItem
     InstanceItemAnn Annotation InstanceDeclItem
   | -- | A resolve error for the whole instance item.
     InstanceItemError ResolveError InstanceDeclItem
-  | -- | A method body such as @show x = ...@. The information is the
-    -- checked type of the method.
-    InstanceItemBind [TcInfo] ValueDecl
+  | -- | A method body such as @show x = ...@, with the checked type of
+    -- the method.
+    InstanceItemBind (Maybe TcInstanceMethodAnnotation) ValueDecl
   | -- | @show :: T -> String@
     InstanceItemTypeSig [BinderName] Type
   | -- | @infixr 5 :+:@

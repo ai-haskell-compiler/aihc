@@ -21,6 +21,7 @@ import Aihc.Tc.Annotations
     TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcDerivedInstance (..),
     TcDerivingPlan (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
@@ -1359,16 +1360,20 @@ annotateDeclDerivingTc extensions origin = go Nothing
         DeclAnn annotation inner -> DeclAnn annotation <$> go (annotationSpan annotation <|> declSpan) inner
         DeclTc info inner -> DeclTc info <$> go declSpan inner
         DeclError err inner -> DeclError err <$> go declSpan inner
-        DeclData dataDecl ->
-          annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
-        DeclNewtype newtypeDecl ->
-          annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
+        DeclData dataDecl -> do
+          clauses <- annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl)
+          pure (DeclData dataDecl {dataDeclDeriving = clauses})
+        DeclNewtype newtypeDecl -> do
+          clauses <- annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl)
+          pure (DeclNewtype newtypeDecl {newtypeDeclDeriving = clauses})
         DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
         DeclDataFamilyInst familyInst
           | not (null (dataFamilyInstDeriving familyInst)) -> do
               maybeInfo <- lookupDataFamilyInstanceInfo origin familyInst
               case maybeInfo of
-                Just info -> annotateDataFamilyInstDerivingTc extensions info (dataFamilyInstDeriving familyInst) decl
+                Just info -> do
+                  clauses <- annotateDataFamilyInstDerivingTc extensions info (dataFamilyInstDeriving familyInst)
+                  pure (DeclDataFamilyInst familyInst {dataFamilyInstDeriving = clauses})
                 Nothing -> do
                   emitWarning declSpan (OtherError "the data family instance has no checked metadata; no instance is derived")
                   pure decl
@@ -1377,11 +1382,12 @@ annotateDeclDerivingTc extensions origin = go Nothing
 annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Bool -> Decl -> TcM Decl
 annotateDeclTc origin classMethods checkedValueTypes derived decl =
   case decl of
-    DeclTc (InfoInstance _) _ -> pure decl
+    DeclInstance instanceDecl
+      | isJust (instanceDeclTc instanceDecl) -> pure decl
     DeclAnn ann inner ->
       DeclAnn ann <$> annotateDeclTc origin classMethods checkedValueTypes derived inner
     DeclTc info inner ->
-      DeclTc info <$> annotateDeclTc origin classMethods checkedValueTypes (derived || isDerivedInstanceInfo info) inner
+      DeclTc info <$> annotateDeclTc origin classMethods checkedValueTypes derived inner
     DeclError err inner ->
       DeclError err <$> annotateDeclTc origin classMethods checkedValueTypes derived inner
     DeclValue valueDecl
@@ -1399,7 +1405,7 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
-    DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
+    DeclInstance instanceDecl -> annotateInstanceDeclTc origin (derived || isJust (instanceDeclDerived instanceDecl)) instanceDecl
     DeclStandaloneDeriving {} -> pure decl
     DeclPatSyn patSynDecl
       | Just ty <- Map.lookup (unqualifiedNameText (patSynDeclName patSynDecl)) checkedValueTypes ->
@@ -1409,21 +1415,17 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
 annotateInstanceHeaderTc :: (Text, Text) -> Bool -> Decl -> TcM Decl
 annotateInstanceHeaderTc origin derived decl =
   case decl of
-    DeclTc (InfoCoercedDeriving plan) inner
-      | DeclInstance instanceDecl <- peelDeclAnn inner ->
-          maybe id (DeclAnn . mkSpanAnnotation) (tcDerivingSourceSpan plan) <$> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
     DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin derived inner
-    DeclTc info inner -> DeclTc info <$> annotateInstanceHeaderTc origin (derived || isDerivedInstanceInfo info) inner
+    DeclTc info inner -> DeclTc info <$> annotateInstanceHeaderTc origin derived inner
     DeclError err inner -> DeclError err <$> annotateInstanceHeaderTc origin derived inner
-    DeclInstance instanceDecl -> annotateInstanceDeclTc origin derived instanceDecl
+    DeclInstance instanceDecl ->
+      case instanceDeclDerived instanceDecl of
+        -- A generated instance that reuses another instance needs its plan
+        -- to prove the casts of its methods.
+        Just TcDerivedInstance {tcDerivedCoercedPlan = Just plan} -> annotateInstanceDeclWithPlan origin True (Just plan) instanceDecl
+        Just _ -> annotateInstanceDeclTc origin True instanceDecl
+        Nothing -> annotateInstanceDeclTc origin derived instanceDecl
     _ -> pure decl
-
--- | Whether an item of information marks a @deriving@-generated instance.
-isDerivedInstanceInfo :: TcInfo -> Bool
-isDerivedInstanceInfo item =
-  case item of
-    InfoDerivedInstance -> True
-    _ -> False
 
 valueDeclWasChecked :: Map Text TcType -> ValueDecl -> Bool
 valueDeclWasChecked checkedValueTypes valueDecl =
@@ -1445,35 +1447,31 @@ annotateClassDeclTc classDecl = do
       kinds <- getKinds
       methods <- zipWithM (annotateClassMethod (ciTyCon info)) [0 :: Int ..] (classDeclMethodNames classDecl)
       items <- mapM (annotateClassDefaultItem (ciTyCon info)) (classDeclItems classDecl)
-      pure
-        ( DeclTc
-            ( InfoClass
-                TcClassAnnotation
-                  { tcClassTyCon = ciTyCon info,
-                    tcClassKindTyVars = ciKindTyVars info,
-                    tcClassTyVars = ciTyVars info,
-                    tcClassSuperClasses = map (constraintTypeDictBinder kinds) (ciSuperClassTypes info),
-                    tcClassMethods = methods,
-                    tcClassDefaultMethods = ciDefaultMethods info,
-                    tcClassDefaultSignatures =
-                      [(methodName, schemeToType signature) | (methodName, signature) <- ciDefaultSignatures info],
-                    tcClassAssociatedTypes = ciAssociatedTypes info,
-                    tcClassFunDeps = ciFunDeps info
-                  }
-            )
-            (DeclClass (classDecl {classDeclItems = items}))
-        )
+      let checked =
+            TcClassAnnotation
+              { tcClassTyCon = ciTyCon info,
+                tcClassKindTyVars = ciKindTyVars info,
+                tcClassTyVars = ciTyVars info,
+                tcClassSuperClasses = map (constraintTypeDictBinder kinds) (ciSuperClassTypes info),
+                tcClassMethods = methods,
+                tcClassDefaultMethods = ciDefaultMethods info,
+                tcClassDefaultSignatures =
+                  [(methodName, schemeToType signature) | (methodName, signature) <- ciDefaultSignatures info],
+                tcClassAssociatedTypes = ciAssociatedTypes info,
+                tcClassFunDeps = ciFunDeps info
+              }
+      pure (DeclClass (classDecl {classDeclItems = items, classDeclTc = Just checked}))
 
 annotateClassDefaultItem :: TyCon -> ClassDeclItem -> TcM ClassDeclItem
 annotateClassDefaultItem classTyCon item =
   case item of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem classTyCon inner
     ClassItemError ann inner -> ClassItemError ann <$> annotateClassDefaultItem classTyCon inner
-    ClassItemDefault tc valueDecl ->
+    ClassItemDefault _ valueDecl ->
       case valueDeclBinderName valueDecl of
         Just (methodName, _) -> do
           methodTy <- bindingType (tyConMemberTermKey classTyCon (defaultMethodName methodName))
-          pure (ClassItemDefault (InfoInstanceMethod (TcInstanceMethodAnnotation methodName methodTy) : tc) valueDecl)
+          pure (ClassItemDefault (Just (TcInstanceMethodAnnotation methodName methodTy)) valueDecl)
         Nothing -> pure item
     ClassItemTypeFamilyDecl familyDecl ->
       case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
@@ -2339,7 +2337,7 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
       checkedAnn <- case coercedPlan of
         Nothing -> pure instAnn
         Just plan -> checkCoercedInstance origin solveInstanceSuperClass methodExpectedScheme plan info context instAnn
-      pure (DeclTc (InfoInstance checkedAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
+      pure (DeclInstance (instanceDecl {instanceDeclItems = items, instanceDeclTc = Just checkedAnn}))
 
 classMethodFromInfo :: ClassInfo -> Int -> (Text, TypeScheme) -> TcClassMethodAnnotation
 classMethodFromInfo info index (methodName, scheme) =
@@ -2495,8 +2493,8 @@ tcClassDefaultValue classTyCon valueDecl =
         _ -> missingTypeInfo ("class default method " <> T.unpack methodName)
 
 tcInstanceDeclBodies :: Decl -> TcM Decl
-tcInstanceDeclBodies (DeclTc info@(InfoInstance annotation) inner)
-  | DeclInstance instanceDecl <- peelDeclAnn inner = do
+tcInstanceDeclBodies (DeclInstance instanceDecl)
+  | Just annotation <- instanceDeclTc instanceDecl = do
       let classNameText = tyConName (tcInstanceClassTyCon annotation)
           headTys = tcInstanceHeadTypes annotation
       let givens = map tcDictBinderPred (tcInstanceContextDicts annotation)
@@ -2506,7 +2504,7 @@ tcInstanceDeclBodies (DeclTc info@(InfoInstance annotation) inner)
       items <-
         withScopedTyVars instanceScope $
           mapM (tcInstanceItemBody instanceScope schemes givens (instanceMethodSignatures (instanceDeclItems instanceDecl))) (instanceDeclItems instanceDecl)
-      pure (DeclTc info (DeclInstance (instanceDecl {instanceDeclItems = items})))
+      pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies (DeclTc info inner) = DeclTc info <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclAnn ann inner) = DeclAnn ann <$> tcInstanceDeclBodies inner
 tcInstanceDeclBodies (DeclInstance instanceDecl) =
@@ -2594,7 +2592,7 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
       InstanceItemAnn ann <$> tcInstanceItemBody instanceScope schemes givens signatures inner
     InstanceItemError err inner ->
       InstanceItemError err <$> tcInstanceItemBody instanceScope schemes givens signatures inner
-    InstanceItemBind tc (FunctionBind name matches) -> do
+    InstanceItemBind _ (FunctionBind name matches) -> do
       scheme <- instanceMethodScheme schemes (unqualifiedNameText name)
       let ForAll methodTyVars methodGivens methodTy = scheme
       scope <- instanceMethodScope instanceScope signatures (unqualifiedNameText name) givens scheme matches
@@ -2614,9 +2612,9 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
         else do
           let methodName = unqualifiedNameText name
               checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-              methodInfo = InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)
-          pure (InstanceItemBind (methodInfo : tc) (FunctionBind name [match | (match, _cts, _impls) <- results]))
-    InstanceItemBind tc (PatternBind mult pat rhs) ->
+              methodInfo = TcInstanceMethodAnnotation methodName checkedType
+          pure (InstanceItemBind (Just methodInfo) (FunctionBind name [match | (match, _cts, _impls) <- results]))
+    InstanceItemBind _ (PatternBind mult pat rhs) ->
       case patternBinderName pat of
         Just (methodName, _) -> do
           scheme <- instanceMethodScheme schemes methodName
@@ -2631,8 +2629,8 @@ tcInstanceItemBody instanceScope schemes givens signatures item =
             [(match, _cts, _impls)]
               | not failed ->
                   let checkedType = foldr TcForAllTy (qualifiedType methodGivens methodTy) methodTyVars
-                      methodInfo = InfoInstanceMethod (TcInstanceMethodAnnotation methodName checkedType)
-                   in pure (InstanceItemBind (methodInfo : tc) (PatternBind mult pat (matchRhs match)))
+                      methodInfo = TcInstanceMethodAnnotation methodName checkedType
+                   in pure (InstanceItemBind (Just methodInfo) (PatternBind mult pat (matchRhs match)))
             _ -> pure item
         Nothing -> pure item
     _ -> pure item
@@ -3462,7 +3460,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   PatSynBidirectional ->
                     case patternToExpr pat of
                       Just expr ->
-                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] [] expr Nothing)])))
+                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] Nothing MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] [] expr Nothing)])))
                       Nothing -> do
                         emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
                         pure (PatSynImplicitBidirectionalInfo, Nothing)
@@ -3508,9 +3506,9 @@ tcPatSynDecl sigs groupId decl patSyn = do
                             case patternSpan checkedPat of
                               Nothing -> checkedPat
                               Just patSpan -> PAnn (mkSpanAnnotation patSpan) checkedPat
-                          patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir'}
                           equations = PatSynEquations matcherMatch' maybeBuilderMatches selectorMatches
-                          decl' = DeclTc (InfoPatSyn equations) (replacePatSynDecl patSyn' decl)
+                          patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir', patSynDeclEquations = Just equations}
+                          decl' = replacePatSynDecl patSyn' decl
                           results = TcBindingResult key displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
@@ -3823,7 +3821,7 @@ patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
 patSynSelectorMatch pat argBinder =
   Match
     { matchAnns = [],
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = [PVar scrutinee],
       matchRhs =
@@ -3897,7 +3895,7 @@ patSynMatcherMatch :: Pattern -> [UnqualifiedName] -> Match
 patSynMatcherMatch pat argBinders =
   Match
     { matchAnns = [],
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = map PVar [scrutinee, continue, failure],
       matchRhs =
@@ -4460,7 +4458,9 @@ registerStructuralDecl origin (DeclDataFamilyInst familyInst) = registerDataFami
 registerStructuralDecl origin (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations origin familyDecl
 registerStructuralDecl origin (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance origin familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
-registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
+registerStructuralDecl origin (DeclInstance instanceDecl)
+  | Just TcDerivedInstance {tcDerivedByClause = True} <- instanceDeclDerived instanceDecl = withUndecidableInstances (registerInstanceDecl origin instanceDecl)
+  | otherwise = registerInstanceDecl origin instanceDecl
 -- An instance of a deriving clause takes its context from the instance
 -- that it coerces or from the fields of the type. GHC checks the
 -- functional dependencies of such an instance with the liberal coverage
@@ -4468,7 +4468,6 @@ registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl
 -- a = ... deriving (MonadReader s)@ has the context @MonadReader s m@,
 -- which gives @s@ from @m@. A standalone deriving declaration states its
 -- context, and GHC checks it as a written instance.
-registerStructuralDecl origin (DeclTc InfoDerivingClauseInstance inner) = withUndecidableInstances (registerStructuralDecl origin inner)
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl origin (DeclTc _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl origin (DeclError _ inner) = registerStructuralDecl origin inner
@@ -6743,7 +6742,7 @@ zeroArgMatch :: Maybe SourceSpan -> Rhs Expr -> Match
 zeroArgMatch sp rhs =
   Match
     { matchAnns = sourceSpanAnn sp,
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = [],
       matchRhs = rhs

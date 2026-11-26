@@ -119,7 +119,6 @@ module Aihc.Tc
     runtimeRepOfTypeInEnv,
     isUnliftedTypeInEnv,
     TcAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -138,7 +137,7 @@ where
 import Aihc.Parser.Syntax (Extension (..))
 import Aihc.Resolve (ResolvedModule (..))
 import Aihc.Resolve.Syntax qualified as R
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderFunDepNames, renderPred, renderTcSignature, renderTcType, renderTcTypeInModule, renderTyLit)
 import Aihc.Tc.Bindings (moduleBindings, moduleDiagnostics)
 import Aihc.Tc.Deriving.References (DataReferences (..), DerivingReference (..), DerivingReferences (..), GenericReferences (..), ReferencePackage (..), StockClassLocation (..), UnliftedFieldReferences (..), derivingReferenceList)
 import Aihc.Tc.Diagnostics (annotateModuleDiagnostics, attachSccDiagnostics, internalAbortDiagnostic)
@@ -149,7 +148,7 @@ import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Syntax (Module)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
+import Aihc.Tc.Syntax.FromPending (FromPending (..), plainFinalizers)
 import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
@@ -217,14 +216,7 @@ typecheckWithFacts check imported resolved
 -- | A module that the type checker did not check. It keeps only the
 -- identity of the module.
 uncheckedModule :: Pending.Module -> Final.Module
-uncheckedModule =
-  runIdentity
-    . fromPending
-      Finalizers
-        { finalizeTcInfo = const (pure Nothing),
-          finalizeTypeFamilyInstance = pure,
-          finalizeDataFamilyInstance = pure
-        }
+uncheckedModule = runIdentity . fromPending plainFinalizers
 
 -- | The state before the check of a module group. The tables of terms,
 -- type constructors, data types, classes, pattern synonyms, and foreign

@@ -19,12 +19,12 @@ where
 
 import Aihc.Resolve (Identifier (..), PackageId (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Tc.Annotations
-  ( TcDerivingAnnotation (..),
+  ( TcDerivedInstance (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
   )
-import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
+import Aihc.Tc.Deriving.Context (GenericField (..), UnliftedFieldType, declDerivingPlans, functorialFieldUses, generic1FieldShapes, newtypeRepresentation, stockFieldTypes, typeTyVars, unliftedFieldReferences)
 import Aihc.Tc.Deriving.Functorial (FieldUse (..))
 import Aihc.Tc.Deriving.References
 import Aihc.Tc.Deriving.StockClass (StockClass (..), StockMethods (..), StockObligations (..), generatesStockMethods, lookupStockClass, stockClassMethodsOf, stockClassObligationsOf)
@@ -56,7 +56,6 @@ import Aihc.Tc.Syntax.Pending
     Rhs (..),
     SourceSpan,
     StandaloneDerivingDecl (..),
-    TcInfo (..),
     TupleFlavor (..),
     TyVarBSpecificity (..),
     TyVarBVisibility (..),
@@ -70,7 +69,6 @@ import Aihc.Tc.Syntax.Pending
     ValueDecl (..),
     mkSpanAnnotation,
     mkUnqualifiedName,
-    peelDeclAnn,
     qualifyName,
   )
 import Aihc.Tc.Types
@@ -98,20 +96,14 @@ declDerivedInstances :: (TcDerivingPlan -> Bool) -> DerivingReferences -> Packag
 declDerivedInstances selected references primPackage unlifted origin decl =
   case decl of
     DeclAnn _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
-    DeclTc info inner -> do
-      own <-
-        case info of
-          InfoDeriving derivingAnnotation -> do
-            kinds <- getKinds
-            catMaybes
-              <$> mapM
-                (generatePlan kinds references primPackage unlifted origin (peelDeclAnn inner))
-                (filter selected (tcDerivingPlans derivingAnnotation))
-          _ -> pure []
-      rest <- declDerivedInstances selected references primPackage unlifted origin inner
-      pure (own <> rest)
+    DeclTc _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
     DeclError _ inner -> declDerivedInstances selected references primPackage unlifted origin inner
-    _ -> pure []
+    _ ->
+      case filter selected (declDerivingPlans decl) of
+        [] -> pure []
+        plans -> do
+          kinds <- getKinds
+          catMaybes <$> mapM (generatePlan kinds references primPackage unlifted origin decl) plans
 
 -- | The generation context of one plan.
 data Gen = Gen
@@ -156,33 +148,34 @@ generatePlan kinds references primPackage unlifted origin sourceDecl plan =
                   surfaceContext = headerContext <> maybe [] snd polyKinded
               pure $
                 items <&> \generated ->
-                  markCoerced . markClause $
-                    DeclTc InfoDerivedInstance $
-                      maybe id (DeclAnn . mkSpanAnnotation) (genSpan gen) $
-                        DeclInstance
-                          InstanceDecl
-                            { instanceDeclPragmas = [],
-                              instanceDeclWarning = Nothing,
-                              instanceDeclForall = forallBinders,
-                              instanceDeclContext = surfaceContext,
-                              instanceDeclHead = surfaceHead,
-                              instanceDeclItems = generated
-                            }
+                  maybe id (DeclAnn . mkSpanAnnotation) (genSpan gen) $
+                    DeclInstance
+                      InstanceDecl
+                        { instanceDeclPragmas = [],
+                          instanceDeclWarning = Nothing,
+                          instanceDeclForall = forallBinders,
+                          instanceDeclContext = surfaceContext,
+                          instanceDeclHead = surfaceHead,
+                          instanceDeclItems = generated,
+                          instanceDeclTc = Nothing,
+                          instanceDeclDerived =
+                            Just
+                              TcDerivedInstance
+                                { -- An instance from a deriving clause, not from a
+                                  -- standalone deriving declaration, gets the
+                                  -- liberal coverage condition.
+                                  tcDerivedByClause = not (tcDerivingStandalone plan),
+                                  tcDerivedCoercedPlan = coercedPlan
+                                }
+                        }
   where
-    -- An instance from a deriving clause, not from a standalone deriving
-    -- declaration, gets the liberal coverage condition.
-    markClause declaration
-      | tcDerivingStandalone plan = declaration
-      | otherwise = DeclTc InfoDerivingClauseInstance declaration
     -- Both strategies that coerce another instance need the plan again when
     -- the generated header is checked, to prove the casts of its methods.
-    markCoerced declaration =
+    coercedPlan =
       case tcDerivingStrategy plan of
-        TcDerivingNewtype -> tagged
-        TcDerivingVia {} -> tagged
-        _ -> declaration
-      where
-        tagged = DeclTc (InfoCoercedDeriving plan) declaration
+        TcDerivingNewtype -> Just plan
+        TcDerivingVia {} -> Just plan
+        _ -> Nothing
     gen =
       Gen
         { genSpan = tcDerivingSourceSpan plan,
@@ -1932,13 +1925,13 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
   maybe id (InstanceItemAnn . mkSpanAnnotation) (genSpan gen) $
-    InstanceItemBind [] (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
+    InstanceItemBind Nothing (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
   Match
     { matchAnns = genSpanAnns gen,
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = patterns,
       matchRhs = UnguardedRhs [] [] body Nothing

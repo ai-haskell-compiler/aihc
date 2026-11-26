@@ -13,12 +13,15 @@
 module Aihc.Tc.Syntax.FromPending
   ( FromPending (..),
     Finalizers (..),
+    plainFinalizers,
   )
 where
 
+import Aihc.Tc.Annotations (PendingTcMatchArityCast, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
+import Control.Monad (join)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 
@@ -37,8 +40,29 @@ data Finalizers m = Finalizers
   { -- | Change one item of information, or remove it.
     finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
     finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
-    finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo
+    finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
+    -- | Change the arity cast of an equation, or remove it.
+    finalizeMatchArityCast :: PendingTcMatchArityCast -> m (Maybe TcMatchArityCast),
+    finalizeClass :: TcClassAnnotation -> m TcClassAnnotation,
+    finalizeDerivingPlan :: TcDerivingPlan -> m TcDerivingPlan,
+    finalizeInstance :: TcInstanceAnnotation -> m TcInstanceAnnotation,
+    finalizeInstanceMethod :: TcInstanceMethodAnnotation -> m TcInstanceMethodAnnotation
   }
+
+-- | The functions that remove each item of 'TcInfo' and keep all other
+-- information as it is.
+plainFinalizers :: (Applicative m) => Finalizers m
+plainFinalizers =
+  Finalizers
+    { finalizeTcInfo = const (pure Nothing),
+      finalizeTypeFamilyInstance = pure,
+      finalizeDataFamilyInstance = pure,
+      finalizeMatchArityCast = const (pure Nothing),
+      finalizeClass = pure,
+      finalizeDerivingPlan = pure,
+      finalizeInstance = pure,
+      finalizeInstanceMethod = pure
+    }
 
 class FromPending a where
   type Final a
@@ -368,7 +392,7 @@ instance FromPending Pending.Match where
   type Final Pending.Match = Match
   fromPending info node =
     case node of
-      Pending.Match x1 x2 x3 x4 x5 -> Match <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.Match x1 x2 x3 x4 x5 -> Match <$> fromPending info x1 <*> (join <$> traverse (finalizeMatchArityCast info) x2) <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
 
 instance FromPending Pending.PatSynDir where
   type Final Pending.PatSynDir = PatSynDir
@@ -382,7 +406,7 @@ instance FromPending Pending.PatSynDecl where
   type Final Pending.PatSynDecl = PatSynDecl
   fromPending info node =
     case node of
-      Pending.PatSynDecl x1 x2 x3 x4 -> PatSynDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PatSynDecl x1 x2 x3 x4 x5 -> PatSynDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
 
 instance (FromPending body) => FromPending (Pending.Rhs body) where
   type Final (Pending.Rhs body) = Rhs (Final body)
@@ -629,7 +653,7 @@ instance FromPending Pending.DerivingClause where
   type Final Pending.DerivingClause = DerivingClause
   fromPending info node =
     case node of
-      Pending.DerivingClause x1 x2 -> DerivingClause <$> fromPending info x1 <*> fromPending info x2
+      Pending.DerivingClause x1 x2 x3 -> DerivingClause <$> fromPending info x1 <*> fromPending info x2 <*> traverse (finalizeDerivingPlan info) x3
 
 instance FromPending Pending.DerivingStrategy where
   type Final Pending.DerivingStrategy = DerivingStrategy
@@ -644,13 +668,13 @@ instance FromPending Pending.StandaloneDerivingDecl where
   type Final Pending.StandaloneDerivingDecl = StandaloneDerivingDecl
   fromPending info node =
     case node of
-      Pending.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 -> StandaloneDerivingDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.StandaloneDerivingDecl x1 x2 x3 x4 x5 x6 x7 -> StandaloneDerivingDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> traverse (finalizeDerivingPlan info) x7
 
 instance FromPending Pending.ClassDecl where
   type Final Pending.ClassDecl = ClassDecl
   fromPending info node =
     case node of
-      Pending.ClassDecl x1 x2 x3 x4 -> ClassDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.ClassDecl x1 x2 x3 x4 x5 -> ClassDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> traverse (finalizeClass info) x5
 
 instance FromPending Pending.ClassDeclItem where
   type Final Pending.ClassDeclItem = ClassDeclItem
@@ -661,7 +685,7 @@ instance FromPending Pending.ClassDeclItem where
       Pending.ClassItemTypeSig x1 x2 -> ClassItemTypeSig <$> fromPending info x1 <*> fromPending info x2
       Pending.ClassItemDefaultSig x1 x2 -> ClassItemDefaultSig <$> fromPending info x1 <*> fromPending info x2
       Pending.ClassItemFixity x1 x2 x3 x4 -> ClassItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.ClassItemDefault x1 x2 -> ClassItemDefault <$> infos info x1 <*> fromPending info x2
+      Pending.ClassItemDefault x1 x2 -> ClassItemDefault <$> traverse (finalizeInstanceMethod info) x1 <*> fromPending info x2
       Pending.ClassItemTypeFamilyDecl x1 -> ClassItemTypeFamilyDecl <$> fromPending info x1
       Pending.ClassItemDataFamilyDecl x1 -> ClassItemDataFamilyDecl <$> fromPending info x1
       Pending.ClassItemDefaultTypeInst x1 -> ClassItemDefaultTypeInst <$> fromPending info x1
@@ -671,7 +695,7 @@ instance FromPending Pending.InstanceDecl where
   type Final Pending.InstanceDecl = InstanceDecl
   fromPending info node =
     case node of
-      Pending.InstanceDecl x1 x2 x3 x4 x5 x6 -> InstanceDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.InstanceDecl x1 x2 x3 x4 x5 x6 x7 x8 -> InstanceDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> traverse (finalizeInstance info) x7 <*> pure x8
 
 instance FromPending Pending.InstanceDeclItem where
   type Final Pending.InstanceDeclItem = InstanceDeclItem
@@ -679,7 +703,7 @@ instance FromPending Pending.InstanceDeclItem where
     case node of
       Pending.InstanceItemAnn x1 x2 -> InstanceItemAnn <$> fromPending info x1 <*> fromPending info x2
       Pending.InstanceItemError x1 x2 -> InstanceItemError <$> fromPending info x1 <*> fromPending info x2
-      Pending.InstanceItemBind x1 x2 -> InstanceItemBind <$> infos info x1 <*> fromPending info x2
+      Pending.InstanceItemBind x1 x2 -> InstanceItemBind <$> traverse (finalizeInstanceMethod info) x1 <*> fromPending info x2
       Pending.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig <$> fromPending info x1 <*> fromPending info x2
       Pending.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
       Pending.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst <$> fromPending info x1

@@ -46,7 +46,12 @@ declBindings wiring kinds origin decl =
     DeclAnn _ inner -> declBindings wiring kinds origin inner
     DeclError _ inner -> declBindings wiring kinds origin inner
     DeclTc info inner ->
-      infoBindings kinds origin info inner <> declBindings wiring kinds origin inner
+      infoBindings origin info inner <> declBindings wiring kinds origin inner
+    DeclClass classDecl -> maybe [] (classBindings kinds origin) (classDeclTc classDecl)
+    DeclInstance instanceDecl ->
+      [ TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+      | Just instAnn <- [instanceDeclTc instanceDecl]
+      ]
     DeclData dataDecl ->
       concatMap (dataConBindings wiring origin) (dataDeclConstructors dataDecl)
         <> concatMap (recordSelectorBindings origin) (dataDeclConstructors dataDecl)
@@ -57,13 +62,10 @@ declBindings wiring kinds origin decl =
         <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
     _ -> []
 
-infoBindings :: TcKinds -> (Text, Text) -> TcInfo -> Decl -> [TcBindingResult]
-infoBindings kinds origin info decl =
+infoBindings :: (Text, Text) -> TcInfo -> Decl -> [TcBindingResult]
+infoBindings origin info decl =
   case info of
     InfoType tcAnn -> typeBindings origin tcAnn decl
-    InfoClass classAnn -> classBindings kinds origin classAnn decl
-    InfoInstance instAnn ->
-      [TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
     _ -> []
 
 typeBindings :: (Text, Text) -> TcAnnotation -> Decl -> [TcBindingResult]
@@ -95,18 +97,15 @@ typeBindings origin tcAnn decl =
        in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
     _ -> []
 
-classBindings :: TcKinds -> (Text, Text) -> TcClassAnnotation -> Decl -> [TcBindingResult]
-classBindings kinds origin classAnn decl =
-  case decl of
-    DeclClass {} ->
-      [ TcBindingResult (originTermKey origin (tcClassMethodName method)) (tcClassMethodName method) (tcClassMethodType method)
-      | method <- tcClassMethods classAnn
-      ]
-        <> [ TcBindingResult (originTermKey origin (defaultMethodName (tcClassMethodName method))) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType kinds classAnn method)
-           | method <- tcClassMethods classAnn,
-             tcClassMethodName method `elem` tcClassDefaultMethods classAnn
-           ]
-    _ -> []
+classBindings :: TcKinds -> (Text, Text) -> TcClassAnnotation -> [TcBindingResult]
+classBindings kinds origin classAnn =
+  [ TcBindingResult (originTermKey origin (tcClassMethodName method)) (tcClassMethodName method) (tcClassMethodType method)
+  | method <- tcClassMethods classAnn
+  ]
+    <> [ TcBindingResult (originTermKey origin (defaultMethodName (tcClassMethodName method))) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType kinds classAnn method)
+       | method <- tcClassMethods classAnn,
+         tcClassMethodName method `elem` tcClassDefaultMethods classAnn
+       ]
 
 classDefaultWorkerType :: TcKinds -> TcClassAnnotation -> TcClassMethodAnnotation -> TcType
 classDefaultWorkerType kinds classAnnotation method =

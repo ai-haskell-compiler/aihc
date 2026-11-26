@@ -19,7 +19,6 @@ import Aihc.Tc.Annotations
     TcClassMethodAnnotation (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -89,7 +88,28 @@ finalizeSyntax =
         finalizeTypeFamilyInstance = \info ->
           info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
         finalizeDataFamilyInstance = \info ->
-          info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info)
+          info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
+        finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
+          evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+          arrow <- zonkType ty
+          case evidence of
+            EvCoercion (Refl _) -> do
+              rejectMeta "match arity cast annotation" (firstMetaType arrow)
+              pure (Just (TcMatchArityCast Nothing arrow))
+            EvCoercion proof -> do
+              rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
+              pure (Just (TcMatchArityCast (Just proof) arrow))
+            EvVarTerm _ -> pure Nothing
+            _ -> abortTc "a match arity cast requires equality evidence",
+        finalizeClass = \annotation ->
+          annotation <$ rejectMeta "finalized class annotation" (firstMetaClassAnnotation annotation),
+        finalizeDerivingPlan = \plan ->
+          plan <$ rejectMeta "finalized deriving annotation" (firstMetaDerivingPlan plan),
+        finalizeInstance = finalizeInstanceAnnotation,
+        finalizeInstanceMethod = \(TcInstanceMethodAnnotation name ty) -> do
+          finalized <- finalizeType ty
+          rejectMeta "instance method annotation" (firstMetaType finalized)
+          pure (TcInstanceMethodAnnotation name finalized)
       }
 
 -- | Finalize one item of information. A cast whose proof is not needed
@@ -114,37 +134,12 @@ finalizeInfo item =
           pure (Just (Final.InfoCast (TcCastAnnotation (Just oriented) target)))
         EvVarTerm _ -> pure Nothing
         _ -> abortTc "a result cast requires equality evidence"
-    InfoMatchArityCast (PendingTcMatchArityCast ty ev) -> do
-      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
-      arrow <- zonkType ty
-      case evidence of
-        EvCoercion (Refl _) -> do
-          rejectMeta "match arity cast annotation" (firstMetaType arrow)
-          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast Nothing arrow)))
-        EvCoercion proof -> do
-          rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
-          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast (Just proof) arrow)))
-        EvVarTerm _ -> pure Nothing
-        _ -> abortTc "a match arity cast requires equality evidence"
     InfoType pending -> Just . Final.InfoType <$> annotationForPendingTc pending
-    InfoInstanceMethod (TcInstanceMethodAnnotation name ty) -> do
-      finalized <- finalizeType ty
-      rejectMeta "instance method annotation" (firstMetaType finalized)
-      pure (Just (Final.InfoInstanceMethod (TcInstanceMethodAnnotation name finalized)))
-    InfoInstance instanceAnnotation -> Just . Final.InfoInstance <$> finalizeInstanceAnnotation instanceAnnotation
-    -- The matcher, builder, and selector equations are syntax in the
-    -- information. Each one changes as the tree does.
-    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> finalizeSyntax equations
     -- The checker writes the types of declarations as final information.
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
     InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
-    InfoClass annotation -> checked (Final.InfoClass annotation)
-    InfoDeriving annotation -> checked (Final.InfoDeriving annotation)
-    InfoDerivedInstance -> checked Final.InfoDerivedInstance
-    InfoDerivingClauseInstance -> checked Final.InfoDerivingClauseInstance
-    InfoCoercedDeriving plan -> checked (Final.InfoCoercedDeriving plan)
     InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
     InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
   where
@@ -184,7 +179,7 @@ finalizeInstanceAnnotation annotation = do
             tcInstanceDefaultMethodEvidence = defaultMethodEvidence,
             tcInstanceCoerced = coerced
           }
-  rejectMetaFinalInfo (Final.InfoInstance finalized)
+  rejectMeta "finalized instance annotation" (firstMetaInstanceAnnotation finalized)
   pure finalized
   where
     finalizeMethod method = do
@@ -528,10 +523,6 @@ rejectMetaFinalInfo :: Final.TcInfo -> TcM ()
 rejectMetaFinalInfo item =
   case item of
     Final.InfoType annotation -> reject "type annotation" (firstMetaTcAnnotation annotation)
-    Final.InfoClass annotation -> reject "class annotation" (firstMetaClassAnnotation annotation)
-    Final.InfoDeriving annotation -> reject "deriving annotation" (firstMetaDerivingAnnotation annotation)
-    Final.InfoInstance annotation -> reject "instance annotation" (firstMetaInstanceAnnotation annotation)
-    Final.InfoInstanceMethod annotation -> reject "instance method annotation" (firstMetaInstanceMethodAnnotation annotation)
     _ -> pure ()
   where
     reject context = rejectMeta ("finalized " <> context)
@@ -565,10 +556,6 @@ firstMetaClassAnnotation classAnnotation =
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
   firstMetaType (tcClassMethodType method) <|> firstMetaType (tcClassMethodDictType method)
-
-firstMetaDerivingAnnotation :: TcDerivingAnnotation -> Maybe Unique
-firstMetaDerivingAnnotation annotation =
-  firstJusts (map firstMetaDerivingPlan (tcDerivingPlans annotation))
 
 firstMetaDerivingPlan :: TcDerivingPlan -> Maybe Unique
 firstMetaDerivingPlan plan =
@@ -627,10 +614,6 @@ firstMetaCoerced body =
 firstMetaDictBinderAnnotation :: TcDictBinderAnnotation -> Maybe Unique
 firstMetaDictBinderAnnotation ann =
   firstJusts (map firstMetaType (tcDictBinderArgs ann)) <|> firstMetaType (tcDictBinderType ann)
-
-firstMetaInstanceMethodAnnotation :: TcInstanceMethodAnnotation -> Maybe Unique
-firstMetaInstanceMethodAnnotation ann =
-  firstMetaType (tcInstanceMethodType ann)
 
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =

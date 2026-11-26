@@ -632,11 +632,10 @@ dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bind
       convertDataFamilyInst env package moduleName' bindings familyInfo
     Syn.DeclTypeFamilyInst Syn.TypeFamilyInst {Syn.typeFamilyInstInfo = Just familyEquation} ->
       (: []) <$> convertTypeFamilyEquation env familyEquation
-    Syn.DeclTc (Syn.InfoInstance instanceAnnotation) inner
-      | Syn.DeclInstance {} <- peelDeclAnn inner ->
-          -- The associated type family equations of an instance, explicit
-          -- ones and instantiated class defaults, become axioms.
-          mapM (convertTypeFamilyEquation env) (tcInstanceAssociatedTypes instanceAnnotation)
+    Syn.DeclInstance Syn.InstanceDecl {Syn.instanceDeclTc = Just instanceAnnotation} ->
+      -- The associated type family equations of an instance, explicit
+      -- ones and instantiated class defaults, become axioms.
+      mapM (convertTypeFamilyEquation env) (tcInstanceAssociatedTypes instanceAnnotation)
     Syn.DeclTc _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
     Syn.DeclAnn _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner
     Syn.DeclError _ inner -> dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings inner

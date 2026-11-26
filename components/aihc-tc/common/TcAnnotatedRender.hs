@@ -12,7 +12,6 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
-    TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
@@ -25,11 +24,15 @@ import Aihc.Tc.Evidence (CallSite (..), Coercion (..), EvTerm (..), EvVar (..))
 import Aihc.Tc.Syntax
   ( Annotation,
     ArithSeq (..),
+    ClassDecl (..),
     ClassDeclItem (..),
     Cmd (..),
     CompStmt (..),
     DataConDecl (..),
+    DataDecl (..),
+    DataFamilyInst (..),
     Decl (..),
+    DerivingClause (..),
     DoBindMethods (..),
     DoRecMethods (..),
     DoStmt (..),
@@ -37,6 +40,7 @@ import Aihc.Tc.Syntax
     Expr (..),
     GuardQualifier (..),
     ImportItem (..),
+    InstanceDecl (..),
     InstanceDeclItem (..),
     ListMatch (..),
     Literal (..),
@@ -45,9 +49,11 @@ import Aihc.Tc.Syntax
     Module (..),
     NPlusKMatch (..),
     Name (..),
+    NewtypeDecl (..),
     OverloadedLiteralMatch (..),
     Pattern (..),
     SourceSpan,
+    StandaloneDerivingDecl (..),
     TcInfo (..),
     Type (..),
     annotationSpan,
@@ -68,7 +74,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (void)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter (Doc, pretty)
@@ -123,20 +129,20 @@ labelWalk =
         children anns,
       walkTcInfo = \info -> do
         span' <- gets labelsListSpan
-        addInfoLabels span' [info]
+        addInfoLabels span' [LabelInfo info]
         pure info,
       walkExpr = exprLabels,
       walkPattern = patternLabels,
       walkType = wrapped peelType,
-      walkDecl = wrapped peelDecl,
+      walkDecl = wrappedFields peelDecl declFields,
       walkDataConDecl = wrappedOwn peelDataCon dataConOwn,
       walkLiteral = wrapped peelLiteral,
       walkGuardQualifier = wrapped peelGuard,
       walkDoStmt = doLabels,
       walkCompStmt = wrappedOwn peelComp compStmtOwn,
       walkArithSeq = arithSeqLabels,
-      walkClassDeclItem = wrappedOwn peelClassItem classItemOwn,
-      walkInstanceDeclItem = wrappedOwn peelInstanceItem instanceItemOwn,
+      walkClassDeclItem = wrappedFields peelClassItem classItemFields,
+      walkInstanceDeclItem = wrappedFields peelInstanceItem instanceItemFields,
       walkCmd = wrapped peelCmd,
       walkExportSpec = wrapped peelExport,
       walkImportItem = wrapped peelImport
@@ -147,7 +153,17 @@ labelWalk =
     wrapped :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrapped peel children node = do
       let (anns, infos, base) = peelLeading peel node
-      addInfoLabels (spanFromAnnotations anns) infos
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos)
+      _ <- children base
+      pure node
+
+    -- The information in the typed fields of a node below its wrappers
+    -- gets the first span of the wrappers, before the information of the
+    -- wrappers.
+    wrappedFields :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> [Label]) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrappedFields peel fields children node = do
+      let (anns, infos, base) = peelLeading peel node
+      addInfoLabels (spanFromAnnotations anns) (fields base <> map LabelInfo infos)
       _ <- children base
       pure node
 
@@ -157,7 +173,7 @@ labelWalk =
     wrappedOwn peel own children node = do
       let (anns, infos, base) = peelLeading peel node
           (ownInfos, base') = own base
-      addInfoLabels (spanFromAnnotations anns) (infos <> ownInfos)
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (infos <> ownInfos))
       _ <- children base'
       pure node
 
@@ -166,7 +182,7 @@ labelWalk =
     exprLabels children node = do
       let (anns, infos, base) = peelLeading peelExpr node
           (syntaxInfos, base') = exprSyntax base
-      addInfoLabels (spanFromAnnotations anns) (infos <> syntaxInfos)
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (infos <> syntaxInfos))
       _ <- children base'
       pure node
 
@@ -176,7 +192,7 @@ labelWalk =
     doLabels children node = do
       let (anns, infos, base) = peelLeading peelDo node
           (methodInfos, base') = doStmtMethods base
-      addInfoLabels (spanFromAnnotations anns) (methodInfos <> infos)
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (methodInfos <> infos))
       _ <- children base'
       pure node
 
@@ -186,7 +202,7 @@ labelWalk =
       let (anns, infos, base) = peelLeading peelArithSeq node
           methodInfos = foldMap nameTc (arithSeqMethod base)
           base' = mapArithSeqMethod (\name -> name {nameTc = []}) base
-      addInfoLabels (spanFromAnnotations anns) (methodInfos <> infos)
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (methodInfos <> infos))
       _ <- children base'
       pure node
 
@@ -198,11 +214,11 @@ labelWalk =
       let (anns, infos, base) = peelLeading peelPattern node
           patternSpan = spanFromAnnotations anns
           (matchInfos, base') = patternMatch base
-      addInfoLabels patternSpan (infos <> matchInfos)
+      addInfoLabels patternSpan (map LabelInfo (infos <> matchInfos))
       case base' of
         PLit _ literal -> do
           let (literalAnns, literalInfos, _) = peelLeading peelLiteral literal
-          addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) literalInfos
+          addInfoLabels (spanFromAnnotations literalAnns <|> patternSpan) (map LabelInfo literalInfos)
         _ -> void (children base')
       pure node
 
@@ -275,20 +291,19 @@ compStmtOwn stmt =
     CompGroupByUsing tc key function -> (tc, CompGroupByUsing [] key function)
     CompAnn _ _ -> ([], stmt)
 
--- | The information of a class item, and the item with no information.
-classItemOwn :: ClassDeclItem -> ([TcInfo], ClassDeclItem)
-classItemOwn item =
+-- | The labels of the typed fields of a class item.
+classItemFields :: ClassDeclItem -> [Label]
+classItemFields item =
   case item of
-    ClassItemDefault tc value -> (tc, ClassItemDefault [] value)
-    _ -> ([], item)
+    ClassItemDefault tc _ -> [LabelText (renderInstanceMethodAnnotation annotation) | Just annotation <- [tc]]
+    _ -> []
 
--- | The information of an instance item, and the item with no
--- information.
-instanceItemOwn :: InstanceDeclItem -> ([TcInfo], InstanceDeclItem)
-instanceItemOwn item =
+-- | The labels of the typed fields of an instance item.
+instanceItemFields :: InstanceDeclItem -> [Label]
+instanceItemFields item =
   case item of
-    InstanceItemBind tc value -> (tc, InstanceItemBind [] value)
-    _ -> ([], item)
+    InstanceItemBind tc _ -> [LabelText (renderInstanceMethodAnnotation annotation) | Just annotation <- [tc]]
+    _ -> []
 
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
@@ -317,10 +332,34 @@ exprSyntax expr =
         LiteralSyntaxPrimitive ty -> LiteralSyntaxPrimitive (without ty)
         LiteralSyntaxOverloaded ty conversion -> LiteralSyntaxOverloaded (without <$> ty) (without conversion)
 
-addInfoLabels :: Maybe SourceSpan -> [TcInfo] -> State (Labels ann) ()
+-- | One label of a node: an item of information, or the text of the
+-- information in a typed field.
+data Label
+  = LabelInfo TcInfo
+  | LabelText String
+
+-- | The labels of the typed fields of a declaration.
+declFields :: Decl -> [Label]
+declFields decl =
+  case decl of
+    DeclClass classDecl -> [LabelText (renderClassAnnotation annotation) | Just annotation <- [classDeclTc classDecl]]
+    DeclInstance instanceDecl -> [LabelText (renderInstanceAnnotation annotation) | Just annotation <- [instanceDeclTc instanceDecl]]
+    DeclData dataDecl -> derivingLabels (concatMap derivingPlans (dataDeclDeriving dataDecl))
+    DeclNewtype newtypeDecl -> derivingLabels (concatMap derivingPlans (newtypeDeclDeriving newtypeDecl))
+    DeclDataFamilyInst familyInst -> derivingLabels (concatMap derivingPlans (dataFamilyInstDeriving familyInst))
+    DeclStandaloneDeriving derivingDecl -> derivingLabels (maybeToList (standaloneDerivingPlan derivingDecl))
+    _ -> []
+  where
+    derivingLabels plans = [LabelText (renderDerivingPlans plans) | not (null plans)]
+
+addInfoLabels :: Maybe SourceSpan -> [Label] -> State (Labels ann) ()
 addInfoLabels span' infos = do
   currentModule <- gets labelsModule
-  case [label | info <- infos, Just label <- [renderTcInfo currentModule info]] of
+  let labelText label =
+        case label of
+          LabelInfo info -> renderTcInfo currentModule info
+          LabelText text -> Just text
+  case [label | info <- infos, Just label <- [labelText info]] of
     [] -> pure ()
     rendered ->
       modify' (\labels -> labels {labelsDone = reverse [(placedAt label span', pretty label) | label <- rendered] <> labelsDone labels})
@@ -417,10 +456,6 @@ renderTcInfo :: Maybe Text -> TcInfo -> Maybe String
 renderTcInfo currentModule info =
   case info of
     InfoType annotation -> Just (renderTypeAnnotation currentModule annotation)
-    InfoClass annotation -> Just (renderClassAnnotation annotation)
-    InfoDeriving annotation -> Just (renderDerivingAnnotation annotation)
-    InfoInstance annotation -> Just (renderInstanceAnnotation annotation)
-    InfoInstanceMethod annotation -> Just (renderInstanceMethodAnnotation annotation)
     _ -> Nothing
 
 renderTypeAnnotation :: Maybe Text -> TcAnnotation -> String
@@ -452,9 +487,9 @@ renderClassMethod :: TcClassMethodAnnotation -> String
 renderClassMethod method =
   renderTcSignature (tcClassMethodName method) (tcClassMethodType method)
 
-renderDerivingAnnotation :: TcDerivingAnnotation -> String
-renderDerivingAnnotation annotation =
-  "deriving plans: " <> intercalate ", " (map renderDerivingPlan (tcDerivingPlans annotation))
+renderDerivingPlans :: [TcDerivingPlan] -> String
+renderDerivingPlans plans =
+  "deriving plans: " <> intercalate ", " (map renderDerivingPlan plans)
 
 renderDerivingPlan :: TcDerivingPlan -> String
 renderDerivingPlan plan =
