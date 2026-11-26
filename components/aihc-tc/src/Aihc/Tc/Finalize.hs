@@ -91,19 +91,19 @@ finalizeSyntax =
         finalizeAnnotation = fmap Just . annotationForPendingTc,
         -- The checker writes the types of declarations as final
         -- information.
-        finalizeCheckedAnnotation = \annotation -> do
-          rejectMetaCheckedAnnotation annotation
-          recordAnnotationKindArguments annotation,
+        finalizeCheckedAnnotation = \annotation ->
+          case annotation of
+            TcAnnotation ty binders typeArgs [] [] termArgTypes ->
+              annotationForPendingTc (PendingTcAnnotation ty binders typeArgs 0 [] [] termArgTypes)
+            _ -> abortTc "internal type annotation error: a checked annotation has evidence",
         finalizeCast = finalizeCastAnnotation,
         finalizePendingType = \ty ->
           tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
         -- The checker writes the type of a data constructor as final
         -- information. It keeps its value, but it must not have a meta
         -- variable.
-        finalizeCheckedType = \ty -> do
-          let annotation = TcAnnotation ty [] [] [] [] []
-          rejectMetaCheckedAnnotation annotation
-          tcAnnType <$> recordAnnotationKindArguments annotation,
+        finalizeCheckedType = \ty ->
+          tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
         finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
           evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
           arrow <- zonkType ty
@@ -515,12 +515,6 @@ rejectMetaTcAnnotation ann =
         ( "internal type annotation error: unzonked meta-variable in finalized annotation with type "
             <> renderTcType (tidyType kinds (tcAnnType ann))
         )
-
--- | Abort when an annotation that the checker wrote as final has a meta
--- variable.
-rejectMetaCheckedAnnotation :: TcAnnotation -> TcM ()
-rejectMetaCheckedAnnotation annotation =
-  rejectMeta "finalized type annotation" (firstMetaTcAnnotation annotation)
 
 rejectMeta :: String -> Maybe Unique -> TcM ()
 rejectMeta context maybeMeta =
