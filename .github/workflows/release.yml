@@ -202,7 +202,7 @@ jobs:
           exit "$status"
 
       # The executable must run on a Mac without Nix. Thus it may only load
-      # libraries of macOS, and it must run on macOS 11.
+      # libraries of macOS, and it must run on macOS 12. Aihc.Native links for macOS 12.
       - name: Check the dynamic libraries
         if: runner.os == 'macOS'
         run: |
@@ -226,8 +226,8 @@ jobs:
               ;;
             esac
           done <<<"$libraries"
-          if [ "$minimum" != 11.0 ]; then
-            echo "::error::The minimum macOS version is $minimum, not 11.0."
+          if [ "$minimum" != 12.0 ]; then
+            echo "::error::The minimum macOS version is $minimum, not 12.0."
             status=1
           fi
           exit "$status"
