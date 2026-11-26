@@ -16,11 +16,12 @@
 -- When a constructor changes in one tree, change its case here too.
 module Aihc.Tc.Syntax.FromPending
   ( FromPending (..),
-    Finalizer (..),
+    Finalizers (..),
   )
 where
 
 import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, TcAnnotation, TcCastAnnotation)
+import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Data.Maybe (catMaybes, fromMaybe)
@@ -32,34 +33,34 @@ wrapInfo wrap item node = maybe node (`wrap` node) item
 
 -- | Change a list of information items, and remove the items that the
 -- function removes.
-infos :: (Monad m) => Finalizer m -> [Pending.TcInfo] -> m [TcInfo]
-infos info items = catMaybes <$> traverse (finalizeItem info) items
+infos :: (Monad m) => Finalizers m -> [Pending.TcInfo] -> m [TcInfo]
+infos info items = catMaybes <$> traverse (finalizeTcInfo info) items
 
 -- | Change a type field. A type that the function removes leaves the field
 -- empty.
-typeSlot :: (Monad m) => Finalizer m -> Maybe PendingTcAnnotation -> m (Maybe TcAnnotation)
+typeSlot :: (Monad m) => Finalizers m -> Maybe PendingTcAnnotation -> m (Maybe TcAnnotation)
 typeSlot info slot =
   case slot of
     Nothing -> pure Nothing
     Just annotation -> do
-      item <- finalizeItem info (Pending.InfoType annotation)
+      item <- finalizeTcInfo info (Pending.InfoType annotation)
       pure $ case item of
         Just (InfoType annotation') -> Just annotation'
         _ -> Nothing
 
 -- | Change a type field that the rule of the node always fills. Without a
 -- type, the change stops. The text names the node.
-typeField :: (Monad m) => Text -> Finalizer m -> Maybe PendingTcAnnotation -> m TcAnnotation
+typeField :: (Monad m) => Text -> Finalizers m -> Maybe PendingTcAnnotation -> m TcAnnotation
 typeField node info slot = typeSlot info slot >>= maybe (missingType info node) pure
 
 -- | Change a cast field. A cast that the function removes leaves the field
 -- empty.
-castSlot :: (Monad m) => Finalizer m -> Maybe PendingTcCastAnnotation -> m (Maybe TcCastAnnotation)
+castSlot :: (Monad m) => Finalizers m -> Maybe PendingTcCastAnnotation -> m (Maybe TcCastAnnotation)
 castSlot info slot =
   case slot of
     Nothing -> pure Nothing
     Just annotation -> do
-      item <- finalizeItem info (Pending.InfoCast annotation)
+      item <- finalizeTcInfo info (Pending.InfoCast annotation)
       pure $ case item of
         Just (InfoCast annotation') -> Just annotation'
         _ -> Nothing
@@ -105,10 +106,14 @@ instance FromPending Pending.PatternTc where
     PatternTc <$> typeSlot info parameter <*> typeSlot info instantiation <*> castSlot info cast <*> typeSlot info ty
 
 -- | What the change does with the information of the tree.
-data Finalizer m = Finalizer
+data Finalizers m = Finalizers
   { -- | Change one item of pending information into final information, or
     -- remove the item.
-    finalizeItem :: Pending.TcInfo -> m (Maybe TcInfo),
+    finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
+    -- | Change the facts of a type family instance.
+    finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
+    -- | Change the facts of a data family instance.
+    finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
     -- | Stop the change of a node that has no type, although the rule of
     -- the node always gives one. The text names the node.
     missingType :: forall a. Text -> m a,
@@ -120,7 +125,7 @@ data Finalizer m = Finalizer
 
 class FromPending a where
   type Final a
-  fromPending :: (Monad m) => Finalizer m -> a -> m (Final a)
+  fromPending :: (Monad m) => Finalizers m -> a -> m (Final a)
 
 instance (FromPending a) => FromPending [a] where
   type Final [a] = [Final a]
@@ -309,7 +314,7 @@ instance FromPending Pending.Literal where
   fromPending info node =
     case node of
       Pending.LitAnn x1 x2 -> LitAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeItem info x1 <*> fromPending info x2
+      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeTcInfo info x1 <*> fromPending info x2
       Pending.LitInt x1 x2 x3 -> LitInt <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitFloat x1 x2 x3 -> LitFloat <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitChar x1 x2 -> LitChar <$> fromPending info x1 <*> fromPending info x2
@@ -333,7 +338,7 @@ instance FromPending Pending.Module where
   type Final Pending.Module = Module
   fromPending info node =
     case node of
-      Pending.Module x1 x2 x3 x4 x5 x6 -> Module <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure []
+      Pending.Module x1 x2 x3 x4 x5 x6 -> Module <$> fromPending info x1 <*> pure x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure []
 
 instance FromPending Pending.ModuleHead where
   type Final Pending.ModuleHead = ModuleHead
@@ -389,7 +394,7 @@ instance FromPending Pending.Decl where
     fmap (fromMaybe (DeclUnchecked node)) . recover info $
       case node of
         Pending.DeclAnn x1 x2 -> DeclAnn <$> fromPending info x1 <*> fromPending info x2
-        Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> finalizeItem info x1 <*> fromPending info x2
+        Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> finalizeTcInfo info x1 <*> fromPending info x2
         Pending.DeclError x1 x2 -> DeclError <$> fromPending info x1 <*> fromPending info x2
         Pending.DeclValue x1 -> DeclValue <$> fromPending info x1
         Pending.DeclImplicitParam x1 x2 x3 -> DeclImplicitParam <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
@@ -651,13 +656,13 @@ instance FromPending Pending.TypeFamilyInst where
   type Final Pending.TypeFamilyInst = TypeFamilyInst
   fromPending info node =
     case node of
-      Pending.TypeFamilyInst x1 x2 x3 x4 -> TypeFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.TypeFamilyInst x1 x2 x3 x4 x5 -> TypeFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> traverse (finalizeTypeFamilyInstance info) x5
 
 instance FromPending Pending.DataFamilyInst where
   type Final Pending.DataFamilyInst = DataFamilyInst
   fromPending info node =
     case node of
-      Pending.DataFamilyInst x1 x2 x3 x4 x5 x6 -> DataFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.DataFamilyInst x1 x2 x3 x4 x5 x6 x7 -> DataFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> traverse (finalizeDataFamilyInstance info) x7
 
 instance FromPending Pending.DataDecl where
   type Final Pending.DataDecl = DataDecl
@@ -762,7 +767,7 @@ instance FromPending Pending.InstanceDeclItem where
         Pending.InstanceItemBind x1 x2 -> InstanceItemBind <$> infos info x1 <*> fromPending info x2
         Pending.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig <$> fromPending info x1 <*> fromPending info x2
         Pending.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-        Pending.InstanceItemTypeFamilyInst x1 x2 -> InstanceItemTypeFamilyInst <$> infos info x1 <*> fromPending info x2
+        Pending.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst <$> fromPending info x1
         Pending.InstanceItemDataFamilyInst x1 -> InstanceItemDataFamilyInst <$> fromPending info x1
         Pending.InstanceItemPragma x1 -> InstanceItemPragma <$> fromPending info x1
 
@@ -770,7 +775,7 @@ instance FromPending Pending.ForeignDecl where
   type Final Pending.ForeignDecl = ForeignDecl
   fromPending info node =
     case node of
-      Pending.ForeignDecl x1 x2 x3 x4 x5 x6 -> ForeignDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.ForeignDecl x1 x2 x3 x4 x5 x6 x7 -> ForeignDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure x7
 
 instance FromPending Pending.Expr where
   type Final Pending.Expr = Expr

@@ -211,7 +211,7 @@ instance FromResolved R.Module where
   type ToPending R.Module = Module
   fromResolved node =
     case node of
-      R.Module x1 x2 x3 x4 x5 -> Module (fromResolved x1) [] (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
+      R.Module x1 x2 x3 x4 x5 -> Module (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5)
 
 instance FromResolved R.ModuleHead where
   type ToPending R.ModuleHead = ModuleHead
@@ -527,13 +527,13 @@ instance FromResolved R.TypeFamilyInst where
   type ToPending R.TypeFamilyInst = TypeFamilyInst
   fromResolved node =
     case node of
-      R.TypeFamilyInst x1 x2 x3 x4 -> TypeFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.TypeFamilyInst x1 x2 x3 x4 -> TypeFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance FromResolved R.DataFamilyInst where
   type ToPending R.DataFamilyInst = DataFamilyInst
   fromResolved node =
     case node of
-      R.DataFamilyInst x1 x2 x3 x4 x5 x6 -> DataFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
+      R.DataFamilyInst x1 x2 x3 x4 x5 x6 -> DataFamilyInst (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.DataDecl where
   type ToPending R.DataDecl = DataDecl
@@ -636,7 +636,7 @@ instance FromResolved R.InstanceDeclItem where
       R.InstanceItemBind x1 -> InstanceItemBind [] (fromResolved x1)
       R.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig (fromResolved x1) (fromResolved x2)
       R.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
-      R.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst [] (fromResolved x1)
+      R.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst (fromResolved x1)
       R.InstanceItemDataFamilyInst x1 -> InstanceItemDataFamilyInst (fromResolved x1)
       R.InstanceItemPragma x1 -> InstanceItemPragma (fromResolved x1)
 
@@ -644,7 +644,7 @@ instance FromResolved R.ForeignDecl where
   type ToPending R.ForeignDecl = ForeignDecl
   fromResolved node =
     case node of
-      R.ForeignDecl x1 x2 x3 x4 x5 x6 -> ForeignDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6)
+      R.ForeignDecl x1 x2 x3 x4 x5 x6 -> ForeignDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) (fromResolved x5) (fromResolved x6) Nothing
 
 instance FromResolved R.Expr where
   type ToPending R.Expr = Expr

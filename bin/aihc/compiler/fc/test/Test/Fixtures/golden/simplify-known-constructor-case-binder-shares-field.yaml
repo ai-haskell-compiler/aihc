@@ -1,0 +1,63 @@
+---
+extensions:
+- MagicHash
+- BangPatterns
+modules:
+- |
+  module Test (larger) where
+
+  import GHC.Prim (Int#, (<=#))
+  import GHC.Types (Int (..))
+
+  work :: Int# -> Int#
+  work n = n
+  {-# NOINLINE work #-}
+
+  larger :: Int# -> Int# -> Int
+  larger left n = case I# (work n) of
+    y@(I# right) -> case left <=# right of
+      1# -> y
+      _ -> I# left
+passes:
+- simplify
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  import prims
+    <=# = 2.v<=# :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @cIntRep tInt# tInt#)
+
+  import headers
+    constructors [3.cI#] 3.tInt :: sType;
+    2.tInt# :: tTYPE cIntRep;
+    constructors [3.cLifted, 3.cUnlifted] 3.tLevity :: sType;
+    3.sLiftedRep :: tRuntimeRep;
+    constructors [3.cVecRep, 3.cTupleRep, 3.cSumRep, 3.cBoxedRep, 3.cIntRep, 3.cInt8Rep, 3.cInt16Rep, 3.cInt32Rep, 3.cInt64Rep, 3.cWordRep, 3.cWord8Rep, 3.cWord16Rep, 3.cWord32Rep, 3.cWord64Rep, 3.cAddrRep, 3.cFloatRep, 3.cDoubleRep] 3.tRuntimeRep :: sType;
+    3.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    3.sType :: sType;
+    3.cBoxedRep :: tLevity → tRuntimeRep;
+    3.cI# :: FUN @cIntRep @sLiftedRep tInt# tInt;
+    3.cIntRep :: tRuntimeRep;
+    3.cLifted :: tLevity
+
+  import synonyms
+    3.sLiftedRep = cBoxedRep cLifted;
+    3.sType = tTYPE sLiftedRep
+
+  val 1.vwork noinline :: FUN @cIntRep @cIntRep tInt# tInt#
+    = λ(x : tInt#).
+      x
+
+  pub val 1.vlarger :: FUN @cIntRep @sLiftedRep tInt# (FUN @cIntRep @sLiftedRep tInt# tInt)
+    = λ(x : tInt#) (y : tInt#).
+      let right : tInt# =
+        vwork y;
+      case prim <=# x right of {
+        1#cIntRep →
+          cI# right;
+        _ →
+          cI# x
+      }
+status: pass
+reason: The scrutinee is a known constructor with a call in its field. The field binder and the case binder must share one call, or each alternative that uses both does the call two times. A recursive function then does exponential work.

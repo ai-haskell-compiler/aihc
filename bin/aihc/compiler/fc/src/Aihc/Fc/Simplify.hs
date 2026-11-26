@@ -5213,18 +5213,19 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
         -- it would be a thunk, so the binder gets the constructor
         -- application that the unfolding found. A cast on the scrutinee
         -- changes the type of that application, so the case stays.
-        application = List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) types) fields
-        caseBinderBind = case binder of
+        application = List.foldl' ExApp (List.foldl' ExTyApp (ExVar con) types)
+        caseBinderBind copies fieldValues = case binder of
           Nothing -> Just []
           Just named
             | Occurrences 0 _ <- occurrences (binderName named) rhs -> Just []
             | not (isLiftedBinder (spEnv env) named) -> Nothing
-            | isValue env scrutinee || shared -> Just [Bind named scrutinee]
-            | null (snd (peelCasts scrutinee)) -> Just [Bind named application]
+            | shared || (copies && isValue env scrutinee) -> Just [Bind named scrutinee]
+            | null (snd (peelCasts scrutinee)) -> Just [Bind named (application fieldValues)]
             | otherwise -> Nothing
-    caseBinds <- caseBinderBind
-    body <- case altCon alternative of
-      AltDefault -> Just rhs
+    case altCon alternative of
+      AltDefault -> do
+        caseBinds <- caseBinderBind True fields
+        Just (foldr ExLet rhs (binds <> caseBinds))
       _ -> do
         existentials <- existentialTypes (spEnv env) con types
         if length existentials /= length (altTypeBinders alternative) || length fields /= length (altBinders alternative)
@@ -5233,9 +5234,20 @@ caseOfKnownConstructor env scrutinee binder alternatives = do
             let typeSubst = Map.fromList (zip (map binderName (altTypeBinders alternative)) existentials)
                 -- The type of a field binder can name an existential type
                 -- binder of the alternative, which the case no longer binds.
-                fieldBinds = zipWith (\field -> Bind field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative) fields
-            Just (foldr ExLet (substTypeExpr typeSubst rhs) fieldBinds)
-    Just (foldr ExLet body (binds <> caseBinds))
+                fieldBinders = map (\field -> field {binderType = substTypes typeSubst (binderType field)}) (altBinders alternative)
+                fieldBinds = zipWith Bind fieldBinders fields
+                body = substTypeExpr typeSubst rhs
+            if shared || all (isCheapValue (spArity (spFixed env))) fields
+              then do
+                caseBinds <- caseBinderBind True fields
+                Just (foldr ExLet body (binds <> caseBinds <> fieldBinds))
+              else do
+                -- A field that is not a cheap value is work, such as a
+                -- call. A copy of it in the case binder and a copy in the
+                -- field binder would do the work two times. Thus the case
+                -- binder is the constructor applied to the field binders.
+                caseBinds <- caseBinderBind False (map (ExVar . binderName) fieldBinders)
+                Just (foldr ExLet body (binds <> fieldBinds <> caseBinds))
 
 -- | Whether a scrutinee names a top-level value, under casts and type
 -- arguments. Each use of such a value shares its fields.

@@ -98,7 +98,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Data.Map.Lazy qualified as LazyMap
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -628,9 +628,9 @@ dsDecl ::
   Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons classes typeFamilyInstances bindings decl =
   case decl of
-    Syn.DeclTc (Syn.InfoDataFamilyInstance familyInfo) _ ->
+    Syn.DeclDataFamilyInst Syn.DataFamilyInst {Syn.dataFamilyInstInfo = Just familyInfo} ->
       convertDataFamilyInst env package moduleName' bindings familyInfo
-    Syn.DeclTc (Syn.InfoTypeFamilyInstance familyEquation) _ ->
+    Syn.DeclTypeFamilyInst Syn.TypeFamilyInst {Syn.typeFamilyInstInfo = Just familyEquation} ->
       (: []) <$> convertTypeFamilyEquation env familyEquation
     Syn.DeclTc (Syn.InfoInstance instanceAnnotation) inner
       | Syn.DeclInstance {} <- peelDeclAnn inner ->
@@ -1225,8 +1225,6 @@ synonymResultKind scheme params =
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin checked =
-  fromMaybe (error "System FC module has no TcModuleIdentity annotation") $
-    listToMaybe
-      [ (package, moduleName')
-      | Syn.InfoModuleIdentity (TcModuleIdentity package moduleName') <- Syn.moduleTc checked
-      ]
+  case Syn.moduleIdentity checked of
+    Just (TcModuleIdentity package moduleName') -> (package, moduleName')
+    Nothing -> error "System FC module has no TcModuleIdentity annotation"

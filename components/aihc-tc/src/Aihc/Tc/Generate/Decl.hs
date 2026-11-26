@@ -248,7 +248,7 @@ data CheckedSig = CheckedSig
 -- the identity cannot come from a resolution.
 withModuleIdentity :: Package -> Module -> Module
 withModuleIdentity package modu =
-  modu {moduleTc = InfoModuleIdentity (TcModuleIdentity (packageId package) (fromMaybe "Main" (moduleName modu))) : moduleTc modu}
+  modu {moduleIdentity = Just (TcModuleIdentity (packageId package) (fromMaybe "Main" (moduleName modu)))}
 
 -- | The syntax of a resolved module in the tree that the type checker
 -- works on.
@@ -258,11 +258,9 @@ workingSyntax = fromResolved . resolvedModuleSyntax
 -- | The package and the name of a checked module.
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $
-    listToMaybe
-      [ (packageIdText packageId, moduleName')
-      | InfoModuleIdentity (TcModuleIdentity packageId moduleName') <- moduleTc resolvedModule
-      ]
+  case moduleIdentity resolvedModule of
+    Just (TcModuleIdentity packageId moduleName') -> (packageIdText packageId, moduleName')
+    Nothing -> ("", fromMaybe "Main" (moduleName resolvedModule))
 
 typeToScheme :: TcType -> TypeScheme
 typeToScheme ty =
@@ -1569,7 +1567,7 @@ annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
       findKey key = find ((== key) . typeFamilyAxiomKey) familyInstances
   case listToMaybe (mapMaybe findKey expectedKeys) of
     Just familyInstance ->
-      pure (DeclTc (InfoTypeFamilyInstance familyInstance) (DeclTypeFamilyInst familyInst))
+      pure (DeclTypeFamilyInst familyInst {typeFamilyInstInfo = Just familyInstance})
     Nothing -> pure (DeclTypeFamilyInst familyInst)
 
 annotateDataFamilyInstTc :: (Text, Text) -> DataFamilyInst -> TcM Decl
@@ -1578,9 +1576,8 @@ annotateDataFamilyInstTc origin familyInst = do
   -- head, which is the data family itself.
   parent <- dataFamilyInstHeadTyCon familyInst
   constructors <- mapM (annotateRegisteredDataConDeclTc parent) (dataFamilyInstConstructors familyInst)
-  let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
   maybeInfo <- lookupDataFamilyInstanceInfo origin familyInst
-  pure (maybe annotated (\familyInstance -> DeclTc (InfoDataFamilyInstance familyInstance) annotated) maybeInfo)
+  pure (DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors, dataFamilyInstInfo = maybeInfo}))
 
 -- | The registered metadata of a data family instance of this module.
 lookupDataFamilyInstanceInfo :: (Text, Text) -> DataFamilyInst -> TcM (Maybe DataFamilyInstanceInfo)
@@ -1688,7 +1685,8 @@ annotateForeignDeclTc foreignDecl = do
   key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
   ty <- bindingType key
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
-      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
+      annotatedWith plan = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl {foreignPlan = plan})
+      annotated = annotatedWith Nothing
   case foreignCallConv foreignDecl of
     callConv | callConv == CCall || callConv == CApi -> do
       let declaredName = unqualifiedNameText (foreignName foreignDecl)
@@ -1704,7 +1702,7 @@ annotateForeignDeclTc foreignDecl = do
           checked <- checkForeignTarget sourceSpan plan {tcForeignCApi = foreignCApiFor capi entity}
           refineFunctionAddress ty checked
       registerForeignImport key (TcForeignCCallImport (foreignSafetyMark (foreignSafety foreignDecl)) checkedPlan)
-      pure (DeclTc (InfoForeignImport checkedPlan) annotated)
+      pure (annotatedWith (Just checkedPlan))
     CPrim -> do
       checkPrimitiveImportType sourceSpan key ty
       let entity = case foreignEntity foreignDecl of
@@ -2303,8 +2301,8 @@ annotateInstanceDeclWithPlan origin derived coercedPlan instanceDecl =
             case item of
               InstanceItemAnn ann inner -> InstanceItemAnn ann (annotateItem inner)
               InstanceItemError ann inner -> InstanceItemError ann (annotateItem inner)
-              InstanceItemTypeFamilyInst tc familyInst
-                | Just equation <- explicitEquation familyInst -> InstanceItemTypeFamilyInst (InfoTypeFamilyInstance equation : tc) familyInst
+              InstanceItemTypeFamilyInst familyInst
+                | Just equation <- explicitEquation familyInst -> InstanceItemTypeFamilyInst familyInst {typeFamilyInstInfo = Just equation}
               _ -> item
           items = map annotateItem (instanceDeclItems instanceDecl)
           associatedEquations = mapMaybe explicitEquation (instanceDeclTypeFamilyInsts instanceDecl) <> defaultEquations
@@ -4673,7 +4671,7 @@ instanceDeclTypeFamilyInsts instanceDecl = mapMaybe familyItem (instanceDeclItem
       case item of
         InstanceItemAnn _ inner -> familyItem inner
         InstanceItemError _ inner -> familyItem inner
-        InstanceItemTypeFamilyInst _ familyInst -> Just familyInst
+        InstanceItemTypeFamilyInst familyInst -> Just familyInst
         _ -> Nothing
 
 typeFamilyInstName :: TypeFamilyInst -> Maybe Text

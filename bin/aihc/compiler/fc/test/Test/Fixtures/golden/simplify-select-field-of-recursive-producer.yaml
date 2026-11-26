@@ -47,10 +47,6 @@ expected: |-
     pub 1.cBox :: ∀(a : sType). (a → a) → a → tBox a
   }
 
-  val 1.vkeep :: ∀(a : sType). a → a → a
-    = Λ(a : sType). λ(x : a) (unused y : a).
-      x
-
   pub val 1.vcostly :: ∀(a : sType). a → a
     = Λ(a : sType). λ(x : a).
       vcostly @a x
@@ -65,6 +61,7 @@ expected: |-
 
   pub val 1.vwhole :: ∀(a : sType). a → tBox a
     = Λ(a : sType). λ(x : a).
-      vconsume @a x (cBox @a (vkeep @a x) (vcostly @a x))
+      vconsume @a x (cBox @a (λ(unused y : a).
+        x) (vcostly @a x))
 status: pass
 reason: An unused costly field must not block selection of a cheap field from a recursive constructor producer.

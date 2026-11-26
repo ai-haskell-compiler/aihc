@@ -35,7 +35,7 @@ import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (Finalizer (..), FromPending (..))
+import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
 import Aihc.Tc.Syntax.Pending (Module, TcInfo (..))
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
@@ -92,17 +92,26 @@ finalizeModuleTc modu = do
     else fromPending strictFinalizer modu
   where
     recovering =
-      Finalizer
-        { finalizeItem = lift . finalizeInfo,
+      Finalizers
+        { finalizeTcInfo = lift . finalizeTcInfo strictFinalizer,
+          finalizeTypeFamilyInstance = lift . finalizeTypeFamilyInstance strictFinalizer,
+          finalizeDataFamilyInstance = lift . finalizeDataFamilyInstance strictFinalizer,
           missingType = const (throwE ()),
           recover = \action -> catchE (Just <$> action) (const (pure Nothing))
         }
 
 -- | The change of a checked tree. A node without its type stops the check.
-strictFinalizer :: Finalizer (ReaderT TcEnv (StateT TcState TcResult))
+strictFinalizer :: Finalizers (ReaderT TcEnv (StateT TcState TcResult))
 strictFinalizer =
-  Finalizer
-    { finalizeItem = finalizeInfo,
+  Finalizers
+    { finalizeTcInfo = finalizeInfo,
+      -- The checker writes the facts of a family instance as final
+      -- information. They keep their value, but they must not have a
+      -- meta variable.
+      finalizeTypeFamilyInstance = \info ->
+        info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
+      finalizeDataFamilyInstance = \info ->
+        info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
       missingType = \node -> abortTc ("internal type annotation error: the checked node " <> T.unpack node <> " has no type"),
       recover = fmap Just
     }
@@ -161,10 +170,6 @@ finalizeInfo item =
     InfoCoercedDeriving plan -> checked (Final.InfoCoercedDeriving plan)
     InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
     InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
-    InfoModuleIdentity identity -> checked (Final.InfoModuleIdentity identity)
-    InfoForeignImport annotation -> checked (Final.InfoForeignImport annotation)
-    InfoTypeFamilyInstance info -> checked (Final.InfoTypeFamilyInstance info)
-    InfoDataFamilyInstance info -> checked (Final.InfoDataFamilyInstance info)
   where
     -- Information that the checker writes as final keeps its value, but
     -- it must not have a meta variable.
@@ -550,8 +555,6 @@ rejectMetaFinalInfo item =
     Final.InfoDeriving annotation -> reject "deriving annotation" (firstMetaDerivingAnnotation annotation)
     Final.InfoInstance annotation -> reject "instance annotation" (firstMetaInstanceAnnotation annotation)
     Final.InfoInstanceMethod annotation -> reject "instance method annotation" (firstMetaInstanceMethodAnnotation annotation)
-    Final.InfoDataFamilyInstance info -> reject "data-family instance annotation" (firstMetaDataFamilyInstance info)
-    Final.InfoTypeFamilyInstance info -> reject "type-family instance annotation" (firstMetaTypeFamilyInstance info)
     _ -> pure ()
   where
     reject context = rejectMeta ("finalized " <> context)

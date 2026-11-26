@@ -7,11 +7,15 @@ where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars, freeValueVars, maximumProgramVarUnique)
 import Aihc.Grin.Syntax
+import Aihc.Util.Occurrences qualified as Occurrences
 import Control.Monad.Trans.State.Strict (evalState, state)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Monoid (Sum)
+import Data.MonoidMap (MonoidMap)
+import Data.MonoidMap qualified as MonoidMap
 import Data.Set (Set)
 import Data.Set qualified as Set
 
@@ -110,7 +114,7 @@ move pointer node = go
 -- caller.
 storeArguments :: GrinProgram -> GrinProgram
 storeArguments program
-  | Map.null positions = program
+  | MonoidMap.null positions = program
   | otherwise = program {grinFunctions = evalState (mapM rewriteFunction (grinFunctions program)) (1 + maximumProgramVarUnique program)}
   where
     functions = grinFunctions program
@@ -120,33 +124,33 @@ storeArguments program
         <> foldMap (exprNodeFunctions . grinFunctionBody) functions
     -- Each call of each function, with what each argument is: a node that
     -- the caller stores for this argument alone, or nothing.
-    calls :: Map FunctionName [[Maybe GrinNode]]
-    calls = Map.fromListWith (<>) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
-    positions :: Map FunctionName (Map Int GrinNodeTag)
+    calls :: MonoidMap FunctionName [[Maybe GrinNode]]
+    calls = MonoidMap.fromListWith (flip (<>)) [(callee, [arguments]) | function <- functions, (callee, arguments) <- functionCalls function]
+    positions :: MonoidMap FunctionName (Map Int GrinNodeTag)
     positions =
-      Map.filter (not . Map.null) $
-        Map.fromList
-          [ (grinFunctionName function, qualified)
-          | function <- functions,
-            Set.notMember (grinFunctionName function) named,
-            Just sites <- [Map.lookup (grinFunctionName function) calls],
-            let arity = length (grinFunctionParameters function)
-                qualified =
-                  Map.fromList
-                    [ (index, tag)
-                    | index <- [0 .. arity - 1],
-                      Just (GrinNode tag fields : others) <- [traverse (\site -> if length site == arity then site !! index else Nothing) sites],
-                      movableTag tag,
-                      length fields <= storeArgumentFieldLimit,
-                      all ((== tag) . grinNodeTag) others,
-                      all ((== length fields) . length . grinNodeFields) others
-                    ]
-          ]
+      MonoidMap.fromList
+        [ (grinFunctionName function, qualified)
+        | function <- functions,
+          Set.notMember (grinFunctionName function) named,
+          let sites = MonoidMap.get (grinFunctionName function) calls,
+          let arity = length (grinFunctionParameters function)
+              qualified =
+                Map.fromList
+                  [ (index, tag)
+                  | index <- [0 .. arity - 1],
+                    Just (GrinNode tag fields : others) <- [traverse (\site -> if length site == arity then site !! index else Nothing) sites],
+                    movableTag tag,
+                    length fields <= storeArgumentFieldLimit,
+                    all ((== tag) . grinNodeTag) others,
+                    all ((== length fields) . length . grinNodeFields) others
+                  ]
+        ]
     rewriteFunction function = do
       body <- rewriteCalls (grinFunctionBody function)
-      case Map.lookup (grinFunctionName function) positions of
-        Nothing -> pure function {grinFunctionBody = body}
-        Just moved -> do
+      let moved = MonoidMap.get (grinFunctionName function) positions
+      if Map.null moved
+        then pure function {grinFunctionBody = body}
+        else do
           (parameters, stores) <- fmap unzip . traverse (parameter moved) $ zip [0 ..] (grinFunctionParameters function)
           pure
             function
@@ -159,7 +163,7 @@ storeArguments program
           case Map.lookup index moved of
             Nothing -> pure ([var], [])
             Just tag ->
-              case [node | site <- Map.findWithDefault [] (grinFunctionName function) calls, Just node <- [site !! index]] of
+              case [node | site <- MonoidMap.get (grinFunctionName function) calls, Just node <- [site !! index]] of
                 example : _ -> do
                   fields <- traverse (freshField var) (grinNodeFields example)
                   pure (fields, [(var, GrinNode tag (map GrinVarValue fields))])
@@ -168,7 +172,7 @@ storeArguments program
           Set.fromList
             [ var
             | (callee, arguments) <- rawCalls (grinFunctionBody function),
-              Just moved <- [Map.lookup callee positions],
+              let moved = MonoidMap.get callee positions,
               (index, GrinVarValue var) <- zip [0 ..] arguments,
               Map.member index moved
             ]
@@ -180,9 +184,9 @@ storeArguments program
             GrinStoreRec bindings body -> GrinStoreRec bindings <$> rewriteCalls body
             GrinCase value binder alternatives ->
               GrinCase value binder <$> traverse (\alternative -> (\rhs -> alternative {grinAltRhs = rhs}) <$> rewriteCalls (grinAltRhs alternative)) alternatives
-            GrinCall rep callee arguments
-              | Just moved <- Map.lookup callee positions ->
-                  pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
+            GrinCall rep callee arguments ->
+              let moved = MonoidMap.get callee positions
+               in pure (GrinCall rep callee (concat [expand moved index argument | (index, argument) <- zip [0 ..] arguments]))
             _ -> pure expression
         expand moved index argument =
           case (Map.lookup index moved, argument) of
@@ -214,7 +218,7 @@ functionCalls function =
       case value of
         GrinVarValue var
           | Just node <- Map.lookup var stored,
-            Map.findWithDefault 0 var counts == (1 :: Int) ->
+            MonoidMap.get var counts == 1 ->
               Just node
         _ -> Nothing
 
@@ -244,8 +248,8 @@ rawCalls expression =
     _ -> []
 
 -- | How many times each variable occurs in an expression.
-useCounts :: GrinExpr -> Map GrinVar Int
-useCounts expression = Map.fromListWith (+) [(var, 1) | var <- occurrences expression]
+useCounts :: GrinExpr -> MonoidMap GrinVar (Sum Int)
+useCounts expression = Occurrences.count (occurrences expression)
   where
     occurrences current =
       case current of

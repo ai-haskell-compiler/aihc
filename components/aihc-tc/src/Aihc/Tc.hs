@@ -149,7 +149,7 @@ import Aihc.Tc.Interface
 import Aihc.Tc.Monad
 import Aihc.Tc.Syntax (Module)
 import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (Finalizer (..), FromPending (..))
+import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
 import Aihc.Tc.Syntax.FromResolved (FromResolved (..))
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types
@@ -221,16 +221,13 @@ uncheckedModule :: Pending.Module -> Final.Module
 uncheckedModule =
   runIdentity
     . fromPending
-      Finalizer
-        { finalizeItem = pure . plainInfo,
+      Finalizers
+        { finalizeTcInfo = const (pure Nothing),
+          finalizeTypeFamilyInstance = pure,
+          finalizeDataFamilyInstance = pure,
           missingType = \node -> error ("uncheckedModule: a module without declarations has the node " <> T.unpack node),
           recover = fmap Just
         }
-  where
-    plainInfo item =
-      case item of
-        Pending.InfoModuleIdentity identity -> Just (Final.InfoModuleIdentity identity)
-        _ -> Nothing
 
 -- | The state before the check of a module group. The tables of terms,
 -- type constructors, data types, classes, pattern synonyms, and foreign

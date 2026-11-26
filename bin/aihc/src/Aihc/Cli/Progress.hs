@@ -20,8 +20,9 @@ import Aihc.Cli.Terminal (liveTerminal, terminalSize)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
-import Control.Exception (bracket)
-import Control.Monad (forever, unless)
+import Control.DeepSeq (force)
+import Control.Exception (bracket, evaluate)
+import Control.Monad (forever, unless, void)
 import Data.Foldable (fold)
 import Data.List (intercalate, sortOn)
 import Data.Map.Strict (Map)
@@ -95,7 +96,7 @@ quietProgress handle = ProgressReporter {progressReport = report, progressColor 
   where
     report event =
       case event of
-        ProgressLog message -> hPutStrLn handle message
+        ProgressLog message -> evaluateLog event >> hPutStrLn handle message
         _ -> pure ()
 
 -- | Run an action with a reporter that writes to the handle. A terminal
@@ -222,7 +223,8 @@ withPlainProgress handle action = do
   -- buffered, so the write stays under the lock and is one string: a write
   -- outside the lock, or one write for each line, interleaves with the
   -- writes of the other threads.
-  let report event =
+  let report event = do
+        evaluateLog event
         modifyMVar_ stateVar $ \before -> do
           at <- getMonotonicTimeNSec
           let after = applyEvent at event before
@@ -232,6 +234,16 @@ withPlainProgress handle action = do
             hFlush handle
           pure after
   action ProgressReporter {progressReport = report, progressColor = False}
+
+-- | Evaluate the text of a log line before a reporter takes its lock.
+-- The text can be lazy: the line of a System FC pass gives the size of the
+-- program after the pass, so the evaluation of the text runs the pass. In
+-- the lock, that evaluation stops each other worker at its next event.
+evaluateLog :: ProgressEvent -> IO ()
+evaluateLog event =
+  case event of
+    ProgressLog message -> void (evaluate (force message))
+    _ -> pure ()
 
 plainLines :: ProgressState -> ProgressState -> ProgressEvent -> [String]
 plainLines before after event =
@@ -301,7 +313,8 @@ withLiveProgress :: Handle -> Bool -> (ProgressReporter -> IO a) -> IO a
 withLiveProgress handle color action = do
   now <- getMonotonicTimeNSec
   liveVar <- newMVar (LiveState (initialState now) [] 0 0)
-  let report event =
+  let report event = do
+        evaluateLog event
         modifyMVar_ liveVar $ \live -> do
           at <- getMonotonicTimeNSec
           let before = liveProgress live
