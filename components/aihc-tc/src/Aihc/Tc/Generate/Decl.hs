@@ -4020,12 +4020,13 @@ negatedLiteralPatternToExpr = go []
           pure (ENegate Nothing (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
         _ -> Nothing
 
--- | The information of a pattern wrapper as an expression wrapper. The
--- mark of a pattern instantiation has no meaning for an expression.
+-- | The information of a pattern wrapper as an expression wrapper. Only
+-- a cast stays. The type checker checks the expression again, and that
+-- check gives the expression its types.
 patternTcExpr :: PatternTc -> Expr -> Expr
 patternTcExpr item =
   case item of
-    PatternType annotation -> ETc (ExprType annotation)
+    PatternType _ -> id
     PatternCast cast -> ETc (ExprCast cast)
     PatternInstantiation -> id
 
@@ -4039,7 +4040,7 @@ peelLiteralAnns :: Literal -> ([Expr -> Expr], Literal)
 peelLiteralAnns literal =
   case literal of
     LitAnn ann inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [EAnn ann], bare)
-    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc (ExprType info)], bare)
+    LitTc _ inner -> peelLiteralAnns inner
     _ -> ([], literal)
 
 -- | A bare literal of a literal pattern as an expression, with the names of
@@ -4049,7 +4050,7 @@ literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
 literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
-    LitTc info inner -> ETc (ExprType info) <$> literalMatchExpr match inner
+    LitTc _ inner -> literalMatchExpr match inner
     LitInt value numericType source -> (\syntax -> EInt Nothing syntax value numericType source) <$> numericSyntax
     LitFloat value floatType source -> (\syntax -> EFloat Nothing syntax value floatType source) <$> numericSyntax
     LitChar value source -> Just (EChar Nothing value source)

@@ -442,7 +442,8 @@ peelLeading peel =
 
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcAnnotation, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
-peelExpr (ETc (ExprType annotation) inner) = Just (Nothing, Just annotation, inner)
+peelExpr (ETc (ExprInst annotation) inner) = Just (Nothing, Just annotation, inner)
+peelExpr (ETc (ExprAbs annotation) inner) = Just (Nothing, Just annotation, inner)
 peelExpr (ETc (ExprCast _) inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 

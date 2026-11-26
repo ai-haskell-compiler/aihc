@@ -168,7 +168,8 @@ collectTcAnnotations = runCollect (walk idWalk {walkTcAnnotation = step})
 walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f (Maybe ExprTc)
 walkExprTc w item =
   case item of
-    ExprType annotation -> Just . ExprType <$> walkTcAnnotation w annotation
+    ExprInst annotation -> Just . ExprInst <$> walkTcAnnotation w annotation
+    ExprAbs annotation -> Just . ExprAbs <$> walkTcAnnotation w annotation
     ExprCast cast -> fmap ExprCast <$> factCast (walkFacts w) cast
 
 -- | The information of a pattern wrapper. 'Nothing' removes the wrapper.

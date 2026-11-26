@@ -3620,7 +3620,8 @@ desugarExpr expression =
       do
         inner' <- desugarExpr inner
         withCoercion proof (pure . ExCast inner')
-    Syn.ETc (Syn.ExprType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
+    Syn.ETc (Syn.ExprInst tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
+    Syn.ETc (Syn.ExprAbs tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
     Syn.ETc _ inner -> desugarExpr inner
     Syn.EIf resultType (Just method) condition thenExpression elseExpression
       | Just resolution <- syntaxResolved method ->
@@ -7345,7 +7346,8 @@ infoExprType :: Syn.ExprTc -> Maybe TcType
 infoExprType info =
   case info of
     Syn.ExprCast (TcCastAnnotation _ target) -> Just target
-    Syn.ExprType annotation -> Just (tcAnnType annotation)
+    Syn.ExprInst annotation -> Just (tcAnnType annotation)
+    Syn.ExprAbs annotation -> Just (tcAnnType annotation)
 
 applicationResultType :: TcType -> Maybe TcType
 applicationResultType ty =

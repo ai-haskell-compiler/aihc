@@ -438,7 +438,7 @@ inferPolyTypeSig sp inner tyAnn sigTy = do
   instantiationCts <- mapM (predToCt sp "<expression>") predicates
   let pending = pendingAnnotation instantiatedTy typeArgs (map ctEvVar instantiationCts) []
   pure
-    ( annotatePendingExprAt sp pending (ETypeSig annotatedInner tyAnn),
+    ( instantiateExprAt sp pending (ETypeSig annotatedInner tyAnn),
       instantiatedTy,
       residualCts <> instantiationCts
     )
@@ -534,10 +534,6 @@ primitiveLiteralTypeName expr =
 syntaxResolution :: Name -> Maybe Resolved
 syntaxResolution name = nameResolution name >>= resolvedOf
 
-annotatePendingExpr :: TcAnnotation -> Expr -> Expr
-annotatePendingExpr ann =
-  ETc (ExprType ann)
-
 -- | Give a literal, a quasi-quote, or a Template Haskell quote its
 -- annotation. A quote has only a type.
 setLiteralTc :: TcAnnotation -> Expr -> Expr
@@ -557,7 +553,7 @@ setLiteralTc annotation expr =
     ETHPatQuote _ pat -> ETHPatQuote quoteType pat
     ETHNameQuote _ inner -> ETHNameQuote quoteType inner
     ETHTypeNameQuote _ ty -> ETHTypeNameQuote quoteType ty
-    _ -> annotatePendingExpr annotation expr
+    _ -> expr
   where
     quoteType = Just (tcAnnType annotation)
 
@@ -566,11 +562,9 @@ atSpan :: Maybe SourceSpan -> Expr -> Expr
 atSpan Nothing = id
 atSpan (Just sp) = EAnn (mkSpanAnnotation sp)
 
-annotatePendingExprAt :: Maybe SourceSpan -> TcAnnotation -> Expr -> Expr
-annotatePendingExprAt Nothing ann =
-  annotatePendingExpr ann
-annotatePendingExprAt (Just sp) ann =
-  EAnn (mkSpanAnnotation sp) . annotatePendingExpr ann
+-- | Wrap an expression with its instantiation, at a source span.
+instantiateExprAt :: Maybe SourceSpan -> TcAnnotation -> Expr -> Expr
+instantiateExprAt sp annotation = atSpan sp . ETc (ExprInst annotation)
 
 annotatePendingName :: TcAnnotation -> Name -> Name
 annotatePendingName ann name =
@@ -1091,7 +1085,7 @@ applicationSpine expected ambient expr = do
       (instantiated, typeArgs, predicates) <- instantiateSigmaType zonkedResultTy
       cts <- mapM (predToCt sp "<application>") predicates
       let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
-      pure (annotatePendingExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
+      pure (instantiateExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
     else pure (expr', resultTy, headCts <> stepCts)
 
 guidedArgument :: SpineStep -> Bool
@@ -1383,7 +1377,7 @@ checkSpineSteps = go Nothing
               -- A prefix application reads the instantiation of a
               -- variable from an expression annotation, not from the name.
               prefixFun = if argPlanIsInfixRhs plan then prefixOperatorHead fun else fun
-              instantiated = maybe prefixFun (\(pending, _) -> annotatePendingExprAt instantiationSpan pending prefixFun) (argPlanInstantiation plan)
+              instantiated = maybe prefixFun (\(pending, _) -> instantiateExprAt instantiationSpan pending prefixFun) (argPlanInstantiation plan)
               -- An infix node is rebuilt by matching on the function, so
               -- an annotation there would hide the operator. An infix
               -- operator's type is its own, never refined by a given.
@@ -1526,7 +1520,7 @@ finishHigherRankArgument sp boundary expectedTy (skolems, predicates, expectedBo
   -- leaves with the local givens, as a wanted that leaves a pattern
   -- branch does.
   let withArgumentGivens ct = ct {ctBranchGivens = givenCts <> ctBranchGivens ct}
-      annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts)) castArg
+      annotatedArg = atSpan sp (ETc (ExprAbs (pendingTypeLambdaAnnotation expectedTy skolems (map ctEvVar givenCts))) castArg)
   pure (annotatedArg, map withArgumentGivens (residualEqualities <> residualDictionaries))
   where
     deferredConstraint (left, right) = do
@@ -1636,7 +1630,8 @@ pendingTypeArgs expr =
     EAnn _ inner -> pendingTypeArgs inner
     ETc info inner ->
       case info of
-        ExprType pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)
+        ExprInst pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)
+        ExprAbs _ -> []
         ExprCast _ -> pendingTypeArgs inner
     -- The name of a variable holds the annotation of the occurrence.
     EVar name -> maybe [] (\pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)) (nameTc name)

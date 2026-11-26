@@ -6,8 +6,12 @@
 -- This tree is a copy of the syntax tree of "Aihc.Resolve.Syntax". The
 -- copy has what the type checker found as fields with explicit types:
 --
--- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
---   for a whole node.
+-- * An expression holds its type in a field of its constructor. A
+--   variable holds its instantiation on its name.
+-- * The wrapper 'ETc' holds an elaboration step of an expression: an
+--   instantiation, an abstraction, or a cast. The wrappers 'PTc',
+--   'LitTc', and 'DeclTc' hold the information for a whole pattern,
+--   literal, or declaration.
 -- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
 --   a rule, a declaration, or a module. Each field has the type of its
 --   information.
@@ -304,8 +308,16 @@ import Data.Text (Text)
 
 -- | What the type checker found for a whole expression.
 data ExprTc
-  = -- | The type of the expression, with its type arguments and evidence.
-    ExprType !TcAnnotation
+  = -- | The expression is instantiated. The annotation gives the type of
+    -- the instance, the type arguments, and the evidence that the
+    -- expression is applied to. An application and an expression with a
+    -- signature can have it. A variable holds its instantiation on its
+    -- name.
+    ExprInst !TcAnnotation
+  | -- | The expression is checked against a polytype. The annotation gives
+    -- the polytype, the type variables, and the evidence that the
+    -- expression is abstracted over.
+    ExprAbs !TcAnnotation
   | -- | A cast of the expression to a type that an equality proves.
     ExprCast !TcCastAnnotation
   deriving (Eq, Show)
