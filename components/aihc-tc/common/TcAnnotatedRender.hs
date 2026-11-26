@@ -368,6 +368,8 @@ exprOwnType expr =
 exprSyntax :: Expr -> ([TcAnnotation], Expr)
 exprSyntax expr =
   case expr of
+    -- The name of a variable holds the annotation of the occurrence.
+    EVar name -> (maybeToList (nameTc name), EVar (without name))
     EInt tc syntax value numericType text -> (literalInfos syntax, EInt tc (literalWithout syntax) value numericType text)
     EFloat tc syntax value floatType text -> (literalInfos syntax, EFloat tc (literalWithout syntax) value floatType text)
     ECharHash tc ty value text -> (maybeToList (nameTc ty), ECharHash tc (without ty) value text)

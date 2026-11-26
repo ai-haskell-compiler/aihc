@@ -39,7 +39,6 @@ import Aihc.Tc.Syntax
     Decl (..),
     DoStmt (..),
     Expr (..),
-    ExprTc (..),
     GuardQualifier (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
@@ -287,8 +286,8 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
             Nothing -> pure expr
             Just annotation ->
               pure $ case mapMaybe annotationSpan (nameAnns name) of
-                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (ExprType annotation) (EVar name))
-                [] -> ETc (ExprType annotation) (EVar name)
+                sp : _ -> EAnn (mkSpanAnnotation sp) (EVar (addNameTc annotation name))
+                [] -> EVar (addNameTc annotation name)
         EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
         ESectionL tc left operator -> ESectionL tc left <$> annotateOperator schemes operator
         ESectionR tc operator right -> (\operator' -> ESectionR tc operator' right) <$> annotateOperator schemes operator

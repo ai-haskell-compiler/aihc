@@ -3436,9 +3436,9 @@ overloadedListView pattern' =
       | toList <- Syn.listMatchToList match,
         Just checked <- Syn.nameTc toList,
         TcFunTy _ listType <- tcAnnType checked ->
-          let method = Syn.EVar toList {Syn.nameTc = Nothing}
+          let method = Syn.EVar toList
               listPattern = Syn.PTc (Syn.PatternType (typeAnnotation listType)) (Syn.PList Nothing items)
-           in Just (Syn.PView (Syn.ETc (Syn.ExprType checked) method) listPattern)
+           in Just (Syn.PView method listPattern)
     _ -> Nothing
 
 -- | A string literal pattern as the list pattern of its characters. The
@@ -3630,7 +3630,7 @@ desugarExpr expression =
               desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
             Nothing -> failValue "rebindable if expression is missing its checked result type"
     Syn.EAnn _ inner -> desugarExpr inner
-    Syn.EVar name -> desugarVariable Nothing name
+    Syn.EVar name -> desugarVariable (Syn.nameTc name) name
     Syn.EApp function argument -> desugarApplication function argument
     Syn.EInfix left operator right -> do
       operator' <- desugarInfixOperator operator
@@ -7308,6 +7308,7 @@ exprType expression =
     Syn.ECase resultType _ _ -> resultType
     Syn.EDo resultType _ _ -> resultType
     Syn.EArithSeq resultType _ _ -> resultType
+    Syn.EVar name -> tcAnnType <$> Syn.nameTc name
     Syn.EList annotation _ _ _ -> tcAnnType <$> annotation
     Syn.EInt annotation _ _ _ _ -> tcAnnType <$> annotation
     Syn.EFloat annotation _ _ _ _ -> tcAnnType <$> annotation

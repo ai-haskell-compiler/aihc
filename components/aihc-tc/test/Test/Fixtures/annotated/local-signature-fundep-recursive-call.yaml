@@ -31,7 +31,6 @@ annotated:
       let go :: C p s => p a -> U
           go y = go y
           │  │   └─ type: p a → U; type-args: p, s, a; evidence: given C p s
-          │  │   └─ type: p a → U; type-args: p, s, a; evidence: given C p s
           │  └─ type: p a
           └─ type: ∀ p s a. (C p s) ⇒ p a → U
       in x

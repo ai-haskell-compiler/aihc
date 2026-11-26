@@ -49,8 +49,7 @@ annotated:
       │  └─ type: List i
       └─ type: ∀ i. (Num i) ⇒ List i → i → i
       go (Cons x rest) acc = go rest (x + acc)
-      │   │    │ │     │     ││          └─ type: i → i → i; type-args: i; evidence: given Num i
-      │   │    │ │     │     └─ type: List i → i → i; type-args: i; evidence: given Num i
+      │   │    │ │     │     │          └─ type: i → i → i; type-args: i; evidence: given Num i
       │   │    │ │     │     └─ type: List i → i → i; type-args: i; evidence: given Num i
       │   │    │ │     └─ type: i
       │   │    │ └─ type: List i

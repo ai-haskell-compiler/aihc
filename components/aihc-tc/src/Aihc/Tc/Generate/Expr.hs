@@ -308,10 +308,12 @@ literalResult expr typeAction = do
 inferVar :: Maybe SourceSpan -> Name -> TcM (Expr, TcType, [Ct])
 inferVar ambient nameSyntax = do
   (mPending, ty, cts) <- inferNameOccurrence ambient nameSyntax
-  let expr =
+  -- The name of the variable holds the annotation of the occurrence.
+  let annotated = EVar nameSyntax {nameTc = mPending}
+      expr =
         case mPending of
-          Just pending -> annotatePendingExprAt (sourceSpanFromAnns (nameAnns nameSyntax)) pending (EVar nameSyntax)
-          Nothing -> EVar nameSyntax
+          Just _ -> atSpan (sourceSpanFromAnns (nameAnns nameSyntax)) annotated
+          Nothing -> annotated
   pure (expr, ty, cts)
 
 -- | Infer the type of an implicit-parameter use such as @?x@.
@@ -1434,9 +1436,7 @@ prefixOperatorHead expr =
     ETc ann inner -> ETc ann (prefixOperatorHead inner)
     EVar name ->
       case nameTc name of
-        Just pending ->
-          let plainName = name {nameTc = Nothing}
-           in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
+        Just _ -> atSpan (sourceSpanFromAnns (nameAnns name)) expr
         Nothing -> expr
     _ -> expr
 
@@ -1638,6 +1638,8 @@ pendingTypeArgs expr =
       case info of
         ExprType pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)
         ExprCast _ -> pendingTypeArgs inner
+    -- The name of a variable holds the annotation of the occurrence.
+    EVar name -> maybe [] (\pending -> drop (tcAnnInferredTypeArgs pending) (tcAnnTypeArgs pending)) (nameTc name)
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner
