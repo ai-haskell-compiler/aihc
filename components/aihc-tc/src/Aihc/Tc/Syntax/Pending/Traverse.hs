@@ -36,8 +36,8 @@ module Aihc.Tc.Syntax.Pending.Traverse
   )
 where
 
-import Aihc.Tc.Syntax.Pending
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcRecStmt (..), WorkingTcAnnotation (..))
+import Aihc.Tc.Syntax.Pending
 import Aihc.Tc.Types (TcType)
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it

@@ -81,7 +81,7 @@ finalizeSyntax :: (FromPending a) => a -> TcM (Final a)
 finalizeSyntax =
   fromPending
     Finalizers
-      {         -- The checker writes the facts of a family instance as final
+      { -- The checker writes the facts of a family instance as final
         -- information. They keep their value, but they must not have a
         -- meta variable.
         finalizeTypeFamilyInstance = \info ->

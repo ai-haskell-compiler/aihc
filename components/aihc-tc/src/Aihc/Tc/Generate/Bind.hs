@@ -16,7 +16,7 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, WorkingTcAnnotation (..))
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), WorkingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
@@ -39,6 +39,7 @@ import Aihc.Tc.Syntax.Pending
     Decl (..),
     DoStmt (..),
     Expr (..),
+    ExprTc (..),
     GuardQualifier (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
@@ -48,6 +49,7 @@ import Aihc.Tc.Syntax.Pending
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
+    PatternTc (..),
     RecordField (..),
     ResolutionResult (..),
     Rhs (..),
@@ -55,6 +57,7 @@ import Aihc.Tc.Syntax.Pending
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    addNamePending,
     annotateFunCast,
     annotateRhsCast,
     annotationSpan,
@@ -70,9 +73,6 @@ import Aihc.Tc.Syntax.Pending
     peelDeclAnn,
     peelDoStmtAnn,
     unqualifiedNameText,
-    PatternTc (..),
-    ExprTc (..),
-    addNamePending,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Collect, Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType, typeSchemeFromType)

@@ -35,8 +35,8 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
-import Aihc.Tc.Syntax
 import Aihc.Tc.Annotations (TcAnnotation, TcRecStmt (..))
+import Aihc.Tc.Syntax
 import Aihc.Tc.Types (TcType)
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it

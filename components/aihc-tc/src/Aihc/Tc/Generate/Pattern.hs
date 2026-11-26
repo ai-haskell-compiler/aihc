@@ -24,7 +24,7 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Resolved (..), resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), pendingAnnotation, WorkingTcAnnotation (..))
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), WorkingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -53,12 +53,14 @@ import Aihc.Tc.Syntax.Pending
     NumericType (..),
     OverloadedLiteralMatch (..),
     Pattern (..),
+    PatternTc (..),
     RecordField (..),
     SourceSpan,
     TupleFlavor (..),
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
+    addNamePending,
     annotationSpan,
     mkSpanAnnotation,
     nameText,
@@ -66,8 +68,6 @@ import Aihc.Tc.Syntax.Pending
     peelLiteralAnn,
     peelPatternAnn,
     resolvedBinderEntity,
-    PatternTc (..),
-    addNamePending,
   )
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)

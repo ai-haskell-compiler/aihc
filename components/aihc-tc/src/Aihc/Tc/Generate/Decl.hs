@@ -36,8 +36,8 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
-    renderTcType,
     WorkingTcAnnotation (..),
+    renderTcType,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateDataFamilyInstDerivingTc, annotateStandaloneDerivingTc)
@@ -84,6 +84,7 @@ import Aihc.Tc.Syntax.Pending
     Decl (..),
     ExportSpec (..),
     Expr (..),
+    ExprTc (..),
     Extension (..),
     FieldDecl (..),
     ForallTelescope (..),
@@ -114,6 +115,7 @@ import Aihc.Tc.Syntax.Pending
     PatSynDir (..),
     PatSynEquations (..),
     Pattern (..),
+    PatternTc (..),
     Pragma (..),
     PragmaType (..),
     PragmaUnpackKind (..),
@@ -138,7 +140,6 @@ import Aihc.Tc.Syntax.Pending
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    setDataConTc,
     annotateDecl,
     annotateRhsCast,
     annotationSpan,
@@ -158,11 +159,10 @@ import Aihc.Tc.Syntax.Pending
     peelTypeHead,
     qualifyName,
     recordSelectorNames,
+    setDataConTc,
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
-    ExprTc (..),
-    PatternTc (..),
   )
 import Aihc.Tc.Syntax.Pending.Traverse (collectPendingAnnotations, collectResolutions)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)

@@ -19,10 +19,10 @@ module Aihc.Tc.Syntax.FromPending
 where
 
 import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, PendingTcMatchArityCast, TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..), WorkingTcAnnotation (..))
-import Aihc.Tc.Types (TcType)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
+import Aihc.Tc.Types (TcType)
 import Control.Monad (join)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
