@@ -188,8 +188,9 @@ labelWalk =
     -- the span of the expression, after the information of its wrappers.
     exprLabels children node = do
       let (anns, infos, base) = peelLeading peelExpr node
-          (syntaxInfos, base') = exprSyntax base
-      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (infos <> syntaxInfos))
+          (ownType, typeless) = exprOwnType base
+          (syntaxInfos, base') = exprSyntax typeless
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos <> ownType <> map LabelInfo syntaxInfos)
       _ <- children base'
       pure node
 
@@ -319,24 +320,69 @@ instanceItemFields item =
     InstanceItemBind tc _ -> [LabelText (renderInstanceMethodAnnotation annotation) | Just annotation <- [tc]]
     _ -> []
 
+-- | The label of the type that an expression holds in a field of its own,
+-- and the expression with no such type.
+exprOwnType :: Expr -> ([Label], Expr)
+exprOwnType expr =
+  case expr of
+    EIf ty method condition thenExpr elseExpr -> (typeLabel ty, EIf Nothing method condition thenExpr elseExpr)
+    EMultiWayIf ty alternatives -> (typeLabel ty, EMultiWayIf Nothing alternatives)
+    ELambdaPats ty pats body -> (typeLabel ty, ELambdaPats Nothing pats body)
+    ELambdaCase ty alternatives -> (typeLabel ty, ELambdaCase Nothing alternatives)
+    ELambdaCases ty alternatives -> (typeLabel ty, ELambdaCases Nothing alternatives)
+    ECase ty scrutinee alternatives -> (typeLabel ty, ECase Nothing scrutinee alternatives)
+    EDo ty statements flavor -> (typeLabel ty, EDo Nothing statements flavor)
+    EArithSeq ty method sequence' -> (typeLabel ty, EArithSeq Nothing method sequence')
+    EList tc syntax method items -> (annotationLabel tc, EList Nothing syntax method items)
+    ETuple tc syntax flavor items -> (annotationLabel tc, ETuple Nothing syntax flavor items)
+    EUnboxedSum tc position arity inner -> (annotationLabel tc, EUnboxedSum Nothing position arity inner)
+    EListComp tc body statements -> (annotationLabel tc, EListComp Nothing body statements)
+    EListCompParallel tc body branches -> (annotationLabel tc, EListCompParallel Nothing body branches)
+    EInt tc syntax value numericType text -> (annotationLabel tc, EInt Nothing syntax value numericType text)
+    EFloat tc syntax value floatType text -> (annotationLabel tc, EFloat Nothing syntax value floatType text)
+    EChar tc value text -> (annotationLabel tc, EChar Nothing value text)
+    ECharHash tc typeName value text -> (annotationLabel tc, ECharHash Nothing typeName value text)
+    EString tc conversion value text -> (annotationLabel tc, EString Nothing conversion value text)
+    EStringHash tc typeName value text -> (annotationLabel tc, EStringHash Nothing typeName value text)
+    EImplicitParam tc name -> (annotationLabel tc, EImplicitParam Nothing name)
+    EQuasiQuote ty quoter body -> (typeLabel ty, EQuasiQuote Nothing quoter body)
+    ETHExpQuote ty inner -> (typeLabel ty, ETHExpQuote Nothing inner)
+    ETHTypedQuote ty inner -> (typeLabel ty, ETHTypedQuote Nothing inner)
+    ETHDeclQuote ty decls -> (typeLabel ty, ETHDeclQuote Nothing decls)
+    ETHTypeQuote ty quoted -> (typeLabel ty, ETHTypeQuote Nothing quoted)
+    ETHPatQuote ty pat -> (typeLabel ty, ETHPatQuote Nothing pat)
+    ETHNameQuote ty inner -> (typeLabel ty, ETHNameQuote Nothing inner)
+    ETHTypeNameQuote ty quoted -> (typeLabel ty, ETHTypeNameQuote Nothing quoted)
+    ENegate ty method inner -> (typeLabel ty, ENegate Nothing method inner)
+    EGetField ty method record field -> (typeLabel ty, EGetField Nothing method record field)
+    EGetFieldProjection tc method fields -> (annotationLabel tc, EGetFieldProjection Nothing method fields)
+    ESectionL tc inner name -> (annotationLabel tc, ESectionL Nothing inner name)
+    ESectionR tc name inner -> (annotationLabel tc, ESectionR Nothing name inner)
+    _ -> ([], expr)
+  where
+    typeLabel = maybe [] (\ty -> [LabelType ty])
+    annotationLabel = maybe [] (\annotation -> [LabelInfo annotation])
+
 -- | The information of the syntax names of an expression, and the
 -- expression with no information in these names.
 exprSyntax :: Expr -> ([TcAnnotation], Expr)
 exprSyntax expr =
   case expr of
-    EInt syntax value numericType text -> (literalInfos syntax, EInt (literalWithout syntax) value numericType text)
-    EFloat syntax value floatType text -> (literalInfos syntax, EFloat (literalWithout syntax) value floatType text)
-    ECharHash ty value text -> (maybeToList (nameTc ty), ECharHash (without ty) value text)
-    EString conversion value text -> (maybeToList (conversion >>= nameTc), EString (without <$> conversion) value text)
-    EStringHash ty value text -> (maybeToList (nameTc ty), EStringHash (without ty) value text)
-    EIf method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf (without <$> method) condition thenExpr elseExpr)
-    ENegate method inner -> (maybeToList (nameTc method), ENegate (without method) inner)
-    EArithSeq method sequence' -> (maybeToList (method >>= nameTc), EArithSeq (without <$> method) sequence')
-    EGetField method record field -> (maybeToList (nameTc method), EGetField (without method) record field)
-    EGetFieldProjection method fields -> (maybeToList (nameTc method), EGetFieldProjection (without method) fields)
+    -- The name of a variable holds the annotation of the occurrence.
+    EVar name -> (maybeToList (nameTc name), EVar (without name))
+    EInt tc syntax value numericType text -> (literalInfos syntax, EInt tc (literalWithout syntax) value numericType text)
+    EFloat tc syntax value floatType text -> (literalInfos syntax, EFloat tc (literalWithout syntax) value floatType text)
+    ECharHash tc ty value text -> (maybeToList (nameTc ty), ECharHash tc (without ty) value text)
+    EString tc conversion value text -> (maybeToList (conversion >>= nameTc), EString tc (without <$> conversion) value text)
+    EStringHash tc ty value text -> (maybeToList (nameTc ty), EStringHash tc (without ty) value text)
+    EIf ty method condition thenExpr elseExpr -> (maybeToList (method >>= nameTc), EIf ty (without <$> method) condition thenExpr elseExpr)
+    ENegate ty method inner -> (maybeToList (nameTc method), ENegate ty (without method) inner)
+    EArithSeq ty method sequence' -> (maybeToList (method >>= nameTc), EArithSeq ty (without <$> method) sequence')
+    EGetField ty method record field -> (maybeToList (nameTc method), EGetField ty (without method) record field)
+    EGetFieldProjection tc method fields -> (maybeToList (nameTc method), EGetFieldProjection tc (without method) fields)
     -- The conversion of an overloaded list goes before the ordinary list.
-    EList syntax method items -> (maybeToList (method >>= nameTc) <> maybeToList (nameTc syntax), EList (without syntax) (without <$> method) items)
-    ETuple syntax flavor items -> (maybeToList (nameTc syntax), ETuple (without syntax) flavor items)
+    EList tc syntax method items -> (maybeToList (method >>= nameTc) <> maybeToList (nameTc syntax), EList tc (without syntax) (without <$> method) items)
+    ETuple tc syntax flavor items -> (maybeToList (nameTc syntax), ETuple tc (without syntax) flavor items)
     _ -> ([], expr)
   where
     without name = name {nameTc = Nothing}
@@ -396,7 +442,8 @@ peelLeading peel =
 
 peelExpr :: Expr -> Maybe (Maybe Annotation, Maybe TcAnnotation, Expr)
 peelExpr (EAnn ann inner) = Just (Just ann, Nothing, inner)
-peelExpr (ETc (ExprType annotation) inner) = Just (Nothing, Just annotation, inner)
+peelExpr (ETc (ExprInst annotation) inner) = Just (Nothing, Just annotation, inner)
+peelExpr (ETc (ExprAbs annotation) inner) = Just (Nothing, Just annotation, inner)
 peelExpr (ETc (ExprCast _) inner) = Just (Nothing, Nothing, inner)
 peelExpr _ = Nothing
 

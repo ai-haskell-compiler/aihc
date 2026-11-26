@@ -6,8 +6,12 @@
 -- This tree is a copy of the syntax tree of "Aihc.Resolve.Syntax". The
 -- copy has what the type checker found as fields with explicit types:
 --
--- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
---   for a whole node.
+-- * An expression holds its type in a field of its constructor. A
+--   variable holds its instantiation on its name.
+-- * The wrapper 'ETc' holds an elaboration step of an expression: an
+--   instantiation, an abstraction, or a cast. The wrappers 'PTc',
+--   'LitTc', and 'DeclTc' hold the information for a whole pattern,
+--   literal, or declaration.
 -- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
 --   a rule, a declaration, or a module. Each field has the type of its
 --   information.
@@ -304,8 +308,16 @@ import Data.Text (Text)
 
 -- | What the type checker found for a whole expression.
 data ExprTc
-  = -- | The type of the expression, with its type arguments and evidence.
-    ExprType !TcAnnotation
+  = -- | The expression is instantiated. The annotation gives the type of
+    -- the instance, the type arguments, and the evidence that the
+    -- expression is applied to. An application and an expression with a
+    -- signature can have it. A variable holds its instantiation on its
+    -- name.
+    ExprInst !TcAnnotation
+  | -- | The expression is checked against a polytype. The annotation gives
+    -- the polytype, the type variables, and the evidence that the
+    -- expression is abstracted over.
+    ExprAbs !TcAnnotation
   | -- | A cast of the expression to a type that an equality proves.
     ExprCast !TcCastAnnotation
   deriving (Eq, Show)
@@ -1535,36 +1547,41 @@ data Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
-    EImplicitParam Text
+    EImplicitParam (Maybe TcAnnotation) Text
   | -- | @type T@ in a term position.
     ETypeSyntax TypeSyntaxForm Type
   | -- | @1@, @1#@, @1#Word8@
-    EInt LiteralSyntax Integer NumericType Text
+    EInt (Maybe TcAnnotation) LiteralSyntax Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
-    EFloat LiteralSyntax Rational FloatType Text
+    EFloat (Maybe TcAnnotation) LiteralSyntax Rational FloatType Text
   | -- | @'x'@
-    EChar Char Text
+    EChar (Maybe TcAnnotation) Char Text
   | -- | @'x'#@. The name is the type @Char#@.
-    ECharHash Name Char Text
+    ECharHash (Maybe TcAnnotation) Name Char Text
   | -- | @"hello"@. Under @OverloadedStrings@, the name is @fromString@.
-    EString (Maybe Name) Text Text
+    EString (Maybe TcAnnotation) (Maybe Name) Text Text
   | -- | @"hello"#@. The name is the type @Addr#@.
-    EStringHash Name Text Text
+    EStringHash (Maybe TcAnnotation) Name Text Text
   | -- | @#name@
     EOverloadedLabel Text Text
   | -- | @[qq| body |]@
-    EQuasiQuote Text Text
-  | -- | @if c then t else e@. Under @RebindableSyntax@, the name is
+    EQuasiQuote (Maybe TcType) Text Text
+  | -- | @if c then t else e@. The type is the type of the expression. The
+    -- type checker sets it. Under @RebindableSyntax@, the name is
     -- @ifThenElse@.
-    EIf (Maybe Name) Expr Expr Expr
-  | -- | @if | g1 -> e1 | g2 -> e2@
-    EMultiWayIf [GuardedRhs Expr]
-  | -- | @\x y -> body@
-    ELambdaPats [Pattern] Expr
-  | -- | @\case { p -> e }@
-    ELambdaCase [CaseAlt Expr]
-  | -- | @\cases { p q -> e }@
-    ELambdaCases [LambdaCaseAlt]
+    EIf (Maybe TcType) (Maybe Name) Expr Expr Expr
+  | -- | @if | g1 -> e1 | g2 -> e2@. The type is the type of the
+    -- expression. The type checker sets it.
+    EMultiWayIf (Maybe TcType) [GuardedRhs Expr]
+  | -- | @\x y -> body@. The type is the function type of the lambda. The
+    -- type checker sets it.
+    ELambdaPats (Maybe TcType) [Pattern] Expr
+  | -- | @\case { p -> e }@. The type is the function type of the lambda.
+    -- The type checker sets it.
+    ELambdaCase (Maybe TcType) [CaseAlt Expr]
+  | -- | @\cases { p q -> e }@. The type is the function type of the
+    -- lambda. The type checker sets it.
+    ELambdaCases (Maybe TcType) [LambdaCaseAlt]
   | -- | @a + b@
     EInfix Expr Name Expr
   | -- | @f -> pat@ inside parentheses: the view-pattern arrow.
@@ -1572,43 +1589,45 @@ data Expr
     -- gets its own constructor.  'checkPattern' turns this into 'PView'.
     EViewPat Expr Expr
   | -- | @-x@. The name is @negate@.
-    ENegate Name Expr
+    ENegate (Maybe TcType) Name Expr
   | -- | @(x +)@
-    ESectionL Expr Name
+    ESectionL (Maybe TcAnnotation) Expr Name
   | -- | @(+ x)@
-    ESectionR Name Expr
+    ESectionR (Maybe TcAnnotation) Name Expr
   | -- | @let x = 1 in x@
     ELetDecls [Decl] Expr
-  | -- | @case x of { Just y -> y }@
-    ECase Expr [CaseAlt Expr]
-  | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@
-    EDo [DoStmt Expr] DoFlavor
+  | -- | @case x of { Just y -> y }@. The type is the type of the
+    -- expression. The type checker sets it.
+    ECase (Maybe TcType) Expr [CaseAlt Expr]
+  | -- | @do { x <- mx; pure x }@, @mdo { ... }@, or @M.do { ... }@. The
+    -- type is the type of the block. The type checker sets it.
+    EDo (Maybe TcType) [DoStmt Expr] DoFlavor
   | -- | @[x | x <- xs, x > 0]@
-    EListComp Expr [CompStmt]
+    EListComp (Maybe TcAnnotation) Expr [CompStmt]
   | -- | @[x + y | x <- xs | y <- ys]@
-    EListCompParallel Expr [[CompStmt]]
+    EListCompParallel (Maybe TcAnnotation) Expr [[CompStmt]]
   | -- | @[1,3 .. 9]@. Under @OverloadedLists@, the name is @fromList@.
-    EArithSeq (Maybe Name) ArithSeq
+    EArithSeq (Maybe TcType) (Maybe Name) ArithSeq
   | -- | @T { x = 1, y, .. }@
     ERecordCon Name [RecordField Expr] Bool -- Bool: wildcard present
   | -- | @r { x = 1 }@
     ERecordUpd Expr [RecordField Expr]
   | -- | @a.b@ under @OverloadedRecordDot@. The first name is @getField@.
-    EGetField Name Expr Name
+    EGetField (Maybe TcType) Name Expr Name
   | -- | @(.b)@ or @(.b.c)@ under @OverloadedRecordDot@. The first name is
     -- @getField@.
-    EGetFieldProjection Name [Name]
+    EGetFieldProjection (Maybe TcAnnotation) Name [Name]
   | -- | @(expr :: ty)@
     ETypeSig Expr Type
   | -- | @(expr)@
     EParen Expr
   | -- | @[x, y]@. The first name is the list syntax. Under
     -- @OverloadedLists@, the second name is @fromListN@.
-    EList Name (Maybe Name) [Expr]
+    EList (Maybe TcAnnotation) Name (Maybe Name) [Expr]
   | -- | @(x, y)@, @(, y)@, or @(# x | #)@. The name is the tuple syntax.
-    ETuple Name TupleFlavor [Maybe Expr]
+    ETuple (Maybe TcAnnotation) Name TupleFlavor [Maybe Expr]
   | -- | @(# | x | #)@
-    EUnboxedSum Int Int Expr
+    EUnboxedSum (Maybe TcAnnotation) Int Int Expr
   | -- | @f \@Type@
     ETypeApp Expr Type
   | -- | @f x@
@@ -1616,19 +1635,19 @@ data Expr
   | -- Template Haskell quotes
 
     -- | @[| expr |]@ or @[e| expr |]@
-    ETHExpQuote Expr
+    ETHExpQuote (Maybe TcType) Expr
   | -- | @[|| expr ||]@ or @[e|| expr ||]@
-    ETHTypedQuote Expr
+    ETHTypedQuote (Maybe TcType) Expr
   | -- | @[d| decls |]@
-    ETHDeclQuote [Decl]
+    ETHDeclQuote (Maybe TcType) [Decl]
   | -- | @[t| type |]@
-    ETHTypeQuote Type
+    ETHTypeQuote (Maybe TcType) Type
   | -- | @[p| pat |]@
-    ETHPatQuote Pattern
+    ETHPatQuote (Maybe TcType) Pattern
   | -- | @'expr@ in the term namespace.
-    ETHNameQuote Expr
+    ETHNameQuote (Maybe TcType) Expr
   | -- | @''Type@ in the type namespace.
-    ETHTypeNameQuote Type
+    ETHTypeNameQuote (Maybe TcType) Type
   | -- Template Haskell splices
 
     -- | @$expr@ or @$(expr)@

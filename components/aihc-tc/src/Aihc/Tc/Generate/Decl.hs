@@ -3827,7 +3827,7 @@ patSynSelectorMatch pat argBinder =
         UnguardedRhs
           []
           []
-          (ECase (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
+          (ECase Nothing (localVar scrutinee) [CaseAlt [] pat (UnguardedRhs [] [] (localVar argBinder) Nothing)])
           Nothing
     }
   where
@@ -3902,6 +3902,7 @@ patSynMatcherMatch pat argBinders =
           []
           []
           ( ECase
+              Nothing
               (localVar scrutinee)
               [ CaseAlt [] pat (UnguardedRhs [] [] success Nothing),
                 CaseAlt [] PWildcard (UnguardedRhs [] [] failed Nothing)
@@ -3918,7 +3919,7 @@ patSynMatcherMatch pat argBinders =
     -- and a binder of that type has no fixed representation.
     success = foldl EApp (localVar continue) (if null argBinders then [unit] else map localVar argBinders)
     failed = EApp (localVar failure) unit
-    unit = ETuple (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
+    unit = ETuple Nothing (syntaxName (displayIdentifier (IdentifierTuple Boxed 0))) Boxed []
 
 -- | The checked pattern inside a checked matcher equation.
 matcherPattern :: Match -> Maybe Pattern
@@ -3933,7 +3934,7 @@ matcherPattern match =
         ETc _ inner -> go inner
         EParen inner -> go inner
         EPragma _ inner -> go inner
-        ECase _ (alt : _) -> Just (caseAltPattern alt)
+        ECase _ _ (alt : _) -> Just (caseAltPattern alt)
         _ -> Nothing
 
 -- | The pattern of an implicitly bidirectional pattern synonym as an
@@ -3947,16 +3948,16 @@ patternToExpr pat =
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
     PTc info inner -> patternTcExpr info <$> patternToExpr inner
     PVar name -> Just (localVar name)
-    PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
+    PTuple flavor items -> ETuple Nothing (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
     -- @toList@ of the match goes.
     PList match items ->
-      EList (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
+      EList Nothing (syntaxName (displayIdentifier IdentifierList)) (listMatchFromListN <$> match) <$> mapM patternToExpr items
     PCon name _ items -> foldl EApp (EVar name) <$> mapM patternToExpr items
     PBuiltinCon (BuiltinTuple flavor arity) _ items
-      | length items == arity -> ETuple (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
+      | length items == arity -> ETuple Nothing (tupleSyntaxName flavor arity) flavor <$> mapM (fmap Just . patternToExpr) items
     PInfix left name right -> EApp . EApp (EVar name) <$> patternToExpr left <*> patternToExpr right
-    PUnboxedSum alt arity inner -> EUnboxedSum alt arity <$> patternToExpr inner
+    PUnboxedSum alt arity inner -> EUnboxedSum Nothing alt arity <$> patternToExpr inner
     -- A record pattern with a wildcard has no expression: the wildcard
     -- binds the names of the fields.
     PRecord name fields False -> (\fields' -> ERecordCon name fields' False) <$> mapM recordField fields
@@ -4016,15 +4017,16 @@ negatedLiteralPatternToExpr = go []
           let negation = case match of
                 LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
+          pure (ENegate Nothing (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
         _ -> Nothing
 
--- | The information of a pattern wrapper as an expression wrapper. The
--- mark of a pattern instantiation has no meaning for an expression.
+-- | The information of a pattern wrapper as an expression wrapper. Only
+-- a cast stays. The type checker checks the expression again, and that
+-- check gives the expression its types.
 patternTcExpr :: PatternTc -> Expr -> Expr
 patternTcExpr item =
   case item of
-    PatternType annotation -> ETc (ExprType annotation)
+    PatternType _ -> id
     PatternCast cast -> ETc (ExprCast cast)
     PatternInstantiation -> id
 
@@ -4038,7 +4040,7 @@ peelLiteralAnns :: Literal -> ([Expr -> Expr], Literal)
 peelLiteralAnns literal =
   case literal of
     LitAnn ann inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [EAnn ann], bare)
-    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc (ExprType info)], bare)
+    LitTc _ inner -> peelLiteralAnns inner
     _ -> ([], literal)
 
 -- | A bare literal of a literal pattern as an expression, with the names of
@@ -4048,16 +4050,16 @@ literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
 literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
-    LitTc info inner -> ETc (ExprType info) <$> literalMatchExpr match inner
-    LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
-    LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
-    LitChar value source -> Just (EChar value source)
-    LitCharHash value source -> (\typeName -> ECharHash typeName value source) <$> primitiveType
+    LitTc _ inner -> literalMatchExpr match inner
+    LitInt value numericType source -> (\syntax -> EInt Nothing syntax value numericType source) <$> numericSyntax
+    LitFloat value floatType source -> (\syntax -> EFloat Nothing syntax value floatType source) <$> numericSyntax
+    LitChar value source -> Just (EChar Nothing value source)
+    LitCharHash value source -> (\typeName -> ECharHash Nothing typeName value source) <$> primitiveType
     LitString value source ->
       case match of
-        LiteralMatchOverloaded overloaded -> Just (EString (Just (overloadedLiteralConversion overloaded)) value source)
-        _ -> Just (EString Nothing value source)
-    LitStringHash value source -> (\typeName -> EStringHash typeName value source) <$> primitiveType
+        LiteralMatchOverloaded overloaded -> Just (EString Nothing (Just (overloadedLiteralConversion overloaded)) value source)
+        _ -> Just (EString Nothing Nothing value source)
+    LitStringHash value source -> (\typeName -> EStringHash Nothing typeName value source) <$> primitiveType
   where
     numericSyntax =
       case match of

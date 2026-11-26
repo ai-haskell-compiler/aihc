@@ -39,7 +39,6 @@ import Aihc.Tc.Syntax
     Decl (..),
     DoStmt (..),
     Expr (..),
-    ExprTc (..),
     GuardQualifier (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
@@ -287,11 +286,11 @@ annotateRecursiveTermOccurrences recursiveSchemes decls
             Nothing -> pure expr
             Just annotation ->
               pure $ case mapMaybe annotationSpan (nameAnns name) of
-                sp : _ -> EAnn (mkSpanAnnotation sp) (ETc (ExprType annotation) (EVar name))
-                [] -> ETc (ExprType annotation) (EVar name)
+                sp : _ -> EAnn (mkSpanAnnotation sp) (EVar (addNameTc annotation name))
+                [] -> EVar (addNameTc annotation name)
         EInfix left operator right -> (\operator' -> EInfix left operator' right) <$> annotateOperator schemes operator
-        ESectionL left operator -> ESectionL left <$> annotateOperator schemes operator
-        ESectionR operator right -> (`ESectionR` right) <$> annotateOperator schemes operator
+        ESectionL tc left operator -> ESectionL tc left <$> annotateOperator schemes operator
+        ESectionR tc operator right -> (\operator' -> ESectionR tc operator' right) <$> annotateOperator schemes operator
         _ -> pure expr
 
     annotateOperator schemes name = do
@@ -1418,18 +1417,18 @@ freeVarsExpr expr = do
 exprSyntaxNames :: Expr -> [Name]
 exprSyntaxNames expr =
   case expr of
-    EInt syntax _ _ _ -> literalSyntaxNames syntax
-    EFloat syntax _ _ _ -> literalSyntaxNames syntax
-    ECharHash typeName _ _ -> [typeName]
-    EString conversion _ _ -> maybeToList conversion
-    EStringHash typeName _ _ -> [typeName]
-    EIf method _ _ _ -> maybeToList method
-    ENegate method _ -> [method]
-    EArithSeq method _ -> maybeToList method
-    EGetField method _ _ -> [method]
-    EGetFieldProjection method _ -> [method]
-    EList syntax method _ -> syntax : maybeToList method
-    ETuple syntax _ _ -> [syntax]
+    EInt _ syntax _ _ _ -> literalSyntaxNames syntax
+    EFloat _ syntax _ _ _ -> literalSyntaxNames syntax
+    ECharHash _ typeName _ _ -> [typeName]
+    EString _ conversion _ _ -> maybeToList conversion
+    EStringHash _ typeName _ _ -> [typeName]
+    EIf _ method _ _ _ -> maybeToList method
+    ENegate _ method _ -> [method]
+    EArithSeq _ method _ -> maybeToList method
+    EGetField _ method _ _ -> [method]
+    EGetFieldProjection _ method _ -> [method]
+    EList _ syntax method _ -> syntax : maybeToList method
+    ETuple _ syntax _ _ -> [syntax]
     _ -> []
 
 freeVarsExprChildren :: Expr -> TcM (Set.Set Entity)
@@ -1438,12 +1437,12 @@ freeVarsExprChildren expr =
     EVar name -> Set.singleton <$> resolvedTermKey name
     EAnn _ inner -> freeVarsExpr inner
     ETc _ inner -> freeVarsExpr inner
-    EIf _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
-    EMultiWayIf alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
-    ELambdaCase alts -> Set.unions <$> mapM freeVarsAlt alts
-    ELambdaCases alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
+    EIf _ _ a b c -> Set.unions <$> mapM freeVarsExpr [a, b, c]
+    EMultiWayIf _ alternatives -> Set.unions <$> mapM freeVarsGuardedRhs alternatives
+    ELambdaCase _ alts -> Set.unions <$> mapM freeVarsAlt alts
+    ELambdaCases _ alts -> Set.unions <$> mapM freeVarsLambdaCaseAlt alts
     EViewPat view inner -> Set.union <$> freeVarsExpr view <*> freeVarsExpr inner
-    ELambdaPats pats body -> do
+    ELambdaPats _ pats body -> do
       bodyVars <- freeVarsExpr body
       patVars <- Set.unions <$> mapM freeVarsPattern pats
       binders <- Set.unions <$> mapM patternBinderKeys pats
@@ -1453,12 +1452,12 @@ freeVarsExprChildren expr =
       rhsVars <- freeVarsExpr rhs
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
-    ENegate _ inner -> freeVarsExpr inner
-    ESectionL inner op -> do
+    ENegate _ _ inner -> freeVarsExpr inner
+    ESectionL _ inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
-    ESectionR op inner -> do
+    ESectionR _ op inner -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
       pure (Set.insert opKey innerVars)
@@ -1467,7 +1466,7 @@ freeVarsExprChildren expr =
       bodyVars <- freeVarsExpr body
       localBinders <- declBinderKeys decls
       pure (Set.difference (declVars <> bodyVars) localBinders)
-    ECase scrut alts -> do
+    ECase _ scrut alts -> do
       scrutVars <- freeVarsExpr scrut
       altVars <- Set.unions <$> mapM freeVarsAlt alts
       pure (scrutVars <> altVars)
@@ -1475,16 +1474,16 @@ freeVarsExprChildren expr =
     ETypeSig inner _ -> freeVarsExpr inner
     EParen inner -> freeVarsExpr inner
     EPragma _ inner -> freeVarsExpr inner
-    EList _ _ items -> Set.unions <$> mapM freeVarsExpr items
-    EArithSeq _ arithSeq -> freeVarsArithSeq arithSeq
-    ETuple _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
+    EList _ _ _ items -> Set.unions <$> mapM freeVarsExpr items
+    EArithSeq _ _ arithSeq -> freeVarsArithSeq arithSeq
+    ETuple _ _ _ items -> Set.unions <$> mapM (maybe (pure Set.empty) freeVarsExpr) items
     EApp f a -> do
       fVars <- freeVarsExpr f
       aVars <- freeVarsExpr a
       pure (fVars <> aVars)
-    EDo stmts _ -> freeVarsDoStmts stmts
-    EListComp body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
-    EListCompParallel body branches -> do
+    EDo _ stmts _ -> freeVarsDoStmts stmts
+    EListComp _ body stmts -> freeVarsCompStmts stmts (freeVarsExpr body)
+    EListCompParallel _ body branches -> do
       bodyVars <- freeVarsExpr body
       branchVars <- mapM (\stmts -> freeVarsCompStmts stmts (pure Set.empty)) branches
       -- A parallel branch scopes over the body; its binders are removed
@@ -1501,8 +1500,8 @@ freeVarsExprChildren expr =
       -- to be checked first for the expansion to find the builder.
       owners <- declaredRecordPatSynOwners (map (nameText . recordFieldName) fields)
       pure (Set.fromList owners <> recordVars <> fieldVars)
-    EGetField _ record _ -> freeVarsExpr record
-    EUnboxedSum _ _ inner -> freeVarsExpr inner
+    EGetField _ _ record _ -> freeVarsExpr record
+    EUnboxedSum _ _ _ inner -> freeVarsExpr inner
     _ -> pure Set.empty
 
 freeVarsLambdaCaseAlt :: LambdaCaseAlt -> TcM (Set.Set Entity)

@@ -630,7 +630,7 @@ showItems gen constructors = do
     showStringExpr text = do
       suffix <- freshLocal gen "s"
       pure (lambda gen suffix (showStringPiece text (localExpr gen suffix)))
-    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar character (T.pack (show character))), rest]
+    cons character rest = applyN gen (referenceExpr gen derivingCons) [at gen (EChar Nothing character (T.pack (show character))), rest]
     intersperseWith separator pieces =
       case pieces of
         [] -> []
@@ -769,7 +769,7 @@ readItems gen constructors = do
 -- | A string as an explicit list of characters, so the generated code needs
 -- no literal desugaring.
 stringExpr :: Gen -> Text -> Expr
-stringExpr gen text = at gen (listExpr gen [at gen (EChar character (T.pack (show character))) | character <- T.unpack text])
+stringExpr gen text = at gen (listExpr gen [at gen (EChar Nothing character (T.pack (show character))) | character <- T.unpack text])
 
 -- * Bounded
 
@@ -1436,7 +1436,7 @@ tuplePattern gen components = atPattern gen (PTuple Boxed (map (atPattern gen . 
 
 -- | A boxed tuple expression.
 tupleExpr :: Gen -> [Expr] -> Expr
-tupleExpr gen components = at gen (ETuple (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
+tupleExpr gen components = at gen (ETuple Nothing (syntaxName gen ("(" <> T.replicate (max 0 (length components - 1)) "," <> ")")) Boxed (map Just components))
 
 -- | The function a nested position is visited with: the function the method
 -- was given when the position is the parameter itself, and a lambda that
@@ -1954,13 +1954,14 @@ caseOf :: Gen -> Expr -> [(Pattern, Expr)] -> Expr
 caseOf gen scrutinee alternatives =
   at gen $
     ECase
+      Nothing
       scrutinee
       [ CaseAlt {caseAltAnns = genSpanAnns gen, caseAltPattern = atPattern gen pat, caseAltRhs = UnguardedRhs [] [] body Nothing}
       | (pat, body) <- alternatives
       ]
 
 lambda :: Gen -> UnqualifiedName -> Expr -> Expr
-lambda gen parameter body = at gen (ELambdaPats [atPattern gen (PVar parameter)] body)
+lambda gen parameter body = at gen (ELambdaPats Nothing [atPattern gen (PVar parameter)] body)
 
 applyN :: Gen -> Expr -> [Expr] -> Expr
 applyN gen = foldl (\function argument -> at gen (EApp function argument))
@@ -2048,11 +2049,11 @@ intLiteral gen value = at gen (EApp (referenceExpr gen derivingIntCon) (intHashL
 
 -- | An unboxed @Int#@ literal.
 intHashLiteral :: Gen -> Integer -> Expr
-intHashLiteral gen value = at gen (EInt (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
+intHashLiteral gen value = at gen (EInt Nothing (LiteralSyntaxPrimitive (intHashName gen)) value TIntHash (T.pack (show value) <> "#"))
 
 -- | An ordinary list expression.
 listExpr :: Gen -> [Expr] -> Expr
-listExpr gen = EList (syntaxName gen "[]") Nothing
+listExpr gen = EList Nothing (syntaxName gen "[]") Nothing
 
 -- | The name of built-in list or tuple syntax. The type checker does not
 -- read its resolution, so the name has none.

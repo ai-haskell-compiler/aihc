@@ -3436,9 +3436,9 @@ overloadedListView pattern' =
       | toList <- Syn.listMatchToList match,
         Just checked <- Syn.nameTc toList,
         TcFunTy _ listType <- tcAnnType checked ->
-          let method = Syn.EVar toList {Syn.nameTc = Nothing}
+          let method = Syn.EVar toList
               listPattern = Syn.PTc (Syn.PatternType (typeAnnotation listType)) (Syn.PList Nothing items)
-           in Just (Syn.PView (Syn.ETc (Syn.ExprType checked) method) listPattern)
+           in Just (Syn.PView method listPattern)
     _ -> Nothing
 
 -- | A string literal pattern as the list pattern of its characters. The
@@ -3620,13 +3620,18 @@ desugarExpr expression =
       do
         inner' <- desugarExpr inner
         withCoercion proof (pure . ExCast inner')
-    Syn.ETc (Syn.ExprType tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
+    Syn.ETc (Syn.ExprInst tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
+    Syn.ETc (Syn.ExprAbs tcAnnotation) inner -> desugarAnnotatedExpr tcAnnotation inner
     Syn.ETc _ inner -> desugarExpr inner
-    Syn.EIf (Just method) _ _ _
-      | Just _ <- syntaxResolved method ->
-          failValue "rebindable if expression is missing its checked result type"
+    Syn.EIf resultType (Just method) condition thenExpression elseExpression
+      | Just resolution <- syntaxResolved method ->
+          case resultType of
+            Just _ -> do
+              methodAnnotation <- requiredSyntaxAnnotation method
+              desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
+            Nothing -> failValue "rebindable if expression is missing its checked result type"
     Syn.EAnn _ inner -> desugarExpr inner
-    Syn.EVar name -> desugarVariable Nothing name
+    Syn.EVar name -> desugarVariable (Syn.nameTc name) name
     Syn.EApp function argument -> desugarApplication function argument
     Syn.EInfix left operator right -> do
       operator' <- desugarInfixOperator operator
@@ -3636,21 +3641,118 @@ desugarExpr expression =
     Syn.EPragma _ inner -> desugarExpr inner
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
-    Syn.ELambdaPats patterns body -> desugarLambda Nothing patterns body
-    Syn.ELambdaCase alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
-    Syn.ELambdaCases alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
-    Syn.EIf _ condition thenExpression elseExpression -> do
+    -- An overloaded list applies fromListN to its length and to the
+    -- ordinary list. The list syntax name has the annotation of the
+    -- ordinary list.
+    Syn.EList (Just _) syntax (Just method) elements
+      | Just resolution <- syntaxResolved method -> do
+          method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+          listAnnotation <- requiredSyntaxAnnotation syntax
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (intRep kinds)
+          constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
+          intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
+          let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger (length elements))) intHashType)
+          ExApp (ExApp method' size) <$> desugarList listAnnotation elements
+    Syn.EArithSeq (Just _) (Just method) arithSeq
+      | Just resolution <- syntaxResolved method -> do
+          method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
+          ExApp method' <$> desugarArithSeq arithSeq
+    Syn.EList (Just annotation) _ _ elements -> desugarList annotation elements
+    Syn.EListComp (Just annotation) element statements -> desugarListComp annotation element statements
+    Syn.EListCompParallel (Just annotation) element branches -> desugarListCompParallel annotation element branches
+    Syn.EArithSeq (Just _) _ arithSeq -> desugarArithSeq arithSeq
+    Syn.ETuple (Just annotation) _ flavor elements -> desugarTuple annotation flavor elements
+    Syn.EUnboxedSum (Just annotation) alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
+    Syn.EInt (Just annotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedInteger annotation resolution value
+    Syn.EFloat (Just annotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TFractional _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedRational annotation resolution value
+    Syn.EString (Just annotation) (Just conversion) value _
+      | Just resolution <- syntaxResolved conversion ->
+          desugarOverloadedString annotation resolution value
+    Syn.ENegate (Just _) method operand
+      | Just resolution <- syntaxResolved method,
+        resolutionNamespace resolution == ResolutionNamespaceTerm,
+        resolutionIdentifier resolution == IdentifierNamed "negate" -> do
+          methodAnnotation <- requiredSyntaxAnnotation method
+          primPackage <- gets (cePrimPackage . vsConvertEnv)
+          case negatableIntegerLiteral operand of
+            Just (literalAnnotation, literalResolution, value)
+              | negateFoldsIntoLiteral primPackage methodAnnotation resolution literalResolution ->
+                  desugarOverloadedInteger literalAnnotation literalResolution (negate value)
+            _ -> do
+              method' <- desugarResolvedOccurrence methodAnnotation resolution
+              ExApp method' <$> desugarExpr operand
+    Syn.EGetField (Just _) method record field
+      | Just resolution <- syntaxResolved method,
+        isGetFieldResolution resolution ->
+          ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
+    Syn.EGetFieldProjection (Just annotation) method fields
+      | Just resolution <- syntaxResolved method,
+        isGetFieldResolution resolution ->
+          desugarGetFieldProjection annotation resolution fields
+    Syn.EInt (Just annotation) _ value numericType _
+      | numericType /= Syn.TInteger -> do
+          kinds <- valueKinds
+          representation <- convertRuntimeRep (numericRepresentation kinds numericType)
+          ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EFloat (Just annotation) _ value floatType _
+      | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
+          kinds <- valueKinds
+          representation' <- convertRuntimeRep (representation kinds)
+          ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EChar (Just _) value _ -> do
+      charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
+      kinds <- valueKinds
+      constructor <- boxedCharConstructor
+      representation <- convertRuntimeRep (wordRep kinds)
+      pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
+    Syn.ECharHash (Just annotation) _ value _ -> do
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (wordRep kinds)
+      ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
+    Syn.EString (Just annotation) _ value _ -> desugarString annotation value
+    _
+      | isTemplateHaskellQuote expression,
+        Just quoteType <- exprType expression ->
+          desugarTemplateHaskellQuote quoteType
+    Syn.EQuasiQuote (Just quoteType) _ _ -> desugarQuasiQuote quoteType
+    Syn.EStringHash (Just annotation) _ value _ -> do
+      kinds <- valueKinds
+      representation <- convertRuntimeRep (addrRep kinds)
+      ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
+    Syn.ESectionL (Just annotation) operand operator -> desugarSectionL annotation operand operator
+    Syn.ESectionR (Just annotation) operator operand -> desugarSectionR annotation operator operand
+    Syn.EImplicitParam (Just annotation) name ->
+      case tcAnnEvidenceTerms annotation of
+        [evidence] -> desugarEvidence evidence
+        _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
+    Syn.ELambdaPats functionType patterns body -> desugarLambda functionType patterns body
+    Syn.ELambdaCase (Just functionType) alternatives -> desugarMatches functionType (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCase Nothing alternatives -> desugarLambdaCaseMatches (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases (Just functionType) alternatives -> desugarMatches functionType (map lambdaCaseAltMatch alternatives)
+    Syn.ELambdaCases Nothing alternatives -> desugarLambdaCaseMatches (map lambdaCaseAltMatch alternatives)
+    Syn.EIf (Just resultType) _ condition thenExpression elseExpression ->
+      desugarIf resultType condition thenExpression elseExpression
+    Syn.EIf Nothing _ condition thenExpression elseExpression -> do
       resultType <- requiredExprType thenExpression
       desugarIf resultType condition thenExpression elseExpression
-    Syn.ECase {} -> failValue "case expression does not have a checked result type"
+    -- A multi-way if is a guarded right-hand side. A failed last guard
+    -- ends in an empty case on its own test value.
+    Syn.EMultiWayIf (Just resultType) alternatives ->
+      desugarGuardedRhss resultType Nothing alternatives
+    Syn.ECase (Just resultType) scrutinee alternatives -> desugarCase resultType scrutinee alternatives
+    Syn.ECase Nothing _ _ -> failValue "case expression does not have a checked result type"
+    Syn.EDo (Just resultType) statements _ -> desugarDo resultType statements
     Syn.ELetDecls declarations body ->
       desugarLocalDecls declarations (requiredExprType body) (desugarExpr body)
     unsupported -> failValue ("unsupported System FC expression: " <> take 80 (show unsupported))
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
-  intHashType <- TyCon <$> primitiveName "GHC.Prim" "Int#" SortTypeConstructor
-  charHashType <- TyCon <$> primitiveName "GHC.Prim" "Char#" SortTypeConstructor
   let evidencePredicates = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceBinders annotation]
   evidenceBinders <- mapM freshDictionaryBinder evidencePredicates
   body <-
@@ -3661,106 +3763,6 @@ desugarAnnotatedExpr annotation inner = do
         expression
           | Just name <- annotatedVariable expression -> do
               desugarVariable (Just annotation) name
-        Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedInteger annotation resolution value
-        Syn.EFloat (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TFractional _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedRational annotation resolution value
-        Syn.EString (Just conversion) value _
-          | Just resolution <- syntaxResolved conversion ->
-              desugarOverloadedString annotation resolution value
-        -- An overloaded list applies fromListN to its length and to the
-        -- ordinary list. The list syntax name has the annotation of the
-        -- ordinary list.
-        Syn.EList syntax (Just method) elements
-          | Just resolution <- syntaxResolved method -> do
-              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
-              listAnnotation <- requiredSyntaxAnnotation syntax
-              kinds <- valueKinds
-              representation <- convertRuntimeRep (intRep kinds)
-              constructor <- primitiveName "GHC.Types" "I#" SortDataConstructor
-              let size = ExApp (ExVar constructor) (ExLit (LitInt representation (toInteger (length elements))) intHashType)
-              ExApp (ExApp method' size) <$> desugarList listAnnotation elements
-        Syn.EArithSeq (Just method) arithSeq
-          | Just resolution <- syntaxResolved method -> do
-              method' <- (`desugarResolvedOccurrence` resolution) =<< requiredSyntaxAnnotation method
-              ExApp method' <$> desugarArithSeq arithSeq
-        Syn.EIf (Just method) condition thenExpression elseExpression
-          | Just resolution <- syntaxResolved method -> do
-              methodAnnotation <- requiredSyntaxAnnotation method
-              desugarRebindableIf methodAnnotation resolution condition thenExpression elseExpression
-        Syn.ENegate method operand
-          | Just resolution <- syntaxResolved method,
-            resolutionNamespace resolution == ResolutionNamespaceTerm,
-            resolutionIdentifier resolution == IdentifierNamed "negate" -> do
-              methodAnnotation <- requiredSyntaxAnnotation method
-              primPackage <- gets (cePrimPackage . vsConvertEnv)
-              case negatableIntegerLiteral operand of
-                Just (literalAnnotation, literalResolution, value)
-                  | negateFoldsIntoLiteral primPackage methodAnnotation resolution literalResolution ->
-                      desugarOverloadedInteger literalAnnotation literalResolution (negate value)
-                _ -> do
-                  method' <- desugarResolvedOccurrence methodAnnotation resolution
-                  ExApp method' <$> desugarExpr operand
-        Syn.EGetField method record field
-          | Just resolution <- syntaxResolved method,
-            isGetFieldResolution resolution ->
-              ExApp <$> desugarFieldSelection resolution field <*> desugarExpr record
-        Syn.EGetFieldProjection method fields
-          | Just resolution <- syntaxResolved method,
-            isGetFieldResolution resolution ->
-              desugarGetFieldProjection annotation resolution fields
-        Syn.EInt _ value numericType _
-          | numericType /= Syn.TInteger -> do
-              kinds <- valueKinds
-              representation <- convertRuntimeRep (numericRepresentation kinds numericType)
-              ExLit (LitInt representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EFloat _ value floatType _
-          | Just (representation, bits) <- primitiveFloatLiteral floatType value -> do
-              kinds <- valueKinds
-              representation' <- convertRuntimeRep (representation kinds)
-              ExLit (LitInt representation' bits) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EChar value _ -> do
-          kinds <- valueKinds
-          constructor <- boxedCharConstructor
-          representation <- convertRuntimeRep (wordRep kinds)
-          pure (ExApp (ExVar constructor) (ExLit (LitChar representation value) charHashType))
-        Syn.ECharHash _ value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (wordRep kinds)
-          ExLit (LitChar representation value) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EString _ value _ -> desugarString annotation value
-        _
-          | isTemplateHaskellQuote inner -> desugarTemplateHaskellQuote annotation
-        Syn.EQuasiQuote {} -> desugarQuasiQuote annotation
-        Syn.EStringHash _ value _ -> do
-          kinds <- valueKinds
-          representation <- convertRuntimeRep (addrRep kinds)
-          ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))) <$> convertCheckedType (tcAnnType annotation)
-        Syn.EList _ _ elements -> desugarList annotation elements
-        Syn.EListComp expression statements -> desugarListComp annotation expression statements
-        Syn.EListCompParallel expression branches -> desugarListCompParallel annotation expression branches
-        Syn.EArithSeq _ arithSeq -> desugarArithSeq arithSeq
-        Syn.ETuple _ flavor elements -> desugarTuple annotation flavor elements
-        Syn.EUnboxedSum alternative arity payload -> desugarUnboxedSum annotation alternative arity payload
-        Syn.ESectionL operand operator -> desugarSectionL annotation operand operator
-        Syn.ESectionR operator operand -> desugarSectionR annotation operator operand
-        Syn.EDo statements _ -> desugarDo (tcAnnType annotation) statements
-        Syn.EIf _ condition thenExpression elseExpression ->
-          desugarIf (tcAnnType annotation) condition thenExpression elseExpression
-        -- A multi-way if is a guarded right-hand side. A failed last guard
-        -- ends in an empty case on its own test value.
-        Syn.EMultiWayIf alternatives ->
-          desugarGuardedRhss (tcAnnType annotation) Nothing alternatives
-        Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
-        Syn.EImplicitParam name ->
-          case tcAnnEvidenceTerms annotation of
-            [evidence] -> desugarEvidence evidence
-            _ -> failValue ("implicit parameter " <> T.unpack name <> " does not have exactly one evidence term")
-        Syn.ELambdaPats patterns lambdaBody -> desugarLambda (Just (tcAnnType annotation)) patterns lambdaBody
-        Syn.ELambdaCase alternatives -> desugarMatches (tcAnnType annotation) (map caseAlternativeMatch alternatives)
-        Syn.ELambdaCases alternatives -> desugarMatches (tcAnnType annotation) (map lambdaCaseAltMatch alternatives)
         -- An expression signature that is a polytype desugars to a type
         -- lambda. The expression itself stands where a monotype is
         -- expected, so the annotation instantiates that polytype again.
@@ -3816,7 +3818,7 @@ negatableIntegerLiteral :: Syn.Expr -> Maybe (TcAnnotation, Resolved, Integer)
 negatableIntegerLiteral expression =
   case expression of
     Syn.EParen inner -> negatableIntegerLiteral inner
-    Syn.ETc (Syn.ExprType tcAnnotation) (Syn.EInt (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _)
+    Syn.EInt (Just tcAnnotation) (Syn.LiteralSyntaxOverloaded _ conversion) value Syn.TInteger _
       | Just resolution <- syntaxResolved conversion,
         null (tcAnnTypeBinders tcAnnotation),
         null (tcAnnEvidenceBinders tcAnnotation),
@@ -5366,14 +5368,14 @@ isTemplateHaskellQuote expression =
 -- | Template Haskell is not supported. A quote compiles to a call of
 -- @raise#@ with a message, so code that only defines quotes still
 -- compiles.
-desugarTemplateHaskellQuote :: TcAnnotation -> ValueM Expr
-desugarTemplateHaskellQuote annotation = raiseErrorValue (tcAnnType annotation) "TH is unsupported"
+desugarTemplateHaskellQuote :: TcType -> ValueM Expr
+desugarTemplateHaskellQuote quoteType = raiseErrorValue quoteType "TH is unsupported"
 
 -- | Quasi-quotes are not supported. A quasi-quote expression compiles to
 -- a call of @raise#@ with a message, so code that only defines
 -- quasi-quotes still compiles.
-desugarQuasiQuote :: TcAnnotation -> ValueM Expr
-desugarQuasiQuote annotation = raiseErrorValue (tcAnnType annotation) "quasi-quoting is unsupported"
+desugarQuasiQuote :: TcType -> ValueM Expr
+desugarQuasiQuote quoteType = raiseErrorValue quoteType "quasi-quoting is unsupported"
 
 -- | @raise# \@rep \@String \@ty message@: a value of any type that throws
 -- when it is forced.
@@ -7285,9 +7287,9 @@ inferExprType expression =
       types <- concat <$> mapM localGroupBinderTypes groups
       withBindingTypes types (inferExprType body)
     -- An if expression has the type of its branches.
-    Syn.EIf _ _ thenExpression _ -> inferExprType thenExpression
-    Syn.ELambdaCase alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
-    Syn.ELambdaCases alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
+    Syn.EIf _ _ _ thenExpression _ -> inferExprType thenExpression
+    Syn.ELambdaCase _ alternatives -> lambdaCaseType (map caseAlternativeMatch alternatives)
+    Syn.ELambdaCases _ alternatives -> lambdaCaseType (map lambdaCaseAltMatch alternatives)
     unsupported -> failValue ("missing checked expression type: " <> take 80 (show unsupported))
 
 exprType :: Syn.Expr -> Maybe TcType
@@ -7299,7 +7301,40 @@ exprType expression =
     Syn.EParen inner -> exprType inner
     Syn.EPragma _ inner -> exprType inner
     Syn.ELetDecls _ body -> exprType body
-    Syn.EIf _ _ thenExpression _ -> exprType thenExpression
+    Syn.EIf resultType _ _ thenExpression _ -> resultType <|> exprType thenExpression
+    Syn.EMultiWayIf resultType _ -> resultType
+    Syn.ELambdaPats functionType _ _ -> functionType
+    Syn.ELambdaCase functionType _ -> functionType
+    Syn.ELambdaCases functionType _ -> functionType
+    Syn.ECase resultType _ _ -> resultType
+    Syn.EDo resultType _ _ -> resultType
+    Syn.EArithSeq resultType _ _ -> resultType
+    Syn.EVar name -> tcAnnType <$> Syn.nameTc name
+    Syn.EList annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EInt annotation _ _ _ _ -> tcAnnType <$> annotation
+    Syn.EFloat annotation _ _ _ _ -> tcAnnType <$> annotation
+    Syn.EChar annotation _ _ -> tcAnnType <$> annotation
+    Syn.ECharHash annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EString annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EStringHash annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EImplicitParam annotation _ -> tcAnnType <$> annotation
+    Syn.EQuasiQuote quoteType _ _ -> quoteType
+    Syn.ETHExpQuote quoteType _ -> quoteType
+    Syn.ETHTypedQuote quoteType _ -> quoteType
+    Syn.ETHDeclQuote quoteType _ -> quoteType
+    Syn.ETHTypeQuote quoteType _ -> quoteType
+    Syn.ETHPatQuote quoteType _ -> quoteType
+    Syn.ETHNameQuote quoteType _ -> quoteType
+    Syn.ETHTypeNameQuote quoteType _ -> quoteType
+    Syn.ENegate resultType _ _ -> resultType
+    Syn.EGetField resultType _ _ _ -> resultType
+    Syn.EGetFieldProjection annotation _ _ -> tcAnnType <$> annotation
+    Syn.ESectionL annotation _ _ -> tcAnnType <$> annotation
+    Syn.ESectionR annotation _ _ -> tcAnnType <$> annotation
+    Syn.ETuple annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EUnboxedSum annotation _ _ _ -> tcAnnType <$> annotation
+    Syn.EListComp annotation _ _ -> tcAnnType <$> annotation
+    Syn.EListCompParallel annotation _ _ -> tcAnnType <$> annotation
     Syn.ETypeSig inner _ -> exprType inner
     Syn.ETypeApp inner _ -> exprType inner
     _ -> Nothing
@@ -7311,7 +7346,8 @@ infoExprType :: Syn.ExprTc -> Maybe TcType
 infoExprType info =
   case info of
     Syn.ExprCast (TcCastAnnotation _ target) -> Just target
-    Syn.ExprType annotation -> Just (tcAnnType annotation)
+    Syn.ExprInst annotation -> Just (tcAnnType annotation)
+    Syn.ExprAbs annotation -> Just (tcAnnType annotation)
 
 applicationResultType :: TcType -> Maybe TcType
 applicationResultType ty =

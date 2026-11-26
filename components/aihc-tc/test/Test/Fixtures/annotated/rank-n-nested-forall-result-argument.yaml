@@ -57,7 +57,6 @@ annotated:
       │  │ │   └─ type: (∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool) → a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
       │  │ │   └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
       │  │ │   └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
-      │  │ │   └─ type: a → a → GHC.Types.Bool; type-args: a, a; evidence: given C a, given C a
       │  │ └─ type: a
       │  └─ type: a
       └─ type: ∀ a a. (C a, C a) ⇒ a → a → GHC.Types.Bool
