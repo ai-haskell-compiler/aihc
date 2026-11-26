@@ -333,12 +333,12 @@ instance Walkable MultiplicityTag where
       ExplicitMultiplicityTag ty -> ExplicitMultiplicityTag <$> walk w ty
 
 instance Walkable Match where
-  walk w (Match anns infos headForm pats rhs) =
-    Match <$> walkAnns w anns <*> walkInfos w infos <*> pure headForm <*> walk w pats <*> walk w rhs
+  walk w (Match anns arityCast headForm pats rhs) =
+    Match <$> walkAnns w anns <*> pure arityCast <*> pure headForm <*> walk w pats <*> walk w rhs
 
 instance Walkable PatSynDecl where
-  walk w (PatSynDecl name args pat direction) =
-    PatSynDecl <$> walk w name <*> pure args <*> walk w pat <*> walk w direction
+  walk w (PatSynDecl name args pat direction equations) =
+    PatSynDecl <$> walk w name <*> pure args <*> walk w pat <*> walk w direction <*> pure equations
 
 instance Walkable PatSynDir where
   walk w direction =

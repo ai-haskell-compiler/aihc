@@ -17,10 +17,11 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation)
+import Aihc.Tc.Annotations (PendingTcMatchArityCast, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
+import Control.Monad (join)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 
@@ -40,6 +41,8 @@ data Finalizers m = Finalizers
     finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
     finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
+    -- | Change the arity cast of an equation, or remove it.
+    finalizeMatchArityCast :: PendingTcMatchArityCast -> m (Maybe TcMatchArityCast),
     finalizeClass :: TcClassAnnotation -> m TcClassAnnotation,
     finalizeDerivingPlan :: TcDerivingPlan -> m TcDerivingPlan,
     finalizeInstance :: TcInstanceAnnotation -> m TcInstanceAnnotation,
@@ -54,6 +57,7 @@ plainFinalizers =
     { finalizeTcInfo = const (pure Nothing),
       finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
+      finalizeMatchArityCast = const (pure Nothing),
       finalizeClass = pure,
       finalizeDerivingPlan = pure,
       finalizeInstance = pure,
@@ -388,7 +392,7 @@ instance FromPending Pending.Match where
   type Final Pending.Match = Match
   fromPending info node =
     case node of
-      Pending.Match x1 x2 x3 x4 x5 -> Match <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.Match x1 x2 x3 x4 x5 -> Match <$> fromPending info x1 <*> (join <$> traverse (finalizeMatchArityCast info) x2) <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
 
 instance FromPending Pending.PatSynDir where
   type Final Pending.PatSynDir = PatSynDir
@@ -402,7 +406,7 @@ instance FromPending Pending.PatSynDecl where
   type Final Pending.PatSynDecl = PatSynDecl
   fromPending info node =
     case node of
-      Pending.PatSynDecl x1 x2 x3 x4 -> PatSynDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PatSynDecl x1 x2 x3 x4 x5 -> PatSynDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
 
 instance (FromPending body) => FromPending (Pending.Rhs body) where
   type Final (Pending.Rhs body) = Rhs (Final body)

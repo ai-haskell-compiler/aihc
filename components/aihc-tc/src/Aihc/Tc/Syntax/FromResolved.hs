@@ -323,7 +323,7 @@ instance FromResolved R.Match where
   type ToPending R.Match = Match
   fromResolved node =
     case node of
-      R.Match x1 x2 x3 x4 -> Match (fromResolved x1) [] (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.Match x1 x2 x3 x4 -> Match (fromResolved x1) Nothing (fromResolved x2) (fromResolved x3) (fromResolved x4)
 
 instance FromResolved R.PatSynDir where
   type ToPending R.PatSynDir = PatSynDir
@@ -337,7 +337,7 @@ instance FromResolved R.PatSynDecl where
   type ToPending R.PatSynDecl = PatSynDecl
   fromResolved node =
     case node of
-      R.PatSynDecl x1 x2 x3 x4 -> PatSynDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4)
+      R.PatSynDecl x1 x2 x3 x4 -> PatSynDecl (fromResolved x1) (fromResolved x2) (fromResolved x3) (fromResolved x4) Nothing
 
 instance (FromResolved body) => FromResolved (R.Rhs body) where
   type ToPending (R.Rhs body) = Rhs (ToPending body)

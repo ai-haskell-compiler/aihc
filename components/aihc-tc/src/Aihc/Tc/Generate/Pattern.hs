@@ -1373,8 +1373,8 @@ splitMatchType ty matches =
           let arrow = foldr TcFunTy result hidden
               location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
-              item = InfoMatchArityCast (PendingTcMatchArityCast arrow evidence)
-          pure (shown <> hidden, result, first {matchTc = item : matchTc first} : rest, [wanted])
+              cast = PendingTcMatchArityCast arrow evidence
+          pure (shown <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
     _ -> pure (shown, shownResult, matches, [])
   where
     arity =

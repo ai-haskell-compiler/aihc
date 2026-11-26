@@ -1931,7 +1931,7 @@ simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
   Match
     { matchAnns = genSpanAnns gen,
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = patterns,
       matchRhs = UnguardedRhs [] [] body Nothing

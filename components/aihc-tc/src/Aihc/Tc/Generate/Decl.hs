@@ -3460,7 +3460,7 @@ tcPatSynDecl sigs groupId decl patSyn = do
                   PatSynBidirectional ->
                     case patternToExpr pat of
                       Just expr ->
-                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] [] MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] [] expr Nothing)])))
+                        pure (PatSynImplicitBidirectionalInfo, Just (Just (withVoidArgument [Match [] Nothing MatchHeadPrefix (map PVar argBinders) (UnguardedRhs [] [] expr Nothing)])))
                       Nothing -> do
                         emitError nameSpan (OtherError ("the pattern of the bidirectional pattern synonym " <> T.unpack name <> " is not an expression; give explicit builder equations"))
                         pure (PatSynImplicitBidirectionalInfo, Nothing)
@@ -3506,9 +3506,9 @@ tcPatSynDecl sigs groupId decl patSyn = do
                             case patternSpan checkedPat of
                               Nothing -> checkedPat
                               Just patSpan -> PAnn (mkSpanAnnotation patSpan) checkedPat
-                          patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir'}
                           equations = PatSynEquations matcherMatch' maybeBuilderMatches selectorMatches
-                          decl' = DeclTc (InfoPatSyn equations) (replacePatSynDecl patSyn' decl)
+                          patSyn' = patSyn {patSynDeclPat = spannedPat, patSynDeclDir = dir', patSynDeclEquations = Just equations}
+                          decl' = replacePatSynDecl patSyn' decl
                           results = TcBindingResult key displayName zonkedTy : matcherResults <> builderResults <> selectorResults
                       pure (TcDeclGroupResult groupId results (Just [decl']))
             _ -> pure failedResult
@@ -3821,7 +3821,7 @@ patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
 patSynSelectorMatch pat argBinder =
   Match
     { matchAnns = [],
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = [PVar scrutinee],
       matchRhs =
@@ -3895,7 +3895,7 @@ patSynMatcherMatch :: Pattern -> [UnqualifiedName] -> Match
 patSynMatcherMatch pat argBinders =
   Match
     { matchAnns = [],
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = map PVar [scrutinee, continue, failure],
       matchRhs =
@@ -6742,7 +6742,7 @@ zeroArgMatch :: Maybe SourceSpan -> Rhs Expr -> Match
 zeroArgMatch sp rhs =
   Match
     { matchAnns = sourceSpanAnn sp,
-      matchTc = [],
+      matchArityCast = Nothing,
       matchHeadForm = MatchHeadPrefix,
       matchPats = [],
       matchRhs = rhs

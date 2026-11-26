@@ -8,7 +8,7 @@
 --
 -- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
 --   for a whole node.
--- * Fields such as 'nameTc' and 'matchTc' hold the information for a name,
+-- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
 --   an equation, a rule, or a module.
 -- * 'moduleTcDiagnostics' holds the diagnostics of the module.
 --
@@ -292,8 +292,6 @@ data TcInfo
   | -- | A cast of a node to a type. Without a coercion, the cast is a
     -- reflexive proof that keeps the type.
     InfoCast !TcCastAnnotation
-  | -- | A cast that gives an equation the arity of its type.
-    InfoMatchArityCast !TcMatchArityCast
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
   | -- | The checked type of the selector of a record field, on the field
@@ -304,8 +302,6 @@ data TcInfo
   | -- | The next item of the statement is the occurrence type of this
     -- group variable at the knot of a @rec@ group.
     InfoRecKnotOccurrence !Entity
-  | -- | The checked equations of a pattern synonym.
-    InfoPatSyn !PatSynEquations
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -901,8 +897,9 @@ data ValueDecl
 -- Examples: @f x = x@ and @x :+: y = z@.
 data Match = Match
   { matchAnns :: [Annotation],
-    -- | What the type checker found for the equation.
-    matchTc :: [TcInfo],
+    -- | The cast that gives the equation the arity of its type. Only the
+    -- first equation of a function can have it. The type checker sets it.
+    matchArityCast :: Maybe TcMatchArityCast,
     matchHeadForm :: MatchHeadForm,
     matchPats :: [Pattern],
     matchRhs :: Rhs Expr
@@ -925,7 +922,10 @@ data PatSynDecl = PatSynDecl
   { patSynDeclName :: UnqualifiedName,
     patSynDeclArgs :: PatSynArgs,
     patSynDeclPat :: Pattern,
-    patSynDeclDir :: PatSynDir
+    patSynDeclDir :: PatSynDir,
+    -- | The checked equations of the pattern synonym. The type checker
+    -- sets them.
+    patSynDeclEquations :: Maybe PatSynEquations
   }
   deriving (Eq, Show)
 

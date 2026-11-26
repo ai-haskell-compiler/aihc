@@ -89,6 +89,18 @@ finalizeSyntax =
           info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
         finalizeDataFamilyInstance = \info ->
           info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
+        finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
+          evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+          arrow <- zonkType ty
+          case evidence of
+            EvCoercion (Refl _) -> do
+              rejectMeta "match arity cast annotation" (firstMetaType arrow)
+              pure (Just (TcMatchArityCast Nothing arrow))
+            EvCoercion proof -> do
+              rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
+              pure (Just (TcMatchArityCast (Just proof) arrow))
+            EvVarTerm _ -> pure Nothing
+            _ -> abortTc "a match arity cast requires equality evidence",
         finalizeClass = \annotation ->
           annotation <$ rejectMeta "finalized class annotation" (firstMetaClassAnnotation annotation),
         finalizeDerivingPlan = \plan ->
@@ -122,22 +134,7 @@ finalizeInfo item =
           pure (Just (Final.InfoCast (TcCastAnnotation (Just oriented) target)))
         EvVarTerm _ -> pure Nothing
         _ -> abortTc "a result cast requires equality evidence"
-    InfoMatchArityCast (PendingTcMatchArityCast ty ev) -> do
-      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
-      arrow <- zonkType ty
-      case evidence of
-        EvCoercion (Refl _) -> do
-          rejectMeta "match arity cast annotation" (firstMetaType arrow)
-          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast Nothing arrow)))
-        EvCoercion proof -> do
-          rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
-          pure (Just (Final.InfoMatchArityCast (TcMatchArityCast (Just proof) arrow)))
-        EvVarTerm _ -> pure Nothing
-        _ -> abortTc "a match arity cast requires equality evidence"
     InfoType pending -> Just . Final.InfoType <$> annotationForPendingTc pending
-    -- The matcher, builder, and selector equations are syntax in the
-    -- information. Each one changes as the tree does.
-    InfoPatSyn equations -> Just . Final.InfoPatSyn <$> finalizeSyntax equations
     -- The checker writes the types of declarations as final information.
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)

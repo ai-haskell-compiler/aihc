@@ -572,14 +572,14 @@ desugarPatSynDecl declaration =
     Nothing -> pure []
 
 patSynDeclAnnotation :: Syn.Decl -> Maybe (Syn.PatSynEquations, Syn.PatSynDecl)
-patSynDeclAnnotation = go Nothing
+patSynDeclAnnotation = go
   where
-    go found declaration =
+    go declaration =
       case declaration of
-        Syn.DeclAnn _ inner -> go found inner
-        Syn.DeclError _ inner -> go found inner
-        Syn.DeclTc info inner -> go (patSynEquations info <|> found) inner
-        Syn.DeclPatSyn patSyn -> (,patSyn) <$> found
+        Syn.DeclAnn _ inner -> go inner
+        Syn.DeclError _ inner -> go inner
+        Syn.DeclTc _ inner -> go inner
+        Syn.DeclPatSyn patSyn -> (,patSyn) <$> Syn.patSynDeclEquations patSyn
         _ -> Nothing
 
 -- | The matcher or the builder of a pattern synonym as an ordinary
@@ -638,13 +638,6 @@ infoCast :: Syn.TcInfo -> Maybe TcCastAnnotation
 infoCast item =
   case item of
     Syn.InfoCast annotation -> Just annotation
-    _ -> Nothing
-
--- | The equations of a pattern synonym, if the item has them.
-patSynEquations :: Syn.TcInfo -> Maybe Syn.PatSynEquations
-patSynEquations item =
-  case item of
-    Syn.InfoPatSyn equations -> Just equations
     _ -> Nothing
 
 -- | The proof of a cast, if the item is a cast that needs one.
@@ -2150,7 +2143,7 @@ emptyMatch :: Syn.Rhs Syn.Expr -> Syn.Match
 emptyMatch rhs =
   Syn.Match
     { Syn.matchAnns = [],
-      Syn.matchTc = [],
+      Syn.matchArityCast = Nothing,
       Syn.matchHeadForm = Syn.MatchHeadPrefix,
       Syn.matchPats = [],
       Syn.matchRhs = rhs
@@ -2173,7 +2166,7 @@ desugarMatches ty matches = do
           [ cast
           | length shownTypes < argumentCount,
             first <- take 1 matches,
-            Syn.InfoMatchArityCast cast <- Syn.matchTc first
+            Just cast <- [Syn.matchArityCast first]
           ]
       (hiddenTypes, resultType, hiddenProof) =
         case arityCast of
@@ -4992,7 +4985,7 @@ desugarLambda lambdaType patterns body = do
     lambdaMatch =
       Syn.Match
         { Syn.matchAnns = [],
-          Syn.matchTc = [],
+          Syn.matchArityCast = Nothing,
           Syn.matchHeadForm = Syn.MatchHeadPrefix,
           Syn.matchPats = patterns,
           Syn.matchRhs = Syn.UnguardedRhs [] [] body Nothing
