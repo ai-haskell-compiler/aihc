@@ -496,10 +496,10 @@ desugarRulesDecl declaration =
 -- and gives nothing: its error was reported.
 desugarRule :: Syn.RuleDecl -> ValueM [Decl]
 desugarRule rule =
-  case listToMaybe (mapMaybe infoType (Syn.ruleTc rule)) of
+  case Syn.ruleTc rule of
     Nothing -> pure []
-    Just annotation -> do
-      let (typeVariables, afterForAlls) = peelForAlls (tcAnnType annotation)
+    Just ruleType -> do
+      let (typeVariables, afterForAlls) = peelForAlls ruleType
           (predicates, bodyType) = peelConstraints afterForAlls
           (binderTypes, resultType) = peelFunctions (length (Syn.ruleBinders rule)) bodyType
       typeBinders <- convertTypeBinders typeVariables
@@ -3511,7 +3511,7 @@ desugarRhsWithFailure resultType failure rhs = do
   let infos = case rhs of
         Syn.UnguardedRhs _ items _ _ -> items
         Syn.GuardedRhss _ items _ _ -> items
-      proofs = mapMaybe infoCastProof infos
+      proofs = [proof | TcCastAnnotation (Just proof) _ <- infos]
   foldM (\expression proof -> withCoercion proof (pure . ExCast expression)) body proofs
 
 desugarRhsBodyWithFailure :: TcType -> Maybe Expr -> Syn.Rhs Syn.Expr -> ValueM Expr

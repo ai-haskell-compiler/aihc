@@ -35,6 +35,7 @@ module Aihc.Tc.Syntax.Traverse
 where
 
 import Aihc.Tc.Syntax
+import Aihc.Tc.Types (TcType)
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it
 -- is. A caller sets the hooks it needs.
@@ -46,6 +47,10 @@ data Walk f = Walk
     walkResolution :: ResolutionResult -> f ResolutionResult,
     -- | Every item of type checker information, where it is attached.
     walkTcInfo :: TcInfo -> f TcInfo,
+    -- | Every checked type that a node holds in a typed field of its own,
+    -- where it is attached: on a rule, a rule binder, or a constructor
+    -- declaration.
+    walkCheckedType :: TcType -> f TcType,
     -- | Every annotation list of a node that holds its annotations in a
     -- list, such as a name or a module. The argument walks the elements.
     walkAnnotationList :: ([Annotation] -> f [Annotation]) -> [Annotation] -> f [Annotation],
@@ -74,6 +79,7 @@ idWalk =
     { walkAnnotation = pure,
       walkResolution = pure,
       walkTcInfo = pure,
+      walkCheckedType = pure,
       walkAnnotationList = id,
       walkName = id,
       walkExpr = id,
@@ -105,6 +111,10 @@ walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 -- | The type checker information of one node.
 walkInfos :: (Applicative f) => Walk f -> [TcInfo] -> f [TcInfo]
 walkInfos w = traverse (walkTcInfo w)
+
+-- | The checked type of one node, if it has one.
+walkCheckedTypeOf :: (Applicative f) => Walk f -> Maybe TcType -> f (Maybe TcType)
+walkCheckedTypeOf w = traverse (walkCheckedType w)
 
 -- | The resolution result of a name or a binder, if it has one.
 walkMaybeResolution :: (Applicative f) => Walk f -> Maybe ResolutionResult -> f (Maybe ResolutionResult)
@@ -297,7 +307,7 @@ instance Walkable RuleDecl where
         rule {ruleAnns = anns, ruleTc = infos, ruleTypeBinders = typeBinders, ruleBinders = binders, ruleLhs = lhs, ruleRhs = rhs}
     )
       <$> walkAnns w (ruleAnns rule)
-      <*> walkInfos w (ruleTc rule)
+      <*> walkCheckedTypeOf w (ruleTc rule)
       <*> walk w (ruleTypeBinders rule)
       <*> walk w (ruleBinders rule)
       <*> walk w (ruleLhs rule)
@@ -307,7 +317,7 @@ instance Walkable RuleBinder where
   walk w binder =
     (\anns infos name ty -> binder {ruleBinderAnns = anns, ruleBinderTc = infos, ruleBinderName = name, ruleBinderType = ty})
       <$> walkAnns w (ruleBinderAnns binder)
-      <*> walkInfos w (ruleBinderTc binder)
+      <*> walkCheckedTypeOf w (ruleBinderTc binder)
       <*> walk w (ruleBinderName binder)
       <*> walk w (ruleBinderType binder)
 
@@ -344,9 +354,9 @@ instance (Walkable body) => Walkable (Rhs body) where
   walk w rhs =
     case rhs of
       UnguardedRhs anns infos body decls ->
-        UnguardedRhs <$> walkAnns w anns <*> walkInfos w infos <*> walk w body <*> walk w decls
+        UnguardedRhs <$> walkAnns w anns <*> pure infos <*> walk w body <*> walk w decls
       GuardedRhss anns infos guarded decls ->
-        GuardedRhss <$> walkAnns w anns <*> walkInfos w infos <*> walk w guarded <*> walk w decls
+        GuardedRhss <$> walkAnns w anns <*> pure infos <*> walk w guarded <*> walk w decls
 
 instance (Walkable body) => Walkable (GuardedRhs body) where
   walk w (GuardedRhs anns guards body) =
@@ -564,24 +574,24 @@ instance Walkable DataConDecl where
   walk w = walkDataConDecl w $ \case
     DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
     PrefixCon tc binders context name fields ->
-      PrefixCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+      PrefixCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
     InfixCon tc binders context lhs name rhs ->
       InfixCon
-        <$> walkInfos w tc
+        <$> walkCheckedTypeOf w tc
         <*> walk w binders
         <*> walk w context
         <*> walk w lhs
         <*> walk w name
         <*> walk w rhs
     RecordCon tc binders context name fields ->
-      RecordCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+      RecordCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
     GadtCon tc telescopes context names body ->
-      GadtCon <$> walkInfos w tc <*> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
+      GadtCon <$> walkCheckedTypeOf w tc <*> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
     TupleCon tc binders context flavor fields ->
-      TupleCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
+      TupleCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
     UnboxedSumCon tc binders context position arity field ->
-      UnboxedSumCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
-    ListCon tc binders context syntax -> ListCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w syntax
+      UnboxedSumCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
+    ListCon tc binders context syntax -> ListCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w syntax
 
 instance Walkable GadtBody where
   walk w body =
@@ -594,8 +604,8 @@ instance Walkable BangType where
     BangType <$> walkAnns w anns <*> pure pragmas <*> pure strict <*> pure lazy <*> walk w ty
 
 instance Walkable FieldDecl where
-  walk w (FieldDecl anns names multiplicity ty) =
-    FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty
+  walk w (FieldDecl anns names multiplicity ty selectors) =
+    FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty <*> pure selectors
 
 instance Walkable DerivingClause where
   walk w (DerivingClause strategy classes plans) =

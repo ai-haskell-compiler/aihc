@@ -72,6 +72,7 @@ import Aihc.Tc.Types
 import Aihc.Testing.AnnotatedModule (renderLabeledSource)
 import Control.Applicative ((<|>))
 import Control.Monad (void)
+import Data.Bifunctor (first)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe, maybeToList)
@@ -131,6 +132,10 @@ labelWalk =
         span' <- gets labelsListSpan
         addInfoLabels span' [LabelInfo info]
         pure info,
+      walkCheckedType = \ty -> do
+        span' <- gets labelsListSpan
+        addInfoLabels span' [LabelType ty]
+        pure ty,
       walkExpr = exprLabels,
       walkPattern = patternLabels,
       walkType = wrapped peelType,
@@ -139,7 +144,7 @@ labelWalk =
       walkLiteral = wrapped peelLiteral,
       walkGuardQualifier = wrapped peelGuard,
       walkDoStmt = doLabels,
-      walkCompStmt = wrappedOwn peelComp compStmtOwn,
+      walkCompStmt = wrappedOwn peelComp (first (map LabelInfo) . compStmtOwn),
       walkArithSeq = arithSeqLabels,
       walkClassDeclItem = wrappedFields peelClassItem classItemFields,
       walkInstanceDeclItem = wrappedFields peelInstanceItem instanceItemFields,
@@ -169,11 +174,11 @@ labelWalk =
 
     -- The information of a node below its wrappers gets the first span
     -- of the wrappers, after the information of the wrappers.
-    wrappedOwn :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> ([TcInfo], node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
+    wrappedOwn :: (node -> Maybe (Maybe Annotation, Maybe TcInfo, node)) -> (node -> ([Label], node)) -> (node -> State (Labels ann) node) -> node -> State (Labels ann) node
     wrappedOwn peel own children node = do
       let (anns, infos, base) = peelLeading peel node
           (ownInfos, base') = own base
-      addInfoLabels (spanFromAnnotations anns) (map LabelInfo (infos <> ownInfos))
+      addInfoLabels (spanFromAnnotations anns) (map LabelInfo infos <> ownInfos)
       _ <- children base'
       pure node
 
@@ -263,19 +268,21 @@ doStmtMethods stmt =
   where
     without name = name {nameTc = []}
 
--- | The information of a constructor declaration, and the declaration with
--- no information.
-dataConOwn :: DataConDecl -> ([TcInfo], DataConDecl)
+-- | The label of the checked type of a constructor declaration, and the
+-- declaration with no checked type.
+dataConOwn :: DataConDecl -> ([Label], DataConDecl)
 dataConOwn decl =
   case decl of
-    PrefixCon tc a b c d -> (tc, PrefixCon [] a b c d)
-    InfixCon tc a b c d e -> (tc, InfixCon [] a b c d e)
-    RecordCon tc a b c d -> (tc, RecordCon [] a b c d)
-    GadtCon tc a b c d -> (tc, GadtCon [] a b c d)
-    TupleCon tc a b c d -> (tc, TupleCon [] a b c d)
-    UnboxedSumCon tc a b c d e -> (tc, UnboxedSumCon [] a b c d e)
-    ListCon tc a b c -> (tc, ListCon [] a b c)
+    PrefixCon tc a b c d -> (typeLabel tc, PrefixCon Nothing a b c d)
+    InfixCon tc a b c d e -> (typeLabel tc, InfixCon Nothing a b c d e)
+    RecordCon tc a b c d -> (typeLabel tc, RecordCon Nothing a b c d)
+    GadtCon tc a b c d -> (typeLabel tc, GadtCon Nothing a b c d)
+    TupleCon tc a b c d -> (typeLabel tc, TupleCon Nothing a b c d)
+    UnboxedSumCon tc a b c d e -> (typeLabel tc, UnboxedSumCon Nothing a b c d e)
+    ListCon tc a b c -> (typeLabel tc, ListCon Nothing a b c)
     DataConAnn _ _ -> ([], decl)
+  where
+    typeLabel = maybe [] (\ty -> [LabelType ty])
 
 -- | The information of a comprehension statement, and the statement with
 -- no information.
@@ -336,6 +343,8 @@ exprSyntax expr =
 -- information in a typed field.
 data Label
   = LabelInfo TcInfo
+  | -- | A checked type with no elaboration.
+    LabelType TcType
   | LabelText String
 
 -- | The labels of the typed fields of a declaration.
@@ -358,6 +367,7 @@ addInfoLabels span' infos = do
   let labelText label =
         case label of
           LabelInfo info -> renderTcInfo currentModule info
+          LabelType ty -> Just (renderTypeAnnotation currentModule (TcAnnotation ty [] [] [] [] []))
           LabelText text -> Just text
   case [label | info <- infos, Just label <- [labelText info]] of
     [] -> pure ()

@@ -138,7 +138,7 @@ import Aihc.Tc.Syntax.Pending
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    addDataConTc,
+    setDataConTc,
     annotateDecl,
     annotateRhsCast,
     annotationSpan,
@@ -801,10 +801,10 @@ tcRuleDecl rule = withAmbientSpan sp $ do
                 (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)
               let closed = schemeToType (Scheme [] (orderTyVarsByKind quantified) predicates body)
               binders' <- forM binders $ \(binder, ty) ->
-                pure binder {ruleBinderTc = InfoType (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderTc binder}
+                pure binder {ruleBinderTc = Just ty}
               pure
                 rule
-                  { ruleTc = InfoType (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleTc rule,
+                  { ruleTc = Just closed,
                     ruleBinders = binders',
                     ruleLhs = lhs',
                     ruleRhs = rhs'
@@ -1596,7 +1596,7 @@ annotateRegisteredDataConDeclTc parent dataConDecl = do
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (addDataConTc (InfoCheckedType (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
+      pure (setDataConTc zonkedTy dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1618,7 +1618,7 @@ annotateDataConDeclTc parent dataConDecl = do
     key : _ -> do
       ty <- dataConBindingType key
       selectors <- annotateRecordSelectorNames parent dataConDecl >>= recordSelectorTypes parent
-      pure (addDataConTc (InfoCheckedType (TcAnnotation ty [] [] [] [] [])) selectors)
+      pure (setDataConTc ty selectors)
 
 -- | Put the checked selector type on each field name that has a selector.
 -- A field whose type has an existential variable has none.
@@ -1633,17 +1633,17 @@ recordSelectorTypes parent declaration =
     _ -> pure declaration
   where
     annotateField field = do
-      names <- mapM selectorTypeOn (fieldNames field)
-      pure field {fieldNames = names}
-    selectorTypeOn name = do
+      types <- mapM selectorTypeOf (fieldNames field)
+      pure field {fieldSelectorTypes = catMaybes types}
+    selectorTypeOf name = do
       let label = unqualifiedNameText name
           selector = Map.findWithDefault label label (recordSelectorNames [declaration])
       binder <- lookupTermKey (tyConMemberTermKey parent selector)
       case binder of
         Just _ -> do
           ty <- bindingType (tyConMemberTermKey parent selector)
-          pure name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoSelectorType ty]}
-        Nothing -> pure name
+          pure (Just (label, ty))
+        Nothing -> pure Nothing
 
 annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames parent declaration =

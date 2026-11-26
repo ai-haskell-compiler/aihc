@@ -150,7 +150,7 @@ module Aihc.Tc.Syntax
     peelDoStmtAnn,
     peelDataConAnn,
     dataConTc,
-    addDataConTc,
+    setDataConTc,
     peelClassDeclItemAnn,
     peelInstanceDeclItemAnn,
     peelGuardQualifierAnn,
@@ -294,11 +294,6 @@ data TcInfo
     InfoCast !TcCastAnnotation
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
-  | -- | The checked type of the selector of a record field, on the field
-    -- name of the constructor declaration. The System FC desugarer gives
-    -- the desugared selector this type, so that the selector has the type
-    -- that each use of the selector instantiates.
-    InfoSelectorType !TcType
   | -- | The next item of the statement is the occurrence type of this
     -- group variable at the knot of a @rec@ group.
     InfoRecKnotOccurrence !Entity
@@ -569,9 +564,9 @@ peelCompStmtAnn stmt =
     CompAnn _ inner -> peelCompStmtAnn inner
     _ -> stmt
 
--- | What the type checker found for a constructor declaration, under its
+-- | The checked type of the data constructor of a declaration, under its
 -- annotation wrappers.
-dataConTc :: DataConDecl -> [TcInfo]
+dataConTc :: DataConDecl -> Maybe TcType
 dataConTc decl =
   case peelDataConAnn decl of
     PrefixCon tc _ _ _ _ -> tc
@@ -581,21 +576,21 @@ dataConTc decl =
     TupleCon tc _ _ _ _ -> tc
     UnboxedSumCon tc _ _ _ _ _ -> tc
     ListCon tc _ _ _ -> tc
-    DataConAnn _ _ -> []
+    DataConAnn _ _ -> Nothing
 
--- | Put an item of information in front of the information of a
--- constructor declaration, under its annotation wrappers.
-addDataConTc :: TcInfo -> DataConDecl -> DataConDecl
-addDataConTc item decl =
+-- | Set the checked type of the data constructor of a declaration, under
+-- its annotation wrappers.
+setDataConTc :: TcType -> DataConDecl -> DataConDecl
+setDataConTc ty decl =
   case decl of
-    DataConAnn ann inner -> DataConAnn ann (addDataConTc item inner)
-    PrefixCon tc a b c d -> PrefixCon (item : tc) a b c d
-    InfixCon tc a b c d e -> InfixCon (item : tc) a b c d e
-    RecordCon tc a b c d -> RecordCon (item : tc) a b c d
-    GadtCon tc a b c d -> GadtCon (item : tc) a b c d
-    TupleCon tc a b c d -> TupleCon (item : tc) a b c d
-    UnboxedSumCon tc a b c d e -> UnboxedSumCon (item : tc) a b c d e
-    ListCon tc a b c -> ListCon (item : tc) a b c
+    DataConAnn ann inner -> DataConAnn ann (setDataConTc ty inner)
+    PrefixCon _ a b c d -> PrefixCon (Just ty) a b c d
+    InfixCon _ a b c d e -> InfixCon (Just ty) a b c d e
+    RecordCon _ a b c d -> RecordCon (Just ty) a b c d
+    GadtCon _ a b c d -> GadtCon (Just ty) a b c d
+    TupleCon _ a b c d -> TupleCon (Just ty) a b c d
+    UnboxedSumCon _ a b c d e -> UnboxedSumCon (Just ty) a b c d e
+    ListCon _ a b c -> ListCon (Just ty) a b c
 
 -- | What the type checker found for a comprehension statement, under its
 -- annotation wrappers.
@@ -843,7 +838,7 @@ data Decl
 data RuleDecl = RuleDecl
   { ruleAnns :: [Annotation],
     -- | The type that the type checker found for the rule.
-    ruleTc :: [TcInfo],
+    ruleTc :: Maybe TcType,
     -- | The error when the left-hand side does not apply a top-level
     -- variable.
     ruleError :: Maybe ResolveError,
@@ -868,7 +863,7 @@ data RuleDecl = RuleDecl
 data RuleBinder = RuleBinder
   { ruleBinderAnns :: [Annotation],
     -- | The type that the type checker found for the binder.
-    ruleBinderTc :: [TcInfo],
+    ruleBinderTc :: Maybe TcType,
     ruleBinderName :: UnqualifiedName,
     ruleBinderType :: Maybe Type
   }
@@ -932,10 +927,10 @@ data PatSynDecl = PatSynDecl
 -- | The right-hand side of a binding, case alternative, or lambda case.
 data Rhs body
   = -- | @= body@ with an optional @where@ clause. The second list holds
-    -- what the type checker found for the right-hand side.
-    UnguardedRhs [Annotation] [TcInfo] body (Maybe [Decl])
+    -- the casts of the right-hand side. The type checker sets them.
+    UnguardedRhs [Annotation] [TcCastAnnotation] body (Maybe [Decl])
   | -- | Guarded equations such as @| x > 0 = body@.
-    GuardedRhss [Annotation] [TcInfo] [GuardedRhs body] (Maybe [Decl])
+    GuardedRhss [Annotation] [TcCastAnnotation] [GuardedRhs body] (Maybe [Decl])
   deriving (Eq, Show)
 
 -- | One guarded branch.
@@ -1317,27 +1312,26 @@ data NewtypeDecl = NewtypeDecl
   deriving (Eq, Show)
 
 -- | A data constructor declaration. The first field of each constructor
--- is what the type checker found for the declaration: the type of the
--- data constructor.
+-- is the checked type of the data constructor. The type checker sets it.
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkSpanAnnotation').
     DataConAnn Annotation DataConDecl
   | -- | @Just a@
-    PrefixCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [BangType]
+    PrefixCon (Maybe TcType) [TyVarBinder] [Type] UnqualifiedName [BangType]
   | -- | @a :+: b@
-    InfixCon [TcInfo] [TyVarBinder] [Type] BangType UnqualifiedName BangType
+    InfixCon (Maybe TcType) [TyVarBinder] [Type] BangType UnqualifiedName BangType
   | -- | @MkT { x :: Int, y :: Bool }@
-    RecordCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
+    RecordCon (Maybe TcType) [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon [TcInfo] [ForallTelescope] [Type] [UnqualifiedName] GadtBody
+    GadtCon (Maybe TcType) [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   | -- | Tuple-style constructor: @()@, @(a,b)@, @(# #)@, @(# a,b #)@
-    TupleCon [TcInfo] [TyVarBinder] [Type] TupleFlavor [BangType]
+    TupleCon (Maybe TcType) [TyVarBinder] [Type] TupleFlavor [BangType]
   | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
     -- Fields: forall vars, context, position (1-based), total arity, field type
-    UnboxedSumCon [TcInfo] [TyVarBinder] [Type] Int Int BangType
+    UnboxedSumCon (Maybe TcType) [TyVarBinder] [Type] Int Int BangType
   | -- | List constructor: @[]@. The name is the built-in list syntax.
-    ListCon [TcInfo] [TyVarBinder] [Type] Name
+    ListCon (Maybe TcType) [TyVarBinder] [Type] Name
   deriving (Eq, Show)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1368,7 +1362,12 @@ data FieldDecl = FieldDecl
     fieldNames :: [UnqualifiedName],
     -- | Optional multiplicity annotation, e.g. @x %'Many :: a@.
     fieldMultiplicity :: Maybe Type,
-    fieldType :: BangType
+    fieldType :: BangType,
+    -- | The checked type of the selector of each field name that has a
+    -- selector, by field name. The System FC desugarer gives the desugared
+    -- selector this type, so that the selector has the type that each use
+    -- of the selector instantiates. The type checker sets it.
+    fieldSelectorTypes :: [(Text, TcType)]
   }
   deriving (Eq, Show)
 

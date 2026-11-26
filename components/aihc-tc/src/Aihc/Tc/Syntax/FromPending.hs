@@ -17,7 +17,8 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (PendingTcMatchArityCast, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
+import Aihc.Tc.Annotations (PendingTcCastAnnotation, PendingTcMatchArityCast, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
+import Aihc.Tc.Types (TcType)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
@@ -41,6 +42,12 @@ data Finalizers m = Finalizers
     finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
     finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
+    -- | Change a cast, or remove it.
+    finalizeCast :: PendingTcCastAnnotation -> m (Maybe TcCastAnnotation),
+    -- | Change a type that can have meta variables.
+    finalizePendingType :: TcType -> m TcType,
+    -- | Change a type that the checker writes as final.
+    finalizeCheckedType :: TcType -> m TcType,
     -- | Change the arity cast of an equation, or remove it.
     finalizeMatchArityCast :: PendingTcMatchArityCast -> m (Maybe TcMatchArityCast),
     finalizeClass :: TcClassAnnotation -> m TcClassAnnotation,
@@ -57,12 +64,19 @@ plainFinalizers =
     { finalizeTcInfo = const (pure Nothing),
       finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
+      finalizeCast = const (pure Nothing),
+      finalizePendingType = pure,
+      finalizeCheckedType = pure,
       finalizeMatchArityCast = const (pure Nothing),
       finalizeClass = pure,
       finalizeDerivingPlan = pure,
       finalizeInstance = pure,
       finalizeInstanceMethod = pure
     }
+
+-- | Change a list of casts, and remove the casts that the function removes.
+casts :: (Monad m) => Finalizers m -> [PendingTcCastAnnotation] -> m [TcCastAnnotation]
+casts info items = catMaybes <$> traverse (finalizeCast info) items
 
 class FromPending a where
   type Final a
@@ -365,13 +379,13 @@ instance FromPending Pending.RuleDecl where
   type Final Pending.RuleDecl = RuleDecl
   fromPending info node =
     case node of
-      Pending.RuleDecl x1 x2 x3 x4 x5 x6 x7 x8 x9 -> RuleDecl <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> fromPending info x7 <*> fromPending info x8 <*> fromPending info x9
+      Pending.RuleDecl x1 x2 x3 x4 x5 x6 x7 x8 x9 -> RuleDecl <$> fromPending info x1 <*> traverse (finalizePendingType info) x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> fromPending info x7 <*> fromPending info x8 <*> fromPending info x9
 
 instance FromPending Pending.RuleBinder where
   type Final Pending.RuleBinder = RuleBinder
   fromPending info node =
     case node of
-      Pending.RuleBinder x1 x2 x3 x4 -> RuleBinder <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.RuleBinder x1 x2 x3 x4 -> RuleBinder <$> fromPending info x1 <*> traverse (finalizePendingType info) x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance FromPending Pending.MultiplicityTag where
   type Final Pending.MultiplicityTag = MultiplicityTag
@@ -412,8 +426,8 @@ instance (FromPending body) => FromPending (Pending.Rhs body) where
   type Final (Pending.Rhs body) = Rhs (Final body)
   fromPending info node =
     case node of
-      Pending.UnguardedRhs x1 x2 x3 x4 -> UnguardedRhs <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.GuardedRhss x1 x2 x3 x4 -> GuardedRhss <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.UnguardedRhs x1 x2 x3 x4 -> UnguardedRhs <$> fromPending info x1 <*> casts info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.GuardedRhss x1 x2 x3 x4 -> GuardedRhss <$> fromPending info x1 <*> casts info x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance (FromPending body) => FromPending (Pending.GuardedRhs body) where
   type Final (Pending.GuardedRhs body) = GuardedRhs (Final body)
@@ -622,13 +636,13 @@ instance FromPending Pending.DataConDecl where
   fromPending info node =
     case node of
       Pending.DataConAnn x1 x2 -> DataConAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PrefixCon x1 x2 x3 x4 x5 -> PrefixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.InfixCon x1 x2 x3 x4 x5 x6 -> InfixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
-      Pending.RecordCon x1 x2 x3 x4 x5 -> RecordCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.GadtCon x1 x2 x3 x4 x5 -> GadtCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.TupleCon x1 x2 x3 x4 x5 -> TupleCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.UnboxedSumCon x1 x2 x3 x4 x5 x6 -> UnboxedSumCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
-      Pending.ListCon x1 x2 x3 x4 -> ListCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PrefixCon x1 x2 x3 x4 x5 -> PrefixCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.InfixCon x1 x2 x3 x4 x5 x6 -> InfixCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.RecordCon x1 x2 x3 x4 x5 -> RecordCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.GadtCon x1 x2 x3 x4 x5 -> GadtCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.TupleCon x1 x2 x3 x4 x5 -> TupleCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.UnboxedSumCon x1 x2 x3 x4 x5 x6 -> UnboxedSumCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.ListCon x1 x2 x3 x4 -> ListCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance FromPending Pending.GadtBody where
   type Final Pending.GadtBody = GadtBody
@@ -647,7 +661,7 @@ instance FromPending Pending.FieldDecl where
   type Final Pending.FieldDecl = FieldDecl
   fromPending info node =
     case node of
-      Pending.FieldDecl x1 x2 x3 x4 -> FieldDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.FieldDecl x1 x2 x3 x4 x5 -> FieldDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> pure x5
 
 instance FromPending Pending.DerivingClause where
   type Final Pending.DerivingClause = DerivingClause

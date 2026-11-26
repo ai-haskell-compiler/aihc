@@ -89,6 +89,16 @@ finalizeSyntax =
           info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
         finalizeDataFamilyInstance = \info ->
           info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
+        finalizeCast = finalizeCastAnnotation,
+        finalizePendingType = \ty ->
+          tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
+        -- The checker writes the type of a data constructor as final
+        -- information. It keeps its value, but it must not have a meta
+        -- variable.
+        finalizeCheckedType = \ty -> do
+          let annotation = TcAnnotation ty [] [] [] [] []
+          rejectMetaFinalInfo (Final.InfoType annotation)
+          tcAnnType <$> recordAnnotationKindArguments annotation,
         finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
           evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
           arrow <- zonkType ty
@@ -117,30 +127,13 @@ finalizeSyntax =
 finalizeInfo :: TcInfo -> TcM (Maybe Final.TcInfo)
 finalizeInfo item =
   case item of
-    InfoCast (PendingTcCastAnnotation ty ev direction) -> do
-      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
-      case evidence of
-        EvCoercion (Refl _) -> do
-          target <- zonkType ty >>= recordKindArguments Nothing
-          pure $ case firstMetaType target of
-            Nothing -> Just (Final.InfoCast (TcCastAnnotation Nothing target))
-            Just {} -> Nothing
-        EvCoercion proof -> do
-          let oriented = case direction of
-                CastToRight -> proof
-                CastToLeft -> symmetric proof
-          target <- zonkType ty >>= recordKindArguments Nothing
-          rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
-          pure (Just (Final.InfoCast (TcCastAnnotation (Just oriented) target)))
-        EvVarTerm _ -> pure Nothing
-        _ -> abortTc "a result cast requires equality evidence"
+    InfoCast pending -> fmap Final.InfoCast <$> finalizeCastAnnotation pending
     InfoType pending -> Just . Final.InfoType <$> annotationForPendingTc pending
     -- The checker writes the types of declarations as final information.
     InfoCheckedType annotation -> do
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
     InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
-    InfoSelectorType ty -> checked (Final.InfoSelectorType ty)
     InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
   where
     -- Information that the checker writes as final keeps its value, but
@@ -148,6 +141,26 @@ finalizeInfo item =
     checked final = do
       rejectMetaFinalInfo final
       pure (Just final)
+
+-- | Finalize a cast. A cast whose proof is not needed goes away.
+finalizeCastAnnotation :: PendingTcCastAnnotation -> TcM (Maybe TcCastAnnotation)
+finalizeCastAnnotation (PendingTcCastAnnotation ty ev direction) = do
+  evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+  case evidence of
+    EvCoercion (Refl _) -> do
+      target <- zonkType ty >>= recordKindArguments Nothing
+      pure $ case firstMetaType target of
+        Nothing -> Just (TcCastAnnotation Nothing target)
+        Just {} -> Nothing
+    EvCoercion proof -> do
+      let oriented = case direction of
+            CastToRight -> proof
+            CastToLeft -> symmetric proof
+      target <- zonkType ty >>= recordKindArguments Nothing
+      rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
+      pure (Just (TcCastAnnotation (Just oriented) target))
+    EvVarTerm _ -> pure Nothing
+    _ -> abortTc "a result cast requires equality evidence"
 
 -- | Finalize the type and kind copies that an instance header retains.
 finalizeInstanceAnnotation :: TcInstanceAnnotation -> TcM TcInstanceAnnotation
