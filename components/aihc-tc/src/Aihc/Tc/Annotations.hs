@@ -364,7 +364,6 @@ data TcDerivedInstance = TcDerivedInstance
   }
   deriving (Eq, Show)
 
-
 -- | A marker in a checked @rec@ statement: the next annotation is the
 -- occurrence annotation of this group variable at the knot of the group.
 -- A let statement of the group generalized the variable, and the knot
