@@ -12,9 +12,11 @@
 -- When a constructor changes in one tree, change its case here too.
 module Aihc.Tc.Syntax.FromPending
   ( FromPending (..),
+    Finalizers (..),
   )
 where
 
+import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
 import Data.Maybe (catMaybes)
@@ -26,12 +28,21 @@ wrapInfo wrap item node = maybe node (`wrap` node) item
 
 -- | Change a list of information items, and remove the items that the
 -- function removes.
-infos :: (Monad m) => (Pending.TcInfo -> m (Maybe TcInfo)) -> [Pending.TcInfo] -> m [TcInfo]
-infos info items = catMaybes <$> traverse info items
+infos :: (Monad m) => Finalizers m -> [Pending.TcInfo] -> m [TcInfo]
+infos info items = catMaybes <$> traverse (finalizeTcInfo info) items
+
+-- | The functions that change pending information into final information.
+-- Each kind of information has one function.
+data Finalizers m = Finalizers
+  { -- | Change one item of information, or remove it.
+    finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
+    finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
+    finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo
+  }
 
 class FromPending a where
   type Final a
-  fromPending :: (Monad m) => (Pending.TcInfo -> m (Maybe TcInfo)) -> a -> m (Final a)
+  fromPending :: (Monad m) => Finalizers m -> a -> m (Final a)
 
 instance (FromPending a) => FromPending [a] where
   type Final [a] = [Final a]
@@ -220,7 +231,7 @@ instance FromPending Pending.Literal where
   fromPending info node =
     case node of
       Pending.LitAnn x1 x2 -> LitAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> info x1 <*> fromPending info x2
+      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeTcInfo info x1 <*> fromPending info x2
       Pending.LitInt x1 x2 x3 -> LitInt <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitFloat x1 x2 x3 -> LitFloat <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitChar x1 x2 -> LitChar <$> fromPending info x1 <*> fromPending info x2
@@ -244,7 +255,7 @@ instance FromPending Pending.Module where
   type Final Pending.Module = Module
   fromPending info node =
     case node of
-      Pending.Module x1 x2 x3 x4 x5 x6 -> Module <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure []
+      Pending.Module x1 x2 x3 x4 x5 x6 -> Module <$> fromPending info x1 <*> pure x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure []
 
 instance FromPending Pending.ModuleHead where
   type Final Pending.ModuleHead = ModuleHead
@@ -299,7 +310,7 @@ instance FromPending Pending.Decl where
   fromPending info node =
     case node of
       Pending.DeclAnn x1 x2 -> DeclAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> info x1 <*> fromPending info x2
+      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> finalizeTcInfo info x1 <*> fromPending info x2
       Pending.DeclError x1 x2 -> DeclError <$> fromPending info x1 <*> fromPending info x2
       Pending.DeclValue x1 -> DeclValue <$> fromPending info x1
       Pending.DeclImplicitParam x1 x2 x3 -> DeclImplicitParam <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
@@ -443,7 +454,7 @@ instance FromPending Pending.Pattern where
   fromPending info node =
     case node of
       Pending.PAnn x1 x2 -> PAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PTc x1 x2 -> wrapInfo PTc <$> info x1 <*> fromPending info x2
+      Pending.PTc x1 x2 -> wrapInfo PTc <$> finalizeTcInfo info x1 <*> fromPending info x2
       Pending.PVar x1 -> PVar <$> fromPending info x1
       Pending.PTypeBinder x1 -> PTypeBinder <$> fromPending info x1
       Pending.PTypeSyntax x1 x2 -> PTypeSyntax <$> fromPending info x1 <*> fromPending info x2
@@ -562,13 +573,13 @@ instance FromPending Pending.TypeFamilyInst where
   type Final Pending.TypeFamilyInst = TypeFamilyInst
   fromPending info node =
     case node of
-      Pending.TypeFamilyInst x1 x2 x3 x4 -> TypeFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.TypeFamilyInst x1 x2 x3 x4 x5 -> TypeFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> traverse (finalizeTypeFamilyInstance info) x5
 
 instance FromPending Pending.DataFamilyInst where
   type Final Pending.DataFamilyInst = DataFamilyInst
   fromPending info node =
     case node of
-      Pending.DataFamilyInst x1 x2 x3 x4 x5 x6 -> DataFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.DataFamilyInst x1 x2 x3 x4 x5 x6 x7 -> DataFamilyInst <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> traverse (finalizeDataFamilyInstance info) x7
 
 instance FromPending Pending.DataDecl where
   type Final Pending.DataDecl = DataDecl
@@ -671,7 +682,7 @@ instance FromPending Pending.InstanceDeclItem where
       Pending.InstanceItemBind x1 x2 -> InstanceItemBind <$> infos info x1 <*> fromPending info x2
       Pending.InstanceItemTypeSig x1 x2 -> InstanceItemTypeSig <$> fromPending info x1 <*> fromPending info x2
       Pending.InstanceItemFixity x1 x2 x3 x4 -> InstanceItemFixity <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.InstanceItemTypeFamilyInst x1 x2 -> InstanceItemTypeFamilyInst <$> infos info x1 <*> fromPending info x2
+      Pending.InstanceItemTypeFamilyInst x1 -> InstanceItemTypeFamilyInst <$> fromPending info x1
       Pending.InstanceItemDataFamilyInst x1 -> InstanceItemDataFamilyInst <$> fromPending info x1
       Pending.InstanceItemPragma x1 -> InstanceItemPragma <$> fromPending info x1
 
@@ -679,14 +690,14 @@ instance FromPending Pending.ForeignDecl where
   type Final Pending.ForeignDecl = ForeignDecl
   fromPending info node =
     case node of
-      Pending.ForeignDecl x1 x2 x3 x4 x5 x6 -> ForeignDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.ForeignDecl x1 x2 x3 x4 x5 x6 x7 -> ForeignDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> pure x7
 
 instance FromPending Pending.Expr where
   type Final Pending.Expr = Expr
   fromPending info node =
     case node of
       Pending.EAnn x1 x2 -> EAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.ETc x1 x2 -> wrapInfo ETc <$> info x1 <*> fromPending info x2
+      Pending.ETc x1 x2 -> wrapInfo ETc <$> finalizeTcInfo info x1 <*> fromPending info x2
       Pending.EVar x1 -> EVar <$> fromPending info x1
       Pending.EImplicitParam x1 -> EImplicitParam <$> fromPending info x1
       Pending.ETypeSyntax x1 x2 -> ETypeSyntax <$> fromPending info x1 <*> fromPending info x2

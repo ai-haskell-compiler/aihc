@@ -288,7 +288,6 @@ instanceItemOwn :: InstanceDeclItem -> ([TcInfo], InstanceDeclItem)
 instanceItemOwn item =
   case item of
     InstanceItemBind tc value -> (tc, InstanceItemBind [] value)
-    InstanceItemTypeFamilyInst tc familyInst -> (tc, InstanceItemTypeFamilyInst [] familyInst)
     _ -> ([], item)
 
 -- | The information of the syntax names of an expression, and the

@@ -213,10 +213,10 @@ instance Walkable UnqualifiedName where
 -- Modules, exports, and imports
 
 instance Walkable Module where
-  walk w (Module anns infos modHead pragmas imports decls) =
+  walk w (Module anns identity modHead pragmas imports decls) =
     Module
       <$> walkAnns w anns
-      <*> walkInfos w infos
+      <*> pure identity
       <*> walk w modHead
       <*> pure pragmas
       <*> walk w imports
@@ -536,17 +536,18 @@ instance Walkable DataFamilyDecl where
     DataFamilyDecl <$> walk w familyHead <*> walk w kind
 
 instance Walkable TypeFamilyInst where
-  walk w (TypeFamilyInst binders headForm lhs rhs) =
-    TypeFamilyInst <$> walk w binders <*> pure headForm <*> walk w lhs <*> walk w rhs
+  walk w (TypeFamilyInst binders headForm lhs rhs checked) =
+    TypeFamilyInst <$> walk w binders <*> pure headForm <*> walk w lhs <*> walk w rhs <*> pure checked
 
 instance Walkable DataFamilyInst where
-  walk w (DataFamilyInst isNewtype binders instHead kind constructors derivings) =
+  walk w (DataFamilyInst isNewtype binders instHead kind constructors derivings checked) =
     DataFamilyInst isNewtype
       <$> walk w binders
       <*> walk w instHead
       <*> walk w kind
       <*> walk w constructors
       <*> walk w derivings
+      <*> pure checked
 
 instance Walkable DataDecl where
   walk w (DataDecl pragma dataHead context kind constructors derivings) =
@@ -670,7 +671,7 @@ instance Walkable InstanceDeclItem where
     InstanceItemTypeSig names ty -> InstanceItemTypeSig <$> walk w names <*> walk w ty
     InstanceItemFixity assoc namespace precedence operators ->
       InstanceItemFixity assoc namespace precedence <$> walk w operators
-    InstanceItemTypeFamilyInst tc familyInst -> InstanceItemTypeFamilyInst <$> walkInfos w tc <*> walk w familyInst
+    InstanceItemTypeFamilyInst familyInst -> InstanceItemTypeFamilyInst <$> walk w familyInst
     InstanceItemDataFamilyInst familyInst -> InstanceItemDataFamilyInst <$> walk w familyInst
     InstanceItemPragma pragma -> pure (InstanceItemPragma pragma)
 
