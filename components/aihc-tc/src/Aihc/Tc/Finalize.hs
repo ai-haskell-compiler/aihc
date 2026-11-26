@@ -9,11 +9,7 @@ module Aihc.Tc.Finalize
 where
 
 import Aihc.Tc.Annotations
-  ( CastDirection (..),
-    PendingTcAnnotation (..),
-    PendingTcCastAnnotation (..),
-    PendingTcMatchArityCast (..),
-    TcAnnotation (..),
+  ( TcAnnotation (..),
     TcCastAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
@@ -27,15 +23,15 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcMatchArityCast (..),
     renderTcType,
+    typeAnnotation,
   )
 import Aihc.Tc.Env (AssociatedTypeInfo (..), DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), TyConInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Kind (defaultKindMetas, typeVariableUniques)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Family (reclassifyIrreduciblePred, reduceTypeFamilies)
-import Aihc.Tc.Syntax qualified as Final
-import Aihc.Tc.Syntax.FromPending (Finalizers (..), FromPending (..))
-import Aihc.Tc.Syntax.Pending (Module)
+import Aihc.Tc.Syntax (Module)
+import Aihc.Tc.Syntax.Traverse (FactWalk (..), Walk (..), Walkable (..), idWalk)
 import Aihc.Tc.Tidy (tidyType)
 import Aihc.Tc.Types
   ( GlobalName,
@@ -69,83 +65,92 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set qualified as Set
 
--- | Change the tree that the type checker works on into the final tree.
--- Each item of pending information becomes final information. The change
--- covers every syntax constructor, so a pending item cannot escape.
-finalizeModuleTc :: Module -> TcM Final.Module
+-- | Put the solutions of the solver into the tree that the type checker
+-- works on. Each type is zonked, and each evidence variable of a wanted
+-- constraint gets its solved evidence. The walk covers every syntax
+-- constructor, so no unsolved item can escape.
+finalizeModuleTc :: Module -> TcM Module
 finalizeModuleTc = finalizeSyntax
 
--- | Change a part of the tree with the function for each kind of
+-- | Finalize a part of the tree with the function for each kind of
 -- information.
-finalizeSyntax :: (FromPending a) => a -> TcM (Final a)
+finalizeSyntax :: (Walkable a) => a -> TcM a
 finalizeSyntax =
-  fromPending
-    Finalizers
-      { -- The checker writes the facts of a family instance as final
-        -- information. They keep their value, but they must not have a
-        -- meta variable.
-        finalizeTypeFamilyInstance = \info ->
-          info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
-        finalizeDataFamilyInstance = \info ->
-          info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
-        finalizeAnnotation = fmap Just . annotationForPendingTc,
-        -- The checker writes the types of declarations as final
-        -- information.
-        finalizeCheckedAnnotation = \annotation ->
-          case annotation of
-            TcAnnotation ty binders typeArgs [] [] termArgTypes ->
-              annotationForPendingTc (PendingTcAnnotation ty binders typeArgs 0 [] [] termArgTypes)
-            _ -> abortTc "internal type annotation error: a checked annotation has evidence",
-        finalizeCast = finalizeCastAnnotation,
-        finalizePendingType = \ty ->
-          tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
-        -- The checker writes the type of a data constructor as final
-        -- information. It keeps its value, but it must not have a meta
-        -- variable.
-        finalizeCheckedType = \ty ->
-          tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
-        finalizeMatchArityCast = \(PendingTcMatchArityCast ty ev) -> do
-          evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
-          arrow <- zonkType ty
-          case evidence of
-            EvCoercion (Refl _) -> do
-              rejectMeta "match arity cast annotation" (firstMetaType arrow)
-              pure (Just (TcMatchArityCast Nothing arrow))
-            EvCoercion proof -> do
-              rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
-              pure (Just (TcMatchArityCast (Just proof) arrow))
-            EvVarTerm _ -> pure Nothing
-            _ -> abortTc "a match arity cast requires equality evidence",
-        finalizeClass = \annotation ->
-          annotation <$ rejectMeta "finalized class annotation" (firstMetaClassAnnotation annotation),
-        finalizeDerivingPlan = \plan ->
-          plan <$ rejectMeta "finalized deriving annotation" (firstMetaDerivingPlan plan),
-        finalizeInstance = finalizeInstanceAnnotation,
-        finalizeInstanceMethod = \(TcInstanceMethodAnnotation name ty) -> do
-          finalized <- finalizeType ty
-          rejectMeta "instance method annotation" (firstMetaType finalized)
-          pure (TcInstanceMethodAnnotation name finalized)
+  walk
+    idWalk
+      { walkTcAnnotation = finalizeAnnotation,
+        walkCheckedType = fmap tcAnnType . finalizeAnnotation . typeAnnotation,
+        walkFacts =
+          FactWalk
+            { factCast = finalizeCastAnnotation,
+              factMatchArityCast = finalizeMatchArityCast,
+              -- The checker writes the facts of a family instance, a class,
+              -- and a deriving plan as final information. They keep their
+              -- value, but they must not have a meta variable.
+              factTypeFamilyInstance = \info ->
+                info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
+              factDataFamilyInstance = \info ->
+                info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
+              factClass = \annotation ->
+                annotation <$ rejectMeta "finalized class annotation" (firstMetaClassAnnotation annotation),
+              factDerivingPlan = \plan ->
+                plan <$ rejectMeta "finalized deriving annotation" (firstMetaDerivingPlan plan),
+              factInstance = finalizeInstanceAnnotation,
+              factInstanceMethod = \(TcInstanceMethodAnnotation name ty) -> do
+                finalized <- finalizeType ty
+                rejectMeta "instance method annotation" (firstMetaType finalized)
+                pure (TcInstanceMethodAnnotation name finalized),
+              -- The matcher, builder, and selector equations are syntax in
+              -- the information. The walk finalizes them as it does the
+              -- tree.
+              factPatSynEquations = id
+            }
       }
 
--- | Finalize a cast. A cast whose proof is not needed goes away.
-finalizeCastAnnotation :: PendingTcCastAnnotation -> TcM (Maybe TcCastAnnotation)
-finalizeCastAnnotation (PendingTcCastAnnotation ty ev direction) = do
-  evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
-  case evidence of
-    EvCoercion (Refl _) -> do
-      target <- zonkType ty >>= recordKindArguments Nothing
-      pure $ case firstMetaType target of
-        Nothing -> Just (TcCastAnnotation Nothing target)
-        Just {} -> Nothing
-    EvCoercion proof -> do
-      let oriented = case direction of
-            CastToRight -> proof
-            CastToLeft -> symmetric proof
-      target <- zonkType ty >>= recordKindArguments Nothing
-      rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
-      pure (Just (TcCastAnnotation (Just oriented) target))
-    EvVarTerm _ -> pure Nothing
-    _ -> abortTc "a result cast requires equality evidence"
+-- | Finalize a cast. A cast whose proof is not needed goes away. A cast
+-- that the generator wrote has the evidence variable of its wanted
+-- equality as its proof, or the @sym@ of that variable.
+finalizeCastAnnotation :: TcCastAnnotation -> TcM (Maybe TcCastAnnotation)
+finalizeCastAnnotation cast@(TcCastAnnotation written ty) =
+  case written of
+    Just (CoVar ev) -> solved id ev
+    Just (Sym (CoVar ev)) -> solved symmetric ev
+    _ -> pure (Just cast)
+  where
+    solved orient ev = do
+      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+      case evidence of
+        EvCoercion (Refl _) -> do
+          target <- zonkType ty >>= recordKindArguments Nothing
+          pure $ case firstMetaType target of
+            Nothing -> Just (TcCastAnnotation Nothing target)
+            Just {} -> Nothing
+        EvCoercion proof -> do
+          let oriented = orient proof
+          target <- zonkType ty >>= recordKindArguments Nothing
+          rejectMeta "cast annotation" (firstMetaCoercion oriented <|> firstMetaType target)
+          pure (Just (TcCastAnnotation (Just oriented) target))
+        EvVarTerm _ -> pure Nothing
+        _ -> abortTc "a result cast requires equality evidence"
+
+-- | Finalize the arity cast of an equation. A cast that the generator
+-- wrote has the evidence variable of its wanted equality as its proof.
+finalizeMatchArityCast :: TcMatchArityCast -> TcM (Maybe TcMatchArityCast)
+finalizeMatchArityCast cast@(TcMatchArityCast written ty) =
+  case written of
+    Just (CoVar ev) -> do
+      evidence <- evidenceForEvVar ty ev >>= zonkEvTerm
+      arrow <- zonkType ty
+      case evidence of
+        EvCoercion (Refl _) -> do
+          rejectMeta "match arity cast annotation" (firstMetaType arrow)
+          pure (Just (TcMatchArityCast Nothing arrow))
+        EvCoercion proof -> do
+          rejectMeta "match arity cast annotation" (firstMetaCoercion proof <|> firstMetaType arrow)
+          pure (Just (TcMatchArityCast (Just proof) arrow))
+        EvVarTerm _ -> pure Nothing
+        _ -> abortTc "a match arity cast requires equality evidence"
+    _ -> pure (Just cast)
 
 -- | Finalize the type and kind copies that an instance header retains.
 finalizeInstanceAnnotation :: TcInstanceAnnotation -> TcM TcInstanceAnnotation
@@ -191,15 +196,18 @@ finalizeInstanceAnnotation annotation = do
             tcClassMethodDictType = dictionaryType
           }
 
-annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
-annotationForPendingTc pending = do
-  ty <- zonkType (pendingTcAnnType pending)
-  typeBinders <- mapM zonkTypeBinder (pendingTcAnnTypeBinders pending)
-  typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
-  evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
-  evidenceBinders <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceBinders pending)
-  termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
-  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms evidenceBinders termArgTypes
+-- | Finalize an annotation. An evidence term that the generator wrote is
+-- the evidence variable of a wanted constraint, and it gets the solved
+-- evidence of that constraint.
+finalizeAnnotation :: TcAnnotation -> TcM TcAnnotation
+finalizeAnnotation pending = do
+  ty <- zonkType (tcAnnType pending)
+  typeBinders <- mapM zonkTypeBinder (tcAnnTypeBinders pending)
+  typeArgs <- mapM zonkType (tcAnnTypeArgs pending)
+  evidenceTerms <- mapM (finalizeEvidence ty) (tcAnnEvidenceTerms pending)
+  evidenceBinders <- mapM (finalizeEvidence ty) (tcAnnEvidenceBinders pending)
+  termArgTypes <- mapM zonkType (tcAnnTermArgTypes pending)
+  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms evidenceBinders termArgTypes (tcAnnInferredTypeArgs pending)
   defaulted <- defaultUnsolvedAnnotationMetas ann
   rejectMetaTcAnnotation defaulted
   recordAnnotationKindArguments defaulted
@@ -243,6 +251,7 @@ zonkTcAnnotation annotation =
     <*> mapM zonkEvTerm (tcAnnEvidenceTerms annotation)
     <*> mapM zonkEvTerm (tcAnnEvidenceBinders annotation)
     <*> mapM zonkType (tcAnnTermArgTypes annotation)
+    <*> pure (tcAnnInferredTypeArgs annotation)
 
 zonkTypeBinder :: TyVarId -> TcM TyVarId
 zonkTypeBinder binder = do
@@ -257,6 +266,13 @@ symmetric proof =
   case proof of
     Sym inner -> inner
     _ -> Sym proof
+
+-- | Finalize one evidence term of an annotation.
+finalizeEvidence :: TcType -> EvTerm -> TcM EvTerm
+finalizeEvidence contextType term =
+  case term of
+    EvVarTerm ev -> evidenceForEvVar contextType ev >>= zonkEvTerm
+    _ -> zonkEvTerm term
 
 evidenceForEvVar :: TcType -> EvVar -> TcM EvTerm
 evidenceForEvVar contextType ev = do

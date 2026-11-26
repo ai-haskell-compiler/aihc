@@ -53,7 +53,7 @@ import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (matchInstanceKinds)
 import Aihc.Tc.Solve.Family (reducePredFamilies)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( DataDecl (..),
     DataFamilyInst (..),
     Decl (..),

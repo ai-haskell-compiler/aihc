@@ -24,7 +24,7 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Resolve (Resolved (..), resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), PendingTcMatchArityCast (..), WorkingTcAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), TcAnnotation (..), pendingAnnotation, pendingCast, pendingMatchArityCast)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -36,7 +36,7 @@ import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, 
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Annotation,
     BuiltinCon (..),
     CompStmt (..),
@@ -60,7 +60,7 @@ import Aihc.Tc.Syntax.Pending
     Type,
     UnqualifiedName (..),
     ValueDecl (..),
-    addNamePending,
+    addNameTc,
     annotationSpan,
     mkSpanAnnotation,
     nameText,
@@ -336,7 +336,7 @@ checkedPatternType sp ty pat
   | patternHasPendingType pat = pat
   | otherwise = annotatePendingPatternAt (patternOwnSpan pat <|> sp) (pendingAnnotation ty [] [] []) pat
 
-annotatePendingPatternAt :: Maybe SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
+annotatePendingPatternAt :: Maybe SourceSpan -> TcAnnotation -> Pattern -> Pattern
 annotatePendingPatternAt Nothing pending = PTc (PatternType pending)
 annotatePendingPatternAt (Just sp) pending = PAnn (mkSpanAnnotation sp) . PTc (PatternType pending)
 
@@ -454,7 +454,7 @@ checkPatternCore sp pat scrutTy =
             -- scrutinee at the literal type, as for a constructor pattern.
             Just literalTy -> do
               eqCt <- wantedEq sp scrutTy literalTy
-              let castPattern = PTc (PatternCast (PendingTcCastAnnotation literalTy (ctEvVar eqCt) CastToRight)) (PLit match (checkedLiteral literalTy lit))
+              let castPattern = PTc (PatternCast (pendingCast CastToRight literalTy (ctEvVar eqCt))) (PLit match (checkedLiteral literalTy lit))
               pure (checkedOnly castPattern) {pcWantedCts = [eqCt]}
             Nothing -> pure (checkedOnly (PLit match (checkedLiteral scrutTy lit)))
     PNegLit _ lit
@@ -616,7 +616,7 @@ checkTuplePattern sp flavor items scrutTy = do
   eqCt <- wantedEq sp scrutTy tupleTy
   itemChecks <- checkPatterns sp (zip items elemTys)
   let tuplePattern = annotatePendingPatternAt sp (pendingAnnotation tupleTy [] [] []) (PTuple flavor (pcPatterns itemChecks))
-      castPattern = PTc (PatternCast (PendingTcCastAnnotation tupleTy (ctEvVar eqCt) CastToRight)) tuplePattern
+      castPattern = PTc (PatternCast (pendingCast CastToRight tupleTy (ctEvVar eqCt))) tuplePattern
   pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [castPattern]}
 
 -- | Whether a pattern contains a constructor pattern.
@@ -910,7 +910,7 @@ checkPatternMethodWithExpected sp name expectedTypes = do
   (annotationTy, expectedTy) <- expectedTypes actualTy
   methodEq <- wantedMethodEq sp displayName actualTy expectedTy
   let pending = pendingAnnotation annotationTy typeArgs (map ctEvVar methodCts) []
-  pure (addNamePending pending name, methodCts <> [methodEq])
+  pure (addNameTc pending name, methodCts <> [methodEq])
 
 wantedMethodEq :: Maybe SourceSpan -> Text -> TcType -> TcType -> TcM Ct
 wantedMethodEq sp method actual expected = do
@@ -966,17 +966,13 @@ annotatePatternBindings bindings = mapPatternBinderNames (annotateBinderName bin
 -- top-level pattern binding uses this to record, on each binder, the type
 -- variables its selector abstracts and the type arguments that instantiate
 -- the shared right-hand side.
-reannotatePatternBinders :: [(Text, PendingTcAnnotation)] -> Pattern -> Pattern
+reannotatePatternBinders :: [(Text, TcAnnotation)] -> Pattern -> Pattern
 reannotatePatternBinders pendings = mapPatternBinderNames replaceBinderAnnotation
   where
     replaceBinderAnnotation name =
       case lookup (unqualifiedNameText name) pendings of
         Nothing -> name
-        Just pending ->
-          case unqualifiedNameTc name of
-            -- A binder keeps an annotation that the checker wrote as final.
-            Just (WorkingChecked _) -> name
-            _ -> name {unqualifiedNameTc = Just (WorkingPending pending)}
+        Just pending -> name {unqualifiedNameTc = Just pending}
 
 -- | Apply a function to every named binder of a pattern.
 mapPatternBinderNames :: (UnqualifiedName -> UnqualifiedName) -> Pattern -> Pattern
@@ -1014,7 +1010,7 @@ annotateBinderName bindings name =
     Nothing -> name
     Just ty
       | isJust (unqualifiedNameTc name) -> name
-      | otherwise -> name {unqualifiedNameTc = Just (WorkingPending (pendingAnnotation ty [] [] []))}
+      | otherwise -> name {unqualifiedNameTc = Just (pendingAnnotation ty [] [] [])}
 
 checkConPattern :: Maybe SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern sp originalPat conSyntax subPats scrutTy = do
@@ -1047,7 +1043,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
                 annotatePendingPatternAt
                   (patternOwnSpan originalPat <|> sp)
                   ( (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) [])
-                      { pendingTcAnnTypeBinders = skolems
+                      { tcAnnTypeBinders = skolems
                       }
                   )
                   rebuiltPattern
@@ -1057,7 +1053,7 @@ checkConPattern sp originalPat conSyntax subPats scrutTy = do
             pcGivenCts = predicateGivens <> pcGivenCts subCheck,
             pcSkolems = skolems <> pcSkolems subCheck,
             pcTyVars = boundTyVars <> pcTyVars subCheck,
-            pcPatterns = [PTc (PatternCast (PendingTcCastAnnotation conResTy (ctEvVar scrutCt) CastToRight)) annotatedPattern]
+            pcPatterns = [PTc (PatternCast (pendingCast CastToRight conResTy (ctEvVar scrutCt))) annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
@@ -1089,7 +1085,7 @@ checkPatSynPattern sp originalPat conName info scheme subPats scrutTy = do
         annotatePendingPatternAt
           (patternOwnSpan originalPat <|> sp)
           ( (pendingAnnotation conTy typeArgs (map ctEvVar requiredCts <> map ctEvVar providedGivens) [])
-              { pendingTcAnnTypeBinders = skolems
+              { tcAnnTypeBinders = skolems
               }
           )
           rebuiltPattern
@@ -1380,7 +1376,7 @@ splitMatchType ty matches =
           let arrow = foldr TcFunTy result hidden
               location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
-              cast = PendingTcMatchArityCast arrow evidence
+              cast = pendingMatchArityCast arrow evidence
           pure (shown <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
     _ -> pure (shown, shownResult, matches, [])
   where

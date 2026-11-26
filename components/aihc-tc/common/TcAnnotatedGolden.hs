@@ -55,7 +55,6 @@ import Aihc.Tc.Generate.Pattern (patternBinderNames)
 import Aihc.Tc.Monad (TcConfig (tcConfigWiring), emptyTcEnv, initTcState, runTcM, tcAbortMessage)
 import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
-import Aihc.Tc.Syntax.Pending qualified as Pending
 import Aihc.Tc.Types (Entity (..))
 import Aihc.Testing.Extensions (fixtureExtensions)
 import Control.Exception (ErrorCall, displayException, evaluate, try)
@@ -289,14 +288,14 @@ checkDependencies modules expected = do
     then Right ()
     else Left ("dependency mismatch: expected " <> show expected <> ", got " <> show actual)
   where
-    moduleDependencies modu = concat <$> mapM (declarationDependencies (fromMaybe "" (R.moduleName modu))) (Pending.moduleDecls (fromResolved modu))
+    moduleDependencies modu = concat <$> mapM (declarationDependencies (fromMaybe "" (R.moduleName modu))) (TcSyntax.moduleDecls (fromResolved modu))
     declarationDependencies owner decl = do
       references <- freeVarsDecl decl
-      let binders = case Pending.peelDeclAnn decl of
-            Pending.DeclValue (Pending.FunctionBind name _) -> [name]
-            Pending.DeclValue (Pending.PatternBind _ pat _) -> patternBinderNames pat
+      let binders = case TcSyntax.peelDeclAnn decl of
+            TcSyntax.DeclValue (TcSyntax.FunctionBind name _) -> [name]
+            TcSyntax.DeclValue (TcSyntax.PatternBind _ pat _) -> patternBinderNames pat
             _ -> []
-      pure [(owner <> "." <> Pending.unqualifiedNameText name, map renderKey (Set.toList references)) | name <- binders]
+      pure [(owner <> "." <> TcSyntax.unqualifiedNameText name, map renderKey (Set.toList references)) | name <- binders]
     renderKey key = case key of
       GlobalTerm _ owner name -> owner <> "." <> name
       _ -> T.pack (show key)

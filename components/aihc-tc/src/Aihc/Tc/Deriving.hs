@@ -24,7 +24,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, instanceHeadArguments, makeParamEnv, surfaceContextToPreds, takeVisibleArgumentKinds, tcTypeKind, unifyKinds, zonkKind)
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( Annotation,
     BinderHead,
     Decl (..),

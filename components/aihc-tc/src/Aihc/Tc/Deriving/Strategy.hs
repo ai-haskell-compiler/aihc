@@ -19,7 +19,7 @@ import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
 import Aihc.Tc.Monad (TcM, emitError, emitWarning, getDerivingReferences)
-import Aihc.Tc.Syntax.Pending
+import Aihc.Tc.Syntax
   ( DerivingStrategy (..),
     Extension (..),
     SourceSpan,

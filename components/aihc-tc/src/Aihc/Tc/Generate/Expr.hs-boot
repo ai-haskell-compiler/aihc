@@ -1,6 +1,6 @@
 module Aihc.Tc.Generate.Expr (checkRhs, inferExprAt) where
 
-import Aihc.Tc.Syntax.Pending (Expr, Rhs, SourceSpan)
+import Aihc.Tc.Syntax (Expr, Rhs, SourceSpan)
 import Aihc.Tc.Constraint (Ct)
 import Aihc.Tc.Monad (TcM)
 import Aihc.Tc.Types (TcType)

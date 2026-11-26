@@ -74,6 +74,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcMatchArityCast (..),
     TcRecStmt (..),
+    typeAnnotation,
   )
 import Aihc.Tc.Bindings (compStmtBinderNames, recStmtBinderNames)
 import Aihc.Tc.Evidence qualified as Ev
@@ -3293,7 +3294,7 @@ patternChildren pattern' =
       let tailPattern = Syn.PList Nothing items
           checkedTail =
             case patternType pattern' of
-              Just ty -> Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) tailPattern
+              Just ty -> Syn.PTc (Syn.PatternType (typeAnnotation ty)) tailPattern
               Nothing -> tailPattern
        in [item, checkedTail]
     Syn.PUnboxedSum _ _ inner -> [inner]
@@ -3436,7 +3437,7 @@ overloadedListView pattern' =
         Just checked <- Syn.nameTc toList,
         TcFunTy _ listType <- tcAnnType checked ->
           let method = Syn.EVar toList {Syn.nameTc = Nothing}
-              listPattern = Syn.PTc (Syn.PatternType (TcAnnotation listType [] [] [] [] [])) (Syn.PList Nothing items)
+              listPattern = Syn.PTc (Syn.PatternType (typeAnnotation listType)) (Syn.PList Nothing items)
            in Just (Syn.PView (Syn.ETc (Syn.ExprType checked) method) listPattern)
     _ -> Nothing
 
@@ -3452,7 +3453,7 @@ stringLiteralListPattern patternTy literal =
     _ -> Nothing
   where
     characterPattern elementType source char =
-      Syn.PTc (Syn.PatternType (TcAnnotation elementType [] [] [] [] [])) (Syn.PLit Syn.LiteralMatchFixed (Syn.LitChar char source))
+      Syn.PTc (Syn.PatternType (typeAnnotation elementType)) (Syn.PLit Syn.LiteralMatchFixed (Syn.LitChar char source))
 
 requiredPatternType :: Syn.Pattern -> ValueM TcType
 requiredPatternType pattern' =
@@ -3917,7 +3918,7 @@ desugarUncastInfixOperator operator = do
       desugarUnpackConstructor operator annotation info Nothing
     (True, Just info, Nothing) -> do
       constructorType <- lookupBindingType =<< requiredNameTermKey operator
-      let annotation = TcAnnotation constructorType [] [] [] [] []
+      let annotation = typeAnnotation constructorType
       desugarUnpackConstructor operator annotation info Nothing
     (True, Nothing, _) ->
       failValue ("constructor " <> T.unpack (Syn.nameText operator) <> " has no constructor information")
@@ -4032,7 +4033,7 @@ desugarVariable maybeAnnotation name = do
         Just value -> pure value
         Nothing -> do
           constructorType <- lookupBindingType =<< requiredNameTermKey name
-          pure (TcAnnotation constructorType [] [] [] [] [])
+          pure (typeAnnotation constructorType)
 
 seqTermArgumentTypes :: TcAnnotation -> [TcType]
 seqTermArgumentTypes annotation
@@ -4769,7 +4770,7 @@ peelUnpackPattern pattern' =
 annotatePattern :: TcType -> Syn.Pattern -> Syn.Pattern
 annotatePattern ty pattern'
   | isJust (patternType pattern') = pattern'
-  | otherwise = Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) pattern'
+  | otherwise = Syn.PTc (Syn.PatternType (typeAnnotation ty)) pattern'
 
 specializeFlattened :: Text -> [TcType] -> [FieldRep] -> [Binder] -> [TcType] -> MatchWork -> ValueM (Maybe MatchWork)
 specializeFlattened key sourceTypes reps fields fieldTypes (match, locals) =
@@ -5788,7 +5789,7 @@ desugarExpandedPatternWithFailure resultType binder ty pattern' success failure 
       let typed =
             case patternType pattern' of
               Just _ -> pattern'
-              Nothing -> Syn.PTc (Syn.PatternType (TcAnnotation ty [] [] [] [] [])) pattern'
+              Nothing -> Syn.PTc (Syn.PatternType (typeAnnotation ty)) pattern'
       maybePatSyn <- patternPatSyn typed
       case maybePatSyn of
         Just (info, annotation) -> desugarPatSynWithFailure resultType binder typed info annotation success failure

@@ -2,16 +2,13 @@
 
 -- | The information that the type checker finds for the syntax tree.
 --
--- The trees of "Aihc.Tc.Syntax.Pending" and "Aihc.Tc.Syntax" hold these
--- types in explicit fields.
+-- The tree of "Aihc.Tc.Syntax" holds these types in explicit fields.
 module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
     TcCastAnnotation (..),
-    PendingTcCastAnnotation (..),
     CastDirection (..),
     TcMatchArityCast (..),
-    PendingTcMatchArityCast (..),
     TcForeignImportAnnotation (..),
     TcForeignImportInfo (..),
     TcForeignSafety (..),
@@ -21,8 +18,6 @@ module Aihc.Tc.Annotations
     TcForeignCApiKind (..),
     TcForeignMarshal (..),
     TcForeignAbiType (..),
-    PendingTcAnnotation (..),
-    WorkingTcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -40,8 +35,11 @@ module Aihc.Tc.Annotations
     -- * Pattern synonyms for extracting annotations
 
     -- * Helpers
+    typeAnnotation,
     pendingAnnotation,
     pendingTypeLambdaAnnotation,
+    pendingCast,
+    pendingMatchArityCast,
 
     -- * Pretty-printing
     renderFunDepNames,
@@ -56,7 +54,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan)
 import Aihc.Resolve (Entity, PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Env (AssociatedTypeInfo, CType, DataTypeInfo, FunDep, TypeFamilyInstanceInfo)
-import Aihc.Tc.Evidence (Coercion, EvTerm, EvVar)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyLit (..), TyVarId (..), Unique (..), tyConModuleName, tyConNamespace, pattern KType)
 import Control.DeepSeq (NFData)
 import Data.Text (Text)
@@ -72,11 +70,10 @@ data TcModuleIdentity = TcModuleIdentity !PackageId !Text
 -- type after the cast, which is the right type of the proof. A reflexive
 -- proof has no coercion. The annotation then keeps only the type, because
 -- a function whose type is a family application needs its arrow type.
+--
+-- Before the solver has finished, the proof is the evidence variable of a
+-- wanted equality: see 'pendingCast'.
 data TcCastAnnotation = TcCastAnnotation (Maybe Coercion) TcType
-  deriving (Eq, Show)
-
--- | The solver must supply the proof before FC desugaring.
-data PendingTcCastAnnotation = PendingTcCastAnnotation TcType EvVar CastDirection
   deriving (Eq, Show)
 
 -- | Which endpoint of the wanted equality the annotated expression has.
@@ -101,15 +98,16 @@ data CastDirection
 data TcMatchArityCast = TcMatchArityCast (Maybe Coercion) TcType
   deriving (Eq, Show)
 
--- | The solver must supply the proof before FC desugaring. The wanted is
--- @arrow ~ result@.
-data PendingTcMatchArityCast = PendingTcMatchArityCast TcType EvVar
-  deriving (Eq, Show)
-
 -- | Annotation attached to AST nodes by the type checker.
 --
 -- Not every field is populated for every node. A variable reference gets
 -- a type; a top-level binding gets the generalized scheme, etc.
+--
+-- The generator attaches the annotation before the solver has finished.
+-- The types can then have meta variables, and each evidence term is an
+-- 'EvVarTerm' with the evidence variable of a wanted constraint. The
+-- finalization pass zonks the types and puts the solved evidence in place
+-- of each variable.
 data TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
     tcAnnType :: !TcType,
@@ -122,7 +120,10 @@ data TcAnnotation = TcAnnotation
     -- | Evidence terms whose dictionaries are abstracted at this expression.
     tcAnnEvidenceBinders :: ![EvTerm],
     -- | Term argument types made explicit for lambda-like binders.
-    tcAnnTermArgTypes :: ![TcType]
+    tcAnnTermArgTypes :: ![TcType],
+    -- | How many leading type arguments instantiate inferred binders. A
+    -- visible type application skips them; the desugarer applies them all.
+    tcAnnInferredTypeArgs :: !Int
   }
   deriving (Eq, Show)
 
@@ -254,35 +255,6 @@ data TcForeignAbiType
   deriving (Eq, Show, Read, Generic)
 
 instance NFData TcForeignAbiType
-
--- | Type-checker annotation payload before constraint solving has finished.
---
--- The generator attaches this directly to the syntax node that produced it.
--- A finalization pass zonks the types and resolves evidence variables into
--- ordinary 'TcAnnotation' values after solving.
-data PendingTcAnnotation = PendingTcAnnotation
-  { pendingTcAnnType :: !TcType,
-    pendingTcAnnTypeBinders :: ![TyVarId],
-    pendingTcAnnTypeArgs :: ![TcType],
-    -- | How many leading type arguments instantiate inferred binders. A
-    -- visible type application skips them; the desugarer applies them all.
-    pendingTcAnnInferredTypeArgs :: !Int,
-    pendingTcAnnEvidenceVars :: ![EvVar],
-    pendingTcAnnEvidenceBinders :: ![EvVar],
-    pendingTcAnnTermArgTypes :: ![TcType]
-  }
-  deriving (Eq, Show)
-
--- | An annotation of a declaration in the tree that the type checker works
--- on.
-data WorkingTcAnnotation
-  = -- | The solver must fill in the meta variables and the evidence
-    -- variables.
-    WorkingPending !PendingTcAnnotation
-  | -- | The checker writes the annotation as final, such as the type of a
-    -- top-level declaration.
-    WorkingChecked !TcAnnotation
-  deriving (Eq, Show)
 
 -- | One dictionary that a binding takes or holds. The predicate is the
 -- one the type checker solved with: the type alone does not say whether
@@ -457,13 +429,36 @@ data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
   }
   deriving (Eq, Show)
 
-pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
-pendingAnnotation ty typeArgs evidenceVars =
-  PendingTcAnnotation ty [] typeArgs 0 evidenceVars []
+-- | An annotation that has only a type.
+typeAnnotation :: TcType -> TcAnnotation
+typeAnnotation ty = TcAnnotation ty [] [] [] [] [] 0
 
-pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> [EvVar] -> PendingTcAnnotation
+-- | The annotation of an occurrence before the solver has finished: its
+-- type, its type arguments, the evidence variables of its wanted
+-- constraints, and its term argument types.
+pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> TcAnnotation
+pendingAnnotation ty typeArgs evidenceVars termArgTypes =
+  TcAnnotation ty [] typeArgs (map EvVarTerm evidenceVars) [] termArgTypes 0
+
+-- | The annotation of a type abstraction before the solver has finished.
+pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> [EvVar] -> TcAnnotation
 pendingTypeLambdaAnnotation ty binders evidenceBinders =
-  PendingTcAnnotation ty binders [] 0 [] evidenceBinders []
+  TcAnnotation ty binders [] [] (map EvVarTerm evidenceBinders) [] 0
+
+-- | A cast before the solver has finished. The proof is the evidence
+-- variable of the wanted equality, or its @sym@ for a cast onto the left
+-- type. The finalization pass puts the solved proof in its place.
+pendingCast :: CastDirection -> TcType -> EvVar -> TcCastAnnotation
+pendingCast direction ty evidence =
+  case direction of
+    CastToRight -> TcCastAnnotation (Just (CoVar evidence)) ty
+    CastToLeft -> TcCastAnnotation (Just (Sym (CoVar evidence))) ty
+
+-- | An arity cast before the solver has finished. The proof is the
+-- evidence variable of the wanted equality @arrow ~ result@.
+pendingMatchArityCast :: TcType -> EvVar -> TcMatchArityCast
+pendingMatchArityCast arrow evidence =
+  TcMatchArityCast (Just (CoVar evidence)) arrow
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String

@@ -13,8 +13,10 @@
 --   information.
 -- * 'moduleTcDiagnostics' holds the diagnostics of the module.
 --
--- All information is final. "Aihc.Tc.Finalize" makes this tree from the
--- tree of "Aihc.Tc.Syntax.Pending".
+-- The type checker writes this information before the solver has
+-- finished. It then has meta variables and evidence variables.
+-- "Aihc.Tc.Finalize" puts the solutions in their place. The tree that the
+-- type checker gives has only final information.
 --
 -- The tree keeps the 'Annotation' wrappers of the parser tree. They carry
 -- the source spans.
@@ -23,6 +25,14 @@
 -- different tree has its own copy.
 module Aihc.Tc.Syntax
   ( -- * Type checker information
+    annotateDecl,
+    annotateRhsCast,
+    annotateExprCast,
+    annotateFunCast,
+    annotateSigCast,
+    annotateBranchCast,
+    addNameTc,
+    addNameCast,
     ExprTc (..),
     PatternTc (..),
     PatSynEquations (..),
@@ -270,7 +280,8 @@ import Aihc.Resolve
     resolvedOf,
   )
 import Aihc.Tc.Annotations
-  ( TcAnnotation,
+  ( CastDirection (..),
+    TcAnnotation,
     TcCastAnnotation,
     TcClassAnnotation,
     TcDerivedInstance,
@@ -281,10 +292,13 @@ import Aihc.Tc.Annotations
     TcMatchArityCast,
     TcModuleIdentity,
     TcRecStmt,
+    pendingCast,
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Error (TcDiagnostic)
+import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Types (TcType)
+import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
@@ -1782,3 +1796,60 @@ mapArithSeqMethod f arithSeq =
     ArithSeqFromTo method from to -> ArithSeqFromTo (f method) from to
     ArithSeqFromThenTo method from then' to -> ArithSeqFromThenTo (f method) from then' to
     ArithSeqAnn ann inner -> ArithSeqAnn ann (mapArithSeqMethod f inner)
+
+-- | Wrap a declaration with its checked type.
+annotateDecl :: TcAnnotation -> Decl -> Decl
+annotateDecl = DeclTc
+
+-- | Cast a right-hand side onto the right type of its wanted equality.
+annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
+annotateRhsCast ty evidence rhs =
+  let info = pendingCast CastToRight ty evidence
+   in case rhs of
+        UnguardedRhs annotations infos body locals -> UnguardedRhs annotations (info : infos) body locals
+        GuardedRhss annotations infos bodies locals -> GuardedRhss annotations (info : infos) bodies locals
+
+-- | Cast an expression onto the left type of its wanted equality. An
+-- application argument is checked as @expected ~ actual@, so a given
+-- equality that proves it runs backwards for the argument itself.
+annotateExprCast :: TcType -> EvVar -> Expr -> Expr
+annotateExprCast ty evidence =
+  ETc (ExprCast (pendingCast CastToLeft ty evidence))
+
+-- | Cast an expression onto the right type of its wanted equality. The
+-- function of an application whose type is not syntactically an arrow is
+-- equated as @actual ~ (argument -> result)@, so the proof runs forwards
+-- for the function itself.
+annotateFunCast :: TcType -> EvVar -> Expr -> Expr
+annotateFunCast ty evidence =
+  ETc (ExprCast (pendingCast CastToRight ty evidence))
+
+-- | Cast an annotated expression onto its signature type. The expression
+-- is equated as @actual ~ signature@, so the proof runs forwards. A given
+-- equality can be what proves it: with the given @d ~ Maybe x@ the
+-- expression @Proxy :: Proxy d@ has the type @Proxy (Maybe x)@ where it
+-- stands, and FC needs the cast onto @Proxy d@.
+annotateSigCast :: TcType -> EvVar -> Expr -> Expr
+annotateSigCast ty evidence =
+  ETc (ExprCast (pendingCast CastToRight ty evidence))
+
+-- | Cast a part of an @if@ expression onto the type that the expression
+-- needs there. The part is equated as @actual ~ needed@, so the proof
+-- runs forwards. A given equality can prove it: with the given
+-- @N t ~ n@, the branches of @if c then lower s else param s@ can have
+-- the types @N t@ and @n@.
+annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
+annotateBranchCast ty evidence =
+  ETc (ExprCast (pendingCast CastToRight ty evidence))
+
+-- | Give a name occurrence an annotation. A name that has an annotation
+-- keeps it.
+addNameTc :: TcAnnotation -> Name -> Name
+addNameTc annotation name =
+  name {nameTc = nameTc name <|> Just annotation}
+
+-- | Give a name occurrence a cast onto the right type of its wanted
+-- equality. A name that has a cast keeps it.
+addNameCast :: TcType -> EvVar -> Name -> Name
+addNameCast ty evidence name =
+  name {nameCast = nameCast name <|> Just (pendingCast CastToRight ty evidence)}
