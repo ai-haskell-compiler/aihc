@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | Change the tree that the type checker works on into the tree that it
@@ -17,30 +18,34 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (PendingTcMatchArityCast, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
+import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, PendingTcMatchArityCast, TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..), WorkingTcAnnotation (..))
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.Pending qualified as Pending
+import Aihc.Tc.Types (TcType)
 import Control.Monad (join)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 
 -- | Wrap a node with its information, if the information stays.
-wrapInfo :: (TcInfo -> node -> node) -> Maybe TcInfo -> node -> node
+wrapInfo :: (item -> node -> node) -> Maybe item -> node -> node
 wrapInfo wrap item node = maybe node (`wrap` node) item
-
--- | Change a list of information items, and remove the items that the
--- function removes.
-infos :: (Monad m) => Finalizers m -> [Pending.TcInfo] -> m [TcInfo]
-infos info items = catMaybes <$> traverse (finalizeTcInfo info) items
 
 -- | The functions that change pending information into final information.
 -- Each kind of information has one function.
 data Finalizers m = Finalizers
-  { -- | Change one item of information, or remove it.
-    finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
-    finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
+  { finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
+    -- | Change an annotation, or remove it.
+    finalizeAnnotation :: PendingTcAnnotation -> m (Maybe TcAnnotation),
+    -- | Change an annotation that the checker writes as final.
+    finalizeCheckedAnnotation :: TcAnnotation -> m TcAnnotation,
+    -- | Change a cast, or remove it.
+    finalizeCast :: PendingTcCastAnnotation -> m (Maybe TcCastAnnotation),
+    -- | Change a type that can have meta variables.
+    finalizePendingType :: TcType -> m TcType,
+    -- | Change a type that the checker writes as final.
+    finalizeCheckedType :: TcType -> m TcType,
     -- | Change the arity cast of an equation, or remove it.
     finalizeMatchArityCast :: PendingTcMatchArityCast -> m (Maybe TcMatchArityCast),
     finalizeClass :: TcClassAnnotation -> m TcClassAnnotation,
@@ -49,20 +54,67 @@ data Finalizers m = Finalizers
     finalizeInstanceMethod :: TcInstanceMethodAnnotation -> m TcInstanceMethodAnnotation
   }
 
--- | The functions that remove each item of 'TcInfo' and keep all other
--- information as it is.
+-- | The functions that remove each annotation and each cast, and keep all
+-- other information as it is.
 plainFinalizers :: (Applicative m) => Finalizers m
 plainFinalizers =
   Finalizers
-    { finalizeTcInfo = const (pure Nothing),
-      finalizeTypeFamilyInstance = pure,
+    { finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
+      finalizeAnnotation = const (pure Nothing),
+      finalizeCheckedAnnotation = pure,
+      finalizeCast = const (pure Nothing),
+      finalizePendingType = pure,
+      finalizeCheckedType = pure,
       finalizeMatchArityCast = const (pure Nothing),
       finalizeClass = pure,
       finalizeDerivingPlan = pure,
       finalizeInstance = pure,
       finalizeInstanceMethod = pure
     }
+
+-- | Change a list of casts, and remove the casts that the function removes.
+casts :: (Monad m) => Finalizers m -> [PendingTcCastAnnotation] -> m [TcCastAnnotation]
+casts info items = catMaybes <$> traverse (finalizeCast info) items
+
+-- | Change the annotation of a node, if it has one and the function keeps
+-- it.
+annotation :: (Monad m) => Finalizers m -> Maybe PendingTcAnnotation -> m (Maybe TcAnnotation)
+annotation info item = join <$> traverse (finalizeAnnotation info) item
+
+-- | Change the annotations of a @rec@ statement. The statement keeps its
+-- information only when the function keeps the tuple annotation. A knot
+-- occurrence goes away when the function removes its annotation.
+recStmt :: (Monad m) => Finalizers m -> TcRecStmt PendingTcAnnotation -> m (Maybe (TcRecStmt TcAnnotation))
+recStmt info (TcRecStmt tuple occurrences) = do
+  tuple' <- finalizeAnnotation info tuple
+  occurrences' <- traverse (\(key, occurrence) -> fmap (key,) <$> finalizeAnnotation info occurrence) occurrences
+  pure ((`TcRecStmt` catMaybes occurrences') <$> tuple')
+
+-- | Change the information of an expression wrapper, if the function
+-- keeps it.
+exprTc :: (Monad m) => Finalizers m -> Pending.ExprTc -> m (Maybe ExprTc)
+exprTc info item =
+  case item of
+    Pending.ExprType pending -> fmap ExprType <$> finalizeAnnotation info pending
+    Pending.ExprCast pending -> fmap ExprCast <$> finalizeCast info pending
+
+-- | Change the information of a pattern wrapper, if the function keeps
+-- it.
+patternTc :: (Monad m) => Finalizers m -> Pending.PatternTc -> m (Maybe PatternTc)
+patternTc info item =
+  case item of
+    Pending.PatternType pending -> fmap PatternType <$> finalizeAnnotation info pending
+    Pending.PatternCast pending -> fmap PatternCast <$> finalizeCast info pending
+    Pending.PatternInstantiation -> pure (Just PatternInstantiation)
+
+-- | Change the annotation of a declaration wrapper, if the function keeps
+-- it.
+declTc :: (Monad m) => Finalizers m -> WorkingTcAnnotation -> m (Maybe TcAnnotation)
+declTc info item =
+  case item of
+    WorkingPending pending -> finalizeAnnotation info pending
+    WorkingChecked checked -> Just <$> finalizeCheckedAnnotation info checked
 
 class FromPending a where
   type Final a
@@ -255,7 +307,7 @@ instance FromPending Pending.Literal where
   fromPending info node =
     case node of
       Pending.LitAnn x1 x2 -> LitAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.LitTc x1 x2 -> wrapInfo LitTc <$> finalizeAnnotation info x1 <*> fromPending info x2
       Pending.LitInt x1 x2 x3 -> LitInt <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitFloat x1 x2 x3 -> LitFloat <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.LitChar x1 x2 -> LitChar <$> fromPending info x1 <*> fromPending info x2
@@ -267,13 +319,13 @@ instance FromPending Pending.Name where
   type Final Pending.Name = Name
   fromPending info node =
     case node of
-      Pending.Name x1 x2 x3 x4 x5 x6 -> Name <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> infos info x6
+      Pending.Name x1 x2 x3 x4 x5 x6 x7 -> Name <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> (join <$> traverse (declTc info) x6) <*> (join <$> traverse (finalizeCast info) x7)
 
 instance FromPending Pending.UnqualifiedName where
   type Final Pending.UnqualifiedName = UnqualifiedName
   fromPending info node =
     case node of
-      Pending.UnqualifiedName x1 x2 x3 x4 x5 -> UnqualifiedName <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> infos info x5
+      Pending.UnqualifiedName x1 x2 x3 x4 x5 -> UnqualifiedName <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> (join <$> traverse (declTc info) x5)
 
 instance FromPending Pending.Module where
   type Final Pending.Module = Module
@@ -334,7 +386,7 @@ instance FromPending Pending.Decl where
   fromPending info node =
     case node of
       Pending.DeclAnn x1 x2 -> DeclAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.DeclTc x1 x2 -> wrapInfo DeclTc <$> declTc info x1 <*> fromPending info x2
       Pending.DeclError x1 x2 -> DeclError <$> fromPending info x1 <*> fromPending info x2
       Pending.DeclValue x1 -> DeclValue <$> fromPending info x1
       Pending.DeclImplicitParam x1 x2 x3 -> DeclImplicitParam <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
@@ -365,13 +417,13 @@ instance FromPending Pending.RuleDecl where
   type Final Pending.RuleDecl = RuleDecl
   fromPending info node =
     case node of
-      Pending.RuleDecl x1 x2 x3 x4 x5 x6 x7 x8 x9 -> RuleDecl <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> fromPending info x7 <*> fromPending info x8 <*> fromPending info x9
+      Pending.RuleDecl x1 x2 x3 x4 x5 x6 x7 x8 x9 -> RuleDecl <$> fromPending info x1 <*> traverse (finalizePendingType info) x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6 <*> fromPending info x7 <*> fromPending info x8 <*> fromPending info x9
 
 instance FromPending Pending.RuleBinder where
   type Final Pending.RuleBinder = RuleBinder
   fromPending info node =
     case node of
-      Pending.RuleBinder x1 x2 x3 x4 -> RuleBinder <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.RuleBinder x1 x2 x3 x4 -> RuleBinder <$> fromPending info x1 <*> traverse (finalizePendingType info) x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance FromPending Pending.MultiplicityTag where
   type Final Pending.MultiplicityTag = MultiplicityTag
@@ -412,8 +464,8 @@ instance (FromPending body) => FromPending (Pending.Rhs body) where
   type Final (Pending.Rhs body) = Rhs (Final body)
   fromPending info node =
     case node of
-      Pending.UnguardedRhs x1 x2 x3 x4 -> UnguardedRhs <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
-      Pending.GuardedRhss x1 x2 x3 x4 -> GuardedRhss <$> fromPending info x1 <*> infos info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.UnguardedRhs x1 x2 x3 x4 -> UnguardedRhs <$> fromPending info x1 <*> casts info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.GuardedRhss x1 x2 x3 x4 -> GuardedRhss <$> fromPending info x1 <*> casts info x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance (FromPending body) => FromPending (Pending.GuardedRhs body) where
   type Final (Pending.GuardedRhs body) = GuardedRhs (Final body)
@@ -478,7 +530,7 @@ instance FromPending Pending.Pattern where
   fromPending info node =
     case node of
       Pending.PAnn x1 x2 -> PAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PTc x1 x2 -> wrapInfo PTc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.PTc x1 x2 -> wrapInfo PTc <$> patternTc info x1 <*> fromPending info x2
       Pending.PVar x1 -> PVar <$> fromPending info x1
       Pending.PTypeBinder x1 -> PTypeBinder <$> fromPending info x1
       Pending.PTypeSyntax x1 x2 -> PTypeSyntax <$> fromPending info x1 <*> fromPending info x2
@@ -622,13 +674,13 @@ instance FromPending Pending.DataConDecl where
   fromPending info node =
     case node of
       Pending.DataConAnn x1 x2 -> DataConAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.PrefixCon x1 x2 x3 x4 x5 -> PrefixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.InfixCon x1 x2 x3 x4 x5 x6 -> InfixCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
-      Pending.RecordCon x1 x2 x3 x4 x5 -> RecordCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.GadtCon x1 x2 x3 x4 x5 -> GadtCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.TupleCon x1 x2 x3 x4 x5 -> TupleCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
-      Pending.UnboxedSumCon x1 x2 x3 x4 x5 x6 -> UnboxedSumCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
-      Pending.ListCon x1 x2 x3 x4 -> ListCon <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.PrefixCon x1 x2 x3 x4 x5 -> PrefixCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.InfixCon x1 x2 x3 x4 x5 x6 -> InfixCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.RecordCon x1 x2 x3 x4 x5 -> RecordCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.GadtCon x1 x2 x3 x4 x5 -> GadtCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.TupleCon x1 x2 x3 x4 x5 -> TupleCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5
+      Pending.UnboxedSumCon x1 x2 x3 x4 x5 x6 -> UnboxedSumCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> fromPending info x5 <*> fromPending info x6
+      Pending.ListCon x1 x2 x3 x4 -> ListCon <$> traverse (finalizeCheckedType info) x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
 
 instance FromPending Pending.GadtBody where
   type Final Pending.GadtBody = GadtBody
@@ -647,7 +699,7 @@ instance FromPending Pending.FieldDecl where
   type Final Pending.FieldDecl = FieldDecl
   fromPending info node =
     case node of
-      Pending.FieldDecl x1 x2 x3 x4 -> FieldDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4
+      Pending.FieldDecl x1 x2 x3 x4 x5 -> FieldDecl <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3 <*> fromPending info x4 <*> pure x5
 
 instance FromPending Pending.DerivingClause where
   type Final Pending.DerivingClause = DerivingClause
@@ -721,7 +773,7 @@ instance FromPending Pending.Expr where
   fromPending info node =
     case node of
       Pending.EAnn x1 x2 -> EAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.ETc x1 x2 -> wrapInfo ETc <$> finalizeTcInfo info x1 <*> fromPending info x2
+      Pending.ETc x1 x2 -> wrapInfo ETc <$> exprTc info x1 <*> fromPending info x2
       Pending.EVar x1 -> EVar <$> fromPending info x1
       Pending.EImplicitParam x1 -> EImplicitParam <$> fromPending info x1
       Pending.ETypeSyntax x1 x2 -> ETypeSyntax <$> fromPending info x1 <*> fromPending info x2
@@ -793,7 +845,7 @@ instance (FromPending body) => FromPending (Pending.DoStmt body) where
       Pending.DoBind x1 x2 x3 -> DoBind <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.DoLetDecls x1 -> DoLetDecls <$> fromPending info x1
       Pending.DoExpr x1 x2 -> DoExpr <$> fromPending info x1 <*> fromPending info x2
-      Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> (join <$> traverse (recStmt info) x1) <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.Cmd where
   type Final Pending.Cmd = Cmd
@@ -815,13 +867,13 @@ instance FromPending Pending.CompStmt where
   fromPending info node =
     case node of
       Pending.CompAnn x1 x2 -> CompAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.CompGen x1 x2 x3 -> CompGen <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.CompGuard x1 x2 -> CompGuard <$> infos info x1 <*> fromPending info x2
-      Pending.CompLetDecls x1 x2 -> CompLetDecls <$> infos info x1 <*> fromPending info x2
-      Pending.CompThen x1 x2 -> CompThen <$> infos info x1 <*> fromPending info x2
-      Pending.CompThenBy x1 x2 x3 -> CompThenBy <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.CompGroupUsing x1 x2 -> CompGroupUsing <$> infos info x1 <*> fromPending info x2
-      Pending.CompGroupByUsing x1 x2 x3 -> CompGroupByUsing <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGen x1 x2 x3 -> CompGen <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGuard x1 x2 -> CompGuard <$> annotation info x1 <*> fromPending info x2
+      Pending.CompLetDecls x1 x2 -> CompLetDecls <$> annotation info x1 <*> fromPending info x2
+      Pending.CompThen x1 x2 -> CompThen <$> annotation info x1 <*> fromPending info x2
+      Pending.CompThenBy x1 x2 x3 -> CompThenBy <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGroupUsing x1 x2 -> CompGroupUsing <$> annotation info x1 <*> fromPending info x2
+      Pending.CompGroupByUsing x1 x2 x3 -> CompGroupByUsing <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.ArithSeq where
   type Final Pending.ArithSeq = ArithSeq

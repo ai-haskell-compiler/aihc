@@ -157,14 +157,14 @@ synthesizedRecordLocal text = do
         text
         []
         (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
-        []
+        Nothing
     )
 
 -- | A resolved occurrence of a record head. The pattern and the expression
 -- of a record update expansion use it.
 recordHeadNameSyntax :: RecordHead -> Name
 recordHeadNameSyntax head' =
-  Name (Just moduleName') nameType' text [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (globalTerm packageId moduleName' text)))) []
+  Name (Just moduleName') nameType' text [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (globalTerm packageId moduleName' text)))) Nothing Nothing
   where
     (packageId, moduleName') = rhOrigin head'
     text = rhName head'

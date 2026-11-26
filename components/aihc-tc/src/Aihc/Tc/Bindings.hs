@@ -24,7 +24,7 @@ import Aihc.Tc.Wiring (BuiltinDataCon (..), TcWiring, builtinDataCon, mkTcKinds)
 import Control.Applicative ((<|>))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
 -- | One data constructor that a declaration binds: a constructor the
@@ -46,7 +46,7 @@ declBindings wiring kinds origin decl =
     DeclAnn _ inner -> declBindings wiring kinds origin inner
     DeclError _ inner -> declBindings wiring kinds origin inner
     DeclTc info inner ->
-      infoBindings origin info inner <> declBindings wiring kinds origin inner
+      typeBindings origin info inner <> declBindings wiring kinds origin inner
     DeclClass classDecl -> maybe [] (classBindings kinds origin) (classDeclTc classDecl)
     DeclInstance instanceDecl ->
       [ TcBindingResult (originTermKey origin (tcInstanceDictName instAnn)) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
@@ -60,12 +60,6 @@ declBindings wiring kinds origin decl =
     DeclDataFamilyInst familyInst ->
       concatMap (dataConBindings wiring origin) (dataFamilyInstConstructors familyInst)
         <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
-    _ -> []
-
-infoBindings :: (Text, Text) -> TcInfo -> Decl -> [TcBindingResult]
-infoBindings origin info decl =
-  case info of
-    InfoType tcAnn -> typeBindings origin tcAnn decl
     _ -> []
 
 typeBindings :: (Text, Text) -> TcAnnotation -> Decl -> [TcBindingResult]
@@ -122,18 +116,18 @@ classDefaultWorkerType kinds classAnnotation method =
 
 dataConBindings :: TcWiring -> (Text, Text) -> DataConDecl -> [TcBindingResult]
 dataConBindings wiring origin dataConDecl =
-  case [tcAnn | InfoType tcAnn <- dataConTc dataConDecl] of
-    tcAnn : _ ->
-      [ TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)
+  case dataConTc dataConDecl of
+    Just ty ->
+      [ TcBindingResult (originTermKey origin name) name ty
       | name <- map (dataConIdentityName wiring) (dataConIdentities dataConDecl)
       ]
-    [] -> []
+    Nothing -> []
 
 recordSelectorBindings :: (Text, Text) -> DataConDecl -> [TcBindingResult]
 recordSelectorBindings origin declaration =
-  case [tcAnn | InfoType tcAnn <- dataConTc declaration] of
-    tcAnn : _ -> selectorBindingsFromConstructorType (tcAnnType tcAnn) declaration
-    [] -> []
+  case dataConTc declaration of
+    Just ty -> selectorBindingsFromConstructorType ty declaration
+    Nothing -> []
   where
     selectorBindingsFromConstructorType constructorType inner =
       let (typeVariables, qualifiedConstructor) = peelForAlls constructorType
@@ -157,12 +151,7 @@ recordSelectorBindings origin declaration =
           -- field name. It also covers a field whose existential variable
           -- an equality of the context fixes, and it is the type that the
           -- uses of the selector instantiate.
-          checkedTypes =
-            Map.fromList
-              [ (unqualifiedNameText name, ty)
-              | name <- recordFieldNamesOf inner,
-                ty <- take 1 [selectorType | InfoSelectorType selectorType <- unqualifiedNameTc name]
-              ]
+          checkedTypes = Map.fromList (concatMap fieldSelectorTypes (recordFieldsOf inner))
           computedType fieldType
             | all (\variable -> any (sameTyVar variable) universals) (typeTyVars fieldType) = Just (foldr TcForAllTy (TcFunTy resultType fieldType) universals)
             | otherwise = Nothing
@@ -173,19 +162,19 @@ recordSelectorBindings origin declaration =
             Just selectorType <- [Map.lookup label checkedTypes <|> computedType fieldType]
           ]
 
--- | The field names of a record constructor declaration.
-recordFieldNamesOf :: DataConDecl -> [UnqualifiedName]
-recordFieldNamesOf declaration =
+-- | The fields of a record constructor declaration.
+recordFieldsOf :: DataConDecl -> [FieldDecl]
+recordFieldsOf declaration =
   case declaration of
-    DataConAnn _ inner -> recordFieldNamesOf inner
-    RecordCon _ _ _ _ fields -> concatMap fieldNames fields
-    GadtCon _ _ _ _ (GadtRecordBody fields _) -> concatMap fieldNames fields
+    DataConAnn _ inner -> recordFieldsOf inner
+    RecordCon _ _ _ _ fields -> fields
+    GadtCon _ _ _ _ (GadtRecordBody fields _) -> fields
     _ -> []
 
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
 binderCheckedType name =
-  listToMaybe [tcAnnType annotation | InfoType annotation <- unqualifiedNameTc name]
+  tcAnnType <$> unqualifiedNameTc name
 
 dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =

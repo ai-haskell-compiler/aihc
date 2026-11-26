@@ -22,6 +22,7 @@ module Aihc.Tc.Annotations
     TcForeignMarshal (..),
     TcForeignAbiType (..),
     PendingTcAnnotation (..),
+    WorkingTcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
@@ -30,7 +31,7 @@ module Aihc.Tc.Annotations
     TcDerivedInstance (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
-    TcRecKnotOccurrence (..),
+    TcRecStmt (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
     TcInstanceMethodAnnotation (..),
@@ -272,6 +273,17 @@ data PendingTcAnnotation = PendingTcAnnotation
   }
   deriving (Eq, Show)
 
+-- | An annotation of a declaration in the tree that the type checker works
+-- on.
+data WorkingTcAnnotation
+  = -- | The solver must fill in the meta variables and the evidence
+    -- variables.
+    WorkingPending !PendingTcAnnotation
+  | -- | The checker writes the annotation as final, such as the type of a
+    -- top-level declaration.
+    WorkingChecked !TcAnnotation
+  deriving (Eq, Show)
+
 -- | One dictionary that a binding takes or holds. The predicate is the
 -- one the type checker solved with: the type alone does not say whether
 -- its head is a class or a stuck type family, and the desugarer needs to
@@ -364,11 +376,18 @@ data TcDerivedInstance = TcDerivedInstance
   }
   deriving (Eq, Show)
 
--- | A marker in a checked @rec@ statement: the next annotation is the
--- occurrence annotation of this group variable at the knot of the group.
--- A let statement of the group generalized the variable, and the knot
--- takes one instance of it.
-newtype TcRecKnotOccurrence = TcRecKnotOccurrence Entity
+-- | What the type checker found for a @rec@ statement. The parameter is
+-- the annotation type of the tree.
+data TcRecStmt annotation = TcRecStmt
+  { -- | The tuple of the group variables: the tuple type, the types of the
+    -- variables as type arguments, and the type of the statement block as
+    -- its only term argument type.
+    tcRecTuple :: !annotation,
+    -- | The occurrence annotation of each generalized group variable at
+    -- the knot of the group. A let statement of the group generalized the
+    -- variable, and the knot takes one instance of it.
+    tcRecKnotOccurrences :: ![(Entity, annotation)]
+  }
   deriving (Eq, Show)
 
 -- | Checked evidence and casts for a derived instance that reuses another

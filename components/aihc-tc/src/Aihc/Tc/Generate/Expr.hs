@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -43,6 +43,7 @@ import Aihc.Tc.Syntax.Pending
     DoRecMethods (..),
     DoStmt (..),
     Expr (..),
+    ExprTc (..),
     FloatType (..),
     GuardedRhs (..),
     LambdaCaseAlt (..),
@@ -50,15 +51,16 @@ import Aihc.Tc.Syntax.Pending
     Name (..),
     NumericType (..),
     Pattern (..),
+    PatternTc (..),
     Pragma,
     RecordField (..),
     Rhs (..),
     SourceSpan,
-    TcInfo (..),
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
-    addCompStmtTc,
+    addNameCast,
+    addNamePending,
     annotateBranchCast,
     annotateExprCast,
     annotateFunCast,
@@ -66,12 +68,12 @@ import Aihc.Tc.Syntax.Pending
     annotateSigCast,
     annotationSpan,
     arithSeqMethod,
-    infoIsPending,
-    infoPending,
     mapArithSeqMethod,
     mkSpanAnnotation,
+    namePending,
     peelExprAnn,
     qualifyName,
+    setCompStmtTc,
   )
 import Aihc.Tc.Syntax.Pending.Traverse (Walk (..), Walkable, collected, idWalk, runCollect, walk)
 import Aihc.Tc.TypeScheme (schemeToType)
@@ -533,7 +535,7 @@ syntaxResolution name = nameResolution name >>= resolvedOf
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =
-  ETc (InfoType ann)
+  ETc (ExprType ann)
 
 annotatePendingExprAt :: Maybe SourceSpan -> PendingTcAnnotation -> Expr -> Expr
 annotatePendingExprAt Nothing ann =
@@ -543,7 +545,7 @@ annotatePendingExprAt (Just sp) ann =
 
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
-  name {nameTc = nameTc name <> [InfoType ann]}
+  addNamePending ann name
 
 -- | Give the method name of a do statement its checked type, and the cast
 -- onto the type that the statement uses it at. The cast goes first. The
@@ -552,7 +554,7 @@ annotatePendingName ann name =
 -- fit the statement.
 annotateDoMethodName :: TcType -> EvVar -> PendingTcAnnotation -> Name -> Name
 annotateDoMethodName ty evidence pending name =
-  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight), InfoType pending]}
+  addNamePending pending (addNameCast ty evidence name)
 
 -- | Cast the operator of a section onto the arrow type that the section
 -- uses. The operator is equated as @actual ~ arrow@, so the proof runs
@@ -561,7 +563,7 @@ annotateDoMethodName ty evidence pending name =
 -- section can have the result type @v@.
 annotateOperatorCast :: TcType -> EvVar -> Name -> Name
 annotateOperatorCast ty evidence name =
-  name {nameTc = nameTc name <> [InfoCast (PendingTcCastAnnotation ty evidence CastToRight)]}
+  addNameCast ty evidence name
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: Maybe SourceSpan -> Text -> Pred -> TcM Ct
@@ -587,7 +589,7 @@ annotateLambdaPattern bindings argTy pat =
   let annotated = annotatePatternBindings bindings pat
    in if lambdaPatternCarriesBinderType annotated
         then annotated
-        else PTc (InfoType (pendingAnnotation argTy [] [] [])) annotated
+        else PTc (PatternType (pendingAnnotation argTy [] [] [])) annotated
 
 lambdaPatternCarriesBinderType :: Pattern -> Bool
 lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
@@ -1179,9 +1181,9 @@ uniqueKey (Unique key) = key
 
 nameTypeArgs :: Name -> [TcType]
 nameTypeArgs name =
-  case mapMaybe infoPending (nameTc name) of
-    pending : _ -> pendingTcAnnTypeArgs pending
-    [] -> []
+  case namePending name of
+    Just pending -> pendingTcAnnTypeArgs pending
+    Nothing -> []
 
 -- | The first pass over the frames. The remaining type arguments are the
 -- instantiation's type arguments that visible type applications have not
@@ -1408,11 +1410,11 @@ prefixOperatorHead expr =
     EAnn ann inner -> EAnn ann (prefixOperatorHead inner)
     ETc ann inner -> ETc ann (prefixOperatorHead inner)
     EVar name ->
-      case mapMaybe infoPending (nameTc name) of
-        pending : _ ->
-          let plainName = name {nameTc = filter (not . infoIsPending) (nameTc name)}
+      case namePending name of
+        Just pending ->
+          let plainName = name {nameTc = Nothing}
            in annotatePendingExprAt (sourceSpanFromAnns (nameAnns name)) pending (EVar plainName)
-        [] -> expr
+        Nothing -> expr
     _ -> expr
 
 -- | Check an argument against a polytype. The argument is inferred and
@@ -1611,8 +1613,8 @@ pendingTypeArgs expr =
     EAnn _ inner -> pendingTypeArgs inner
     ETc info inner ->
       case info of
-        InfoType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
-        _ -> pendingTypeArgs inner
+        ExprType pending -> drop (pendingTcAnnInferredTypeArgs pending) (pendingTcAnnTypeArgs pending)
+        ExprCast _ -> pendingTypeArgs inner
     ETypeApp fun _ -> pendingTypeArgs fun
     EParen inner -> pendingTypeArgs inner
     EPragma _ inner -> pendingTypeArgs inner
@@ -2097,10 +2099,10 @@ inferListCompParallel sp body branches = do
       tupleTy <- recTupleType binderTys
       let branchBinders = zip keys binderTys
       (quals', _, _, cts) <- inferCompQuals listTyCon' sp quals (finishBranch tupleTy branchBinders)
-      let tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] [])
+      let tupleAnn = pendingAnnotation tupleTy binderTys [] []
           annotated =
             case quals' of
-              first : rest -> addCompStmtTc tupleAnn first : rest
+              first : rest -> setCompStmtTc tupleAnn first : rest
               [] -> []
       pure (annotated, branchBinders, cts)
     -- After the last statement of a branch, equate the type of each
@@ -2193,8 +2195,8 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
       (rest', body', bodyTy, bodyCts) <- rebind (go (qual : seen) ambient rest)
       let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
           keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
-          tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] keyTys)
-          qual' = addCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+          tupleAnn = pendingAnnotation tupleTy binderTys [] keyTys
+          qual' = setCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
       pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
 
     transformBinderType sp key = do
@@ -2400,9 +2402,8 @@ recStmtParts stmt =
 -- @return@, and @>>=@ methods. The statement gets a tuple annotation. The
 -- tuple annotation has the tuple type, the types of
 -- the variables as type arguments, and the type of the statement block as
--- its only term argument type. Last, each generalized variable has a
--- 'TcRecKnotOccurrence' marker, and after it the occurrence annotation of
--- the variable at the knot. The 'RecKnotVariables' annotation stays next
+-- its only term argument type. Last, each generalized variable has the
+-- occurrence annotation of the variable at the knot. The 'RecKnotVariables' annotation stays next
 -- to the statements.
 inferRecStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> RecStmtParts -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferRecStmt end expected ambient parts rest = do
@@ -2441,8 +2442,8 @@ inferRecStmt end expected ambient parts rest = do
           (annotateDoMethodName mfixTy mfixEv mfixPending mfixName)
           (annotateDoMethodName knotTy returnEv returnPending returnName)
           (annotateDoMethodName bindTy bindEv bindPending bindName)
-      recTc = InfoType tuplePending : concatMap knotOccurrence knotOccurrences
-      stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt recTc (Just methods') stmts')
+      recTc = TcRecStmt tuplePending knotOccurrences
+      stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt (Just recTc) (Just methods') stmts')
   pure
     ( stmt' : rest',
       blockTy,
@@ -2450,7 +2451,6 @@ inferRecStmt end expected ambient parts rest = do
     )
   where
     withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
-    knotOccurrence (key, annotation) = [InfoRecKnotOccurrence key, InfoType annotation]
 
 -- | The type of the knot of a recursive group: the unit type for no
 -- variable, the type of the variable for one variable, and a tuple type for

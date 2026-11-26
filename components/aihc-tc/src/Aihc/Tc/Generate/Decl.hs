@@ -36,6 +36,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcModuleIdentity (..),
+    WorkingTcAnnotation (..),
     renderTcType,
   )
 import Aihc.Tc.Constraint
@@ -83,6 +84,7 @@ import Aihc.Tc.Syntax.Pending
     Decl (..),
     ExportSpec (..),
     Expr (..),
+    ExprTc (..),
     Extension (..),
     FieldDecl (..),
     ForallTelescope (..),
@@ -113,6 +115,7 @@ import Aihc.Tc.Syntax.Pending
     PatSynDir (..),
     PatSynEquations (..),
     Pattern (..),
+    PatternTc (..),
     Pragma (..),
     PragmaType (..),
     PragmaUnpackKind (..),
@@ -124,7 +127,6 @@ import Aihc.Tc.Syntax.Pending
     RuleBinder (..),
     RuleDecl (..),
     SourceSpan,
-    TcInfo (..),
     TupleFlavor (..),
     TyVarBVisibility (..),
     TyVarBinder (..),
@@ -138,7 +140,6 @@ import Aihc.Tc.Syntax.Pending
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
-    addDataConTc,
     annotateDecl,
     annotateRhsCast,
     annotationSpan,
@@ -146,7 +147,6 @@ import Aihc.Tc.Syntax.Pending
     binderHeadParams,
     binderResolved,
     gadtBodyResultType,
-    infoPending,
     instanceHeadName,
     mkSpanAnnotation,
     moduleExports,
@@ -159,11 +159,12 @@ import Aihc.Tc.Syntax.Pending
     peelTypeHead,
     qualifyName,
     recordSelectorNames,
+    setDataConTc,
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
   )
-import Aihc.Tc.Syntax.Pending.Traverse (collectResolutions, collectTcInfos)
+import Aihc.Tc.Syntax.Pending.Traverse (collectPendingAnnotations, collectResolutions)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -790,7 +791,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
         Just residualPreds'
           | failed -> pure rule
           | otherwise -> do
-              let interior = concatMap pendingTypes (collectTcInfos infoPending lhs')
+              let interior = concatMap pendingTypes (collectPendingAnnotations lhs')
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
               -- A binder signature can give a variable a kind that mentions a
               -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
@@ -801,10 +802,10 @@ tcRuleDecl rule = withAmbientSpan sp $ do
                 (`setTyVarKind` tyVar) <$> zonkKind (tvKind tyVar)
               let closed = schemeToType (Scheme [] (orderTyVarsByKind quantified) predicates body)
               binders' <- forM binders $ \(binder, ty) ->
-                pure binder {ruleBinderTc = InfoType (PendingTcAnnotation ty [] [] 0 [] [] []) : ruleBinderTc binder}
+                pure binder {ruleBinderTc = Just ty}
               pure
                 rule
-                  { ruleTc = InfoType (PendingTcAnnotation closed [] [] 0 [] [] []) : ruleTc rule,
+                  { ruleTc = Just closed,
                     ruleBinders = binders',
                     ruleLhs = lhs',
                     ruleRhs = rhs'
@@ -1548,7 +1549,7 @@ annotateTypeFamilyHead tcAnn ty =
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
-  name {nameTc = nameTc name <> [InfoCheckedType tcAnn]}
+  name {nameTc = nameTc name <|> Just (WorkingChecked tcAnn)}
 
 annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
@@ -1596,7 +1597,7 @@ annotateRegisteredDataConDeclTc parent dataConDecl = do
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (addDataConTc (InfoCheckedType (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
+      pure (setDataConTc zonkedTy dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1608,7 +1609,7 @@ annotateBinderHeadName tcAnn head' =
 
 annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
-  name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoCheckedType tcAnn]}
+  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just (WorkingChecked tcAnn)}
 
 annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc parent dataConDecl = do
@@ -1618,7 +1619,7 @@ annotateDataConDeclTc parent dataConDecl = do
     key : _ -> do
       ty <- dataConBindingType key
       selectors <- annotateRecordSelectorNames parent dataConDecl >>= recordSelectorTypes parent
-      pure (addDataConTc (InfoCheckedType (TcAnnotation ty [] [] [] [] [])) selectors)
+      pure (setDataConTc ty selectors)
 
 -- | Put the checked selector type on each field name that has a selector.
 -- A field whose type has an existential variable has none.
@@ -1633,17 +1634,17 @@ recordSelectorTypes parent declaration =
     _ -> pure declaration
   where
     annotateField field = do
-      names <- mapM selectorTypeOn (fieldNames field)
-      pure field {fieldNames = names}
-    selectorTypeOn name = do
+      types <- mapM selectorTypeOf (fieldNames field)
+      pure field {fieldSelectorTypes = catMaybes types}
+    selectorTypeOf name = do
       let label = unqualifiedNameText name
           selector = Map.findWithDefault label label (recordSelectorNames [declaration])
       binder <- lookupTermKey (tyConMemberTermKey parent selector)
       case binder of
         Just _ -> do
           ty <- bindingType (tyConMemberTermKey parent selector)
-          pure name {unqualifiedNameTc = unqualifiedNameTc name <> [InfoSelectorType ty]}
-        Nothing -> pure name
+          pure (Just (label, ty))
+        Nothing -> pure Nothing
 
 annotateRecordSelectorNames :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames parent declaration =
@@ -3814,7 +3815,7 @@ patSynUse key name argBinders =
     nameType'
       | ":" `T.isPrefixOf` name = NameConSym
       | otherwise = NameConId
-    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key))) []
+    synonym = Name Nothing nameType' name [] (Just (ResolutionOk (Resolved Nothing (IdentifierNamed name) ResolutionNamespaceTerm key))) Nothing Nothing
 
 -- | The equation of a record pattern synonym field selector.
 patSynSelectorMatch :: Pattern -> UnqualifiedName -> Match
@@ -3886,7 +3887,7 @@ synthesizedLocal unique text =
     text
     []
     (Just (ResolutionOk (Resolved Nothing (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
-    []
+    Nothing
 
 localVar :: UnqualifiedName -> Expr
 localVar = EVar . qualifyName Nothing
@@ -3946,7 +3947,7 @@ patternToExpr pat
 patternToExpr pat =
   case pat of
     PAnn ann inner -> EAnn ann <$> patternToExpr inner
-    PTc info inner -> ETc info <$> patternToExpr inner
+    PTc info inner -> patternTcExpr info <$> patternToExpr inner
     PVar name -> Just (localVar name)
     PTuple flavor items -> ETuple (tupleSyntaxName flavor (length items)) flavor <$> mapM (fmap Just . patternToExpr) items
     -- Under OverloadedLists, the list expression gets @fromListN@. The
@@ -3975,7 +3976,7 @@ patternToExpr pat =
 -- type checker makes. The type checker does not read its resolution, so the
 -- name has none.
 syntaxName :: Text -> Name
-syntaxName text = Name Nothing NameConSym text [] Nothing []
+syntaxName text = Name Nothing NameConSym text [] Nothing Nothing Nothing
 
 -- | An annotated literal pattern as an expression.
 --
@@ -3990,7 +3991,7 @@ literalPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
+        PTc info inner -> go (patternTcExpr info : wrappers) inner
         PLit match literal ->
           let (literalWrappers, bare) = peelLiteralAnns literal
            in wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
@@ -4008,7 +4009,7 @@ negatedLiteralPatternToExpr = go []
     go wrappers pattern' =
       case pattern' of
         PAnn ann inner -> go (EAnn ann : wrappers) inner
-        PTc info inner -> go (ETc info : wrappers) inner
+        PTc info inner -> go (patternTcExpr info : wrappers) inner
         PNegLit match literal -> do
           let (literalWrappers, bare) = peelLiteralAnns literal
           converted <- wrapAll (wrappers <> literalWrappers) <$> literalMatchExpr match bare
@@ -4017,8 +4018,17 @@ negatedLiteralPatternToExpr = go []
           let negation = case match of
                 LiteralMatchOverloaded overloaded -> overloadedLiteralNegate overloaded
                 _ -> Nothing
-          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing []) negation) converted)
+          pure (ENegate (fromMaybe (Name Nothing NameVarId "negate" [] Nothing Nothing Nothing) negation) converted)
         _ -> Nothing
+
+-- | The information of a pattern wrapper as an expression wrapper. The
+-- mark of a pattern instantiation has no meaning for an expression.
+patternTcExpr :: PatternTc -> Expr -> Expr
+patternTcExpr item =
+  case item of
+    PatternType annotation -> ETc (ExprType annotation)
+    PatternCast cast -> ETc (ExprCast cast)
+    PatternInstantiation -> id
 
 -- | Apply wrappers to an expression, the first wrapper innermost.
 wrapAll :: [Expr -> Expr] -> Expr -> Expr
@@ -4030,7 +4040,7 @@ peelLiteralAnns :: Literal -> ([Expr -> Expr], Literal)
 peelLiteralAnns literal =
   case literal of
     LitAnn ann inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [EAnn ann], bare)
-    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc info], bare)
+    LitTc info inner -> let (wrappers, bare) = peelLiteralAnns inner in (wrappers <> [ETc (ExprType info)], bare)
     _ -> ([], literal)
 
 -- | A bare literal of a literal pattern as an expression, with the names of
@@ -4040,7 +4050,7 @@ literalMatchExpr :: LiteralMatch -> Literal -> Maybe Expr
 literalMatchExpr match literal =
   case literal of
     LitAnn ann inner -> EAnn ann <$> literalMatchExpr match inner
-    LitTc info inner -> ETc info <$> literalMatchExpr match inner
+    LitTc info inner -> ETc (ExprType info) <$> literalMatchExpr match inner
     LitInt value numericType source -> (\syntax -> EInt syntax value numericType source) <$> numericSyntax
     LitFloat value floatType source -> (\syntax -> EFloat syntax value floatType source) <$> numericSyntax
     LitChar value source -> Just (EChar value source)

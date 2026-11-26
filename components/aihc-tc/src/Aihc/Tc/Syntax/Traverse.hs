@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | A hand-written walk over the syntax tree of "Aihc.Tc.Syntax". It
 -- is a copy of "Aihc.Tc.Syntax.Pending.Traverse", which walks the tree
@@ -34,7 +35,9 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
+import Aihc.Tc.Annotations (TcAnnotation, TcRecStmt (..))
 import Aihc.Tc.Syntax
+import Aihc.Tc.Types (TcType)
 
 -- | The hooks of one walk. 'idWalk' walks every node and leaves it as it
 -- is. A caller sets the hooks it needs.
@@ -44,8 +47,13 @@ data Walk f = Walk
     -- | Every resolution result, where it is attached: on a name or on a
     -- binder.
     walkResolution :: ResolutionResult -> f ResolutionResult,
-    -- | Every item of type checker information, where it is attached.
-    walkTcInfo :: TcInfo -> f TcInfo,
+    -- | Every type annotation that a node holds in a typed field or in a
+    -- wrapper, where it is attached.
+    walkTcAnnotation :: TcAnnotation -> f TcAnnotation,
+    -- | Every checked type that a node holds in a typed field of its own,
+    -- where it is attached: on a rule, a rule binder, or a constructor
+    -- declaration.
+    walkCheckedType :: TcType -> f TcType,
     -- | Every annotation list of a node that holds its annotations in a
     -- list, such as a name or a module. The argument walks the elements.
     walkAnnotationList :: ([Annotation] -> f [Annotation]) -> [Annotation] -> f [Annotation],
@@ -73,7 +81,8 @@ idWalk =
   Walk
     { walkAnnotation = pure,
       walkResolution = pure,
-      walkTcInfo = pure,
+      walkTcAnnotation = pure,
+      walkCheckedType = pure,
       walkAnnotationList = id,
       walkName = id,
       walkExpr = id,
@@ -102,9 +111,34 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The type checker information of one node.
-walkInfos :: (Applicative f) => Walk f -> [TcInfo] -> f [TcInfo]
-walkInfos w = traverse (walkTcInfo w)
+-- | The information of an expression wrapper.
+walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f ExprTc
+walkExprTc w item =
+  case item of
+    ExprType annotation -> ExprType <$> walkTcAnnotation w annotation
+    ExprCast _ -> pure item
+
+-- | The information of a pattern wrapper.
+walkPatternTc :: (Applicative f) => Walk f -> PatternTc -> f PatternTc
+walkPatternTc w item =
+  case item of
+    PatternType annotation -> PatternType <$> walkTcAnnotation w annotation
+    PatternCast _ -> pure item
+    PatternInstantiation -> pure item
+
+-- | The annotation of a declaration wrapper, a name, or a binder.
+walkDeclTc :: (Applicative f) => Walk f -> TcAnnotation -> f TcAnnotation
+walkDeclTc = walkTcAnnotation
+
+-- | The annotations of a @rec@ statement: the tuple annotation, then the
+-- occurrence annotation of each knot variable.
+walkRecStmt :: (Applicative f) => Walk f -> TcRecStmt TcAnnotation -> f (TcRecStmt TcAnnotation)
+walkRecStmt w (TcRecStmt tuple occurrences) =
+  TcRecStmt <$> walkTcAnnotation w tuple <*> traverse (\(key, occurrence) -> (key,) <$> walkTcAnnotation w occurrence) occurrences
+
+-- | The checked type of one node, if it has one.
+walkCheckedTypeOf :: (Applicative f) => Walk f -> Maybe TcType -> f (Maybe TcType)
+walkCheckedTypeOf w = traverse (walkCheckedType w)
 
 -- | The resolution result of a name or a binder, if it has one.
 walkMaybeResolution :: (Applicative f) => Walk f -> Maybe ResolutionResult -> f (Maybe ResolutionResult)
@@ -190,17 +224,17 @@ instance (Walkable a, Walkable b) => Walkable (a, b) where
 
 instance Walkable Name where
   walk w = walkName w $ \name ->
-    (\anns resolution infos -> name {nameAnns = anns, nameResolution = resolution, nameTc = infos})
+    (\anns resolution annotation -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation})
       <$> walkAnns w (nameAnns name)
       <*> walkMaybeResolution w (nameResolution name)
-      <*> walkInfos w (nameTc name)
+      <*> traverse (walkDeclTc w) (nameTc name)
 
 instance Walkable UnqualifiedName where
   walk w name =
-    (\anns resolution infos -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = infos})
+    (\anns resolution annotation -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = annotation})
       <$> walkAnns w (unqualifiedNameAnns name)
       <*> walkMaybeResolution w (unqualifiedNameResolution name)
-      <*> walkInfos w (unqualifiedNameTc name)
+      <*> traverse (walkDeclTc w) (unqualifiedNameTc name)
 
 -- Modules, exports, and imports
 
@@ -262,7 +296,7 @@ instance Walkable ImportItem where
 instance Walkable Decl where
   walk w = walkDecl w $ \case
     DeclAnn ann inner -> DeclAnn <$> walkAnnotation w ann <*> walk w inner
-    DeclTc info inner -> DeclTc <$> walkTcInfo w info <*> walk w inner
+    DeclTc info inner -> DeclTc <$> walkDeclTc w info <*> walk w inner
     DeclError err inner -> DeclError err <$> walk w inner
     DeclValue value -> DeclValue <$> walk w value
     DeclImplicitParam name expr decls ->
@@ -297,7 +331,7 @@ instance Walkable RuleDecl where
         rule {ruleAnns = anns, ruleTc = infos, ruleTypeBinders = typeBinders, ruleBinders = binders, ruleLhs = lhs, ruleRhs = rhs}
     )
       <$> walkAnns w (ruleAnns rule)
-      <*> walkInfos w (ruleTc rule)
+      <*> walkCheckedTypeOf w (ruleTc rule)
       <*> walk w (ruleTypeBinders rule)
       <*> walk w (ruleBinders rule)
       <*> walk w (ruleLhs rule)
@@ -307,7 +341,7 @@ instance Walkable RuleBinder where
   walk w binder =
     (\anns infos name ty -> binder {ruleBinderAnns = anns, ruleBinderTc = infos, ruleBinderName = name, ruleBinderType = ty})
       <$> walkAnns w (ruleBinderAnns binder)
-      <*> walkInfos w (ruleBinderTc binder)
+      <*> walkCheckedTypeOf w (ruleBinderTc binder)
       <*> walk w (ruleBinderName binder)
       <*> walk w (ruleBinderType binder)
 
@@ -344,9 +378,9 @@ instance (Walkable body) => Walkable (Rhs body) where
   walk w rhs =
     case rhs of
       UnguardedRhs anns infos body decls ->
-        UnguardedRhs <$> walkAnns w anns <*> walkInfos w infos <*> walk w body <*> walk w decls
+        UnguardedRhs <$> walkAnns w anns <*> pure infos <*> walk w body <*> walk w decls
       GuardedRhss anns infos guarded decls ->
-        GuardedRhss <$> walkAnns w anns <*> walkInfos w infos <*> walk w guarded <*> walk w decls
+        GuardedRhss <$> walkAnns w anns <*> pure infos <*> walk w guarded <*> walk w decls
 
 instance (Walkable body) => Walkable (GuardedRhs body) where
   walk w (GuardedRhs anns guards body) =
@@ -363,7 +397,7 @@ instance Walkable Literal where
   walk w = walkLiteral w $ \literal ->
     case literal of
       LitAnn ann inner -> LitAnn <$> walkAnnotation w ann <*> walk w inner
-      LitTc info inner -> LitTc <$> walkTcInfo w info <*> walk w inner
+      LitTc info inner -> LitTc <$> walkTcAnnotation w info <*> walk w inner
       LitInt {} -> pure literal
       LitFloat {} -> pure literal
       LitChar {} -> pure literal
@@ -404,7 +438,7 @@ instance Walkable LiteralSyntax where
 instance Walkable Pattern where
   walk w = walkPattern w $ \case
     PAnn ann inner -> PAnn <$> walkAnnotation w ann <*> walk w inner
-    PTc info inner -> PTc <$> walkTcInfo w info <*> walk w inner
+    PTc info inner -> PTc <$> walkPatternTc w info <*> walk w inner
     PVar name -> PVar <$> walk w name
     PTypeBinder binder -> PTypeBinder <$> walk w binder
     PTypeSyntax form ty -> PTypeSyntax form <$> walk w ty
@@ -564,24 +598,24 @@ instance Walkable DataConDecl where
   walk w = walkDataConDecl w $ \case
     DataConAnn ann inner -> DataConAnn <$> walkAnnotation w ann <*> walk w inner
     PrefixCon tc binders context name fields ->
-      PrefixCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+      PrefixCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
     InfixCon tc binders context lhs name rhs ->
       InfixCon
-        <$> walkInfos w tc
+        <$> walkCheckedTypeOf w tc
         <*> walk w binders
         <*> walk w context
         <*> walk w lhs
         <*> walk w name
         <*> walk w rhs
     RecordCon tc binders context name fields ->
-      RecordCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
+      RecordCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w name <*> walk w fields
     GadtCon tc telescopes context names body ->
-      GadtCon <$> walkInfos w tc <*> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
+      GadtCon <$> walkCheckedTypeOf w tc <*> walk w telescopes <*> walk w context <*> walk w names <*> walk w body
     TupleCon tc binders context flavor fields ->
-      TupleCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
+      TupleCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> pure flavor <*> walk w fields
     UnboxedSumCon tc binders context position arity field ->
-      UnboxedSumCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
-    ListCon tc binders context syntax -> ListCon <$> walkInfos w tc <*> walk w binders <*> walk w context <*> walk w syntax
+      UnboxedSumCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> pure position <*> pure arity <*> walk w field
+    ListCon tc binders context syntax -> ListCon <$> walkCheckedTypeOf w tc <*> walk w binders <*> walk w context <*> walk w syntax
 
 instance Walkable GadtBody where
   walk w body =
@@ -594,8 +628,8 @@ instance Walkable BangType where
     BangType <$> walkAnns w anns <*> pure pragmas <*> pure strict <*> pure lazy <*> walk w ty
 
 instance Walkable FieldDecl where
-  walk w (FieldDecl anns names multiplicity ty) =
-    FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty
+  walk w (FieldDecl anns names multiplicity ty selectors) =
+    FieldDecl <$> walkAnns w anns <*> walk w names <*> walk w multiplicity <*> walk w ty <*> pure selectors
 
 instance Walkable DerivingClause where
   walk w (DerivingClause strategy classes plans) =
@@ -684,7 +718,7 @@ instance Walkable Expr where
   walk w = walkExpr w $ \expr ->
     case expr of
       EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
-      ETc info inner -> ETc <$> walkTcInfo w info <*> walk w inner
+      ETc info inner -> ETc <$> walkExprTc w info <*> walk w inner
       EVar name -> EVar <$> walk w name
       EImplicitParam {} -> pure expr
       ETypeSyntax form ty -> ETypeSyntax form <$> walk w ty
@@ -751,7 +785,7 @@ instance (Walkable body) => Walkable (DoStmt body) where
     DoBind methods pat body -> DoBind <$> walk w methods <*> walk w pat <*> walk w body
     DoLetDecls decls -> DoLetDecls <$> walk w decls
     DoExpr method body -> DoExpr <$> walk w method <*> walk w body
-    DoRecStmt tc methods statements -> DoRecStmt <$> walkInfos w tc <*> walk w methods <*> walk w statements
+    DoRecStmt tc methods statements -> DoRecStmt <$> traverse (walkRecStmt w) tc <*> walk w methods <*> walk w statements
 
 instance Walkable DoBindMethods where
   walk w (DoBindMethods method failure) =
@@ -779,13 +813,13 @@ instance Walkable Cmd where
 instance Walkable CompStmt where
   walk w = walkCompStmt w $ \case
     CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
-    CompGen tc pat expr -> CompGen <$> walkInfos w tc <*> walk w pat <*> walk w expr
-    CompGuard tc expr -> CompGuard <$> walkInfos w tc <*> walk w expr
-    CompLetDecls tc decls -> CompLetDecls <$> walkInfos w tc <*> walk w decls
-    CompThen tc expr -> CompThen <$> walkInfos w tc <*> walk w expr
-    CompThenBy tc function expr -> CompThenBy <$> walkInfos w tc <*> walk w function <*> walk w expr
-    CompGroupUsing tc function -> CompGroupUsing <$> walkInfos w tc <*> walk w function
-    CompGroupByUsing tc expr function -> CompGroupByUsing <$> walkInfos w tc <*> walk w expr <*> walk w function
+    CompGen tc pat expr -> CompGen <$> traverse (walkTcAnnotation w) tc <*> walk w pat <*> walk w expr
+    CompGuard tc expr -> CompGuard <$> traverse (walkTcAnnotation w) tc <*> walk w expr
+    CompLetDecls tc decls -> CompLetDecls <$> traverse (walkTcAnnotation w) tc <*> walk w decls
+    CompThen tc expr -> CompThen <$> traverse (walkTcAnnotation w) tc <*> walk w expr
+    CompThenBy tc function expr -> CompThenBy <$> traverse (walkTcAnnotation w) tc <*> walk w function <*> walk w expr
+    CompGroupUsing tc function -> CompGroupUsing <$> traverse (walkTcAnnotation w) tc <*> walk w function
+    CompGroupByUsing tc expr function -> CompGroupByUsing <$> traverse (walkTcAnnotation w) tc <*> walk w expr <*> walk w function
 
 instance Walkable ArithSeq where
   walk w = walkArithSeq w $ \case

@@ -10,7 +10,8 @@
 -- * Wrapper constructors such as 'ETc' and 'DeclTc' hold the information
 --   for a whole node.
 -- * Fields such as 'nameTc' and 'ruleTc' hold the information for a name,
---   an equation, a rule, or a module.
+--   a rule, a declaration, or a module. Each field has the type of its
+--   information.
 --
 -- Some of this information is pending. It has meta variables and evidence
 -- variables that the solver has not filled in yet. "Aihc.Tc.Finalize"
@@ -24,11 +25,12 @@
 -- different tree has its own copy.
 module Aihc.Tc.Syntax.Pending
   ( -- * Type checker information
-    TcInfo (..),
+    ExprTc (..),
+    PatternTc (..),
     PatSynEquations (..),
-    infoPending,
-    infoIsPending,
-    infoHasType,
+    namePending,
+    addNamePending,
+    addNameCast,
     annotateDecl,
     annotateRhsCast,
     annotateExprCast,
@@ -161,13 +163,13 @@ module Aihc.Tc.Syntax.Pending
     peelDoStmtAnn,
     peelDataConAnn,
     dataConTc,
-    addDataConTc,
+    setDataConTc,
     peelClassDeclItemAnn,
     peelInstanceDeclItemAnn,
     peelGuardQualifierAnn,
     peelCompStmtAnn,
     compStmtTc,
-    addCompStmtTc,
+    setCompStmtTc,
     peelArithSeqAnn,
     peelCmdAnn,
 
@@ -283,31 +285,33 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation,
     TcInstanceMethodAnnotation,
     TcModuleIdentity,
+    TcRecStmt,
+    WorkingTcAnnotation (..),
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Types (TcType)
+import Control.Applicative ((<|>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
--- | One item that the type checker found for a node of the tree. Some
--- items are pending: the solver must fill in their meta variables and
--- evidence variables before the phases after the type checker read them.
-data TcInfo
-  = -- | The pending type of a node, with its type arguments and evidence.
-    InfoType !PendingTcAnnotation
-  | -- | A type that the checker writes as final, such as the type of a
-    -- declaration.
-    InfoCheckedType !TcAnnotation
-  | -- | A pending cast of a node to a type that an equality proves.
-    InfoCast !PendingTcCastAnnotation
-  | -- | The constructor pattern instantiates its type arguments.
-    InfoPatternInstantiation
-  | -- | The checked type of a record field selector.
-    InfoSelectorType !TcType
-  | -- | The next item of the statement is the occurrence type of this
-    -- group variable at the knot of a @rec@ group.
-    InfoRecKnotOccurrence !Entity
+-- | What the type checker found for a whole expression.
+data ExprTc
+  = -- | The pending type of the expression, with its type arguments and evidence.
+    ExprType !PendingTcAnnotation
+  | -- | A pending cast of the expression to a type that an equality proves.
+    ExprCast !PendingTcCastAnnotation
+  deriving (Eq, Show)
+
+-- | What the type checker found for a whole pattern.
+data PatternTc
+  = -- | The pending type of the pattern, with its type arguments and evidence.
+    PatternType !PendingTcAnnotation
+  | -- | A pending cast of the pattern to a type that an equality proves.
+    PatternCast !PendingTcCastAnnotation
+  | -- | The constructor pattern instantiates its type arguments. The
+    -- annotation of the instantiation is in the next 'PatternType' wrapper.
+    PatternInstantiation
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -324,8 +328,8 @@ data PatSynEquations = PatSynEquations
 data Literal
   = -- | Metadata for the whole literal.
     LitAnn Annotation Literal
-  | -- | What the type checker found for the whole literal.
-    LitTc TcInfo Literal
+  | -- | The pending type of the whole literal.
+    LitTc PendingTcAnnotation Literal
   | -- | @1@, @1#@, @1#Word8@
     LitInt Integer NumericType Text
   | -- | @1.0@, @1.0#@, @1.0##@
@@ -358,17 +362,17 @@ type OperatorName = UnqualifiedName
 
 -- | A name with no annotation and no resolution.
 mkName :: Maybe Text -> NameType -> Text -> Name
-mkName qualifier ty txt = Name qualifier ty txt [] Nothing []
+mkName qualifier ty txt = Name qualifier ty txt [] Nothing Nothing Nothing
 
 -- | An unqualified name with no annotation and no resolution.
 mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
-mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing []
+mkUnqualifiedName ty txt = UnqualifiedName ty txt [] Nothing Nothing
 
 -- | A qualified name from an unqualified name. The name keeps its
 -- annotations, its resolution, and its type checker information.
 qualifyName :: Maybe Text -> UnqualifiedName -> Name
 qualifyName qualifier name =
-  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name)
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name) (unqualifiedNameAnns name) (unqualifiedNameResolution name) (unqualifiedNameTc name) Nothing
 
 -- | The successful resolution of a name occurrence, in any namespace.
 nameResolved :: Name -> Maybe Resolved
@@ -575,9 +579,9 @@ peelCompStmtAnn stmt =
     CompAnn _ inner -> peelCompStmtAnn inner
     _ -> stmt
 
--- | What the type checker found for a constructor declaration, under its
+-- | The checked type of the data constructor of a declaration, under its
 -- annotation wrappers.
-dataConTc :: DataConDecl -> [TcInfo]
+dataConTc :: DataConDecl -> Maybe TcType
 dataConTc decl =
   case peelDataConAnn decl of
     PrefixCon tc _ _ _ _ -> tc
@@ -587,25 +591,25 @@ dataConTc decl =
     TupleCon tc _ _ _ _ -> tc
     UnboxedSumCon tc _ _ _ _ _ -> tc
     ListCon tc _ _ _ -> tc
-    DataConAnn _ _ -> []
+    DataConAnn _ _ -> Nothing
 
--- | Put an item of information in front of the information of a
--- constructor declaration, under its annotation wrappers.
-addDataConTc :: TcInfo -> DataConDecl -> DataConDecl
-addDataConTc item decl =
+-- | Set the checked type of the data constructor of a declaration, under
+-- its annotation wrappers.
+setDataConTc :: TcType -> DataConDecl -> DataConDecl
+setDataConTc ty decl =
   case decl of
-    DataConAnn ann inner -> DataConAnn ann (addDataConTc item inner)
-    PrefixCon tc a b c d -> PrefixCon (item : tc) a b c d
-    InfixCon tc a b c d e -> InfixCon (item : tc) a b c d e
-    RecordCon tc a b c d -> RecordCon (item : tc) a b c d
-    GadtCon tc a b c d -> GadtCon (item : tc) a b c d
-    TupleCon tc a b c d -> TupleCon (item : tc) a b c d
-    UnboxedSumCon tc a b c d e -> UnboxedSumCon (item : tc) a b c d e
-    ListCon tc a b c -> ListCon (item : tc) a b c
+    DataConAnn ann inner -> DataConAnn ann (setDataConTc ty inner)
+    PrefixCon _ a b c d -> PrefixCon (Just ty) a b c d
+    InfixCon _ a b c d e -> InfixCon (Just ty) a b c d e
+    RecordCon _ a b c d -> RecordCon (Just ty) a b c d
+    GadtCon _ a b c d -> GadtCon (Just ty) a b c d
+    TupleCon _ a b c d -> TupleCon (Just ty) a b c d
+    UnboxedSumCon _ a b c d e -> UnboxedSumCon (Just ty) a b c d e
+    ListCon _ a b c -> ListCon (Just ty) a b c
 
 -- | What the type checker found for a comprehension statement, under its
 -- annotation wrappers.
-compStmtTc :: CompStmt -> [TcInfo]
+compStmtTc :: CompStmt -> Maybe PendingTcAnnotation
 compStmtTc stmt =
   case peelCompStmtAnn stmt of
     CompGen tc _ _ -> tc
@@ -615,21 +619,21 @@ compStmtTc stmt =
     CompThenBy tc _ _ -> tc
     CompGroupUsing tc _ -> tc
     CompGroupByUsing tc _ _ -> tc
-    CompAnn _ _ -> []
+    CompAnn _ _ -> Nothing
 
--- | Put an item of information in front of the information of a
--- comprehension statement, under its annotation wrappers.
-addCompStmtTc :: TcInfo -> CompStmt -> CompStmt
-addCompStmtTc item stmt =
+-- | Set the annotation of a comprehension statement, under its annotation
+-- wrappers.
+setCompStmtTc :: PendingTcAnnotation -> CompStmt -> CompStmt
+setCompStmtTc item stmt =
   case stmt of
-    CompAnn ann inner -> CompAnn ann (addCompStmtTc item inner)
-    CompGen tc pat expr -> CompGen (item : tc) pat expr
-    CompGuard tc expr -> CompGuard (item : tc) expr
-    CompLetDecls tc decls -> CompLetDecls (item : tc) decls
-    CompThen tc function -> CompThen (item : tc) function
-    CompThenBy tc function key -> CompThenBy (item : tc) function key
-    CompGroupUsing tc function -> CompGroupUsing (item : tc) function
-    CompGroupByUsing tc key function -> CompGroupByUsing (item : tc) key function
+    CompAnn ann inner -> CompAnn ann (setCompStmtTc item inner)
+    CompGen _ pat expr -> CompGen (Just item) pat expr
+    CompGuard _ expr -> CompGuard (Just item) expr
+    CompLetDecls _ decls -> CompLetDecls (Just item) decls
+    CompThen _ function -> CompThen (Just item) function
+    CompThenBy _ function key -> CompThenBy (Just item) function key
+    CompGroupUsing _ function -> CompGroupUsing (Just item) function
+    CompGroupByUsing _ key function -> CompGroupByUsing (Just item) key function
 
 -- | Remove the annotation wrappers of a sequence.
 peelArithSeqAnn :: ArithSeq -> ArithSeq
@@ -669,9 +673,13 @@ data Name = Name
     -- | What the resolver found for this occurrence. 'Nothing' when the
     -- resolver does not resolve a name in this position.
     nameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this occurrence, in the order that
-    -- it found it.
-    nameTc :: [TcInfo]
+    -- | The type that the type checker found for this occurrence, with its
+    -- type arguments and evidence.
+    nameTc :: Maybe WorkingTcAnnotation,
+    -- | The cast of this occurrence to a type that an equality proves. A
+    -- method name of a statement and the operator of a section can have
+    -- it, because they have no expression node.
+    nameCast :: Maybe PendingTcCastAnnotation
   }
   deriving (Eq, Show)
 
@@ -684,8 +692,9 @@ data UnqualifiedName = UnqualifiedName
     -- | What the resolver found for this binder or occurrence. 'Nothing'
     -- when the resolver does not resolve a name in this position.
     unqualifiedNameResolution :: Maybe ResolutionResult,
-    -- | What the type checker found for this binder or occurrence.
-    unqualifiedNameTc :: [TcInfo]
+    -- | The type that the type checker found for this binder or
+    -- occurrence.
+    unqualifiedNameTc :: Maybe WorkingTcAnnotation
   }
   deriving (Eq, Show)
 
@@ -787,8 +796,8 @@ data ImportItem
 data Decl
   = -- | Metadata for the whole declaration.
     DeclAnn Annotation Decl
-  | -- | What the type checker found for the whole declaration.
-    DeclTc TcInfo Decl
+  | -- | The pending or checked type of the whole declaration.
+    DeclTc WorkingTcAnnotation Decl
   | -- | A resolve error for the whole declaration.
     DeclError ResolveError Decl
   | -- | @f x = x@ or @x = 1@
@@ -846,7 +855,7 @@ data Decl
 data RuleDecl = RuleDecl
   { ruleAnns :: [Annotation],
     -- | The type that the type checker found for the rule.
-    ruleTc :: [TcInfo],
+    ruleTc :: Maybe TcType,
     -- | The error when the left-hand side does not apply a top-level
     -- variable.
     ruleError :: Maybe ResolveError,
@@ -871,7 +880,7 @@ data RuleDecl = RuleDecl
 data RuleBinder = RuleBinder
   { ruleBinderAnns :: [Annotation],
     -- | The type that the type checker found for the binder.
-    ruleBinderTc :: [TcInfo],
+    ruleBinderTc :: Maybe TcType,
     ruleBinderName :: UnqualifiedName,
     ruleBinderType :: Maybe Type
   }
@@ -935,10 +944,10 @@ data PatSynDecl = PatSynDecl
 -- | The right-hand side of a binding, case alternative, or lambda case.
 data Rhs body
   = -- | @= body@ with an optional @where@ clause. The second list holds
-    -- what the type checker found for the right-hand side.
-    UnguardedRhs [Annotation] [TcInfo] body (Maybe [Decl])
+    -- the casts of the right-hand side. The type checker sets them.
+    UnguardedRhs [Annotation] [PendingTcCastAnnotation] body (Maybe [Decl])
   | -- | Guarded equations such as @| x > 0 = body@.
-    GuardedRhss [Annotation] [TcInfo] [GuardedRhs body] (Maybe [Decl])
+    GuardedRhss [Annotation] [PendingTcCastAnnotation] [GuardedRhs body] (Maybe [Decl])
   deriving (Eq, Show)
 
 -- | One guarded branch.
@@ -1059,7 +1068,7 @@ data Pattern
   = -- | Metadata for the whole pattern.
     PAnn Annotation Pattern
   | -- | What the type checker found for the whole pattern.
-    PTc TcInfo Pattern
+    PTc PatternTc Pattern
   | -- | @x@
     PVar UnqualifiedName
   | -- | @\@a@ in a required type argument pattern.
@@ -1320,27 +1329,26 @@ data NewtypeDecl = NewtypeDecl
   deriving (Eq, Show)
 
 -- | A data constructor declaration. The first field of each constructor
--- is what the type checker found for the declaration: the type of the
--- data constructor.
+-- is the checked type of the data constructor. The type checker sets it.
 data DataConDecl
   = -- | Metadata for the whole constructor declaration (typically a 'SourceSpan' via 'mkSpanAnnotation').
     DataConAnn Annotation DataConDecl
   | -- | @Just a@
-    PrefixCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [BangType]
+    PrefixCon (Maybe TcType) [TyVarBinder] [Type] UnqualifiedName [BangType]
   | -- | @a :+: b@
-    InfixCon [TcInfo] [TyVarBinder] [Type] BangType UnqualifiedName BangType
+    InfixCon (Maybe TcType) [TyVarBinder] [Type] BangType UnqualifiedName BangType
   | -- | @MkT { x :: Int, y :: Bool }@
-    RecordCon [TcInfo] [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
+    RecordCon (Maybe TcType) [TyVarBinder] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon [TcInfo] [ForallTelescope] [Type] [UnqualifiedName] GadtBody
+    GadtCon (Maybe TcType) [ForallTelescope] [Type] [UnqualifiedName] GadtBody
   | -- | Tuple-style constructor: @()@, @(a,b)@, @(# #)@, @(# a,b #)@
-    TupleCon [TcInfo] [TyVarBinder] [Type] TupleFlavor [BangType]
+    TupleCon (Maybe TcType) [TyVarBinder] [Type] TupleFlavor [BangType]
   | -- | Unboxed sum constructor: @(# a | #)@, @(# | b #)@
     -- Fields: forall vars, context, position (1-based), total arity, field type
-    UnboxedSumCon [TcInfo] [TyVarBinder] [Type] Int Int BangType
+    UnboxedSumCon (Maybe TcType) [TyVarBinder] [Type] Int Int BangType
   | -- | List constructor: @[]@. The name is the built-in list syntax.
-    ListCon [TcInfo] [TyVarBinder] [Type] Name
+    ListCon (Maybe TcType) [TyVarBinder] [Type] Name
   deriving (Eq, Show)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1371,7 +1379,12 @@ data FieldDecl = FieldDecl
     fieldNames :: [UnqualifiedName],
     -- | Optional multiplicity annotation, e.g. @x %'Many :: a@.
     fieldMultiplicity :: Maybe Type,
-    fieldType :: BangType
+    fieldType :: BangType,
+    -- | The checked type of the selector of each field name that has a
+    -- selector, by field name. The System FC desugarer gives the desugared
+    -- selector this type, so that the selector has the type that each use
+    -- of the selector instantiates. The type checker sets it.
+    fieldSelectorTypes :: [(Text, TcType)]
   }
   deriving (Eq, Show)
 
@@ -1508,7 +1521,7 @@ data Expr
   = -- | Metadata for the whole expression.
     EAnn Annotation Expr
   | -- | What the type checker found for the whole expression.
-    ETc TcInfo Expr
+    ETc ExprTc Expr
   | -- | @x@ or @Data.List.map@
     EVar Name
   | -- | @?x@
@@ -1654,11 +1667,10 @@ data DoStmt body
     -- last statement of a block and for a statement that the resolver did
     -- not resolve.
     DoExpr (Maybe Name) body
-  | -- | @rec { stmts }@. The information is the type of the tuple of the
-    -- group variables, then a pair of items for each knot occurrence. The
-    -- methods are 'Nothing' for a statement that the resolver did not
-    -- resolve.
-    DoRecStmt [TcInfo] (Maybe DoRecMethods) [DoStmt body]
+  | -- | @rec { stmts }@. The first field is what the type checker found
+    -- for the statement. The methods are 'Nothing' for a statement that the
+    -- resolver did not resolve.
+    DoRecStmt (Maybe (TcRecStmt PendingTcAnnotation)) (Maybe DoRecMethods) [DoStmt body]
   deriving (Eq, Show)
 
 -- | The methods of the desugaring of a bind statement.
@@ -1718,26 +1730,26 @@ data Cmd
   deriving (Eq, Show)
 
 -- | A statement inside a list comprehension. The first field of each
--- constructor is what the type checker found for the statement: the type
--- of the tuple of the bound variables. The first statement of a parallel
+-- constructor is the annotation that the type checker sets: the type of
+-- the tuple of the bound variables. The first statement of a parallel
 -- branch and each transform statement have it.
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkSpanAnnotation').
     CompAnn Annotation CompStmt
   | -- | @x <- xs@
-    CompGen [TcInfo] Pattern Expr
+    CompGen (Maybe PendingTcAnnotation) Pattern Expr
   | -- | @x > 0@
-    CompGuard [TcInfo] Expr
+    CompGuard (Maybe PendingTcAnnotation) Expr
   | -- | @let y = f x@
-    CompLetDecls [TcInfo] [Decl]
+    CompLetDecls (Maybe PendingTcAnnotation) [Decl]
   | -- | @then f@ (TransformListComp)
-    CompThen [TcInfo] Expr
+    CompThen (Maybe PendingTcAnnotation) Expr
   | -- | @then f by e@ (TransformListComp)
-    CompThenBy [TcInfo] Expr Expr
+    CompThenBy (Maybe PendingTcAnnotation) Expr Expr
   | -- | @then group using f@ (TransformListComp)
-    CompGroupUsing [TcInfo] Expr
+    CompGroupUsing (Maybe PendingTcAnnotation) Expr
   | -- | @then group by e using f@ (TransformListComp)
-    CompGroupByUsing [TcInfo] Expr Expr
+    CompGroupByUsing (Maybe PendingTcAnnotation) Expr Expr
   deriving (Eq, Show)
 
 -- | An arithmetic sequence expression.
@@ -1777,12 +1789,12 @@ mapArithSeqMethod f arithSeq =
 
 -- | Wrap a declaration with its checked type.
 annotateDecl :: TcAnnotation -> Decl -> Decl
-annotateDecl ann = DeclTc (InfoCheckedType ann)
+annotateDecl ann = DeclTc (WorkingChecked ann)
 
 -- | Cast a right-hand side onto the right type of its wanted equality.
 annotateRhsCast :: TcType -> EvVar -> Rhs body -> Rhs body
 annotateRhsCast ty evidence rhs =
-  let info = InfoCast (PendingTcCastAnnotation ty evidence CastToRight)
+  let info = PendingTcCastAnnotation ty evidence CastToRight
    in case rhs of
         UnguardedRhs annotations infos body locals -> UnguardedRhs annotations (info : infos) body locals
         GuardedRhss annotations infos bodies locals -> GuardedRhss annotations (info : infos) bodies locals
@@ -1792,7 +1804,7 @@ annotateRhsCast ty evidence rhs =
 -- equality that proves it runs backwards for the argument itself.
 annotateExprCast :: TcType -> EvVar -> Expr -> Expr
 annotateExprCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToLeft))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToLeft))
 
 -- | Cast an expression onto the right type of its wanted equality. The
 -- function of an application whose type is not syntactically an arrow is
@@ -1800,7 +1812,7 @@ annotateExprCast ty evidence =
 -- for the function itself.
 annotateFunCast :: TcType -> EvVar -> Expr -> Expr
 annotateFunCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast an annotated expression onto its signature type. The expression
 -- is equated as @actual ~ signature@, so the proof runs forwards. A given
@@ -1809,7 +1821,7 @@ annotateFunCast ty evidence =
 -- stands, and FC needs the cast onto @Proxy d@.
 annotateSigCast :: TcType -> EvVar -> Expr -> Expr
 annotateSigCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
 -- | Cast a part of an @if@ expression onto the type that the expression
 -- needs there. The part is equated as @actual ~ needed@, so the proof
@@ -1818,26 +1830,23 @@ annotateSigCast ty evidence =
 -- the types @N t@ and @n@.
 annotateBranchCast :: TcType -> EvVar -> Expr -> Expr
 annotateBranchCast ty evidence =
-  ETc (InfoCast (PendingTcCastAnnotation ty evidence CastToRight))
+  ETc (ExprCast (PendingTcCastAnnotation ty evidence CastToRight))
 
--- | The pending type of an item of information, if it is one.
-infoPending :: TcInfo -> Maybe PendingTcAnnotation
-infoPending item =
-  case item of
-    InfoType pending -> Just pending
+-- | The pending annotation of a name occurrence, if it has one.
+namePending :: Name -> Maybe PendingTcAnnotation
+namePending name =
+  case nameTc name of
+    Just (WorkingPending pending) -> Just pending
     _ -> Nothing
 
--- | Whether an item of information is a pending type.
-infoIsPending :: TcInfo -> Bool
-infoIsPending item =
-  case item of
-    InfoType _ -> True
-    _ -> False
+-- | Give a name occurrence a pending annotation. A name that has an
+-- annotation keeps it.
+addNamePending :: PendingTcAnnotation -> Name -> Name
+addNamePending pending name =
+  name {nameTc = nameTc name <|> Just (WorkingPending pending)}
 
--- | Whether an item of information is a type, pending or final.
-infoHasType :: TcInfo -> Bool
-infoHasType item =
-  case item of
-    InfoType _ -> True
-    InfoCheckedType _ -> True
-    _ -> False
+-- | Give a name occurrence a cast onto the right type of its wanted
+-- equality. A name that has a cast keeps it.
+addNameCast :: TcType -> EvVar -> Name -> Name
+addNameCast ty evidence name =
+  name {nameCast = nameCast name <|> Just (PendingTcCastAnnotation ty evidence CastToRight)}

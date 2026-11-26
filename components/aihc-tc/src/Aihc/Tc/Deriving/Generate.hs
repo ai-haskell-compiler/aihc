@@ -1925,7 +1925,7 @@ genericExpr gen select = referenceExpr gen (select . derivingGeneric)
 methodBind :: Gen -> Text -> [Match] -> InstanceDeclItem
 methodBind gen name matches =
   maybe id (InstanceItemAnn . mkSpanAnnotation) (genSpan gen) $
-    InstanceItemBind Nothing (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing []) matches)
+    InstanceItemBind Nothing (FunctionBind (UnqualifiedName (variableNameType name) name (genSpanAnns gen) Nothing Nothing) matches)
 
 simpleMatch :: Gen -> [Pattern] -> Expr -> Match
 simpleMatch gen patterns body =
@@ -1982,7 +1982,7 @@ freshLocal gen text = do
         text
         (genSpanAnns gen)
         (Just (ResolutionOk (Resolved (genSpan gen) (IdentifierNamed text) ResolutionNamespaceTerm (EntityLocal (LocalId unique)))))
-        []
+        Nothing
     )
 
 localExpr :: Gen -> UnqualifiedName -> Expr
@@ -2058,12 +2058,12 @@ listExpr gen = EList (syntaxName gen "[]") Nothing
 -- read its resolution, so the name has none.
 syntaxName :: Gen -> Text -> Name
 syntaxName gen text =
-  Name Nothing NameConSym text (map mkSpanAnnotation (maybeToList (genSpan gen))) Nothing []
+  Name Nothing NameConSym text (map mkSpanAnnotation (maybeToList (genSpan gen))) Nothing Nothing Nothing
 
 -- | The name of the type @Int#@ of a primitive literal.
 intHashName :: Gen -> Name
 intHashName gen =
-  Name Nothing NameConId "Int#" (map mkSpanAnnotation (maybeToList (genSpan gen))) (Just (primitiveIntTypeAnnotation gen)) []
+  Name Nothing NameConId "Int#" (map mkSpanAnnotation (maybeToList (genSpan gen))) (Just (primitiveIntTypeAnnotation gen)) Nothing Nothing
 
 -- | An unboxed @Int#@ literal pattern, which matches a tag without the
 -- @Eq@ and @Num@ instances an overloaded literal pattern would ask for.
@@ -2095,7 +2095,8 @@ resolvedName sp packageId moduleName' nameType namespace text =
     text
     (map mkSpanAnnotation (maybeToList sp))
     (Just (ResolutionOk (Resolved sp (IdentifierNamed text) namespace (EntityGlobal (GlobalName text packageId moduleName' namespace)))))
-    []
+    Nothing
+    Nothing
 
 tyConNameSyntax :: Maybe SourceSpan -> TyCon -> Name
 tyConNameSyntax sp tyCon =
