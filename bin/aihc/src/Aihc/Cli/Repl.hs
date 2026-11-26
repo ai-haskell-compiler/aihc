@@ -56,7 +56,8 @@ module Aihc.Cli.Repl
 where
 
 import Aihc.Cli.Build (buildWithConfig)
-import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig, installWithConfig)
+import Aihc.Cli.Install (InstallResult (..), ModuleCompileConfig (..), installWithConfig)
+import Aihc.Cli.ModuleProvider (newProviderCache)
 import Aihc.Cli.Options (BuildOptions (..), InstallOptions (..), PlanOptions (..), ReplOptions (..), defaultPlanOptions)
 import Aihc.Cli.Progress (ProgressReporter, quietProgress, withProgress)
 import Aihc.Native (NativeTarget (..), OptimizationLevel (..))
@@ -145,14 +146,20 @@ data SessionModule = SessionModule
 -- build of the image. The reporter must stop before the first prompt,
 -- because a live view erases the lines below it.
 replSession :: ((ProgressReporter -> IO FilePath) -> IO FilePath) -> (ModuleCompileConfig -> ModuleCompileConfig) -> ReplOptions -> ReplStreams -> IO ()
-replSession withReporter adjust options streams =
+replSession withReporter given options streams =
   case replBuildRoot options of
     Just root -> run root
     Nothing -> bracket (getTemporaryDirectory >>= \directory -> mkdtemp (directory </> "aihc-repl-")) removePathForcibly run
   where
-    run given = do
-      root <- makeAbsolute given
+    run directory = do
+      root <- makeAbsolute directory
       createDirectoryIfMissing True (root </> "session" </> "src")
+      -- Each input is one more install. The build of the image and the
+      -- installs share one cache, so the session decodes the facts of a
+      -- store package one time. The session does not change a store
+      -- package.
+      cache <- newProviderCache
+      let adjust config = (given config) {compileProviderCache = Just cache}
       image <- withReporter (\reporter -> buildImage reporter adjust options root)
       readable <- makeAbsolute "."
       let write stream =
