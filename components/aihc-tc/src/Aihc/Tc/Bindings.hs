@@ -62,33 +62,33 @@ declBindings wiring kinds origin decl =
         <> concatMap (recordSelectorBindings origin) (dataFamilyInstConstructors familyInst)
     _ -> []
 
-typeBindings :: (Text, Text) -> TcAnnotation -> Decl -> [TcBindingResult]
-typeBindings origin tcAnn decl =
+typeBindings :: (Text, Text) -> TcType -> Decl -> [TcBindingResult]
+typeBindings origin declType decl =
   case decl of
     DeclValue (FunctionBind binder _) ->
       let (name, displayName) = binderBindingName binder
-       in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
+       in [TcBindingResult (originTermKey origin name) displayName declType]
     -- The declaration type of a pattern binding is the type of the
     -- whole pattern, thus each binder must give its own type. The
     -- binders of @(a, b) = ...@ do not have the type of the pair.
     DeclValue (PatternBind _ pat _) ->
-      [ TcBindingResult (originTermKey origin name) displayName (fromMaybe (tcAnnType tcAnn) (binderCheckedType binder))
+      [ TcBindingResult (originTermKey origin name) displayName (fromMaybe declType (binderCheckedType binder))
       | binder <- patternBinderNames pat,
         let (name, displayName) = binderBindingName binder
       ]
     DeclData dataDecl ->
       let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+       in [TcBindingResult (originTermKey origin name) name declType]
     DeclNewtype newtypeDecl ->
       let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+       in [TcBindingResult (originTermKey origin name) name declType]
     DeclDataFamilyDecl familyDecl ->
       let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-       in [TcBindingResult (originTermKey origin name) name (tcAnnType tcAnn)]
+       in [TcBindingResult (originTermKey origin name) name declType]
     DeclForeign foreignDecl ->
       let name = unqualifiedNameText (foreignName foreignDecl)
           displayName = renderBinderName (foreignName foreignDecl)
-       in [TcBindingResult (originTermKey origin name) displayName (tcAnnType tcAnn)]
+       in [TcBindingResult (originTermKey origin name) displayName declType]
     _ -> []
 
 classBindings :: TcKinds -> (Text, Text) -> TcClassAnnotation -> [TcBindingResult]
@@ -174,7 +174,7 @@ recordFieldsOf declaration =
 -- | The type that the type checker put on a binder, when it has one.
 binderCheckedType :: UnqualifiedName -> Maybe TcType
 binderCheckedType name =
-  tcAnnType <$> unqualifiedNameTc name
+  tcBinderAnnType <$> unqualifiedNameTc name
 
 dataConIdentities :: DataConDecl -> [DataConIdentity]
 dataConIdentities dataConDecl =

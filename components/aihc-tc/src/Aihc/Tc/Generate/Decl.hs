@@ -17,7 +17,8 @@ where
 
 import Aihc.Resolve (Identifier (..), Package (..), PackageId (..), ResolutionNamespace (..), Resolved (..), ResolvedModule (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations
-  ( TcAnnotation (..),
+  ( TcAnnotated (..),
+    TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDerivedInstance (..),
@@ -162,7 +163,7 @@ import Aihc.Tc.Syntax
     unqualifiedNameAnns,
   )
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
-import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcAnnotations)
+import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcTypes)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
@@ -789,7 +790,7 @@ tcRuleDecl rule = withAmbientSpan sp $ do
         Just residualPreds'
           | failed -> pure rule
           | otherwise -> do
-              let interior = concatMap pendingTypes (collectTcAnnotations lhs')
+              let interior = collectTcTypes lhs'
               Scheme inferred specified predicates body <- generalizeAndCommitWithInterior interior (ruleTypeOf lhsTy) residualPreds'
               -- A binder signature can give a variable a kind that mentions a
               -- generalized kind variable, as @m@ in @forall (x :: T m). ...@
@@ -825,9 +826,6 @@ tcRuleDecl rule = withAmbientSpan sp $ do
     zonkCt ct = do
       predicate <- zonkPred (ctPred ct)
       pure ct {ctPred = predicate}
-
-    pendingTypes pending =
-      tcAnnType pending : tcAnnTypeArgs pending <> tcAnnTermArgTypes pending
 
     withRuleBinders binders action =
       foldr (\(binder, ty) -> extendResolvedTermEnv (ruleBinderName binder) (TcMonoIdBinder ty)) action binders
@@ -1547,7 +1545,7 @@ annotateTypeFamilyHead tcAnn ty =
 
 annotateName :: TcAnnotation -> Name -> Name
 annotateName tcAnn name =
-  name {nameTc = nameTc name <|> Just tcAnn}
+  name {nameTc = nameTc name <|> Just (fromTcAnnotation tcAnn)}
 
 annotateTypeFamilyInstTc :: (Text, Text) -> TypeFamilyInst -> TcM Decl
 annotateTypeFamilyInstTc (packageName, moduleName') familyInst = do
@@ -1607,7 +1605,7 @@ annotateBinderHeadName tcAnn head' =
 
 annotateUnqualifiedName :: TcAnnotation -> UnqualifiedName -> UnqualifiedName
 annotateUnqualifiedName tcAnn name =
-  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just tcAnn}
+  name {unqualifiedNameTc = unqualifiedNameTc name <|> Just (fromTcAnnotation tcAnn)}
 
 annotateDataConDeclTc :: TyCon -> DataConDecl -> TcM DataConDecl
 annotateDataConDeclTc parent dataConDecl = do
@@ -2127,9 +2125,9 @@ primitiveMarshal sourceType constructors primitiveName abiType cType = do
 
 annotateDeclAt :: Maybe SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt Nothing tcAnn decl =
-  annotateDecl tcAnn decl
+  annotateDecl (tcAnnType tcAnn) decl
 annotateDeclAt (Just sp) tcAnn decl =
-  DeclAnn (mkSpanAnnotation sp) (annotateDecl tcAnn decl)
+  DeclAnn (mkSpanAnnotation sp) (annotateDecl (tcAnnType tcAnn) decl)
 
 valueDeclSpan :: ValueDecl -> Maybe SourceSpan
 valueDeclSpan valueDecl =
@@ -5195,7 +5193,7 @@ unqualifiedFromResolvedName name =
       unqualifiedNameText = nameText name,
       unqualifiedNameAnns = nameAnns name,
       unqualifiedNameResolution = nameResolution name,
-      unqualifiedNameTc = nameTc name
+      unqualifiedNameTc = fromTcAnnotation . toTcAnnotation <$> nameTc name
     }
 
 -- | The axiom name of one type family instance, within the module that holds

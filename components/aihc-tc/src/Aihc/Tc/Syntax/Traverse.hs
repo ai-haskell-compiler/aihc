@@ -27,7 +27,7 @@ module Aihc.Tc.Syntax.Traverse
     idWalk,
     FactWalk (..),
     idFactWalk,
-    collectTcAnnotations,
+    collectTcTypes,
     traverseAnnotations,
     annotationList,
     collectAnnotations,
@@ -38,7 +38,7 @@ module Aihc.Tc.Syntax.Traverse
   )
 where
 
-import Aihc.Tc.Annotations (TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
+import Aihc.Tc.Annotations (TcAnnotated (..), TcAnnotation (..), TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
 import Aihc.Tc.Types (TcType)
@@ -53,8 +53,9 @@ data Walk f = Walk
     -- | Every resolution result, where it is attached: on a name or on a
     -- binder.
     walkResolution :: ResolutionResult -> f ResolutionResult,
-    -- | Every type annotation that a node holds in a typed field or in a
-    -- wrapper, where it is attached.
+    -- | Every annotation that a node holds in a typed field or in a
+    -- wrapper, where it is attached. The hook gets the general form of
+    -- the annotation.
     walkTcAnnotation :: TcAnnotation -> f TcAnnotation,
     -- | Every checked type that a node holds in a typed field of its own,
     -- where it is attached: on a rule, a rule binder, or a constructor
@@ -157,26 +158,28 @@ class Walkable a where
 walkAnns :: (Applicative f) => Walk f -> [Annotation] -> f [Annotation]
 walkAnns w = walkAnnotationList w (traverse (walkAnnotation w))
 
--- | The type annotations of a piece of syntax, in source order.
-collectTcAnnotations :: (Walkable a) => a -> [TcAnnotation]
-collectTcAnnotations = runCollect (walk idWalk {walkTcAnnotation = step})
+-- | The types that the type checker put in a piece of syntax, in source
+-- order: the type, the type arguments, and the term argument types of
+-- each annotation, and each type that a node holds in a field of its own.
+collectTcTypes :: (Walkable a) => a -> [TcType]
+collectTcTypes = runCollect (walk idWalk {walkTcAnnotation = annotation, walkCheckedType = \ty -> Collect (Just (ty :))})
   where
-    step item = Collect (Just (item :))
+    annotation item = Collect (Just ((tcAnnType item : tcAnnTypeArgs item <> tcAnnTermArgTypes item) ++))
 
 -- | The information of an expression wrapper. 'Nothing' removes the
 -- wrapper.
 walkExprTc :: (Applicative f) => Walk f -> ExprTc -> f (Maybe ExprTc)
 walkExprTc w item =
   case item of
-    ExprInst annotation -> Just . ExprInst <$> walkTcAnnotation w annotation
-    ExprAbs annotation -> Just . ExprAbs <$> walkTcAnnotation w annotation
+    ExprInst annotation -> Just . ExprInst <$> walkAnn w annotation
+    ExprAbs annotation -> Just . ExprAbs <$> walkAnn w annotation
     ExprCast cast -> fmap ExprCast <$> factCast (walkFacts w) cast
 
 -- | The information of a pattern wrapper. 'Nothing' removes the wrapper.
 walkPatternTc :: (Applicative f) => Walk f -> PatternTc -> f (Maybe PatternTc)
 walkPatternTc w item =
   case item of
-    PatternType annotation -> Just . PatternType <$> walkTcAnnotation w annotation
+    PatternType annotation -> Just . PatternType <$> walkAnn w annotation
     PatternCast cast -> fmap PatternCast <$> factCast (walkFacts w) cast
     PatternInstantiation -> pure (Just item)
 
@@ -192,15 +195,15 @@ walkCasts w casts = catMaybes <$> traverse (factCast (walkFacts w)) casts
 walkRemovable :: (Applicative f) => (item -> f (Maybe item)) -> Maybe item -> f (Maybe item)
 walkRemovable hook item = join <$> traverse hook item
 
--- | The annotation of a declaration wrapper, a name, or a binder.
-walkDeclTc :: (Applicative f) => Walk f -> TcAnnotation -> f TcAnnotation
-walkDeclTc = walkTcAnnotation
+-- | An annotation of the tree, which the hook visits in the general form.
+walkAnn :: (Applicative f, TcAnnotated a) => Walk f -> a -> f a
+walkAnn w annotation = fromTcAnnotation <$> walkTcAnnotation w (toTcAnnotation annotation)
 
 -- | The annotations of a @rec@ statement: the tuple annotation, then the
 -- occurrence annotation of each knot variable.
-walkRecStmt :: (Applicative f) => Walk f -> TcRecStmt TcAnnotation -> f (TcRecStmt TcAnnotation)
+walkRecStmt :: (Applicative f) => Walk f -> TcRecStmt -> f TcRecStmt
 walkRecStmt w (TcRecStmt tuple occurrences) =
-  TcRecStmt <$> walkTcAnnotation w tuple <*> traverse (\(key, occurrence) -> (key,) <$> walkTcAnnotation w occurrence) occurrences
+  TcRecStmt <$> walkAnn w tuple <*> traverse (\(key, occurrence) -> (key,) <$> walkAnn w occurrence) occurrences
 
 -- | The checked type of one node, if it has one.
 walkCheckedTypeOf :: (Applicative f) => Walk f -> Maybe TcType -> f (Maybe TcType)
@@ -293,7 +296,7 @@ instance Walkable Name where
     (\anns resolution annotation cast -> name {nameAnns = anns, nameResolution = resolution, nameTc = annotation, nameCast = cast})
       <$> walkAnns w (nameAnns name)
       <*> walkMaybeResolution w (nameResolution name)
-      <*> traverse (walkDeclTc w) (nameTc name)
+      <*> traverse (walkAnn w) (nameTc name)
       <*> walkRemovable (factCast (walkFacts w)) (nameCast name)
 
 instance Walkable UnqualifiedName where
@@ -301,7 +304,7 @@ instance Walkable UnqualifiedName where
     (\anns resolution annotation -> name {unqualifiedNameAnns = anns, unqualifiedNameResolution = resolution, unqualifiedNameTc = annotation})
       <$> walkAnns w (unqualifiedNameAnns name)
       <*> walkMaybeResolution w (unqualifiedNameResolution name)
-      <*> traverse (walkDeclTc w) (unqualifiedNameTc name)
+      <*> traverse (walkAnn w) (unqualifiedNameTc name)
 
 -- Modules, exports, and imports
 
@@ -363,7 +366,7 @@ instance Walkable ImportItem where
 instance Walkable Decl where
   walk w = walkDecl w $ \case
     DeclAnn ann inner -> DeclAnn <$> walkAnnotation w ann <*> walk w inner
-    DeclTc info inner -> DeclTc <$> walkDeclTc w info <*> walk w inner
+    DeclTc info inner -> DeclTc <$> walkCheckedType w info <*> walk w inner
     DeclError err inner -> DeclError err <$> walk w inner
     DeclValue value -> DeclValue <$> walk w value
     DeclImplicitParam name expr decls ->
@@ -468,7 +471,7 @@ instance Walkable Literal where
   walk w = walkLiteral w $ \literal ->
     case literal of
       LitAnn ann inner -> LitAnn <$> walkAnnotation w ann <*> walk w inner
-      LitTc info inner -> LitTc <$> walkTcAnnotation w info <*> walk w inner
+      LitTc info inner -> LitTc <$> walkCheckedType w info <*> walk w inner
       LitInt {} -> pure literal
       LitFloat {} -> pure literal
       LitChar {} -> pure literal
@@ -791,14 +794,14 @@ instance Walkable Expr where
       EAnn ann inner -> EAnn <$> walkAnnotation w ann <*> walk w inner
       ETc info inner -> wrapTc ETc <$> walkExprTc w info <*> walk w inner
       EVar name -> EVar <$> walk w name
-      EImplicitParam tc name -> (`EImplicitParam` name) <$> traverse (walkTcAnnotation w) tc
+      EImplicitParam tc name -> (`EImplicitParam` name) <$> traverse (walkAnn w) tc
       ETypeSyntax form ty -> ETypeSyntax form <$> walk w ty
-      EInt tc syntax value numericType text -> (\tc' syntax' -> EInt tc' syntax' value numericType text) <$> traverse (walkTcAnnotation w) tc <*> walk w syntax
-      EFloat tc syntax value floatType text -> (\tc' syntax' -> EFloat tc' syntax' value floatType text) <$> traverse (walkTcAnnotation w) tc <*> walk w syntax
-      EChar tc value text -> (\tc' -> EChar tc' value text) <$> traverse (walkTcAnnotation w) tc
-      ECharHash tc typeName value text -> (\tc' typeName' -> ECharHash tc' typeName' value text) <$> traverse (walkTcAnnotation w) tc <*> walk w typeName
-      EString tc conversion value text -> (\tc' conversion' -> EString tc' conversion' value text) <$> traverse (walkTcAnnotation w) tc <*> walk w conversion
-      EStringHash tc typeName value text -> (\tc' typeName' -> EStringHash tc' typeName' value text) <$> traverse (walkTcAnnotation w) tc <*> walk w typeName
+      EInt tc syntax value numericType text -> (\tc' syntax' -> EInt tc' syntax' value numericType text) <$> traverse (walkAnn w) tc <*> walk w syntax
+      EFloat tc syntax value floatType text -> (\tc' syntax' -> EFloat tc' syntax' value floatType text) <$> traverse (walkAnn w) tc <*> walk w syntax
+      EChar tc value text -> (\tc' -> EChar tc' value text) <$> traverse (walkAnn w) tc
+      ECharHash tc typeName value text -> (\tc' typeName' -> ECharHash tc' typeName' value text) <$> traverse (walkAnn w) tc <*> walk w typeName
+      EString tc conversion value text -> (\tc' conversion' -> EString tc' conversion' value text) <$> traverse (walkAnn w) tc <*> walk w conversion
+      EStringHash tc typeName value text -> (\tc' typeName' -> EStringHash tc' typeName' value text) <$> traverse (walkAnn w) tc <*> walk w typeName
       EOverloadedLabel {} -> pure expr
       EQuasiQuote tc quoter body -> (\tc' -> EQuasiQuote tc' quoter body) <$> walkCheckedTypeOf w tc
       EIf ty method condition thenExpr elseExpr ->
@@ -810,23 +813,23 @@ instance Walkable Expr where
       EInfix lhs name rhs -> EInfix <$> walk w lhs <*> walk w name <*> walk w rhs
       EViewPat lhs rhs -> EViewPat <$> walk w lhs <*> walk w rhs
       ENegate tc method inner -> ENegate <$> walkCheckedTypeOf w tc <*> walk w method <*> walk w inner
-      ESectionL tc inner name -> ESectionL <$> traverse (walkTcAnnotation w) tc <*> walk w inner <*> walk w name
-      ESectionR tc name inner -> ESectionR <$> traverse (walkTcAnnotation w) tc <*> walk w name <*> walk w inner
+      ESectionL tc inner name -> ESectionL <$> traverse (walkAnn w) tc <*> walk w inner <*> walk w name
+      ESectionR tc name inner -> ESectionR <$> traverse (walkAnn w) tc <*> walk w name <*> walk w inner
       ELetDecls decls body -> ELetDecls <$> walk w decls <*> walk w body
       ECase ty scrutinee alternatives -> ECase <$> walkCheckedTypeOf w ty <*> walk w scrutinee <*> walk w alternatives
       EDo ty statements flavor -> EDo <$> walkCheckedTypeOf w ty <*> walk w statements <*> pure flavor
-      EListComp tc body statements -> EListComp <$> traverse (walkTcAnnotation w) tc <*> walk w body <*> walk w statements
-      EListCompParallel tc body branches -> EListCompParallel <$> traverse (walkTcAnnotation w) tc <*> walk w body <*> walk w branches
+      EListComp tc body statements -> EListComp <$> traverse (walkAnn w) tc <*> walk w body <*> walk w statements
+      EListCompParallel tc body branches -> EListCompParallel <$> traverse (walkAnn w) tc <*> walk w body <*> walk w branches
       EArithSeq ty method sequence' -> EArithSeq <$> walkCheckedTypeOf w ty <*> walk w method <*> walk w sequence'
       ERecordCon name fields wildcard -> ERecordCon <$> walk w name <*> walk w fields <*> pure wildcard
       ERecordUpd record fields -> ERecordUpd <$> walk w record <*> walk w fields
       EGetField tc method record field -> EGetField <$> walkCheckedTypeOf w tc <*> walk w method <*> walk w record <*> walk w field
-      EGetFieldProjection tc method fields -> EGetFieldProjection <$> traverse (walkTcAnnotation w) tc <*> walk w method <*> walk w fields
+      EGetFieldProjection tc method fields -> EGetFieldProjection <$> traverse (walkAnn w) tc <*> walk w method <*> walk w fields
       ETypeSig inner ty -> ETypeSig <$> walk w inner <*> walk w ty
       EParen inner -> EParen <$> walk w inner
-      EList tc syntax method items -> EList <$> traverse (walkTcAnnotation w) tc <*> walk w syntax <*> walk w method <*> walk w items
-      ETuple tc syntax flavor items -> (\tc' syntax' -> ETuple tc' syntax' flavor) <$> traverse (walkTcAnnotation w) tc <*> walk w syntax <*> walk w items
-      EUnboxedSum tc position arity inner -> (\tc' -> EUnboxedSum tc' position arity) <$> traverse (walkTcAnnotation w) tc <*> walk w inner
+      EList tc syntax method items -> EList <$> traverse (walkAnn w) tc <*> walk w syntax <*> walk w method <*> walk w items
+      ETuple tc syntax flavor items -> (\tc' syntax' -> ETuple tc' syntax' flavor) <$> traverse (walkAnn w) tc <*> walk w syntax <*> walk w items
+      EUnboxedSum tc position arity inner -> (\tc' -> EUnboxedSum tc' position arity) <$> traverse (walkAnn w) tc <*> walk w inner
       ETypeApp function ty -> ETypeApp <$> walk w function <*> walk w ty
       EApp function argument -> EApp <$> walk w function <*> walk w argument
       ETHExpQuote tc inner -> ETHExpQuote <$> walkCheckedTypeOf w tc <*> walk w inner
@@ -884,13 +887,13 @@ instance Walkable Cmd where
 instance Walkable CompStmt where
   walk w = walkCompStmt w $ \case
     CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
-    CompGen tc pat expr -> CompGen <$> traverse (walkTcAnnotation w) tc <*> walk w pat <*> walk w expr
-    CompGuard tc expr -> CompGuard <$> traverse (walkTcAnnotation w) tc <*> walk w expr
-    CompLetDecls tc decls -> CompLetDecls <$> traverse (walkTcAnnotation w) tc <*> walk w decls
-    CompThen tc expr -> CompThen <$> traverse (walkTcAnnotation w) tc <*> walk w expr
-    CompThenBy tc function expr -> CompThenBy <$> traverse (walkTcAnnotation w) tc <*> walk w function <*> walk w expr
-    CompGroupUsing tc function -> CompGroupUsing <$> traverse (walkTcAnnotation w) tc <*> walk w function
-    CompGroupByUsing tc expr function -> CompGroupByUsing <$> traverse (walkTcAnnotation w) tc <*> walk w expr <*> walk w function
+    CompGen tc pat expr -> CompGen <$> traverse (walkAnn w) tc <*> walk w pat <*> walk w expr
+    CompGuard tc expr -> CompGuard <$> traverse (walkAnn w) tc <*> walk w expr
+    CompLetDecls tc decls -> CompLetDecls <$> traverse (walkAnn w) tc <*> walk w decls
+    CompThen tc expr -> CompThen <$> traverse (walkAnn w) tc <*> walk w expr
+    CompThenBy tc function expr -> CompThenBy <$> traverse (walkAnn w) tc <*> walk w function <*> walk w expr
+    CompGroupUsing tc function -> CompGroupUsing <$> traverse (walkAnn w) tc <*> walk w function
+    CompGroupByUsing tc expr function -> CompGroupByUsing <$> traverse (walkAnn w) tc <*> walk w expr <*> walk w function
 
 instance Walkable ArithSeq where
   walk w = walkArithSeq w $ \case

@@ -52,6 +52,7 @@ module Aihc.Tc.Kind
 where
 
 import Aihc.Resolve (ResolutionNamespace (..), Resolved (..))
+import Aihc.Tc.Annotations (TcAnnotated (..))
 import Aihc.Tc.Env (TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
@@ -1070,7 +1071,7 @@ typeVariableOperator name promotion
   | promotion == Unpromoted,
     isNothing (nameQualifier name),
     nameType name == NameVarId =
-      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name) (nameTc name))
+      Just (UnqualifiedName NameVarId (nameText name) (nameAnns name) (nameResolution name) (fromTcAnnotation . toTcAnnotation <$> nameTc name))
   | otherwise = Nothing
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, TcType)
