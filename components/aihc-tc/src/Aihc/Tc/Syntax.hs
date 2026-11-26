@@ -156,7 +156,7 @@ module Aihc.Tc.Syntax
     peelGuardQualifierAnn,
     peelCompStmtAnn,
     compStmtTc,
-    addCompStmtTc,
+    setCompStmtTc,
     peelArithSeqAnn,
     peelCmdAnn,
 
@@ -278,6 +278,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation,
     TcMatchArityCast,
     TcModuleIdentity,
+    TcRecStmt,
   )
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Error (TcDiagnostic)
@@ -294,9 +295,6 @@ data TcInfo
     InfoCast !TcCastAnnotation
   | -- | The constructor pattern instantiates its type arguments.
     InfoPatternInstantiation
-  | -- | The next item of the statement is the occurrence type of this
-    -- group variable at the knot of a @rec@ group.
-    InfoRecKnotOccurrence !Entity
   deriving (Eq, Show)
 
 -- | The checked matcher equation, builder equations, and record field
@@ -594,7 +592,7 @@ setDataConTc ty decl =
 
 -- | What the type checker found for a comprehension statement, under its
 -- annotation wrappers.
-compStmtTc :: CompStmt -> [TcInfo]
+compStmtTc :: CompStmt -> Maybe TcAnnotation
 compStmtTc stmt =
   case peelCompStmtAnn stmt of
     CompGen tc _ _ -> tc
@@ -604,21 +602,21 @@ compStmtTc stmt =
     CompThenBy tc _ _ -> tc
     CompGroupUsing tc _ -> tc
     CompGroupByUsing tc _ _ -> tc
-    CompAnn _ _ -> []
+    CompAnn _ _ -> Nothing
 
--- | Put an item of information in front of the information of a
--- comprehension statement, under its annotation wrappers.
-addCompStmtTc :: TcInfo -> CompStmt -> CompStmt
-addCompStmtTc item stmt =
+-- | Set the annotation of a comprehension statement, under its annotation
+-- wrappers.
+setCompStmtTc :: TcAnnotation -> CompStmt -> CompStmt
+setCompStmtTc item stmt =
   case stmt of
-    CompAnn ann inner -> CompAnn ann (addCompStmtTc item inner)
-    CompGen tc pat expr -> CompGen (item : tc) pat expr
-    CompGuard tc expr -> CompGuard (item : tc) expr
-    CompLetDecls tc decls -> CompLetDecls (item : tc) decls
-    CompThen tc function -> CompThen (item : tc) function
-    CompThenBy tc function key -> CompThenBy (item : tc) function key
-    CompGroupUsing tc function -> CompGroupUsing (item : tc) function
-    CompGroupByUsing tc key function -> CompGroupByUsing (item : tc) key function
+    CompAnn ann inner -> CompAnn ann (setCompStmtTc item inner)
+    CompGen _ pat expr -> CompGen (Just item) pat expr
+    CompGuard _ expr -> CompGuard (Just item) expr
+    CompLetDecls _ decls -> CompLetDecls (Just item) decls
+    CompThen _ function -> CompThen (Just item) function
+    CompThenBy _ function key -> CompThenBy (Just item) function key
+    CompGroupUsing _ function -> CompGroupUsing (Just item) function
+    CompGroupByUsing _ key function -> CompGroupByUsing (Just item) key function
 
 -- | Remove the annotation wrappers of a sequence.
 peelArithSeqAnn :: ArithSeq -> ArithSeq
@@ -1650,11 +1648,10 @@ data DoStmt body
     -- last statement of a block and for a statement that the resolver did
     -- not resolve.
     DoExpr (Maybe Name) body
-  | -- | @rec { stmts }@. The information is the type of the tuple of the
-    -- group variables, then a pair of items for each knot occurrence. The
-    -- methods are 'Nothing' for a statement that the resolver did not
-    -- resolve.
-    DoRecStmt [TcInfo] (Maybe DoRecMethods) [DoStmt body]
+  | -- | @rec { stmts }@. The first field is what the type checker found
+    -- for the statement. The methods are 'Nothing' for a statement that the
+    -- resolver did not resolve.
+    DoRecStmt (Maybe (TcRecStmt TcAnnotation)) (Maybe DoRecMethods) [DoStmt body]
   deriving (Eq, Show)
 
 -- | The methods of the desugaring of a bind statement.
@@ -1714,26 +1711,26 @@ data Cmd
   deriving (Eq, Show)
 
 -- | A statement inside a list comprehension. The first field of each
--- constructor is what the type checker found for the statement: the type
--- of the tuple of the bound variables. The first statement of a parallel
+-- constructor is the annotation that the type checker sets: the type of
+-- the tuple of the bound variables. The first statement of a parallel
 -- branch and each transform statement have it.
 data CompStmt
   = -- | Metadata for the whole comprehension statement (typically a 'SourceSpan' via 'mkSpanAnnotation').
     CompAnn Annotation CompStmt
   | -- | @x <- xs@
-    CompGen [TcInfo] Pattern Expr
+    CompGen (Maybe TcAnnotation) Pattern Expr
   | -- | @x > 0@
-    CompGuard [TcInfo] Expr
+    CompGuard (Maybe TcAnnotation) Expr
   | -- | @let y = f x@
-    CompLetDecls [TcInfo] [Decl]
+    CompLetDecls (Maybe TcAnnotation) [Decl]
   | -- | @then f@ (TransformListComp)
-    CompThen [TcInfo] Expr
+    CompThen (Maybe TcAnnotation) Expr
   | -- | @then f by e@ (TransformListComp)
-    CompThenBy [TcInfo] Expr Expr
+    CompThenBy (Maybe TcAnnotation) Expr Expr
   | -- | @then group using f@ (TransformListComp)
-    CompGroupUsing [TcInfo] Expr
+    CompGroupUsing (Maybe TcAnnotation) Expr
   | -- | @then group by e using f@ (TransformListComp)
-    CompGroupByUsing [TcInfo] Expr Expr
+    CompGroupByUsing (Maybe TcAnnotation) Expr Expr
   deriving (Eq, Show)
 
 -- | An arithmetic sequence expression.

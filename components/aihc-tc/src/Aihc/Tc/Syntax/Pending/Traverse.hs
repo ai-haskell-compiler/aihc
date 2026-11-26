@@ -768,7 +768,7 @@ instance (Walkable body) => Walkable (DoStmt body) where
     DoBind methods pat body -> DoBind <$> walk w methods <*> walk w pat <*> walk w body
     DoLetDecls decls -> DoLetDecls <$> walk w decls
     DoExpr method body -> DoExpr <$> walk w method <*> walk w body
-    DoRecStmt tc methods statements -> DoRecStmt <$> walkInfos w tc <*> walk w methods <*> walk w statements
+    DoRecStmt tc methods statements -> DoRecStmt tc <$> walk w methods <*> walk w statements
 
 instance Walkable DoBindMethods where
   walk w (DoBindMethods method failure) =
@@ -796,13 +796,13 @@ instance Walkable Cmd where
 instance Walkable CompStmt where
   walk w = walkCompStmt w $ \case
     CompAnn ann inner -> CompAnn <$> walkAnnotation w ann <*> walk w inner
-    CompGen tc pat expr -> CompGen <$> walkInfos w tc <*> walk w pat <*> walk w expr
-    CompGuard tc expr -> CompGuard <$> walkInfos w tc <*> walk w expr
-    CompLetDecls tc decls -> CompLetDecls <$> walkInfos w tc <*> walk w decls
-    CompThen tc expr -> CompThen <$> walkInfos w tc <*> walk w expr
-    CompThenBy tc function expr -> CompThenBy <$> walkInfos w tc <*> walk w function <*> walk w expr
-    CompGroupUsing tc function -> CompGroupUsing <$> walkInfos w tc <*> walk w function
-    CompGroupByUsing tc expr function -> CompGroupByUsing <$> walkInfos w tc <*> walk w expr <*> walk w function
+    CompGen tc pat expr -> CompGen tc <$> walk w pat <*> walk w expr
+    CompGuard tc expr -> CompGuard tc <$> walk w expr
+    CompLetDecls tc decls -> CompLetDecls tc <$> walk w decls
+    CompThen tc expr -> CompThen tc <$> walk w expr
+    CompThenBy tc function expr -> CompThenBy tc <$> walk w function <*> walk w expr
+    CompGroupUsing tc function -> CompGroupUsing tc <$> walk w function
+    CompGroupByUsing tc expr function -> CompGroupByUsing tc <$> walk w expr <*> walk w function
 
 instance Walkable ArithSeq where
   walk w = walkArithSeq w $ \case

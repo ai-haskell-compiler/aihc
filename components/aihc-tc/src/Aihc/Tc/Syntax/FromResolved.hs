@@ -722,7 +722,7 @@ instance (FromResolved body) => FromResolved (R.DoStmt body) where
       R.DoBind x1 x2 x3 -> DoBind (fromResolved x1) (fromResolved x2) (fromResolved x3)
       R.DoLetDecls x1 -> DoLetDecls (fromResolved x1)
       R.DoExpr x1 x2 -> DoExpr (fromResolved x1) (fromResolved x2)
-      R.DoRecStmt x1 x2 -> DoRecStmt [] (fromResolved x1) (fromResolved x2)
+      R.DoRecStmt x1 x2 -> DoRecStmt Nothing (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.Cmd where
   type ToPending R.Cmd = Cmd
@@ -744,13 +744,13 @@ instance FromResolved R.CompStmt where
   fromResolved node =
     case node of
       R.CompAnn x1 x2 -> CompAnn (fromResolved x1) (fromResolved x2)
-      R.CompGen x1 x2 -> CompGen [] (fromResolved x1) (fromResolved x2)
-      R.CompGuard x1 -> CompGuard [] (fromResolved x1)
-      R.CompLetDecls x1 -> CompLetDecls [] (fromResolved x1)
-      R.CompThen x1 -> CompThen [] (fromResolved x1)
-      R.CompThenBy x1 x2 -> CompThenBy [] (fromResolved x1) (fromResolved x2)
-      R.CompGroupUsing x1 -> CompGroupUsing [] (fromResolved x1)
-      R.CompGroupByUsing x1 x2 -> CompGroupByUsing [] (fromResolved x1) (fromResolved x2)
+      R.CompGen x1 x2 -> CompGen Nothing (fromResolved x1) (fromResolved x2)
+      R.CompGuard x1 -> CompGuard Nothing (fromResolved x1)
+      R.CompLetDecls x1 -> CompLetDecls Nothing (fromResolved x1)
+      R.CompThen x1 -> CompThen Nothing (fromResolved x1)
+      R.CompThenBy x1 x2 -> CompThenBy Nothing (fromResolved x1) (fromResolved x2)
+      R.CompGroupUsing x1 -> CompGroupUsing Nothing (fromResolved x1)
+      R.CompGroupByUsing x1 x2 -> CompGroupByUsing Nothing (fromResolved x1) (fromResolved x2)
 
 instance FromResolved R.ArithSeq where
   type ToPending R.ArithSeq = ArithSeq

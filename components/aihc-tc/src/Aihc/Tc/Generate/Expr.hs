@@ -15,7 +15,7 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
-import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (CastDirection (..), PendingTcAnnotation (..), PendingTcCastAnnotation (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -58,7 +58,7 @@ import Aihc.Tc.Syntax.Pending
     TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
-    addCompStmtTc,
+    setCompStmtTc,
     annotateBranchCast,
     annotateExprCast,
     annotateFunCast,
@@ -2097,10 +2097,10 @@ inferListCompParallel sp body branches = do
       tupleTy <- recTupleType binderTys
       let branchBinders = zip keys binderTys
       (quals', _, _, cts) <- inferCompQuals listTyCon' sp quals (finishBranch tupleTy branchBinders)
-      let tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] [])
+      let tupleAnn = pendingAnnotation tupleTy binderTys [] []
           annotated =
             case quals' of
-              first : rest -> addCompStmtTc tupleAnn first : rest
+              first : rest -> setCompStmtTc tupleAnn first : rest
               [] -> []
       pure (annotated, branchBinders, cts)
     -- After the last statement of a branch, equate the type of each
@@ -2193,8 +2193,8 @@ inferCompQuals listTyCon' ambient0 quals0 action = go [] ambient0 quals0
       (rest', body', bodyTy, bodyCts) <- rebind (go (qual : seen) ambient rest)
       let keyTys = [keyTy | (_, keyTy, _) <- maybe [] pure keyPart]
           keyCts = maybe [] (\(_, _, cts) -> cts) keyPart
-          tupleAnn = InfoType (pendingAnnotation tupleTy binderTys [] keyTys)
-          qual' = addCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
+          tupleAnn = pendingAnnotation tupleTy binderTys [] keyTys
+          qual' = setCompStmtTc tupleAnn (rebuild (fmap (\(key', _, _) -> key') keyPart) function')
       pure (qual' : rest', body', bodyTy, keyCts ++ functionCts ++ [functionCt] ++ bodyCts)
 
     transformBinderType sp key = do
@@ -2400,9 +2400,8 @@ recStmtParts stmt =
 -- @return@, and @>>=@ methods. The statement gets a tuple annotation. The
 -- tuple annotation has the tuple type, the types of
 -- the variables as type arguments, and the type of the statement block as
--- its only term argument type. Last, each generalized variable has a
--- 'TcRecKnotOccurrence' marker, and after it the occurrence annotation of
--- the variable at the knot. The 'RecKnotVariables' annotation stays next
+-- its only term argument type. Last, each generalized variable has the
+-- occurrence annotation of the variable at the knot. The 'RecKnotVariables' annotation stays next
 -- to the statements.
 inferRecStmt :: DoEnd -> Maybe TcType -> Maybe SourceSpan -> RecStmtParts -> [DoStmt Expr] -> TcM ([DoStmt Expr], TcType, [Ct])
 inferRecStmt end expected ambient parts rest = do
@@ -2441,8 +2440,8 @@ inferRecStmt end expected ambient parts rest = do
           (annotateDoMethodName mfixTy mfixEv mfixPending mfixName)
           (annotateDoMethodName knotTy returnEv returnPending returnName)
           (annotateDoMethodName bindTy bindEv bindPending bindName)
-      recTc = InfoType tuplePending : concatMap knotOccurrence knotOccurrences
-      stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt recTc (Just methods') stmts')
+      recTc = TcRecStmt tuplePending knotOccurrences
+      stmt' = maybe id (DoRecKnot . fst) (recKnot parts) (DoRecStmt (Just recTc) (Just methods') stmts')
   pure
     ( stmt' : rest',
       blockTy,
@@ -2450,7 +2449,6 @@ inferRecStmt end expected ambient parts rest = do
     )
   where
     withLocalKeys binders action = foldr (uncurry extendTermEnv) action binders
-    knotOccurrence (key, annotation) = [InfoRecKnotOccurrence key, InfoType annotation]
 
 -- | The type of the knot of a recursive group: the unit type for no
 -- variable, the type of the variable for one variable, and a tuple type for

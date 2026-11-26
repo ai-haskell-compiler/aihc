@@ -30,7 +30,7 @@ module Aihc.Tc.Annotations
     TcDerivedInstance (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
-    TcRecKnotOccurrence (..),
+    TcRecStmt (..),
     TcCoercedInstance (..),
     TcCoercedMethod (..),
     TcInstanceMethodAnnotation (..),
@@ -364,11 +364,18 @@ data TcDerivedInstance = TcDerivedInstance
   }
   deriving (Eq, Show)
 
--- | A marker in a checked @rec@ statement: the next annotation is the
--- occurrence annotation of this group variable at the knot of the group.
--- A let statement of the group generalized the variable, and the knot
--- takes one instance of it.
-newtype TcRecKnotOccurrence = TcRecKnotOccurrence Entity
+-- | What the type checker found for a @rec@ statement. The parameter is
+-- the annotation type of the tree.
+data TcRecStmt annotation = TcRecStmt
+  { -- | The tuple of the group variables: the tuple type, the types of the
+    -- variables as type arguments, and the type of the statement block as
+    -- its only term argument type.
+    tcRecTuple :: !annotation,
+    -- | The occurrence annotation of each generalized group variable at
+    -- the knot of the group. A let statement of the group generalized the
+    -- variable, and the knot takes one instance of it.
+    tcRecKnotOccurrences :: ![(Entity, annotation)]
+  }
   deriving (Eq, Show)
 
 -- | Checked evidence and casts for a derived instance that reuses another

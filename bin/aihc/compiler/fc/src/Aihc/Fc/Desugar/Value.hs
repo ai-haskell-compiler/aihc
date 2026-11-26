@@ -73,6 +73,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcMatchArityCast (..),
+    TcRecStmt (..),
   )
 import Aihc.Tc.Bindings (compStmtBinderNames, recStmtBinderNames)
 import Aihc.Tc.Evidence qualified as Ev
@@ -5071,7 +5072,7 @@ desugarListCompParallel annotation expression branches = do
       tupleAnnotation <-
         case statements of
           statement : _
-            | checked : _ <- mapMaybe infoType (Syn.compStmtTc statement) -> pure checked
+            | Just checked <- Syn.compStmtTc statement -> pure checked
           _ -> failValue "parallel list comprehension branch has no checked tuple annotation"
       let tupleType = tcAnnType tupleAnnotation
           binderTypes = tcAnnTypeArgs tupleAnnotation
@@ -5134,7 +5135,7 @@ splitLastTransform statements =
         Syn.CompGroupByUsing {} -> Just (own, statement)
         _ -> Nothing
       where
-        own = annotation <|> listToMaybe (mapMaybe infoType (Syn.compStmtTc statement))
+        own = annotation <|> Syn.compStmtTc statement
 
 -- | Desugar a TransformListComp statement. Let @vs@ be the tuple of the
 -- variables of the statements before it, and @t@ its type. The desugaring
@@ -5644,21 +5645,12 @@ desugarRecStmt statement methods inner rest = do
   pure (ExApp (ExApp bind (ExApp mfix knotFunction)) resultFunction)
 
 -- | The tuple annotation of a @rec@ statement, and the knot occurrence of
--- each generalized group variable. A 'TcRecKnotOccurrence' marker comes
--- before the occurrence annotation of its variable.
+-- each generalized group variable.
 recStmtAnnotations :: Syn.DoStmt Syn.Expr -> (Maybe TcAnnotation, [(Entity, TcAnnotation)])
 recStmtAnnotations statement =
   case Syn.peelDoStmtAnn statement of
-    Syn.DoRecStmt tc _ _ -> go Nothing tc
+    Syn.DoRecStmt (Just checked) _ _ -> (Just (tcRecTuple checked), tcRecKnotOccurrences checked)
     _ -> (Nothing, [])
-  where
-    go annotation infos =
-      case infos of
-        Syn.InfoRecKnotOccurrence key : Syn.InfoType occurrence : rest ->
-          let (tuple, occurrences) = go annotation rest
-           in (tuple, (key, occurrence) : occurrences)
-        Syn.InfoType checked : rest -> go (Just checked) rest
-        _ -> (annotation, [])
 
 -- | The knot variables that a 'RecKnotVariables' annotation of a @rec@
 -- statement gives.

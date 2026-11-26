@@ -89,6 +89,7 @@ finalizeSyntax =
           info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
         finalizeDataFamilyInstance = \info ->
           info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
+        finalizeAnnotation = fmap Just . annotationForPendingTc,
         finalizeCast = finalizeCastAnnotation,
         finalizePendingType = \ty ->
           tcAnnType <$> annotationForPendingTc (PendingTcAnnotation ty [] [] 0 [] [] []),
@@ -134,7 +135,6 @@ finalizeInfo item =
       rejectMetaFinalInfo (Final.InfoType annotation)
       Just . Final.InfoType <$> recordAnnotationKindArguments annotation
     InfoPatternInstantiation -> checked Final.InfoPatternInstantiation
-    InfoRecKnotOccurrence entity -> checked (Final.InfoRecKnotOccurrence entity)
   where
     -- Information that the checker writes as final keeps its value, but
     -- it must not have a meta variable.

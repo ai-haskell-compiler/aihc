@@ -17,6 +17,7 @@ import Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcRecStmt (..),
   )
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
@@ -72,7 +73,6 @@ import Aihc.Tc.Types
 import Aihc.Testing.AnnotatedModule (renderLabeledSource)
 import Control.Applicative ((<|>))
 import Control.Monad (void)
-import Data.Bifunctor (first)
 import Control.Monad.Trans.State.Strict (State, execState, gets, modify')
 import Data.List (intercalate, sortOn)
 import Data.Maybe (fromMaybe, maybeToList)
@@ -144,7 +144,7 @@ labelWalk =
       walkLiteral = wrapped peelLiteral,
       walkGuardQualifier = wrapped peelGuard,
       walkDoStmt = doLabels,
-      walkCompStmt = wrappedOwn peelComp (first (map LabelInfo) . compStmtOwn),
+      walkCompStmt = wrappedOwn peelComp compStmtOwn,
       walkArithSeq = arithSeqLabels,
       walkClassDeclItem = wrappedFields peelClassItem classItemFields,
       walkInstanceDeclItem = wrappedFields peelInstanceItem instanceItemFields,
@@ -262,11 +262,14 @@ doStmtMethods stmt =
       (concatMap nameTc (doBindMethodsNames methods), DoBind (Just (DoBindMethods (without method) (without <$> failure))) pat body)
     DoExpr (Just method) body -> (nameTc method, DoExpr (Just (without method)) body)
     DoRecStmt tc (Just methods@(DoRecMethods mfix return' bind)) stmts ->
-      (concatMap nameTc (doRecMethodsNames methods) <> tc, DoRecStmt [] (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
-    DoRecStmt tc Nothing stmts -> (tc, DoRecStmt [] Nothing stmts)
+      (concatMap nameTc (doRecMethodsNames methods) <> recInfos tc, DoRecStmt Nothing (Just (DoRecMethods (without mfix) (without return') (without bind))) stmts)
+    DoRecStmt tc Nothing stmts -> (recInfos tc, DoRecStmt Nothing Nothing stmts)
     _ -> ([], stmt)
   where
     without name = name {nameTc = []}
+    -- The tuple annotation of a @rec@ statement, then the occurrence
+    -- annotation of each knot variable.
+    recInfos = maybe [] (\checked -> map InfoType (tcRecTuple checked : map snd (tcRecKnotOccurrences checked)))
 
 -- | The label of the checked type of a constructor declaration, and the
 -- declaration with no checked type.
@@ -286,17 +289,19 @@ dataConOwn decl =
 
 -- | The information of a comprehension statement, and the statement with
 -- no information.
-compStmtOwn :: CompStmt -> ([TcInfo], CompStmt)
+compStmtOwn :: CompStmt -> ([Label], CompStmt)
 compStmtOwn stmt =
   case stmt of
-    CompGen tc pat expr -> (tc, CompGen [] pat expr)
-    CompGuard tc expr -> (tc, CompGuard [] expr)
-    CompLetDecls tc decls -> (tc, CompLetDecls [] decls)
-    CompThen tc function -> (tc, CompThen [] function)
-    CompThenBy tc function key -> (tc, CompThenBy [] function key)
-    CompGroupUsing tc function -> (tc, CompGroupUsing [] function)
-    CompGroupByUsing tc key function -> (tc, CompGroupByUsing [] key function)
+    CompGen tc pat expr -> (label tc, CompGen Nothing pat expr)
+    CompGuard tc expr -> (label tc, CompGuard Nothing expr)
+    CompLetDecls tc decls -> (label tc, CompLetDecls Nothing decls)
+    CompThen tc function -> (label tc, CompThen Nothing function)
+    CompThenBy tc function key -> (label tc, CompThenBy Nothing function key)
+    CompGroupUsing tc function -> (label tc, CompGroupUsing Nothing function)
+    CompGroupByUsing tc key function -> (label tc, CompGroupByUsing Nothing key function)
     CompAnn _ _ -> ([], stmt)
+  where
+    label = maybe [] (\annotation -> [LabelInfo (InfoType annotation)])
 
 -- | The labels of the typed fields of a class item.
 classItemFields :: ClassDeclItem -> [Label]

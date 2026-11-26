@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | Change the tree that the type checker works on into the tree that it
@@ -17,7 +18,7 @@ module Aihc.Tc.Syntax.FromPending
   )
 where
 
-import Aihc.Tc.Annotations (PendingTcCastAnnotation, PendingTcMatchArityCast, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast)
+import Aihc.Tc.Annotations (PendingTcAnnotation, PendingTcCastAnnotation, PendingTcMatchArityCast, TcAnnotation, TcCastAnnotation, TcClassAnnotation, TcDerivingPlan, TcInstanceAnnotation, TcInstanceMethodAnnotation, TcMatchArityCast, TcRecStmt (..))
 import Aihc.Tc.Types (TcType)
 import Aihc.Tc.Env (DataFamilyInstanceInfo, TypeFamilyInstanceInfo)
 import Aihc.Tc.Syntax
@@ -42,6 +43,8 @@ data Finalizers m = Finalizers
     finalizeTcInfo :: Pending.TcInfo -> m (Maybe TcInfo),
     finalizeTypeFamilyInstance :: TypeFamilyInstanceInfo -> m TypeFamilyInstanceInfo,
     finalizeDataFamilyInstance :: DataFamilyInstanceInfo -> m DataFamilyInstanceInfo,
+    -- | Change an annotation, or remove it.
+    finalizeAnnotation :: PendingTcAnnotation -> m (Maybe TcAnnotation),
     -- | Change a cast, or remove it.
     finalizeCast :: PendingTcCastAnnotation -> m (Maybe TcCastAnnotation),
     -- | Change a type that can have meta variables.
@@ -64,6 +67,7 @@ plainFinalizers =
     { finalizeTcInfo = const (pure Nothing),
       finalizeTypeFamilyInstance = pure,
       finalizeDataFamilyInstance = pure,
+      finalizeAnnotation = const (pure Nothing),
       finalizeCast = const (pure Nothing),
       finalizePendingType = pure,
       finalizeCheckedType = pure,
@@ -77,6 +81,20 @@ plainFinalizers =
 -- | Change a list of casts, and remove the casts that the function removes.
 casts :: (Monad m) => Finalizers m -> [PendingTcCastAnnotation] -> m [TcCastAnnotation]
 casts info items = catMaybes <$> traverse (finalizeCast info) items
+
+-- | Change the annotation of a node, if it has one and the function keeps
+-- it.
+annotation :: (Monad m) => Finalizers m -> Maybe PendingTcAnnotation -> m (Maybe TcAnnotation)
+annotation info item = join <$> traverse (finalizeAnnotation info) item
+
+-- | Change the annotations of a @rec@ statement. The statement keeps its
+-- information only when the function keeps the tuple annotation. A knot
+-- occurrence goes away when the function removes its annotation.
+recStmt :: (Monad m) => Finalizers m -> TcRecStmt PendingTcAnnotation -> m (Maybe (TcRecStmt TcAnnotation))
+recStmt info (TcRecStmt tuple occurrences) = do
+  tuple' <- finalizeAnnotation info tuple
+  occurrences' <- traverse (\(key, occurrence) -> fmap (key,) <$> finalizeAnnotation info occurrence) occurrences
+  pure ((`TcRecStmt` catMaybes occurrences') <$> tuple')
 
 class FromPending a where
   type Final a
@@ -807,7 +825,7 @@ instance (FromPending body) => FromPending (Pending.DoStmt body) where
       Pending.DoBind x1 x2 x3 -> DoBind <$> fromPending info x1 <*> fromPending info x2 <*> fromPending info x3
       Pending.DoLetDecls x1 -> DoLetDecls <$> fromPending info x1
       Pending.DoExpr x1 x2 -> DoExpr <$> fromPending info x1 <*> fromPending info x2
-      Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.DoRecStmt x1 x2 x3 -> DoRecStmt <$> (join <$> traverse (recStmt info) x1) <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.Cmd where
   type Final Pending.Cmd = Cmd
@@ -829,13 +847,13 @@ instance FromPending Pending.CompStmt where
   fromPending info node =
     case node of
       Pending.CompAnn x1 x2 -> CompAnn <$> fromPending info x1 <*> fromPending info x2
-      Pending.CompGen x1 x2 x3 -> CompGen <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.CompGuard x1 x2 -> CompGuard <$> infos info x1 <*> fromPending info x2
-      Pending.CompLetDecls x1 x2 -> CompLetDecls <$> infos info x1 <*> fromPending info x2
-      Pending.CompThen x1 x2 -> CompThen <$> infos info x1 <*> fromPending info x2
-      Pending.CompThenBy x1 x2 x3 -> CompThenBy <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
-      Pending.CompGroupUsing x1 x2 -> CompGroupUsing <$> infos info x1 <*> fromPending info x2
-      Pending.CompGroupByUsing x1 x2 x3 -> CompGroupByUsing <$> infos info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGen x1 x2 x3 -> CompGen <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGuard x1 x2 -> CompGuard <$> annotation info x1 <*> fromPending info x2
+      Pending.CompLetDecls x1 x2 -> CompLetDecls <$> annotation info x1 <*> fromPending info x2
+      Pending.CompThen x1 x2 -> CompThen <$> annotation info x1 <*> fromPending info x2
+      Pending.CompThenBy x1 x2 x3 -> CompThenBy <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
+      Pending.CompGroupUsing x1 x2 -> CompGroupUsing <$> annotation info x1 <*> fromPending info x2
+      Pending.CompGroupByUsing x1 x2 x3 -> CompGroupByUsing <$> annotation info x1 <*> fromPending info x2 <*> fromPending info x3
 
 instance FromPending Pending.ArithSeq where
   type Final Pending.ArithSeq = ArithSeq
