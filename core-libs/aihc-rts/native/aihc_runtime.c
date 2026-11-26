@@ -3340,8 +3340,7 @@ static AihcValue *aihc_update_blackhole_mode(AihcCapability *capability,
         aihc_write_barrier_update_local(capability, object);
         __atomic_store_n(&object->fields[0], (AihcSlot)(uintptr_t)value,
                          __ATOMIC_RELEASE);
-        __atomic_store_n(&object->header,
-                         local_header | AIHC_HEADER_EVALUATING,
+        __atomic_store_n(&object->header, local_header | AIHC_HEADER_EVALUATING,
                          __ATOMIC_RELEASE);
         return value;
       }
