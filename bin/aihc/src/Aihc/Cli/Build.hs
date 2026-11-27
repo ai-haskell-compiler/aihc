@@ -276,7 +276,13 @@ packageTargets kind options config storeTargetRoot = do
           (if origin == PlanLocal then defaultBuildRoot root else currentDirectory </> ".aihc-target")
           (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
-      outputDirectory = fromMaybe (buildRoot </> binDirectory) (buildOutput options)
+      -- Packages of one project can each have a test suite of one name,
+      -- for example spec. Thus the directories of a test suite include the
+      -- name of its package, and one test suite does not replace another.
+      packageDirectory = case kind of
+        ProgramExecutable -> ""
+        ProgramTestSuite -> unPackageName (planName rootPlan)
+      outputDirectory = fromMaybe (buildRoot </> binDirectory </> packageDirectory) (buildOutput options)
       collect = case kind of
         ProgramExecutable -> HackageCabal.collectExecutablesIn
         ProgramTestSuite -> HackageCabal.collectTestSuitesIn
@@ -296,7 +302,7 @@ packageTargets kind options config storeTargetRoot = do
   canonicalRoot <- canonicalizePath root
   targets <- forM executables $ \executable -> do
     let name = executableInfoName executable
-        outputRoot = buildRoot </> artifactDirectory </> name
+        outputRoot = buildRoot </> artifactDirectory </> packageDirectory </> name
     plans <- mapM (plannedPackage planned) (nub (executableInfoDependencies executable <> map mkPackageName ["aihc-base", "aihc-prim"]))
     -- The plan finds the package being built by its name, which marks
     -- it local. What the user asked for decides instead: a directory is
