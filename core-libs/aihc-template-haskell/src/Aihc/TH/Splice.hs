@@ -30,7 +30,8 @@
 -- bytes is also a tree with the same encoding. The instance has no other
 -- access to the compiler or to the build machine.
 module Aihc.TH.Splice
-  ( runSplice,
+  ( SpliceClosure,
+    runSplice,
     runExpressionSplice,
     runTypeSplice,
     runPatternSplice,
@@ -83,6 +84,12 @@ foreign import ccall unsafe "aihc_engine_request" engineRequest :: Ptr Word8 -> 
 
 -- | Copy the reply of the last request to memory of the guest.
 foreign import ccall unsafe "aihc_engine_reply" engineReply :: Ptr Word8 -> IO ()
+
+-- | The type of the closure of a splice in the splice module. The
+-- signature stops a generalization of the closure. Thus, a constraint of
+-- the body that the closure cannot solve is a type error of the splice
+-- module, not a function that waits for a dictionary.
+type SpliceClosure = IO ()
 
 -- | Run a splice and send its result to the host.
 runSplice :: (Data a) => Q a -> IO ()

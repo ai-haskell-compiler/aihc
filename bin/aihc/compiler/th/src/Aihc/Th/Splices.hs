@@ -531,7 +531,8 @@ spliceModuleText request =
         }
     closure index splice =
       vsep
-        [ pretty (spliceClosureName index) <> " =",
+        [ pretty (spliceClosureName index) <> " :: Aihc.TH.Splice.SpliceClosure",
+          pretty (spliceClosureName index) <> " =",
           indent 2 ("Aihc.TH.Splice." <> runner),
           indent 4 (pretty (parenthesized body))
         ]
