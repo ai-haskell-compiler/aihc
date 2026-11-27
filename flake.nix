@@ -33,18 +33,24 @@
       inherit (haskell) mkHsPkgsForChecks;
       inherit (docs) mkManual mkGuide;
     };
+    mkAihcRelease = import ./scripts/nix/aihc-release.nix;
+    # The release executable exists only for some systems.
+    aihcReleaseFor = pkgs: let
+      release = mkAihcRelease pkgs;
+    in
+      pkgs.lib.optionalAttrs (release != null) {aihc-release = release;};
     mkDevShells = import ./scripts/nix/dev-shells.nix {
       inherit mkWasiSysroot;
       inherit (haskell) mkHsPkgs;
     };
   in {
-    packages = core.forAllSystems (pkgs: mkPackages pkgs // (mkChecks pkgs).packages);
+    packages = core.forAllSystems (pkgs: mkPackages pkgs // (mkChecks pkgs).packages // aihcReleaseFor pkgs);
 
     formatter = core.forAllSystems (pkgs: pkgs.alejandra);
 
     apps = core.forAllSystems mkApps;
 
-    checks = core.forAllSystems (pkgs: (mkChecks pkgs).checks);
+    checks = core.forAllSystems (pkgs: (mkChecks pkgs).checks // aihcReleaseFor pkgs);
 
     devShells = core.forAllSystems mkDevShells;
   };
