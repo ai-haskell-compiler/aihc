@@ -4790,17 +4790,25 @@ runConfigureScript config cacheRoot inputs =
 -- configure directory of a store package is a part of the store, and two
 -- builds of one plan must give the same store. Nothing reads the logs
 -- again, so they go where a user can read them after a failure.
+--
+-- The cache directory can be absent or read-only, for example in a build
+-- sandbox. Then the logs are deleted: a log is not a reason for an install
+-- to fail.
 moveConfigureLogs :: (String -> IO ()) -> FilePath -> FilePath -> IO ()
-moveConfigureLogs verbose directory name = do
-  logRoot <- getXdgDirectory XdgCache ("aihc" </> "logs" </> "configure" </> name)
+moveConfigureLogs verbose directory name =
   forM_ ["config.log", "config.status"] $ \logName -> do
     let source = directory </> logName
     exists <- doesFileExist source
     when exists $ do
-      createDirectoryIfMissing True logRoot
-      copyFile source (logRoot </> logName)
+      copied <- try $ do
+        logRoot <- getXdgDirectory XdgCache ("aihc" </> "logs" </> "configure" </> name)
+        createDirectoryIfMissing True logRoot
+        copyFile source (logRoot </> logName)
+        pure (logRoot </> logName)
       removeFile source
-      verbose ("Configure log: " <> (logRoot </> logName))
+      case copied of
+        Right destination -> verbose ("Configure log: " <> destination)
+        Left (failure :: IOException) -> verbose ("Configure log not kept: " <> source <> ": " <> show failure)
 
 -- | Run an action while this process holds the lock file. Another process
 -- that asks for the same lock waits until the action ends.
