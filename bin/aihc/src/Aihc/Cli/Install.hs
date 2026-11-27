@@ -758,7 +758,7 @@ planInstall reporter options = do
   -- The Hackage messages go through the reporter. A direct write to the
   -- handle moves the cursor under the live frame, and the next frame then
   -- erases the wrong lines.
-  hackageSource <- defaultHackageSource (report . ProgressLog)
+  hackageSource <- defaultHackageSource (planOffline (installPlanOptions options)) (report . ProgressLog)
   TargetRoot root origin lockDirectory components project <- installTargetRoot (planProject (installPlanOptions options)) (installPackageTarget options)
   unless (null components) $
     ioError (userError (installPackageTarget options <> " names an executable or a test suite, and install builds the library of a package. Use build for an executable and test for a test suite"))

@@ -3,6 +3,7 @@
 -- Description : A Hackage source that queries Hackage and downloads releases
 module Aihc.Hackage.Fetch
   ( newHackageSource,
+    newOfflineHackageSource,
     hackageSourceFor,
   )
 where
@@ -20,6 +21,14 @@ newHackageSource :: (String -> IO ()) -> IO HackageSource
 newHackageSource message =
   hackageSourceWith defaultDownloadOptions {downloadMessage = message}
     <$> newHackageQueries defaultQueryOptions {queryMessage = message}
+
+-- | Answer from the cache only, and show the warnings with the function.
+-- A cached answer of any age is used, and a release is taken only from the
+-- download cache. A question that the cache cannot answer is an error.
+newOfflineHackageSource :: (String -> IO ()) -> IO HackageSource
+newOfflineHackageSource message =
+  hackageSourceWith defaultDownloadOptions {downloadMessage = message, downloadAllowNetwork = False}
+    <$> newHackageQueries defaultQueryOptions {queryMessage = message, queryAllowNetwork = False}
 
 -- | Answer the questions of the planner with queries.
 hackageSourceFor :: HackageQueries -> HackageSource

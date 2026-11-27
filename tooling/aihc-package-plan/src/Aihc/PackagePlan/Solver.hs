@@ -1530,9 +1530,12 @@ verifySolution inputs initial recorded = do
       [ satisfied solution "the root" name range
       | (name, range) <- [(alias config root, anyVersion) | root <- Map.keys (configRoots config)] <> [(alias config name, range) | (name, range) <- configGoals config]
       ]
+    -- A constraint limits a package that the plan uses. It does not add
+    -- the package to the plan, as the solver does not add it either.
     constraintChecks solution =
       [ satisfied solution "a constraint" (alias config name) range
-      | ConstraintVersion name range <- configConstraints config
+      | ConstraintVersion name range <- configConstraints config,
+        Map.member (alias config name) solution
       ]
         <> [ if lookupFlagAssignment flag (assignmentFlags assignment) == Just value
                then Nothing

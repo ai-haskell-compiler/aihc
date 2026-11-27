@@ -148,7 +148,9 @@ data PlanCommandOptions = PlanCommandOptions
     -- | @NAME RANGE@, @NAME +flag@ or @NAME -flag@ restrictions on the
     -- plan. The plan does not read or write @aihc.lock@.
     planCommandConstraints :: ![String],
-    planCommandProject :: !ProjectSelection
+    planCommandProject :: !ProjectSelection,
+    -- | Do not use the network.
+    planCommandOffline :: !Bool
   }
   deriving (Eq, Show)
 
@@ -171,14 +173,17 @@ data PlanOptions = PlanOptions
     -- | Read and write @aihc.lock@. A caller whose constraints pin each
     -- version, such as the Template Haskell build, sets 'False', so it
     -- does not change a lock file of the user.
-    planUseLock :: !Bool
+    planUseLock :: !Bool,
+    -- | Do not use the network. Hackage answers come from the cache, at
+    -- any age, and releases come from the download cache.
+    planOffline :: !Bool
   }
   deriving (Eq, Show)
 
 -- | Take the lock as it is, or solve and write it. A library caller gets
 -- no project: only the command line looks for @cabal.project@.
 defaultPlanOptions :: PlanOptions
-defaultPlanOptions = PlanOptions [] False False [] ProjectIgnored True
+defaultPlanOptions = PlanOptions [] False False [] ProjectIgnored True False
 
 -- | Link an executable from a bundle that @build --no-link@ wrote.
 data LinkExeOptions = LinkExeOptions
@@ -418,6 +423,7 @@ planCommandOptionsParser =
       )
     <*> constraintOptions
     <*> projectOption
+    <*> offlineOption
 
 -- | Look for @cabal.project@ from the working directory up, unless an
 -- option names the project file or turns the project off.
@@ -500,6 +506,15 @@ planOptionsParser =
       )
     <*> projectOption
     <*> pure True
+    <*> offlineOption
+
+-- | The @--offline@ switch of the commands that plan.
+offlineOption :: OA.Parser Bool
+offlineOption =
+  OA.switch
+    ( OA.long "offline"
+        <> OA.help "Do not use the network. Take each Hackage answer and each release from the cache of aihc, and fail if the cache does not have it"
+    )
 
 linkExeOptionsParser :: OA.Parser LinkExeOptions
 linkExeOptionsParser =

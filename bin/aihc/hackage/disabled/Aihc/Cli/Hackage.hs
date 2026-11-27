@@ -13,5 +13,6 @@ where
 import Aihc.Hackage.Source (HackageSource)
 
 -- | No Hackage source: a plan uses only local packages and core libraries.
-defaultHackageSource :: (String -> IO ()) -> IO (Maybe HackageSource)
-defaultHackageSource _ = pure Nothing
+-- This build never uses the network, so the first argument changes nothing.
+defaultHackageSource :: Bool -> (String -> IO ()) -> IO (Maybe HackageSource)
+defaultHackageSource _ _ = pure Nothing

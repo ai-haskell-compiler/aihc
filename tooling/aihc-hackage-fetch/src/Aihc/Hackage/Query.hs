@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | The Hackage package index, read one package at a time.
@@ -61,7 +62,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
-import System.Directory (createDirectoryIfMissing, doesFileExist, getModificationTime, renameFile)
+import System.Directory (createDirectoryIfMissing, doesFileExist, getModificationTime, removeFile, renameFile)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, hPutStrLn, openBinaryTempFile, stderr)
 
@@ -234,40 +235,69 @@ data Answer
 --
 -- A failed request falls back to a stale cached copy, so a broken network
 -- degrades a plan to yesterday's answers rather than failing it.
+--
+-- An answer that Hackage does not have the item is cached too, as an empty
+-- marker file beside the path. Hackage can get the item later, so the
+-- marker expires as a mutable answer does. Without the marker, a plan asks
+-- for the same missing item on each run, and a plan without the network
+-- fails. A solver asks for a missing package when a cabal file depends on
+-- it only to forbid a combination of flags.
 fetchCached :: HackageQueries -> FilePath -> String -> String -> Freshness -> IO Answer
 fetchCached queries path url description freshness = do
-  usable <- cachedIsUsable (queryOptions queries) path freshness
-  if usable
-    then Fetched <$> BS.readFile path
-    else
-      if not (queryAllowNetwork (queryOptions queries))
-        then do
-          cached <- doesFileExist path
-          if cached
-            then Fetched <$> BS.readFile path
-            else ioError (userError ("Hackage is not cached for " <> description <> " and the network is disabled"))
-        else do
-          when (queryVerbose (queryOptions queries)) $
-            queryMessage (queryOptions queries) ("Asking Hackage for " <> description <> "...")
-          fetched <- try (httpGet url)
-          case fetched of
-            Right (Right body) -> do
-              let contents = LBS.toStrict body
-              createDirectoryIfMissing True (takeDirectory path)
-              writeFileAtomically path contents
-              pure (Fetched contents)
-            Right (Left failure)
-              | isNotFound failure -> pure NotFound
-              | otherwise -> fallback failure
-            Left (err :: SomeException) -> fallback (displayException err)
+  usable <- cachedIsUsable opts path freshness
+  missingUsable <- cachedIsUsable opts missingPath Mutable
+  if
+    | usable -> Fetched <$> BS.readFile path
+    | missingUsable -> pure NotFound
+    | not (queryAllowNetwork opts) -> do
+        cached <- cachedAnswer
+        case cached of
+          Just answer -> pure answer
+          Nothing -> ioError (userError ("Hackage is not cached for " <> description <> " and the network is disabled"))
+    | otherwise -> do
+        when (queryVerbose opts) $
+          queryMessage opts ("Asking Hackage for " <> description <> "...")
+        fetched <- try (httpGet url)
+        case fetched of
+          Right (Right body) -> do
+            let contents = LBS.toStrict body
+            createDirectoryIfMissing True (takeDirectory path)
+            writeFileAtomically path contents
+            removeIfPresent missingPath
+            pure (Fetched contents)
+          Right (Left failure)
+            | isNotFound failure -> do
+                createDirectoryIfMissing True (takeDirectory path)
+                writeFileAtomically missingPath BS.empty
+                removeIfPresent path
+                pure NotFound
+            | otherwise -> fallback failure
+          Left (err :: SomeException) -> fallback (displayException err)
   where
-    fallback failure = do
+    opts = queryOptions queries
+    missingPath = path <> ".not-found"
+    -- The cached answer of any age. A file and a marker are not both
+    -- present, because each write removes the other.
+    cachedAnswer = do
       cached <- doesFileExist path
-      if cached
-        then do
-          queryMessage (queryOptions queries) ("Warning: could not ask Hackage for " <> description <> ", using the cached answer: " <> failure)
-          Fetched <$> BS.readFile path
-        else ioError (userError ("Failed to ask Hackage for " <> description <> ": " <> failure))
+      missing <- doesFileExist missingPath
+      if
+        | cached -> Just . Fetched <$> BS.readFile path
+        | missing -> pure (Just NotFound)
+        | otherwise -> pure Nothing
+    fallback failure = do
+      cached <- cachedAnswer
+      case cached of
+        Just answer -> do
+          queryMessage opts ("Warning: could not ask Hackage for " <> description <> ", using the cached answer: " <> failure)
+          pure answer
+        Nothing -> ioError (userError ("Failed to ask Hackage for " <> description <> ": " <> failure))
+
+-- | Remove a file if it exists.
+removeIfPresent :: FilePath -> IO ()
+removeIfPresent path = do
+  exists <- doesFileExist path
+  when exists (removeFile path)
 
 -- | A cached file is present and, when the answer can change, young
 -- enough.

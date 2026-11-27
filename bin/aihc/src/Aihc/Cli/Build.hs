@@ -214,7 +214,7 @@ linkPrograms reporter options adjust targetsOf = do
 mainModuleTarget :: BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
 mainModuleTarget options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
-  hackageSource <- defaultHackageSource (progressReport (compileProgress config) . ProgressLog)
+  hackageSource <- defaultHackageSource (planOffline (buildPlanOptions options)) (progressReport (compileProgress config) . ProgressLog)
   let target = compileTarget config
       localBuildRoot = fromMaybe (currentDirectory </> ".aihc-target") (buildBuildRoot options)
       buildRoot = localBuildRoot </> nativeTargetStoreDirectory target
@@ -231,7 +231,7 @@ mainModuleTarget options config storeTargetRoot = do
 packageTargets :: ProgramKind -> BuildOptions -> ModuleCompileConfig -> FilePath -> IO (InstallLocations, [ExecutableTarget])
 packageTargets kind options config storeTargetRoot = do
   currentDirectory <- getCurrentDirectory
-  hackageSource <- defaultHackageSource (progressReport (compileProgress config) . ProgressLog)
+  hackageSource <- defaultHackageSource (planOffline (buildPlanOptions options)) (progressReport (compileProgress config) . ProgressLog)
   TargetRoot rootPackage origin lockDirectory targetComponents project <- installTargetRoot (planProject (buildPlanOptions options)) (buildInput options)
   let target = compileTarget config
       platform = cabalPlatformForTarget target
