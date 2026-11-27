@@ -303,56 +303,6 @@ in rec {
         type == "directory" || pkgs.lib.hasSuffix ".nix" baseName;
     };
 
-  # Filtered source for Haskell formatting - .hs files and .cabal files in components, tooling, and bin.
-  # (.cabal files needed for ormolu to detect language settings like GHC2021)
-  haskellSrc = pkgs:
-    pkgs.lib.cleanSourceWith {
-      src = root;
-      filter = path: type: let
-        baseName = baseNameOf path;
-        pathStr = toString path;
-        relPath = pkgs.lib.removePrefix ((toString root) + "/") pathStr;
-        isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
-        isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
-        isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
-        prefixes = [
-          "components/"
-          "tooling/"
-          "bin/"
-          "core-libs/"
-          "scripts/nix/ucd2haskell-aihc/"
-        ];
-        inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
-      in
-        if type == "directory"
-        then keepsDirectory pkgs prefixes relPath && !isFixture
-        else inSubset && (isCabal || (isHaskell && !isFixture));
-    };
-
-  # Each package has a separate cache entry for format checks.
-  haskellCheckSources = pkgs: let
-    packageRoots = pkgs.lib.concatMap (parent:
-      map (name: "${parent}/${name}/")
-      (builtins.attrNames (pkgs.lib.filterAttrs (_name: type: type == "directory")
-          (builtins.readDir (root + "/${parent}")))))
-    ["components" "tooling" "bin" "core-libs"];
-    source = haskellSrc pkgs;
-    inPackage = prefix: path: pkgs.lib.hasPrefix prefix path;
-    select = prefix:
-      pkgs.lib.cleanSourceWith {
-        src = source;
-        filter = path: type: let
-          relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-          selected =
-            if prefix == "other"
-            then !builtins.any (entry: inPackage entry relPath) packageRoots
-            else inPackage prefix relPath;
-        in
-          type == "directory" || selected;
-      };
-  in
-    pkgs.lib.genAttrs (packageRoots ++ ["other"]) select;
-
   # Cabal formatting should not be invalidated by ordinary Haskell changes.
   cabalSrc = pkgs:
     pkgs.lib.cleanSourceWith {

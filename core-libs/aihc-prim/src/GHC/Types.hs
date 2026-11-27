@@ -312,7 +312,6 @@ data TypeLitSort
 -- fingerprint to keep.
 data TyCon = TyCon Module TrName Int KindRep
 
-{- ORMOLU_DISABLE -}
 
 type Tuple0# :: TYPE ('TupleRep '[])
 data Tuple0# = (# #)

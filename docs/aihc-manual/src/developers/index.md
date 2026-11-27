@@ -15,7 +15,7 @@ The repository uses `just` as its command runner.
 
 | Command | Purpose |
 | --- | --- |
-| `just fmt` | Format all Haskell files with Ormolu. |
+| `just fmt` | Format all Nix, Cabal, and C files. |
 | `just test` | Run all tests and hide successful results. |
 | `just check` | Run the format check and the full test suite. |
 | `just docs` | Serve this manual at `http://127.0.0.1:8000/`. |

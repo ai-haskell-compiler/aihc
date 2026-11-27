@@ -23,9 +23,9 @@ guide:
   set -euo pipefail
   nix develop --quiet --command bash -c 'cabal build -v0 exe:aihc exe:aihc-dev && scripts/build-web-kit.sh --output docs/aihc-guide/src/play/kit --store .aihc-target/lazy-reader-store && cd docs/aihc-guide && mkdocs serve'
 
-# Auto-format Nix, Cabal, Haskell, and C files (Nix and Cabal files come from scripts/repository-files.sh, so other worktrees and the benchmarks submodule are excluded; Haskell excludes test fixtures)
+# Auto-format Nix, Cabal, and C files (Nix and Cabal files come from scripts/repository-files.sh, so other worktrees and the benchmarks submodule are excluded)
 fmt:
-  nix develop --quiet --command bash -c 'set -o pipefail; scripts/repository-files.sh "*.nix" | xargs -0 -r alejandra || exit 1; scripts/repository-files.sh "*.cabal" | xargs -0 -r -n 1 cabal-gild --mode format --io || exit 1; ormolu --mode inplace $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*"); find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format -i'
+  nix develop --quiet --command bash -c 'set -o pipefail; scripts/repository-files.sh "*.nix" | xargs -0 -r alejandra || exit 1; scripts/repository-files.sh "*.cabal" | xargs -0 -r -n 1 cabal-gild --mode format --io || exit 1; find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format -i'
 
 # Run full CI check: format, C lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 # The manual is not part of this check, because it builds the compiler a second time in Nix. CI builds it as the `docs` check.
@@ -33,7 +33,6 @@ check:
   nix build .#aihc-grammars --no-link
   nix build .#vscode-lir --no-link
   nix develop --quiet --command bash -c 'set -o pipefail; scripts/repository-files.sh "*.cabal" | xargs -0 -r -n 1 cabal-gild --mode check --input'
-  nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/.aihc-autogen/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -not -path "*/generated/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command scripts/clang-tidy-all.sh
   nix develop --quiet --command scripts/update-wit-bindings.sh --check
@@ -46,19 +45,6 @@ docs: docs-examples
 # Compile the pipeline examples of the manual with the local compiler.
 docs-examples:
   cabal run -v0 aihc-dev -- pipeline-examples docs/aihc-manual/pipeline-examples --output docs/aihc-manual/generated
-
-# Generate boot package interfaces for the resolver (requires GHC dev env)
-gen-boot-ifaces:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  GHC_VERSION=$(ghc --numeric-version)
-  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/aihc-resolve/boot-interfaces/$GHC_VERSION"
-  mkdir -p "$CACHE_DIR"
-  for pkg in ghc-prim ghc-internal ghc-bignum base; do
-    echo "Extracting interface for $pkg..."
-    cabal run -v0 aihc-dev -- extract-resolve-iface --package "$pkg" --output "$CACHE_DIR/$pkg.json"
-  done
-  echo "Boot interfaces generated in $CACHE_DIR"
 
 # Regenerate the committed Unicode tables from pinned UCD inputs.
 generate-unicode:

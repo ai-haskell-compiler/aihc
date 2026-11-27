@@ -1,5 +1,4 @@
 {
-  projectHsPackages,
   mkHsPkgs,
   mkWasiSysroot,
 }: pkgs: let
@@ -199,7 +198,7 @@
   mkApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.cabal-install hsPkgs.ghc] text;
 
   mkFmtApp = name: text:
-    mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra (projectHsPackages pkgs).ormolu] text;
+    mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra] text;
 
   mkReportsApp = name: text: {
     type = "app";
@@ -232,10 +231,9 @@ in {
     cd "$repo_root"
 
     git ls-files -z -- '*.nix' | xargs -0 -r alejandra
-    git ls-files -z -- '*.hs' | grep -vz '/Fixtures/' | xargs -0 -r ormolu -m inplace
   '';
 
-  generate-unicode = mkAppWithInputs "generate-unicode" [pkgs.bash pkgs.git pkgs.ormolu] ''
+  generate-unicode = mkAppWithInputs "generate-unicode" [pkgs.bash pkgs.git] ''
     set -euo pipefail
     ${repoRootGuard}
 
@@ -251,11 +249,10 @@ in {
       --core-prop=Uppercase \
       --core-prop=Lowercase
     cp "$generated_dir/GHC/Prim/Unicode.hs" "$output"
-    ormolu --mode inplace "$output"
     echo "Generated $output from Unicode ${unicode.version}."
   '';
 
-  check-unicode = mkAppWithInputs "check-unicode" [pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git pkgs.ormolu] ''
+  check-unicode = mkAppWithInputs "check-unicode" [pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.git] ''
     set -euo pipefail
     ${repoRootGuard}
 
@@ -271,7 +268,6 @@ in {
       --output="$generated_dir" \
       --core-prop=Uppercase \
       --core-prop=Lowercase
-    ormolu --mode inplace "$generated"
 
     if ! cmp --silent "$committed" "$generated"; then
       echo "Committed Unicode tables are stale. Run: just generate-unicode" >&2

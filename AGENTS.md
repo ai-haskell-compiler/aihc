@@ -87,12 +87,13 @@ If `just check` fails, correct each problem, commit and push the changes, then r
 This project uses Just as its command runner.
 Use these commands:
 
-- `just fmt` formats all Haskell files with Ormolu.
+- `just fmt` formats all Nix, Cabal, and C files.
+  It does not format Haskell files.
 - `just test` runs all tests and hides successful results.
 - `just replay "<seed>"` runs one Hedgehog case again.
   Example: `just replay "3:b2 Seed 10332913068362713902 1302058653756691475"`.
 - `just hedgehog` runs 10,000 Hedgehog tests in a continuous cycle until a test fails.
-- `just check` runs the Ormolu format check and the full test suite.
+- `just check` runs the format checks, the C lint, and the full test suite.
 
 ## Branch Policy
 

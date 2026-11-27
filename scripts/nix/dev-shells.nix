@@ -9,7 +9,6 @@ in {
     buildInputs = [
       hsPkgs.ghc
       pkgs.cabal-install
-      pkgs.ormolu
       pkgs.haskellPackages.cabal-gild
       pkgs.alejandra
       # scripts/repository-files.sh lists the files of the repository with git.

@@ -399,10 +399,6 @@ executable aihc-dev
     Aihc.Dev.Explore.Document
     Aihc.Dev.Explore.Haskell
     Aihc.Dev.Explore.TextMate
-    Aihc.Dev.ExtractHi
-    Aihc.Dev.ExtractHi.Ghc
-    Aihc.Dev.ExtractHi.ToResolveIface
-    Aihc.Dev.ExtractHi.Types
     Aihc.Dev.Frontend
     Aihc.Dev.Fuzz
     Aihc.Dev.Fuzz.Bugs
@@ -582,10 +578,6 @@ test-suite dev-spec
   main-is: Spec.hs
   other-modules:
     Aihc.Dev.Explore.Document
-    Aihc.Dev.ExtractHi
-    Aihc.Dev.ExtractHi.Ghc
-    Aihc.Dev.ExtractHi.ToResolveIface
-    Aihc.Dev.ExtractHi.Types
     Aihc.Dev.Frontend
     Aihc.Dev.Fuzz.Bugs
     Aihc.Dev.Fuzz.CLI
