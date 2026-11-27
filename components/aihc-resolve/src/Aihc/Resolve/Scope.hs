@@ -26,6 +26,7 @@ module Aihc.Resolve.Scope
     moduleDeclarationExports,
     resolveExportList,
     ResolvedExport (..),
+    resolvedExportTerm,
     exportedLocalNames,
     moduleScope,
     moduleKey,
@@ -404,6 +405,13 @@ resolveExportList exports (ModuleUnit package extensions modu) =
            )
     unique [entry] = [entry]
     unique _ = []
+
+-- | The term entity that one export item gives to a name. A member that
+-- the item bundles is such a name.
+resolvedExportTerm :: ResolvedExport -> Text -> Maybe Entity
+resolvedExportTerm export name =
+  let Exports scope = resolvedExportScope export
+   in Map.lookup name (scopeTerms scope)
 
 exportedScopeFor :: Package -> ModuleExports -> [Extension] -> Module -> Maybe [ExportSpec] -> Scope
 exportedScopeFor package exports extensions modu = \case

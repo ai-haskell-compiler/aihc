@@ -11,6 +11,7 @@ annotated:
   └─ v Main
 - |-
   module Opts (Unit (..), Options (level), defaultOptions) where
+                                   └─ v Opts
   data Unit = Unit
        │      └─ v Opts
        └─ t Opts

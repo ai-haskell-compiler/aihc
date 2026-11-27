@@ -33,6 +33,7 @@ annotated:
                 └─ t Family
   - |-
     module Provider (Bit, V.Vector (BitVec), V.Vector (..)) where
+                                    └─ v Provider
     import qualified Family as V
     data Bit = Bit
          │     └─ v Provider

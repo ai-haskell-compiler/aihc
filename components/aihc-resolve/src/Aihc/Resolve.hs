@@ -233,12 +233,44 @@ resolveModule builtinScope package exports extensions nextLocal modu =
    in ( nextLocal',
         ( importErrors <> declErrors,
           visibleTerms,
-          resolvedModuleTree modu imports' decls'
+          resolveModuleHeadMembers package exports extensions modu (resolvedModuleTree modu imports' decls')
         )
       )
 
+-- | Give the term entity to each member that an export item bundles. The
+-- type checker must know which entity @T (P)@ names, because an import
+-- can give a different entity with the same name. Other export names stay
+-- unresolved.
+resolveModuleHeadMembers :: Package -> ModuleExports -> [Extension] -> Module -> R.Module -> R.Module
+resolveModuleHeadMembers package exports extensions modu resolvedModule =
+  case (R.moduleHead resolvedModule, resolveExportList exports (ModuleUnit package extensions modu)) of
+    (Just head', Just resolvedExports)
+      | Just specs <- R.moduleHeadExports head',
+        length specs == length resolvedExports ->
+          resolvedModule {R.moduleHead = Just head' {R.moduleHeadExports = Just (zipWith annotateSpec resolvedExports specs)}}
+    _ -> resolvedModule
+  where
+    annotateSpec resolvedExport spec =
+      case spec of
+        R.ExportAnn ann inner -> R.ExportAnn ann (annotateSpec resolvedExport inner)
+        R.ExportWith pragma namespace name members -> R.ExportWith pragma namespace name (map (annotateMember resolvedExport) members)
+        R.ExportWithAll pragma namespace name index members -> R.ExportWithAll pragma namespace name index (map (annotateMember resolvedExport) members)
+        _ -> spec
+    annotateMember resolvedExport member
+      | R.ieBundledMemberNamespace member == Just R.IEBundledNamespaceType = member
+      | otherwise =
+          let name = R.ieBundledMemberName member
+           in case resolvedExportTerm resolvedExport (R.nameText name) of
+                Just entity ->
+                  member
+                    { R.ieBundledMemberName =
+                        name {R.nameResolution = Just (ResolutionOk (Resolved (sourceSpanFromAnns (R.nameAnns name)) (IdentifierNamed (R.nameText name)) ResolutionNamespaceTerm entity))}
+                    }
+                Nothing -> member
+
 -- | The resolved tree of a module, from the resolved imports and the
--- resolved declarations. The module head stays unresolved.
+-- resolved declarations. The module head stays unresolved, except for the
+-- members that 'resolveModuleHeadMembers' resolves.
 resolvedModuleTree :: Module -> [R.ImportDecl] -> [R.Decl] -> R.Module
 resolvedModuleTree modu imports decls =
   R.Module
