@@ -2,6 +2,7 @@ annotated:
 - |-
   {-# LANGUAGE PatternSynonyms #-}
   module Lib (Expr (.., Sub)) where
+                        └─ v Lib
   data Bool = True | False
        │      │      └─ v Lib
        │      └─ v Lib

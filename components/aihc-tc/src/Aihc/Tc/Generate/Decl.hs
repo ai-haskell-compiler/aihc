@@ -158,6 +158,7 @@ import Aihc.Tc.Syntax
     qualifyName,
     recordSelectorNames,
     setDataConTc,
+    termResolved,
     tyVarBinderKind,
     tyVarBinderName,
     unqualifiedNameAnns,
@@ -3531,10 +3532,12 @@ checkBundledPatSyns modu =
         ExportWith _ _ typeName members -> mapM_ (checkMember sp (nameText typeName)) members
         ExportWithAll _ _ typeName _ members -> mapM_ (checkMember sp (nameText typeName)) members
         _ -> pure ()
+    -- The resolver gives the entity of the member. An imported pattern
+    -- synonym can have the same name, thus the name text is not sufficient.
     checkMember sp typeName member = do
       let memberName = nameText (ieBundledMemberName member)
-      patSyns <- getPatSyns
-      forM_ [info | info <- patSyns, psiName info == memberName] $ \info ->
+      patSyn <- maybe (pure Nothing) (lookupPatSynTarget . resolutionTarget) (termResolved (ieBundledMemberName member))
+      forM_ patSyn $ \info ->
         case patSynResultTyConName info of
           Just resultName
             | resultName /= typeName ->

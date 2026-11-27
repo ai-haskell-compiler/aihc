@@ -19,6 +19,7 @@ modules:
 annotated:
   - |-
     module Error (Error (path)) where
+                         └─ v Error
     data Message = Message
          │         └─ v Error
          └─ t Error

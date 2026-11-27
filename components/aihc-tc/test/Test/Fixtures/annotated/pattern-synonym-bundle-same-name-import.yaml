@@ -1,0 +1,38 @@
+extensions:
+- PatternSynonyms
+modules:
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module A (Seq (Empty)) where
+  data Seq = MkSeq
+  pattern Empty :: Seq
+  pattern Empty = MkSeq
+- |
+  {-# LANGUAGE PatternSynonyms #-}
+  module B (Queue (B.Empty)) where
+  import qualified A
+  data Queue = MkQueue
+  pattern Empty :: Queue
+  pattern Empty = MkQueue
+annotated:
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module A (Seq (Empty)) where
+  data Seq = MkSeq
+       │     └─ type: Seq
+       └─ type: Type
+  pattern Empty :: Seq
+  pattern Empty = MkSeq
+  └─ type: Seq    └─ type: Seq
+- |-
+  {-# LANGUAGE PatternSynonyms #-}
+  module B (Queue (B.Empty)) where
+  import qualified A
+  data Queue = MkQueue
+       │       └─ type: Queue
+       └─ type: Type
+  pattern Empty :: Queue
+  pattern Empty = MkQueue
+  └─ type: Queue  └─ type: Queue
+reason: a bundled pattern synonym is the one that the export names, not an imported pattern synonym with the same name
+status: pass
