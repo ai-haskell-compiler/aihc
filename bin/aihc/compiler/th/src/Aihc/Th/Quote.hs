@@ -572,6 +572,11 @@ quoted dynamic binders = go
         R.EChar char source -> pure (literal "charL" (EChar char source))
         R.EString _ string _ -> pure (literal "stringL" (stringLiteral string))
         R.EApp function argument -> call "appE" <$> mapM go [function, argument]
+        -- A visible type application. The type can have splices too.
+        R.ETypeApp function argument -> do
+          function' <- go function
+          argument' <- quotedType dynamic binders argument
+          pure (call "appTypeE" [function', argument'])
         R.EInfix left operator right -> do
           left' <- go left
           operator' <- lift (variable operator)
