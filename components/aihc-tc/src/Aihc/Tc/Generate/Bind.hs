@@ -18,6 +18,7 @@ where
 import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Tc.Annotations (TcAnnotated (..), TcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
+import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
@@ -79,7 +80,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (defaultTypeSchemeKinds, zonkPred, zonkType)
 import Control.Applicative ((<|>))
-import Control.Monad (filterM, foldM, forM, forM_, void, when)
+import Control.Monad (filterM, foldM, forM, forM_, unless, void, when)
 import Data.Either (isRight)
 import Data.Graph qualified as Graph
 import Data.List (mapAccumL, partition)
@@ -973,6 +974,7 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
       Just scheme -> do
         let ForAll _ sigPredicates _ = scheme
             sigTy = fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)
+        outerMetas <- environmentMetaVars Set.empty
         (argTys, resTy, arityMatches, arityCts) <- splitMatchType sigTy matches
         -- The signature's context is a given for the body, so a
         -- pattern-match implication inside it can discharge a wanted
@@ -983,12 +985,65 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
               mapM (tcMatchEquation argTys resTy) arityMatches
         let matches' = map fst results
             matchCts = arityCts <> concatMap snd results
-        residualCts <- solveWithSigGivens scheme matchCts
+        residualCts <- solveWithSigGivens scheme =<< solveEscapeEqualities scheme outerMetas matchCts
+        rejectEscapingSignatureVariables name scheme outerMetas
         pure (matches', sigTy, residualCts)
       Nothing ->
         tcMatches inferExpr matches
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
+
+-- | Solve the equalities of a local binding with a signature before its
+-- escape check, as for a higher-rank argument. A deferred equality @t0 ~
+-- c@ would otherwise unify the outer meta variable @t0@ with the signature
+-- variable @c@ only after the check. Nothing is solved when no variable can
+-- escape.
+solveEscapeEqualities :: TypeScheme -> [Unique] -> [Ct] -> TcM [Ct]
+solveEscapeEqualities (ForAll tyVars predicates _) outerMetas cts
+  | null tyVars || null outerMetas = pure cts
+  | otherwise = do
+      let (equalityCts, otherCts) = partition isEqualityCt cts
+      residualEqualities <- concat <$> mapM solveEqualityCt equalityCts
+      pure (residualEqualities <> otherCts)
+  where
+    isEqualityCt ct =
+      case ctPred ct of
+        EqPred {} -> True
+        _ -> False
+
+    solveEqualityCt ct = do
+      result <- withGivenPredicates predicates (solveEquality ct)
+      pure $ case result of
+        EqSolved -> []
+        EqStuck stuck -> [stuck]
+        EqError err -> [err]
+
+-- | Report a type variable of a local signature that escapes its scope.
+--
+-- A type variable of the signature @g :: c -> c@ is rigid in the body of
+-- @g@ only. A binding of the enclosing scope that is not generalized, as
+-- under MonoLocalBinds, has a meta variable in its type. A use of that
+-- binding in the body of @g@ must not unify the meta variable with @c@:
+-- the binding is outside the scope of @c@. GHC rejects this program. The
+-- meta variables of the environment are taken before the body is checked.
+rejectEscapingSignatureVariables :: UnqualifiedName -> TypeScheme -> [Unique] -> TcM ()
+rejectEscapingSignatureVariables name (ForAll tyVars _ _) outerMetas
+  | null tyVars || null outerMetas = pure ()
+  | otherwise = do
+      escaped <- filterM mentionsSignatureVariable outerMetas
+      unless (null escaped) $
+        emitError
+          (sourceSpanFromAnnotations (unqualifiedNameAnns name))
+          ( OtherError
+              ( "a type variable of the signature of "
+                  <> T.unpack (unqualifiedNameText name)
+                  <> " escapes its scope"
+              )
+          )
+  where
+    mentionsSignatureVariable meta = do
+      ty <- zonkType (TcMetaTv meta)
+      pure (any (`typeMentionsTyVar` ty) tyVars)
 
 -- | Solve the constraints of a local binding under the context of its
 -- signature. The desugarer turns the context into dictionary parameters of
@@ -1056,6 +1111,7 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   key <- resolvedLocalTermKey name
   let signature = Map.lookup key sigs
       signatureTy = (\scheme -> fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)) <$> signature
+  outerMetas <- maybe (pure []) (const (environmentMetaVars Set.empty)) signature
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       case signatureTy of
@@ -1079,7 +1135,10 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   -- keeps its original type.
   let bindCt = mkWantedCt (EqPred rhsTy ty) ev (LetOrigin Nothing) Nothing
   cts <- case signature of
-    Just scheme -> solveWithSigGivens scheme (bindCt : rhsCts)
+    Just scheme -> do
+      residualCts <- solveWithSigGivens scheme =<< solveEscapeEqualities scheme outerMetas (bindCt : rhsCts)
+      rejectEscapingSignatureVariables name scheme outerMetas
+      pure residualCts
     Nothing -> pure (rhsCts ++ [bindCt])
   pure (annotateRhsCast ty ev rhs', ty, cts)
 

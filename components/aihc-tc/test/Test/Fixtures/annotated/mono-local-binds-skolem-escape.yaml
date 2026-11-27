@@ -1,0 +1,53 @@
+annotated:
+- |-
+  {-# LANGUAGE MonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+       │     │   └─ type: Nat → Nat
+       │     └─ type: Nat
+       └─ type: Type
+  bot :: Nat -> x
+  bot n = bot n
+  │   │   └─ type: Nat → x; type-args: x
+  │   └─ type: Nat
+  └─ type: ∀ x. Nat → x
+  f :: Nat -> Nat
+  f n = n
+    where
+      g :: c -> c
+      g x = under Z
+      └─ error: a type variable of the signature of g escapes its scope
+      under y = bot n
+  h :: Nat -> Nat
+  h n = n
+    where
+      k :: c -> c
+      k = \x -> under Z
+      └─ error: a type variable of the signature of k escapes its scope
+      under y = bot n
+extensions:
+- MonoLocalBinds
+modules:
+- |
+  {-# LANGUAGE MonoLocalBinds #-}
+  module Test where
+  data Nat = Z | S Nat
+  bot :: Nat -> x
+  bot n = bot n
+  f :: Nat -> Nat
+  f n = n
+    where
+      g :: c -> c
+      g x = under Z
+      under y = bot n
+  h :: Nat -> Nat
+  h n = n
+    where
+      k :: c -> c
+      k = \x -> under Z
+      under y = bot n
+reason: Under MonoLocalBinds, the type checker does not generalize the local
+  binding under. Thus, its result type is a meta variable of the enclosing
+  scope. A use in the body of g or k must not unify it with the rigid signature
+  variable c. GHC rejects the program.
+status: pass
