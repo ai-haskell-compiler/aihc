@@ -17,6 +17,8 @@ module Aihc.Resolve.Monad
     withResetLocalSupply,
     inExpressionQuote,
     withExpressionQuote,
+    withStaticOperand,
+    isStaticOuterLocal,
   )
 where
 
@@ -29,6 +31,8 @@ import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 
 data ResolveEnv = ResolveEnv
   { envScope :: !Scope,
@@ -36,7 +40,10 @@ data ResolveEnv = ResolveEnv
     envSpan :: !(Maybe SourceSpan),
     -- | Whether the resolver is in the body of an expression quote, and not
     -- in a splice in that body.
-    envInExpressionQuote :: !Bool
+    envInExpressionQuote :: !Bool,
+    -- | The local binders in scope at the innermost @static@ form. The
+    -- operand of a @static@ form must be closed, thus it cannot use them.
+    envStaticOuterLocals :: !(Set.Set LocalId)
   }
 
 data ModuleInfo = ModuleInfo
@@ -81,7 +88,7 @@ instance Monad ResolveM where
 -- unused local number and every resolution that failed, in source order.
 runResolveM :: Scope -> ModuleInfo -> Int -> ResolveM a -> (Int, [ResolveError], a)
 runResolveM scope moduleInfo nextLocal action =
-  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing, envInExpressionQuote = False}
+  let initialEnv = ResolveEnv {envScope = scope, envModuleInfo = moduleInfo, envSpan = Nothing, envInExpressionQuote = False, envStaticOuterLocals = Set.empty}
       initialState = ResolveState {stateNextLocal = nextLocal, stateErrors = []}
       (result, finalState) = unResolveM action initialEnv initialState
    in (stateNextLocal finalState, reverse (stateErrors finalState), result)
@@ -164,6 +171,18 @@ inExpressionQuote = asks envInExpressionQuote
 -- that body (with 'False').
 withExpressionQuote :: Bool -> ResolveM a -> ResolveM a
 withExpressionQuote inQuote = local (\env -> env {envInExpressionQuote = inQuote})
+
+-- | Resolve the operand of a @static@ form. The local binders of the
+-- current scope are outside the operand, thus the operand cannot use them.
+-- A binder in the operand is a new local, and the operand can use it.
+withStaticOperand :: ResolveM a -> ResolveM a
+withStaticOperand =
+  local $ \env ->
+    env {envStaticOuterLocals = Set.fromList [localId | EntityLocal localId <- Map.elems (scopeTerms (envScope env))]}
+
+-- | Whether a local binder is outside the innermost @static@ form.
+isStaticOuterLocal :: LocalId -> ResolveM Bool
+isStaticOuterLocal localId = asks (Set.member localId . envStaticOuterLocals)
 
 withScope :: Scope -> ResolveM a -> ResolveM a
 withScope scope = local (\env -> env {envScope = scope})

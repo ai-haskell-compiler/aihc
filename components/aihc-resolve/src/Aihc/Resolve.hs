@@ -1218,6 +1218,13 @@ resolveExpr expr =
       R.ETHTypeNameQuote <$> resolveType ty
     -- The resolver keeps the error in its list of errors.
     EProc {} -> fromParserExpr expr <$ unhandledSyntax ResolutionNamespaceTerm "EProc"
+    -- The operand of a static form must be closed. Thus a use of a local
+    -- binder from outside the operand is an error. GHC also accepts a
+    -- local binder with a closed definition and a closed type. The
+    -- resolver does not, because a closed type is a fact of the type
+    -- checker.
+    EStatic inner ->
+      R.EStatic <$> withStaticOperand (resolveExpr inner)
 
 -- | Whether the resolver resolves a declaration of a declaration quote:
 -- a value binding, a type signature, an instance, or a standalone deriving
@@ -2843,7 +2850,21 @@ resolveTermUse :: Name -> ResolveM R.Name
 resolveTermUse name = do
   sp <- currentSpan
   scope <- currentScope
-  resolveNameTo sp ResolutionNamespaceTerm (termUseResolution scope name) name
+  resolved <- closedTermUse name (termUseResolution scope name)
+  resolveNameTo sp ResolutionNamespaceTerm resolved name
+
+-- | Refuse a use of a local binder from outside the operand of the
+-- innermost @static@ form.
+closedTermUse :: Name -> Resolution -> ResolveM Resolution
+closedTermUse name resolved =
+  case resolved of
+    Found (EntityLocal localId) -> do
+      outside <- isStaticOuterLocal localId
+      pure $
+        if outside
+          then NotFound ("the operand of a static form must be closed, but it uses the local variable " <> T.unpack (nameText name))
+          else resolved
+    _ -> pure resolved
 
 -- | The resolution of a term occurrence: the term of its 'ExactTerm' mark,
 -- or the term that the scope gives for its name.
@@ -2859,7 +2880,8 @@ resolveTermUseAtName name = do
   sp <- currentSpan
   scope <- currentScope
   let nameSpan = sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan sp (nameText name)
-  resolveNameTo nameSpan ResolutionNamespaceTerm (termUseResolution scope name) name
+  resolved <- closedTermUse name (termUseResolution scope name)
+  resolveNameTo nameSpan ResolutionNamespaceTerm resolved name
 
 resolveInfixExpr :: Expr -> ResolveM R.Expr
 resolveInfixExpr expr = do

@@ -1,0 +1,23 @@
+extensions:
+- StaticPointers
+modules:
+- |
+  {-# LANGUAGE StaticPointers #-}
+  module Main where
+  inc x = x
+  ref y = static (\z -> inc z y)
+annotated:
+- |-
+  {-# LANGUAGE StaticPointers #-}
+  module Main where
+  inc x = x
+  │   │   └─ v 0
+  │   └─ v 0
+  └─ v Main
+  ref y = static (\z -> inc z y)
+  │   └─ v 1       │    │   │ └─ v Error the operand of a static form must be closed, but it uses the local variable y
+  └─ v Main        │    │   └─ v 2
+                   │    └─ v Main
+                   └─ v 2
+status: pass
+reason: The operand of a static form must be closed. It can use a top-level name and its own binders, but a use of an outer local variable is an error

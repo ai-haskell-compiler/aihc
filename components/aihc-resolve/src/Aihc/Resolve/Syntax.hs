@@ -1437,6 +1437,8 @@ data Expr
 
     -- | @proc pat -> cmd@
     EProc Pattern Cmd
+  | -- | @static e@ (StaticPointers extension)
+    EStatic Expr
   | -- | @{-# SCC foo #-} expr@
     EPragma Pragma Expr
   deriving (Eq, Show, Generic)
