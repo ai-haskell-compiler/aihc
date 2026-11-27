@@ -175,7 +175,7 @@ module Language.Haskell.TH.Syntax
     VarStrictType,
     makeRelativeToProject,
     liftString,
-    Lift (..),
+    Lift (lift, liftTyped),
     dataToExpQ,
     dataToPatQ,
     dataToQa,

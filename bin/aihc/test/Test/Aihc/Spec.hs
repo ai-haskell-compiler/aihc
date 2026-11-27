@@ -810,7 +810,7 @@ test_buildSplices getStore getEngineStore = do
 -- of the executable @program@ in a native program for the host, not in the
 -- WebAssembly engine. The splices thus have the word size of the host. The output of
 -- a splice does not go into the protocol of the engine. The test needs no
--- WebAssembly tools.
+-- WebAssembly tools. The lift of a String in a splice is a string literal.
 test_buildNativeSplices :: IO SeedStore -> Assertion
 test_buildNativeSplices getStore =
   withBuildModuleSandbox getStore "aihc-native-splices" $ \sandbox _fixtureRoot _storeRoot options -> do
@@ -828,7 +828,7 @@ test_buildNativeSplices getStore =
         (withNativeSplices [(mkPackageName "program", Nothing)])
     (status, out, err) <- readProcessWithExitCode output [] ""
     assertEqual "exit status" ExitSuccess status
-    assertEqual "stdout" "64\n3\n" out
+    assertEqual "stdout" "64\n3\nLabel \"text\"\n" out
     assertEqual "stderr" "" err
 
 -- | A session evaluates each input in one instance. A later input uses the
