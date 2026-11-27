@@ -476,6 +476,14 @@ unTypeCode ::
   Code m a -> m Exp
 unTypeCode = unTypeQ . examineCode
 
+-- | The result of a typed splice @$$e@. aihc runs the splice before the
+-- type check, and puts @typedSpliceResult e result@ in the position of the
+-- splice. Thus, the type checker gives the result the type @a@ of
+-- @e :: Code Q a@, as GHC does. This function is not in GHC.
+typedSpliceResult :: Code Q a -> a -> a
+typedSpliceResult _ result = result
+{-# INLINE typedSpliceResult #-}
+
 -- | Modify the ambient monad used during code generation. For example, you
 -- can use `hoistCode` to handle a state effect:
 -- @

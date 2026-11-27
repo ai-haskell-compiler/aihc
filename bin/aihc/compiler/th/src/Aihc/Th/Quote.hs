@@ -32,6 +32,7 @@
 -- outside the subset stays as it is.
 module Aihc.Th.Quote
   ( moduleHasQuote,
+    quoteAlias,
     quoteImports,
     quoteLibraryModules,
     desugarModuleQuotes,

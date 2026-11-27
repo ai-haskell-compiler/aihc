@@ -642,7 +642,7 @@ spliceModuleTest = do
           }
   assertEqual
     "one closure for each splice"
-    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified GHC.Internal.TH.Lib as AihcQuoteLibrary import qualified GHC.Internal.TH.Syntax as AihcQuoteLibrary import qualified GHC.Internal.TH.Lift as AihcQuoteLibrary import qualified Data.Maybe as AihcQuoteMaybe import qualified Aihc.TH.Splice aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 = Aihc.TH.Splice.runTypeSplice (t) aihcSplice5 = Aihc.TH.Splice.runDeclarationsSplice (h)"
+    "{-# LANGUAGE TemplateHaskell #-} module AihcSplice where import Data.List (sort) import qualified GHC.Internal.TH.Lib as AihcQuoteLibrary import qualified GHC.Internal.TH.Syntax as AihcQuoteLibrary import qualified GHC.Internal.TH.Lift as AihcQuoteLibrary import qualified Data.Maybe as AihcQuoteMaybe import qualified Aihc.TH.Splice aihcSplice0 :: Aihc.TH.Splice.SpliceClosure aihcSplice0 = Aihc.TH.Splice.runExpressionSplice (a 1) aihcSplice1 :: Aihc.TH.Splice.SpliceClosure aihcSplice1 = Aihc.TH.Splice.runExpressionSplice (b) aihcSplice2 :: Aihc.TH.Splice.SpliceClosure aihcSplice2 = Aihc.TH.Splice.runDeclarationsSplice (g 2) aihcSplice3 :: Aihc.TH.Splice.SpliceClosure aihcSplice3 = Aihc.TH.Splice.runExpressionSplice (d $(e)) aihcSplice4 :: Aihc.TH.Splice.SpliceClosure aihcSplice4 = Aihc.TH.Splice.runTypeSplice (t) aihcSplice5 :: Aihc.TH.Splice.SpliceClosure aihcSplice5 = Aihc.TH.Splice.runDeclarationsSplice (h)"
     (T.unwords (T.words (spliceModuleText request)))
 
 name :: Text -> Tree

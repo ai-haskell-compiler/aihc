@@ -13,7 +13,7 @@ import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
 import Data.Word (Word8)
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, warmType)
+import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
 -- The code outside the splices uses this package, and the splices do not.
@@ -403,6 +403,9 @@ main = do
   mapM_ putStrLn quasiLines
   -- Typed splices of typed quotes.
   print ($$(typedSteps 3) 5, $$(typedOffset 41))
+  -- The result of a typed splice has the type of the body of the splice.
+  -- Without that type, the result has the type Integer, and gives 256.
+  print (toInteger ($$typedWrap 255))
   putStrLn (describe Red)
   print quotedNumber
   print (Weight 8)
