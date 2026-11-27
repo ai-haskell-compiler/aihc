@@ -46,19 +46,6 @@ docs: docs-examples
 docs-examples:
   cabal run -v0 aihc-dev -- pipeline-examples docs/aihc-manual/pipeline-examples --output docs/aihc-manual/generated
 
-# Generate boot package interfaces for the resolver (requires GHC dev env)
-gen-boot-ifaces:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  GHC_VERSION=$(ghc --numeric-version)
-  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/aihc-resolve/boot-interfaces/$GHC_VERSION"
-  mkdir -p "$CACHE_DIR"
-  for pkg in ghc-prim ghc-internal ghc-bignum base; do
-    echo "Extracting interface for $pkg..."
-    cabal run -v0 aihc-dev -- extract-resolve-iface --package "$pkg" --output "$CACHE_DIR/$pkg.json"
-  done
-  echo "Boot interfaces generated in $CACHE_DIR"
-
 # Regenerate the committed Unicode tables from pinned UCD inputs.
 generate-unicode:
   nix run .#generate-unicode
