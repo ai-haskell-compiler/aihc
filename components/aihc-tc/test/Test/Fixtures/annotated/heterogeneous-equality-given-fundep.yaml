@@ -30,8 +30,8 @@ annotated:
     instance (m ~~ m', Rd r m') => Rd r (Codensity (m :: k -> TYPE rep)) where
     └─ $fRdrCodensitym ∷ ∀ k rep m' r m. (m ~ m', Rd r m') ⇒ Rd r (Codensity m)
       rd = Codensity (\c -> bnd rd c)
-      │    ││          ││    │   └─ type: m' r; type-args: r, m'; evidence: given Rd r m'
-      │    ││          ││    └─ type: m' r → (r → m' b) → m' b; type-args: r, m', r, b; evidence: given Rd r m'
+      │    ││          ││    │   └─ type: m r; type-args: r, m; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
+      │    ││          ││    └─ type: m r → (r → m b) → m b; type-args: r, m, r, b; evidence: cast(given Rd r m', sym (Rd refl r given m ~ m'))
       │    ││          │└─ type: r → m b
       │    ││          └─ type: (r → m b) → m b
       │    └─ type: (∀ b. (r → m b) → m b) → Codensity m r; type-args: k, rep, m, r
@@ -72,7 +72,6 @@ annotated:
       │    │         └─ type: ∀ b. (x → m b) → m b
       │    └─ type: Codensity m x
       └─ bnd ∷ ∀ x y. Codensity m x → (x → Codensity m y) → Codensity m y
-
 extensions:
   - PolyKinds
   - RankNTypes

@@ -33,6 +33,7 @@
 module Aihc.Th.Quote
   ( moduleHasQuote,
     quoteImports,
+    quoteLibraryModules,
     desugarModuleQuotes,
     desugarSpliceBody,
     localBinderNames,
@@ -68,25 +69,30 @@ moduleHasQuote = not . null . moduleQuotes
 quoteAlias :: Text
 quoteAlias = "AihcQuoteLibrary"
 
--- | The alias of the internal module of the library. Some of its functions
--- have the same names as functions of the public modules, but different
--- types. Thus, the module has a different alias.
-quoteInternalAlias :: Text
-quoteInternalAlias = "AihcQuoteInternal"
-
--- | The alias of the module that gives the constructors of @Maybe@. A
--- function of the internal module takes an optional argument.
+-- | The alias of the module that gives the constructors of @Maybe@. Some
+-- functions of the library take an optional argument.
 quoteMaybeAlias :: Text
 quoteMaybeAlias = "AihcQuoteMaybe"
 
--- | The imports that give the names of the new expressions.
+-- | The modules of the quote library. They are in @aihc-internal@, as the
+-- names that GHC gives to a quote are in @ghc-internal@. Thus, a package
+-- can use a quote when @aihc-internal@ is below it, also when it does not
+-- depend on @template-haskell@. An example is @quote-quot@, which depends
+-- only on @template-haskell-lift@.
+quoteLibraryModules :: [Text]
+quoteLibraryModules =
+  [ "GHC.Internal.TH.Lib",
+    "GHC.Internal.TH.Syntax",
+    "GHC.Internal.TH.Lift"
+  ]
+
+-- | The imports that give the names of the new expressions. The functions
+-- of @GHC.Internal.TH.Lib@ have the types of
+-- @Language.Haskell.TH.Lib.Internal@, not of the public module.
 quoteImports :: [ImportDecl]
 quoteImports =
-  [ qualified quoteAlias "Language.Haskell.TH.Lib",
-    qualified quoteAlias "Language.Haskell.TH.Syntax",
-    qualified quoteInternalAlias "Language.Haskell.TH.Lib.Internal",
-    qualified quoteMaybeAlias "Data.Maybe"
-  ]
+  map (qualified quoteAlias) quoteLibraryModules
+    <> [qualified quoteMaybeAlias "Data.Maybe"]
   where
     qualified alias name =
       ImportDecl
@@ -502,7 +508,7 @@ quotedType dynamic binders = go
       pure (call "forallT" [EList binders', call "cxt" [EList constraints'], body'])
     binder tyVarBinder =
       case R.tyVarBinderKind tyVarBinder of
-        Nothing -> Just (foldl EApp (libraryConstructor "PlainTV") [dynamicName (R.tyVarBinderName tyVarBinder), libraryConstructor (specificity (R.tyVarBinderSpecificity tyVarBinder))])
+        Nothing -> Just (call "plainInvisTV" [dynamicName (R.tyVarBinderName tyVarBinder), libraryConstructor (specificity (R.tyVarBinderSpecificity tyVarBinder))])
         Just _ -> Nothing
     specificity flag =
       case flag of
@@ -572,6 +578,11 @@ quoted dynamic binders = go
         R.EChar char source -> pure (literal "charL" (EChar char source))
         R.EString _ string _ -> pure (literal "stringL" (stringLiteral string))
         R.EApp function argument -> call "appE" <$> mapM go [function, argument]
+        -- A visible type application. The type can have splices too.
+        R.ETypeApp function argument -> do
+          function' <- go function
+          argument' <- quotedType dynamic binders argument
+          pure (call "appTypeE" [function', argument'])
         R.EInfix left operator right -> do
           left' <- go left
           operator' <- lift (variable operator)
@@ -583,7 +594,7 @@ quoted dynamic binders = go
           pure (call "lamE" [EList patterns', body'])
         R.ETuple _ Boxed fields -> do
           fields' <- mapM (maybe (lift Nothing) go) fields
-          pure (call "tupE" [EList fields'])
+          pure (call "tupE" [EList (map (EApp (maybeConstructor "Just")) fields')])
         R.EList _ _ elements -> (\elements' -> call "listE" [EList elements']) <$> mapM go elements
         R.EIf _ condition whenTrue whenFalse -> call "condE" <$> mapM go [condition, whenTrue, whenFalse]
         R.ECase scrutinee alternatives -> do
@@ -622,7 +633,7 @@ quoted dynamic binders = go
           decls' <- quotedDeclarationList dynamic binders decls
           body' <- go body
           pure (call "letE" [EList decls', body'])
-        R.EDo statements DoPlain -> (\statements' -> call "doE" [EList statements']) <$> mapM statement statements
+        R.EDo statements DoPlain -> (\statements' -> call "doE" [maybeConstructor "Nothing", EList statements']) <$> mapM statement statements
         -- The body of @$$e@ has the type @Code m t@. The syntax tree of
         -- the splice is the syntax tree of that code.
         R.ETHTypedSplice resolvedBody -> (\body -> call "unTypeCode" [body]) <$> spliced dynamic binders resolvedBody
@@ -688,7 +699,7 @@ quotedPattern pattern' =
     -- A constructor pattern with no type arguments.
     R.PCon name [] arguments
       | Just (EntityGlobal global) <- R.resolvedNameEntity name ->
-          (\arguments' -> call "conP" [resolvedGlobalName name global, EList arguments']) <$> mapM quotedPattern arguments
+          (\arguments' -> call "conP" [resolvedGlobalName name global, EList [], EList arguments']) <$> mapM quotedPattern arguments
     _ -> Nothing
 
 -- | The expression that builds the syntax trees of a resolved declaration
@@ -728,7 +739,7 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
               strategy <- traverse derivingStrategy (R.standaloneDerivingStrategy derivingDecl)
               context <- mapM (quotedType dynamic binders) (R.standaloneDerivingContext derivingDecl)
               instanceHead <- quotedType dynamic binders (R.standaloneDerivingHead derivingDecl)
-              pure [internalCall "standaloneDerivWithStrategyD" [maybeExpression strategy, call "cxt" [EList context], instanceHead]]
+              pure [call "standaloneDerivWithStrategyD" [maybeExpression strategy, call "cxt" [EList context], instanceHead]]
         _ -> lift Nothing
     derivingStrategy strategy =
       case strategy of
@@ -737,7 +748,6 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
         R.DerivingAnyclass -> pure (library "anyclassStrategy")
         R.DerivingVia via -> (\via' -> call "viaStrategy" [via']) <$> quotedType dynamic binders via
     maybeExpression = maybe (maybeConstructor "Nothing") (EApp (maybeConstructor "Just"))
-    maybeConstructor name = EVar (mkName (Just quoteMaybeAlias) NameConId name)
     instanceItem item =
       case item of
         R.InstanceItemAnn _ inner -> instanceItem inner
@@ -866,9 +876,9 @@ call function = foldl EApp (library function)
 library :: Text -> Expr
 library function = EVar (mkName (Just quoteAlias) NameVarId function)
 
--- | An application of a function of the internal module of the library.
-internalCall :: Text -> [Expr] -> Expr
-internalCall function = foldl EApp (EVar (mkName (Just quoteInternalAlias) NameVarId function))
+-- | A data constructor of @Maybe@.
+maybeConstructor :: Text -> Expr
+maybeConstructor name = EVar (mkName (Just quoteMaybeAlias) NameConId name)
 
 -- | A data constructor of the Template Haskell library.
 libraryConstructor :: Text -> Expr

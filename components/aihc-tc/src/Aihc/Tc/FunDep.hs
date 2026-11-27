@@ -272,5 +272,12 @@ walk substitution ty =
 bind :: Map Unique TcType -> TyVarId -> TcType -> UnifyOpen
 bind substitution tyVar ty
   | TcTyVar other <- ty, tvUnique other == tvUnique tyVar = Unified substitution
-  | typeMentionsTyVar tyVar ty = NotUnified
+  | typeMentionsTyVar tyVar resolved = NotUnified
   | otherwise = Unified (Map.insert (tvUnique tyVar) ty substitution)
+  where
+    -- The occurs check must look through the substitution. If it does not,
+    -- the substitution can get a cycle, and 'walk' then does not stop.
+    -- An example is the unification of @e -> e -> e@ with @e' -> e'@.
+    -- The check keeps the substitution acyclic, so each variable chain is
+    -- shorter than the substitution.
+    resolved = iterate (applySubst substitution) ty !! (Map.size substitution + 1)

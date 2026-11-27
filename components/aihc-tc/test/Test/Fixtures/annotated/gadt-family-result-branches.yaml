@@ -1,0 +1,146 @@
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeFamilies, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Lbi = Lbi
+       │     └─ type: Lbi
+       └─ type: Type
+  data Files = Files
+       │       └─ type: Files
+       └─ type: Type
+  data CF
+       └─ type: Type
+  data BF
+       └─ type: Type
+  data Spec = Try Type | General
+       │      │          └─ type: Spec
+       │      └─ type: Type → Spec
+       └─ type: Type
+  data Phase f where
+       └─ type: Type → Type
+    PConf :: Phase CF
+    └─ type: ∀ f. (f ~ CF) ⇒ Phase f
+    PBuild :: Phase BF
+    └─ type: ∀ f. (f ~ BF) ⇒ Phase f
+  data Args (s :: Spec) where
+       └─ type: Spec → Type
+    NotIn :: Args General
+    └─ type: ∀ s. (s ~ 'General) ⇒ Args s
+    In :: Phase f -> Args (Try f)
+    └─ type: ∀ s f. (s ~ ('Try f)) ⇒ Phase f → Args s
+  type family Res (s :: Spec) where
+              └─ type: Spec → Type
+    Res General = Unit
+    Res (Try f) = PRes f
+  type family PRes f where
+              └─ type: Type → Type
+    PRes CF = Lbi
+    PRes BF = Files
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  ││   └─ type: a
+  └─ type: ∀ a b. (a → b) → a → b
+  └─ type: a → b
+  data M a = M a
+       │     └─ type: ∀ a. a → M a
+       └─ type: Type → Type
+  class Monad (m :: Type -> Type) where
+  └─ class methods: return ∷ ∀ m a. (Monad m) ⇒ a → m a
+    return :: a -> m a
+  instance Monad M where
+  └─ $fMonadM ∷ () ⇒ Monad M
+    return = M
+    │        └─ type: a → M a; type-args: a
+    └─ return ∷ ∀ a. a → M a
+  plain :: forall s. Args s -> Res s
+  plain args = case args of
+  │     │      └─ type: Res s
+  │     └─ type: Args s
+  └─ type: ∀ s. Args s → Res s
+    NotIn -> Unit
+    └─ type: Args s; type-args: s; evidence: given s ~ 'General
+    In p -> case p of
+    │  │    └─ type: Res s
+    │  └─ type: Phase f
+    └─ type: Phase f → Args s; type-args: s, f; evidence: given s ~ 'Try f
+      PConf -> Lbi
+      └─ type: Phase f; type-args: f; evidence: given f ~ CF
+      PBuild -> Files
+      └─ type: Phase f; type-args: f; evidence: given f ~ BF
+  viaApply :: forall s. Args s -> M (Res s)
+  viaApply args = return $ case args of
+  │        │      │      │ └─ type: Res s
+  │        │      │      └─ type: (Res s → M (Res s)) → Res s → M (Res s); type-args: Res s, M (Res s)
+  │        │      └─ type: Res s → M (Res s); type-args: M, Res s; evidence: $fMonadM
+  │        └─ type: Args s
+  └─ type: ∀ s. Args s → M (Res s)
+    NotIn -> Unit
+    └─ type: Args s; type-args: s; evidence: given s ~ 'General
+    In p -> case p of
+    │  │    └─ type: Res s
+    │  └─ type: Phase f
+    └─ type: Phase f → Args s; type-args: s, f; evidence: given s ~ 'Try f
+      PConf -> Lbi
+      └─ type: Phase f; type-args: f; evidence: given f ~ CF
+      PBuild -> Files
+      └─ type: Phase f; type-args: f; evidence: given f ~ BF
+extensions:
+- DataKinds
+- GADTs
+- KindSignatures
+- TypeFamilies
+- RankNTypes
+- ScopedTypeVariables
+modules:
+- |
+  {-# LANGUAGE DataKinds, GADTs, KindSignatures, TypeFamilies, RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types (Type)
+  data Unit = Unit
+  data Lbi = Lbi
+  data Files = Files
+  data CF
+  data BF
+  data Spec = Try Type | General
+  data Phase f where
+    PConf :: Phase CF
+    PBuild :: Phase BF
+  data Args (s :: Spec) where
+    NotIn :: Args General
+    In :: Phase f -> Args (Try f)
+  type family Res (s :: Spec) where
+    Res General = Unit
+    Res (Try f) = PRes f
+  type family PRes f where
+    PRes CF = Lbi
+    PRes BF = Files
+  infixr 0 $
+  ($) :: (a -> b) -> a -> b
+  f $ x = f x
+  data M a = M a
+  class Monad (m :: Type -> Type) where
+    return :: a -> m a
+  instance Monad M where
+    return = M
+  plain :: forall s. Args s -> Res s
+  plain args = case args of
+    NotIn -> Unit
+    In p -> case p of
+      PConf -> Lbi
+      PBuild -> Files
+  viaApply :: forall s. Args s -> M (Res s)
+  viaApply args = return $ case args of
+    NotIn -> Unit
+    In p -> case p of
+      PConf -> Lbi
+      PBuild -> Files
+reason: Two nested GADT matches give the givens s ~ Try f and f ~ BF. Only
+  both givens together reduce the family application Res s to Files. In
+  viaApply, the quick look at the left operand return of $ fixes the result
+  type before the case branches are checked.
+status: pass

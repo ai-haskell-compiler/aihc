@@ -1,0 +1,32 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleInstances #-}
+  module Test where
+  data Nat = Z
+       │     └─ type: Nat
+       └─ type: Type
+  data Flag = Flag
+       │      └─ type: Flag
+       └─ type: Type
+  class Arity f r | f -> r
+  └─ class methods:; fundeps: f → r
+  instance Arity (e -> e) Nat
+  └─ $fArity(->)eeNat ∷ ∀ e. () ⇒ Arity (e → e) Nat
+  instance Arity (e -> e -> e) Flag
+  └─ $fArity(->)e(->)eeFlag ∷ ∀ e. () ⇒ Arity (e → e → e) Flag
+extensions:
+- MultiParamTypeClasses
+- FunctionalDependencies
+- FlexibleInstances
+modules:
+- |
+  {-# LANGUAGE FlexibleInstances #-}
+  module Test where
+  data Nat = Z
+  data Flag = Flag
+  class Arity f r | f -> r
+  instance Arity (e -> e) Nat
+  instance Arity (e -> e -> e) Flag
+reason: the determining parameters e -> e and e -> e -> e unify only to an infinite
+  type, so the two instances do not conflict
+status: pass

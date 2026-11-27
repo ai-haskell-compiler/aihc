@@ -51,8 +51,8 @@ annotated:
   runArr :: (forall s. ST s (MArr s)) -> Arr
   runArr m = runST (bind m freeze)
   │      │   ││      │    │ └─ type: Prelude.MArr (Prelude.State (Prelude.ST s)) → Prelude.ST s Prelude.Arr; type-args: ST s; evidence: $fAssocSTs @s
-  │      │   ││      │    └─ type: Prelude.ST s (Prelude.MArr s); type-args: s
-  │      │   ││      └─ type: Prelude.ST s (Prelude.MArr s) → (Prelude.MArr s → Prelude.ST s Prelude.Arr) → Prelude.ST s Prelude.Arr; type-args: s, MArr s, Arr
+  │      │   ││      │    └─ type: Prelude.ST (Prelude.State (Prelude.ST s)) (Prelude.MArr (Prelude.State (Prelude.ST s))); type-args: State (ST s)
+  │      │   ││      └─ type: Prelude.ST (Prelude.State (Prelude.ST s)) (Prelude.MArr (Prelude.State (Prelude.ST s))) → (Prelude.MArr (Prelude.State (Prelude.ST s)) → Prelude.ST (Prelude.State (Prelude.ST s)) Prelude.Arr) → Prelude.ST (Prelude.State (Prelude.ST s)) Prelude.Arr; type-args: State (ST s), MArr (State (ST s)), Arr
   │      │   └─ type: ∀ s. Prelude.ST s Prelude.Arr
   │      │   └─ type: (∀ s. Prelude.ST s Prelude.Arr) → Prelude.Arr; type-args: Arr
   │      └─ type: ∀ s. Prelude.ST s (Prelude.MArr s)

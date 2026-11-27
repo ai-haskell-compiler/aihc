@@ -3,6 +3,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Main (main) where
@@ -11,6 +12,7 @@ import Data.Array.Byte (ByteArray)
 import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
+import Data.Word (Word8)
 import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
@@ -418,3 +420,9 @@ main = do
   putStrLn $pathVariable
   -- A function of a package that only the code outside the splices uses.
   print nativeAnswer
+  -- A quote with a visible type application. The type argument selects
+  -- the instance.
+  print $([|maxBound @Word8|])
+  -- A chain of UInfixE that nests on the right. The nesting has no
+  -- meaning, so the operators get their fixity: (1 - 2) - 3.
+  print ($(pure (UInfixE (LitE (IntegerL 1)) (VarE '(-)) (UInfixE (LitE (IntegerL 2)) (VarE '(-)) (LitE (IntegerL 3))))) :: Integer)

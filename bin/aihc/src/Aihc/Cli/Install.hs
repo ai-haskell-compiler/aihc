@@ -267,7 +267,7 @@ import Aihc.Tc.Share (shareTcInterface)
 import Aihc.Tc.Syntax qualified as TcSyntax
 import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon, kindsSymbolTyCon, tyConModuleName, tyConName, tyConNamespace, tyConPackageId)
 import Aihc.Th.Prepare (PreparedSplices (..), prepareSplices, resolveUnitQuotes)
-import Aihc.Th.Quote (moduleHasQuote, quoteImports, quotedModuleNames)
+import Aihc.Th.Quote (moduleHasQuote, quoteImports, quoteLibraryModules, quotedModuleNames)
 import Aihc.Th.Reify (exportedFixity)
 import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), expandSplices, moduleSplices, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
@@ -1405,6 +1405,7 @@ prepareExecutable shared graph slot = do
         moduleBuildPartitionAfter = map slotPartitionTask closure,
         moduleBuildFinishAfter = map slotFinishTask closure,
         moduleBuildDependencies = mapM slotDependency closure,
+        moduleBuildQuoteLibrary = quoteLibraryOf closure closure,
         moduleBuildPartitioned = const (pure ()),
         moduleBuildFinished = finished
       }
@@ -1497,6 +1498,7 @@ packageModuleBuild shared slot installed build =
       moduleBuildPartitionAfter = map slotPartitionTask (slotDependencies slot),
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
       moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
+      moduleBuildQuoteLibrary = quoteLibraryOf (slotDependencies slot) (slotClosure slot),
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
         built <- finishPackageBuild config build compiled
@@ -2070,6 +2072,7 @@ data ModuleBuild = ModuleBuild
     moduleBuildFinishAfter :: ![TaskId],
     -- | The dependencies, read by the partition task.
     moduleBuildDependencies :: !(IO [PreparedDependency]),
+    moduleBuildQuoteLibrary :: !QuoteLibrary,
     -- | Takes the unit of each compiled module, before the partition task ends.
     moduleBuildPartitioned :: !(Map.Map Text UnitRuntime -> IO ()),
     moduleBuildFinished :: !(CompiledPackageModules -> IO ())
@@ -2105,7 +2108,7 @@ addModuleBuild graph shared build = do
               taskDependencies = Set.empty,
               taskAction = do
                 parsedSource <- parseSource (compileHeaderDirectory config) (moduleBuildPackageRoot build) (moduleBuildVersions build) file
-                quoted <- addQuoteImports file parsedSource
+                quoted <- addQuoteImports (moduleBuildQuoteLibrary build) parsedSource
                 spliceRequest <- moduleSpliceRequest shared build file quoted
                 let source = quoted {sourceModuleSpliceRequest = spliceRequest}
                 -- The header fields of the module are strict, so the import
@@ -2182,27 +2185,12 @@ moduleSpliceRequest shared build file source =
 
 -- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
 -- Name resolution changes the quote into an expression that uses them. The
--- module only gets the imports when its component depends on
--- @template-haskell@: without that package, the quote stays as it is. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@. A
--- main module names the package as the plan does, @aihc-template-haskell@.
-addQuoteImports :: HackageCabal.FileInfo -> SourceModule -> IO SourceModule
-addQuoteImports file source
-  | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && any (`elem` HackageCabal.fileInfoDependencies file) ["template-haskell", "aihc-template-haskell"] = do
+-- module only gets the imports when @aihc-internal@, which has the quote
+-- library, is below its component: without that package, the quote stays
+-- as it is.
+addQuoteImports :: QuoteLibrary -> SourceModule -> IO SourceModule
+addQuoteImports library source
+  | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && quoteLibraryAvailable library = do
       modu <- readMVar (sourceModuleParsed source)
       if moduleHasQuote modu
         then do
@@ -2210,6 +2198,52 @@ addQuoteImports file source
           pure source {sourceModuleImports = nub (sourceModuleImports source <> [(Nothing, importDeclModule importDecl) | importDecl <- quoteImports])}
         else pure source
   | otherwise = pure source
+
+-- | Where a module build finds the quote library, the modules
+-- 'quoteLibraryModules' of @aihc-internal@. GHC gives a quote names of
+-- @ghc-internal@, which is below each package. Thus, a package can use a
+-- quote without a dependency on @template-haskell@.
+data QuoteLibrary
+  = -- | No package below the component is @aihc-internal@.
+    QuoteLibraryAbsent
+  | -- | The component sees @aihc-internal@ as a dependency.
+    QuoteLibraryVisible
+  | -- | @aihc-internal@ is below a dependency. The component sees only the
+    -- quote library of it, and only when one of its modules imports that
+    -- library.
+    QuoteLibraryBelow PackageSlot
+
+quoteLibraryAvailable :: QuoteLibrary -> Bool
+quoteLibraryAvailable library =
+  case library of
+    QuoteLibraryAbsent -> False
+    _ -> True
+
+-- | The place of the quote library for a component with these direct
+-- dependencies and this closure.
+quoteLibraryOf :: [PackageSlot] -> [PackageSlot] -> QuoteLibrary
+quoteLibraryOf direct closure
+  | any isQuoteLibrary direct = QuoteLibraryVisible
+  | below : _ <- filter isQuoteLibrary closure = QuoteLibraryBelow below
+  | otherwise = QuoteLibraryAbsent
+  where
+    isQuoteLibrary below = unPackageName (planName (slotPlan below)) == "aihc-internal"
+
+-- | The dependencies of a module build. A build with the quote library
+-- below its dependencies also sees that library when a module imports it.
+-- It sees no other module of @aihc-internal@: some of them have the same
+-- names as modules of @aihc-base@.
+moduleBuildDependenciesFor :: ModuleBuild -> [SourceModule] -> IO [PreparedDependency]
+moduleBuildDependenciesFor build sources = do
+  dependencies <- moduleBuildDependencies build
+  case moduleBuildQuoteLibrary build of
+    QuoteLibraryBelow below
+      | any importsQuoteLibrary sources -> do
+          library <- slotDependency below
+          pure (dependencies <> [library {dependencyExposed = Set.fromList quoteLibraryModules}])
+    _ -> pure dependencies
+  where
+    importsQuoteLibrary source = any ((`elem` quoteLibraryModules) . snd) (sourceModuleImports source)
 
 -- | Cut the parsed modules into units and add the tasks of each unit and
 -- the finish task. A unit waits on the units of its own package it
@@ -2225,7 +2259,7 @@ partitionModules graph shared build sourceSlots = do
       externalReexports = Map.filter ((/= packageIdText (packageId resolvePackage)) . fst) reexports
       localReexports = Map.map snd (Map.filterWithKey (\name (identity, original) -> identity == packageIdText (packageId resolvePackage) && name /= original) reexports)
   parsed <- mapM (atomically . readTMVar) sourceSlots
-  dependencies <- moduleBuildDependencies build
+  dependencies <- moduleBuildDependenciesFor build parsed
   units <- evaluate (sourceModuleUnitsWithReexports (packageName resolvePackage) localReexports parsed)
   -- The graph this task builds is which units there are and which units
   -- each waits on. The modules in them are its input, forced when they

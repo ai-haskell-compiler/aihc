@@ -795,7 +795,7 @@ getFieldRep table = do
 
 putClassInfo :: PartIndex -> ClassInfo -> Builder.Builder
 putClassInfo table info =
-  cborArray 11
+  cborArray 12
     <> cborText (ciName info)
     <> putTyCon table (ciTyCon info)
     <> putMaybe putTextOrigin (ciOrigin info)
@@ -807,6 +807,7 @@ putClassInfo table info =
     <> encodeList (putNamedScheme table) (ciDefaultSignatures info)
     <> encodeList (putAssociatedTypeInfo table) (ciAssociatedTypes info)
     <> encodeList putFunDep (ciFunDeps info)
+    <> encodeList putBool (ciRepresentationalRoles info)
 
 putFunDep :: FunDep -> Builder.Builder
 putFunDep dependency =
@@ -838,7 +839,7 @@ getAssociatedTypeInfo table = do
 
 getClassInfo :: PartTable -> Get.Get ClassInfo
 getClassInfo table = do
-  expectArray 11
+  expectArray 12
   ciName <- getText
   ciTyCon <- getTyCon table
   ciOrigin <- getMaybe getTextOrigin
@@ -850,7 +851,8 @@ getClassInfo table = do
   ciDefaultSignatures <- getList (getNamedScheme table)
   ciAssociatedTypes <- getList (getAssociatedTypeInfo table)
   ciFunDeps <- getList getFunDep
-  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes, ciFunDeps}
+  ciRepresentationalRoles <- getList getBool
+  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciKindTyVars, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures, ciAssociatedTypes, ciFunDeps, ciRepresentationalRoles}
 
 putInstanceInfo :: PartIndex -> InstanceInfo -> Builder.Builder
 putInstanceInfo table info =
