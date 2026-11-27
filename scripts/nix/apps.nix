@@ -530,6 +530,11 @@ in {
     exec bash ./scripts/release-smoke-test.sh "$@"
   '';
 
+  # Make the Debian and RPM packages from the Linux release archive.
+  release-packages = mkAppWithInputs "release-packages" [pkgs.bash pkgs.coreutils pkgs.gnutar pkgs.gzip pkgs.nfpm] ''
+    exec bash ./scripts/release-packages.sh "$@"
+  '';
+
   generate-reports = mkReportsApp "generate-reports" ''
     set -euo pipefail
     ${repoRootGuard}
