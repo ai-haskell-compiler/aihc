@@ -343,6 +343,8 @@ A Hackage release and a core library are immutable for a given compiler.
 The fingerprint is a function of the plan alone: the package name and version, the compiler identity, the target, and the identities of the dependencies.
 It reads no sources, so a consumer computes it without them, and nothing ever lists the store.
 An existing directory is used as it is.
+A store package builds in a staging directory of the install, under the name of its store entry, and moves into the store when the install ends.
+The logs of a configure script, `config.log` and `config.status`, record the time, the host, and absolute paths, so they go to `$XDG_CACHE_HOME/aihc/logs/configure/` and not into the store.
 `--reinstall` builds the named package again and replaces its directory.
 The manifest records the flags the entry was built with, and an install that asks for an output the entry lacks, such as `--keep-core`, must pass `--reinstall`.
 
@@ -350,7 +352,11 @@ A package installed from a local directory is mutable.
 It builds in place under `<directory>/.aihc-target/<target>/<name>-<version>`, or under `--build-root`.
 `--immutable` installs a local package into the store instead, as a core library is published.
 
-In a build directory every unit keeps a stamp beside its artifacts: the digests of the inputs it was built from, the digests of the interfaces it wrote, and the size and modification time of each artifact file.
+In a build directory every unit keeps a stamp beside its artifacts: the digests of the inputs it was built from, the digests of the interfaces it wrote, and the size and content digest of each artifact file.
+A stamp records no modification time and no path of the build directory, the store, or the package source: each path is relative to one of these roots.
+Thus two builds of one plan give the same store, in each directory and at each time.
+A local package also keeps a times file beside each stamp, with the modification time of each file when its digest was taken, so that a later build reads a file again only when it changed.
+A store package keeps no times file.
 The inputs of a unit are its sources, the scope and type interfaces of the modules it imports, and the instance facts of the units below it, in its package and in the packages it imports from.
 A later build parses the sources, walks the units in dependency order, and reuses a unit whose recorded inputs equal the current digests and whose artifacts are the recorded files.
 Everything else is rebuilt in place.
