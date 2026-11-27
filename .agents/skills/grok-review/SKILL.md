@@ -35,7 +35,7 @@ Repeat this sequence until a stop rule matches:
 3. If the Issues section is empty, stop with success.
 4. Apply every issue in the Issues section.
 5. If a suggestion breaks `AGENTS.md`, skip that issue and record the skip.
-6. If Haskell files changed, run `just fmt`.
+6. If Nix, Cabal, or C files changed, run `just fmt`.
 7. If `round` equals `MAX_ROUNDS` and issues remain, stop with failure.
 8. If this round repeats the same File and Description pairs as the last round, stop with failure.
 9. Add 1 to `round`.

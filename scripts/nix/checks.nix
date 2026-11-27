@@ -543,7 +543,7 @@
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
-      nativeBuildInputs = [pkgs.diffutils pkgs.ormolu];
+      nativeBuildInputs = [pkgs.diffutils];
     } ''
       generated="$TMPDIR/generated/GHC/Prim/Unicode.hs"
       UNICODE_VERSION=${unicode.version} ${unicode.generator} \
@@ -551,7 +551,6 @@
         --output="$TMPDIR/generated" \
         --core-prop=Uppercase \
         --core-prop=Lowercase
-      ormolu --mode inplace "$generated"
       diff --unified ${sources.primSrc pkgs}/src/GHC/Prim/Unicode.hs "$generated"
       touch "$out"
     '';
@@ -562,17 +561,6 @@
 
   nixFormat = mkSourceCheck "aihc-nix-format" (sources.nixSrc pkgs) [pkgs.alejandra] ''
     alejandra --check .
-  '';
-
-  mkHaskellSourceCheck = name: inputs: script:
-    pkgs.linkFarm name (pkgs.lib.mapAttrsToList (scope: src: {
-      name = pkgs.lib.replaceStrings ["/"] ["-"] scope;
-      path = mkSourceCheck "${name}-${pkgs.lib.replaceStrings ["/"] ["-"] scope}" src inputs script;
-    }) (sources.haskellCheckSources pkgs));
-
-  haskellFormat = mkHaskellSourceCheck "aihc-haskell-format" [pkgs.ormolu pkgs.findutils] ''
-    find . -type f -name '*.hs' -print0 \
-      | xargs -0 -r ormolu --mode check
   '';
 
   cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
@@ -1339,7 +1327,6 @@ in {
     unicode-generated = unicodeGenerated;
     nix-lint = nixLint;
     nix-format = nixFormat;
-    haskell-format = haskellFormat;
     c-lint = cLint;
     c-format = cFormat;
     wit-bindings = witBindings;

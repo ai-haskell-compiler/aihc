@@ -24,7 +24,6 @@
       inherit mkEditorGrammars mkLirExtension;
     };
     mkApps = import ./scripts/nix/apps.nix {
-      inherit (core) projectHsPackages;
       inherit (haskell) mkHsPkgs;
       inherit mkWasiSysroot;
     };
