@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: quote-below
+version: 1.0.0
+build-type: Simple
+
+library
+  exposed-modules: QuoteBelow
+  hs-source-dirs: .
+  build-depends:
+    base,
+    internal-user,
+
+  default-language: Haskell2010

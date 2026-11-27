@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: internal-user
+version: 1.0.0
+build-type: Simple
+
+library
+  exposed-modules: InternalUser
+  hs-source-dirs: .
+  build-depends:
+    base,
+    ghc-internal,
+
+  default-language: Haskell2010
