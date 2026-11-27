@@ -106,11 +106,16 @@ linkCompiledExecutable compileConfig independence wasmImage noLink buildRoot out
         not (null (HackageCabal.cCompileCxxSources cCompileInfo))
           || any (packageManifestCxxStdLib . installedManifest) orderedPackages
       -- The system libraries come after every archive, so the members of
-      -- each archive can resolve their symbols from them.
+      -- each archive can resolve their symbols from them. Only a list that
+      -- is the same as an earlier list is removed. A word in a list can be
+      -- the value of the word before it, as in "-framework Security", and
+      -- that word must stay in the link.
       linkArguments =
-        nub
-          ( packageLinkArguments target cCompileInfo
-              <> concatMap (map T.unpack . packageManifestLinkArguments . installedManifest) orderedPackages
+        concat
+          ( nub
+              ( packageLinkArguments target cCompileInfo
+                  : map (map T.unpack . packageManifestLinkArguments . installedManifest) orderedPackages
+              )
           )
       -- A @--lto@ build of the LLVM target has compiled every object to
       -- bitcode, and the link is where the whole program is optimized.

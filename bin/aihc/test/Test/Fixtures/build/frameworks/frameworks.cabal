@@ -1,0 +1,24 @@
+cabal-version: 3.0
+name: frameworks
+version: 0.1.0.0
+build-type: Simple
+
+-- A library that links two macOS frameworks, as crypton-x509-system does.
+library
+  exposed-modules: Clock
+  hs-source-dirs: src
+  frameworks:
+    CoreFoundation
+    Security
+
+  build-depends: base
+  default-language: Haskell2010
+
+executable clock
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    frameworks,
+
+  default-language: Haskell2010
