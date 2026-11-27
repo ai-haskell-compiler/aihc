@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
@@ -97,6 +98,15 @@ class Lift (t :: TYPE r) where
   --
   -- @since template-haskell-2.16.0.0
   liftTyped :: (Quote m) => t -> Code m t
+
+  -- | aihc: the proof that the type is 'Char'. Only the 'Char' instance
+  -- gives a proof. The @[a]@ instance uses it to lift a 'String' as a
+  -- 'StringL' literal, not as a list of 'CharL' literals. GHC gets this
+  -- result from a rewrite rule, but the rule fires only with optimization.
+  -- With OverloadedStrings, the literal can have a type that is not 'String'.
+  -- The public modules do not export this method.
+  liftCharProof :: Maybe (t :~~: Char)
+  liftCharProof = Nothing
 
 -----------------------------------------------------
 --
@@ -205,11 +215,15 @@ instance Lift Double where
 instance Lift Char where
   liftTyped x = unsafeCodeCoerce (lift x)
   lift x = return (LitE (CharL x))
+  liftCharProof = Just HRefl
 
 -- | @since template-haskell-2.16.0.0
 instance (Lift a) => Lift [a] where
   liftTyped x = unsafeCodeCoerce (lift x)
-  lift xs = do xs' <- mapM lift xs; return (ListE xs')
+  lift xs =
+    case liftCharProof :: Maybe (a :~~: Char) of
+      Just HRefl -> liftString xs
+      Nothing -> do xs' <- mapM lift xs; return (ListE xs')
 
 liftString :: (Quote m) => String -> m Exp
 -- Used in GHC.Tc.Gen.Expr to short-circuit the lifting for strings

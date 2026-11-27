@@ -1,0 +1,49 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Proxy d = Proxy
+       │         └─ type: ∀ d. Proxy d
+       └─ type: Type → Type
+  data Repo = forall d. Repo (Proxy d)
+       │      └─ type: ∀ d. Proxy d → Repo
+       └─ type: Type
+  data Ctx = Ctx {withRepo :: forall a. Unit -> (forall d. Proxy d -> a) -> a}
+       │     └─ type: (∀ a. () → (∀ d. Proxy d → a) → a) → Ctx
+       └─ type: Type
+  helper :: Repo -> Unit -> (forall d. Proxy d -> a) -> a
+  helper (Repo p) _ k = k p
+  │       │    │  │ │   └─ type: Proxy d → a; type-args: d
+  │       │    │  │ └─ type: ∀ d. Proxy d → a
+  │       │    │  └─ type: ()
+  │       │    └─ type: Proxy d
+  │       └─ type: Proxy d → Repo; type-args: d
+  └─ type: ∀ a. Repo → () → (∀ d. Proxy d → a) → a
+  make :: Repo -> Ctx
+  make r = Ctx {withRepo = helper r}
+  │    │   │               └─ type: Repo → () → (∀ d. Proxy d → a) → a; type-args: a
+  │    │   └─ type: ∀ a. () → (∀ d. Proxy d → a) → a
+  │    └─ type: Repo
+  └─ type: Repo → Ctx
+extensions:
+- RankNTypes
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ExistentialQuantification #-}
+  module Test where
+  data Unit = Unit
+  data Proxy d = Proxy
+  data Repo = forall d. Repo (Proxy d)
+  data Ctx = Ctx {withRepo :: forall a. Unit -> (forall d. Proxy d -> a) -> a}
+  helper :: Repo -> Unit -> (forall d. Proxy d -> a) -> a
+  helper (Repo p) _ k = k p
+  make :: Repo -> Ctx
+  make r = Ctx {withRepo = helper r}
+reason: The record field has a polytype, and its value is a partial
+  application. The unifier must match the two polytypes of the callback
+  argument up to the names of their bound variables.
+status: pass

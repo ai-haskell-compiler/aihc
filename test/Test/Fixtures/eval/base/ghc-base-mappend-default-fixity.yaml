@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Monoid (Sum (..))
+    import Prelude
+
+    answer :: Bool
+    answer = getSum (Sum 10 - Sum 2 `mappend` Sum 3) == (5 :: Int)
+expression: answer
+output: |
+  True
+status: pass
+reason: GHC base declares no fixity for mappend, thus it has the default fixity infixl 9. It binds more tightly than the infixl 6 operator -.
