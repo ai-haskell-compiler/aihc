@@ -229,18 +229,35 @@ solveCoercible coercibleClass givens solveNested wantedLeft wantedRight = do
       case info of
         Just dataType
           | dtiFlavor dataType == NewtypeTyCon,
-            length arguments == length (dtiTyVars dataType),
+            length arguments <= length (dtiTyVars dataType),
             [con] <- dtiConstructors dataType,
-            [field] <- dciFields con -> do
+            [field] <- dciFields con,
+            Just body <- etaReduce (drop (length arguments) (dtiTyVars dataType)) (dcfiType field) -> do
               let (package, moduleName') = dciOrigin con
               visible <- isTermVisible (GlobalTerm package moduleName' (dciName con))
               pure
                 ( if visible
-                    then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) (dcfiType field))
+                    then Just (applySubst (Map.fromList (zip (map tvUnique (dtiTyVars dataType)) arguments)) body)
                     else Nothing
                 )
         _ -> familyInstanceRepresentation constructor arguments
     representation _ = pure Nothing
+    -- A newtype that is not fully applied has a representation when GHC
+    -- can eta-reduce its axiom. For @newtype Graph a = UG (G.Graph a)@,
+    -- the unapplied @Graph@ has the representation @G.Graph@. Each missing
+    -- parameter must be a trailing argument of the field type, and the
+    -- remaining function must not mention it.
+    etaReduce missing fieldType = do
+      body <- stripArguments (reverse missing) fieldType
+      if any (`elem` Roles.typeVariables body) (map tvUnique missing)
+        then Nothing
+        else Just body
+    stripArguments [] body = Just body
+    stripArguments (variable : rest) body =
+      case splitApplication body of
+        Just (function, TcTyVar argument)
+          | tvUnique argument == tvUnique variable -> stripArguments rest function
+        _ -> Nothing
     unwrapEither left right = do
       leftRepresentation <- representation left
       case leftRepresentation of

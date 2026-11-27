@@ -10,6 +10,7 @@ module Aihc.Tc.Roles
     tyConRoles,
     isPhantomParameter,
     isRepresentationParameter,
+    typeVariables,
   )
 where
 
