@@ -51,7 +51,6 @@ import Data.Foldable
 import Data.Int
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Ratio
-import Data.Type.Equality ((:~~:) (HRefl))
 import Data.Void
 import Data.Word
 import GHC.Exts
