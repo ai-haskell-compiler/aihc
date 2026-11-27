@@ -4,10 +4,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, warmType) where
+module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
+import Data.Word (Word8)
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Language.Haskell.TH.Syntax (lift)
@@ -50,6 +51,11 @@ deriveDescribe name = do
         (AppT (ConT ''Describe) (ConT name))
         [FunD 'describe [Clause [WildP] (NormalB (LitE (StringL names))) []]]
     ]
+
+-- | A typed quote of a function with the type Word8. The syntax tree of the
+-- quote does not have the type.
+typedWrap :: Code Q (Word8 -> Word8)
+typedWrap = [||\x -> x + 1||]
 
 -- | A typed quote with sections, a variable of the function, and a typed
 -- splice of a different typed quote.

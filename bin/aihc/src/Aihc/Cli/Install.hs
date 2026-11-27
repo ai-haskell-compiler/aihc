@@ -269,7 +269,7 @@ import Aihc.Tc.Types (TcAxiomKey (..), TyCon, kindsCharTyCon, kindsNaturalTyCon,
 import Aihc.Th.Prepare (PreparedSplices (..), prepareSplices, resolveUnitQuotes)
 import Aihc.Th.Quote (moduleHasQuote, quoteImports, quoteLibraryModules, quotedModuleNames)
 import Aihc.Th.Reify (exportedFixity)
-import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), expandSplices, moduleSplices, splicePackageId, spliceResultsPath)
+import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), expandSplices, moduleHasTypedSplice, moduleSplices, splicePackageId, spliceResultsPath)
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
@@ -2183,7 +2183,8 @@ moduleSpliceRequest shared build file source =
             ]
         }
 
--- | Give a module with an expression quote the imports of "Aihc.Th.Quote".
+-- | Give a module with an expression quote or a typed splice the imports
+-- of "Aihc.Th.Quote".
 -- Name resolution changes the quote into an expression that uses them. The
 -- module only gets the imports when @aihc-internal@, which has the quote
 -- library, is below its component: without that package, the quote stays
@@ -2192,7 +2193,9 @@ addQuoteImports :: QuoteLibrary -> SourceModule -> IO SourceModule
 addQuoteImports library source
   | any (`elem` sourceModuleExtensions source) [Syntax.TemplateHaskell, Syntax.TemplateHaskellQuotes] && quoteLibraryAvailable library = do
       modu <- readMVar (sourceModuleParsed source)
-      if moduleHasQuote modu
+      -- The result of a typed splice also uses the quote library:
+      -- 'Aihc.Th.Splices.typedSpliceResult'.
+      if moduleHasQuote modu || moduleHasTypedSplice modu
         then do
           void (swapMVar (sourceModuleParsed source) modu {Syntax.moduleImports = Syntax.moduleImports modu <> quoteImports})
           pure source {sourceModuleImports = nub (sourceModuleImports source <> [(Nothing, importDeclModule importDecl) | importDecl <- quoteImports])}
