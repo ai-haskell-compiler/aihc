@@ -399,7 +399,11 @@ stampExternalFiles :: StampRoots -> [FilePath] -> IO [FileStamp]
 stampExternalFiles roots paths = forM paths $ \path -> do
   canonical <- canonicalizePath path
   let (base, relative) = relativeToRoots roots canonical
-  stampFile roots base relative
+  -- The file is read where it is now. A file in the staging directory gets
+  -- the path that it has in the store after the install, where it is not
+  -- yet.
+  FileTime size _ digest <- fileTime roots canonical
+  pure (FileStamp base relative size digest)
 
 -- | The base and the relative path of a canonical absolute path. The
 -- longest root that holds the path wins, so that a build directory inside
