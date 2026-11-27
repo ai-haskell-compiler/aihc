@@ -394,7 +394,7 @@ primPackage = Package "aihc-prim" primPackageId
 
 evalBuiltinScope :: ModuleExports -> Builtins
 evalBuiltinScope allExports =
-  builtins unnamedPackage allExports ["Control.Monad", "GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.String", "GHC.Real", "GHC.Records", "GHC.Types"]
+  builtins unnamedPackage allExports ["Control.Monad", "GHC.IsList", "GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Prim.Enum", "GHC.Prim.MonadFail", "GHC.Prim.MonadFix", "GHC.Prim.String", "GHC.Real", "GHC.Records", "GHC.StaticPtr.Internal", "GHC.Types"]
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do

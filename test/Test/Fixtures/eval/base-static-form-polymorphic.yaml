@@ -1,0 +1,13 @@
+modules:
+  - |
+    {-# LANGUAGE StaticPointers #-}
+    module Test where
+    import GHC.StaticPtr
+    import Prelude
+    ptr :: StaticPtr (a -> a)
+    ptr = static id
+expression: "True"
+output: ""
+error: "typecheck error: Test: unsolved constraint Typeable (a → a)"
+status: fail
+reason: A static form needs Typeable for the type of its operand. A polymorphic type has no Typeable instance

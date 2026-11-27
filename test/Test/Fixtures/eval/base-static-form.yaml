@@ -1,0 +1,26 @@
+modules:
+  - |
+    {-# LANGUAGE StaticPointers #-}
+    module Test where
+    import GHC.StaticPtr
+    import Prelude
+    inc :: Int -> Int
+    inc x = x + 1
+    ptr :: StaticPtr (Int -> Int)
+    ptr = static inc
+    other :: StaticPtr (Int -> Int)
+    other = static inc
+    main :: IO ()
+    main = do
+      print (deRefStaticPtr ptr 41)
+      print (staticKey ptr == staticKey ptr, staticKey ptr == staticKey other)
+      print (spInfoModuleName (staticPtrInfo ptr), spInfoSrcLoc (staticPtrInfo ptr))
+stdout: |
+  42
+  (True,False)
+  ("Test",(8,7))
+expression: main
+output: |
+  ()
+status: pass
+reason: A static form makes a StaticPtr to its operand. Its key and its location come from the site of the form, thus two static forms get different keys

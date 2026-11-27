@@ -210,6 +210,7 @@ library
     GHC.Stack.CloneStack
     GHC.Stack.Types
     GHC.StaticPtr
+    GHC.StaticPtr.Internal
     GHC.Stats
     GHC.Storable
     GHC.TopHandler

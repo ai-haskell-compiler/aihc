@@ -1424,6 +1424,7 @@ exprSyntaxNames expr =
     EStringHash _ typeName _ _ -> [typeName]
     EIf _ method _ _ _ -> maybeToList method
     ENegate _ method _ -> [method]
+    EStatic _ method _ -> [method]
     EArithSeq _ method _ -> maybeToList method
     EGetField _ method _ _ -> [method]
     EGetFieldProjection _ method _ -> [method]
@@ -1453,6 +1454,7 @@ freeVarsExprChildren expr =
       opKey <- resolvedTermKey op
       pure (Set.insert opKey (lhsVars <> rhsVars))
     ENegate _ _ inner -> freeVarsExpr inner
+    EStatic _ _ inner -> freeVarsExpr inner
     ESectionL _ inner op -> do
       innerVars <- freeVarsExpr inner
       opKey <- resolvedTermKey op
