@@ -1437,8 +1437,9 @@ data Expr
 
     -- | @proc pat -> cmd@
     EProc Pattern Cmd
-  | -- | @static e@ (StaticPointers extension)
-    EStatic Expr
+  | -- | @static e@ (StaticPointers extension). The name is the
+    -- @staticForm@ syntax term that the desugaring applies.
+    EStatic Name Expr
   | -- | @{-# SCC foo #-} expr@
     EPragma Pragma Expr
   deriving (Eq, Show, Generic)

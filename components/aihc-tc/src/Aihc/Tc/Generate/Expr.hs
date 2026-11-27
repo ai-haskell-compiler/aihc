@@ -126,6 +126,9 @@ inferExprAt ambient expr = case expr of
   ENegate _ method inner
     | Just resolution <- syntaxResolution method ->
         inferNegate (resolutionSpan resolution <|> ambient) method resolution inner
+  EStatic _ method inner
+    | Just resolution <- syntaxResolution method ->
+        inferStatic (resolutionSpan resolution <|> ambient) method resolution inner
   EGetField _ method record field
     | Just resolution <- syntaxResolution method ->
         inferGetField (resolutionSpan resolution <|> ambient) method resolution record field
@@ -190,6 +193,9 @@ inferExprAt ambient expr = case expr of
   ENegate _ method inner -> do
     (inner', innerTy, cs) <- inferExpr inner
     pure (ENegate Nothing method inner', innerTy, cs)
+  EStatic _ method inner -> do
+    (inner', innerTy, cs) <- inferExpr inner
+    pure (EStatic Nothing method inner', innerTy, cs)
   EAnn ann inner -> do
     (inner', ty, cts) <- inferExprAt (annotationSpan ann <|> ambient) inner
     pure (EAnn ann inner', ty, cts)
@@ -1774,6 +1780,29 @@ inferNegate sp method resolution inner = do
       methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
   pure
     ( atSpan sp (ENegate (Just resultTy) (annotatePendingName methodPending method) inner'),
+      resultTy,
+      innerCts <> methodCts <> [methodEquality]
+    )
+
+-- | A static form applies the resolved staticForm syntax term to the site
+-- of the form and to the operand. The type of staticForm is
+-- @(IsStatic p, Typeable a) => Addr# -> a -> p a@. Thus the static form has
+-- the type @p a@ for the operand type @a@, as GHC gives it.
+--
+-- The method name gets the method annotation, and the expression gets the
+-- result annotation. The desugarer gives the site as a string literal.
+inferStatic :: Maybe SourceSpan -> Name -> Resolved -> Expr -> TcM (Expr, TcType, [Ct])
+inferStatic sp method resolution inner = do
+  (inner', innerTy, innerCts) <- inferExpr inner
+  (methodTy, typeArgs, methodCts) <- inferResolvedSyntaxMethod sp "staticForm" resolution
+  siteTy <- freshMetaTv
+  resultTy <- freshMetaTv
+  equalityEvidence <- freshEvVar
+  let expectedMethodTy = TcFunTy siteTy (TcFunTy innerTy resultTy)
+      methodEquality = mkWantedCt (EqPred methodTy expectedMethodTy) equalityEvidence (OccurrenceOf "staticForm") sp
+      methodPending = pendingAnnotation methodTy typeArgs (map ctEvVar methodCts) []
+  pure
+    ( atSpan sp (EStatic (Just resultTy) (annotatePendingName methodPending method) inner'),
       resultTy,
       innerCts <> methodCts <> [methodEquality]
     )

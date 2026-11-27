@@ -699,7 +699,7 @@ instance FromResolved R.Expr where
       R.ETHSplice x1 -> ETHSplice (fromResolved x1)
       R.ETHTypedSplice x1 -> ETHTypedSplice (fromResolved x1)
       R.EProc x1 x2 -> EProc (fromResolved x1) (fromResolved x2)
-      R.EStatic x1 -> EStatic (fromResolved x1)
+      R.EStatic x1 x2 -> EStatic Nothing (fromResolved x1) (fromResolved x2)
       R.EPragma x1 x2 -> EPragma (fromResolved x1) (fromResolved x2)
 
 instance (FromResolved body) => FromResolved (R.CaseAlt body) where

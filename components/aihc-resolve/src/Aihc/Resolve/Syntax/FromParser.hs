@@ -687,7 +687,7 @@ convertExpr hooks expr =
     P.ETHSplice inner -> ETHSplice <$> hookExprSplice hooks inner
     P.ETHTypedSplice inner -> ETHTypedSplice <$> go inner
     P.EProc pat cmd -> EProc <$> convertPattern hooks pat <*> convertCmd hooks cmd
-    P.EStatic inner -> EStatic <$> go inner
+    P.EStatic inner -> EStatic (copiedName NameVarId "staticForm") <$> go inner
     P.EPragma pragma inner -> EPragma pragma <$> go inner
   where
     go = convertExpr hooks

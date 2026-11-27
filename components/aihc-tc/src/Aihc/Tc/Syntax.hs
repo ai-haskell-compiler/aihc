@@ -1665,8 +1665,9 @@ data Expr
 
     -- | @proc pat -> cmd@
     EProc Pattern Cmd
-  | -- | @static e@ (StaticPointers extension)
-    EStatic Expr
+  | -- | @static e@ (StaticPointers extension). The name is the
+    -- @staticForm@ syntax term. The type is the type of the static form.
+    EStatic (Maybe TcType) Name Expr
   | -- | @{-# SCC foo #-} expr@
     EPragma Pragma Expr
   deriving (Eq, Show)

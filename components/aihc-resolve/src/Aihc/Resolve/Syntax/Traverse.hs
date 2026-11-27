@@ -714,7 +714,7 @@ instance Walkable Expr where
       ETHSplice inner -> ETHSplice <$> walk w inner
       ETHTypedSplice inner -> ETHTypedSplice <$> walk w inner
       EProc pat command -> EProc <$> walk w pat <*> walk w command
-      EStatic inner -> EStatic <$> walk w inner
+      EStatic method inner -> EStatic <$> walk w method <*> walk w inner
       EPragma pragma inner -> EPragma pragma <$> walk w inner
 
 instance (Walkable body) => Walkable (CaseAlt body) where

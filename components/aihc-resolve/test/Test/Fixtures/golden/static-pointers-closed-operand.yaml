@@ -2,22 +2,34 @@ extensions:
 - StaticPointers
 modules:
 - |
+  module GHC.StaticPtr.Internal (staticForm) where
+  staticForm site value = value
+- |
   {-# LANGUAGE StaticPointers #-}
   module Main where
   inc x = x
   ref y = static (\z -> inc z y)
 annotated:
 - |-
+  module GHC.StaticPtr.Internal (staticForm) where
+  staticForm site value = value
+  │          │    └─ v 1  └─ v 1
+  │          └─ v 0
+  └─ v GHC.StaticPtr.Internal
+- |-
   {-# LANGUAGE StaticPointers #-}
   module Main where
   inc x = x
-  │   │   └─ v 0
-  │   └─ v 0
+  │   │   └─ v 2
+  │   └─ v 2
   └─ v Main
   ref y = static (\z -> inc z y)
-  │   └─ v 1       │    │   │ └─ v Error the operand of a static form must be closed, but it uses the local variable y
-  └─ v Main        │    │   └─ v 2
-                   │    └─ v Main
-                   └─ v 2
+  │   │   │        │    │   │ └─ v Error the operand of a static form must be closed, but it uses the local variable y
+  │   │   │        │    │   └─ v 4
+  │   │   │        │    └─ v Main
+  │   │   │        └─ v 4
+  │   │   └─ v GHC.StaticPtr.Internal
+  │   └─ v 3
+  └─ v Main
 status: pass
 reason: The operand of a static form must be closed. It can use a top-level name and its own binders, but a use of an outer local variable is an error

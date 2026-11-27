@@ -1223,8 +1223,9 @@ resolveExpr expr =
     -- local binder with a closed definition and a closed type. The
     -- resolver does not, because a closed type is a fact of the type
     -- checker.
-    EStatic inner ->
-      R.EStatic <$> withStaticOperand (resolveExpr inner)
+    EStatic inner -> do
+      inner' <- withStaticOperand (resolveExpr inner)
+      (`R.EStatic` inner') <$> exprSyntaxTermName "staticForm"
 
 -- | Whether the resolver resolves a declaration of a declaration quote:
 -- a value binding, a type signature, an instance, or a standalone deriving
@@ -1488,6 +1489,7 @@ builtinSyntaxTerm info name =
         "toList",
         "getField",
         "negate",
+        "staticForm",
         "==",
         ">=",
         "-",

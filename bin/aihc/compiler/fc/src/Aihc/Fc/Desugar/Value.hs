@@ -3695,6 +3695,16 @@ desugarExpr expression =
             _ -> do
               method' <- desugarResolvedOccurrence methodAnnotation resolution
               ExApp method' <$> desugarExpr operand
+    -- A static form applies the staticForm syntax term to its site and to
+    -- the operand. The site gives the key of the static pointer.
+    Syn.EStatic (Just _) method operand
+      | Just resolution <- syntaxResolved method,
+        resolutionNamespace resolution == ResolutionNamespaceTerm,
+        resolutionIdentifier resolution == IdentifierNamed "staticForm" -> do
+          methodAnnotation <- requiredSyntaxAnnotation method
+          method' <- desugarResolvedOccurrence methodAnnotation resolution
+          site <- desugarStaticSite (resolutionSpan resolution)
+          ExApp (ExApp method' site) <$> desugarExpr operand
     Syn.EGetField (Just _) method record field
       | Just resolution <- syntaxResolved method,
         isGetFieldResolution resolution ->
@@ -6494,6 +6504,21 @@ desugarStringValue value = do
         (TyCon charName)
         [ExApp (ExVar charConstructor) (ExLit (LitChar representation character) charHashType) | character <- characters]
 
+-- | The site of a static form, as an @Addr#@ literal with four lines: the
+-- unit, the module, the line, and the column. The staticForm function of
+-- @GHC.StaticPtr.Internal@ reads it. A process that runs the same program
+-- gets the same site, thus the static pointer gets the same key.
+desugarStaticSite :: Maybe Syn.SourceSpan -> ValueM Expr
+desugarStaticSite span' = do
+  addrHashType <- TyCon <$> primitiveName "GHC.Prim" "Addr#" SortTypeConstructor
+  kinds <- valueKinds
+  representation <- convertRuntimeRep (addrRep kinds)
+  (currentPackage, currentModule) <- gets vsModuleOrigin
+  let (line, column) = maybe (0, 0) (\s -> (Syn.sourceSpanStartLine s, Syn.sourceSpanStartCol s)) span'
+      site = T.intercalate "\n" [packageIdText currentPackage, currentModule, T.pack (show line), T.pack (show column)]
+      bytes = BS.pack (map (fromIntegral . fromEnum) (T.unpack site))
+  pure (ExLit (LitAddr representation bytes) addrHashType)
+
 -- | Encode a string literal, with an optional list suffix that stays lazy.
 desugarPackedString :: [Char] -> Maybe Expr -> ValueM Expr
 desugarPackedString characters suffix = do
@@ -7350,6 +7375,7 @@ exprType expression =
     Syn.ETHNameQuote quoteType _ -> quoteType
     Syn.ETHTypeNameQuote quoteType _ -> quoteType
     Syn.ENegate resultType _ _ -> resultType
+    Syn.EStatic resultType _ _ -> resultType
     Syn.EGetField resultType _ _ _ -> resultType
     Syn.EGetFieldProjection annotation _ _ -> tcAnnType . toTcAnnotation <$> annotation
     Syn.ESectionL annotation _ _ -> tcAnnType . toTcAnnotation <$> annotation
