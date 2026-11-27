@@ -1,0 +1,45 @@
+annotated:
+- |-
+  {-# LANGUAGE FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  data Inner a = Inner a
+       │         └─ type: ∀ a. a → Inner a
+       └─ type: Type → Type
+  -- The axiom of this newtype eta-reduces to @Outer ~R Inner@.
+  newtype Outer a = Outer (Inner a)
+          │         └─ type: ∀ a. Inner a → Outer a
+          └─ type: Type → Type
+  coerce00 :: Coercible f g => f x -> g x
+  coerce00 = coerce
+  │          └─ type: f x → g x; type-args: f x, g x; evidence: coercible @f x @g x
+  └─ type: ∀ f g x. (GHC.Types.Coercible f g) ⇒ f x → g x
+  wrap :: Inner x -> Outer x
+  wrap = coerce00
+  │      └─ type: Inner x → Outer x; type-args: Inner, Outer, x; evidence: coercible @Inner @Outer
+  └─ type: ∀ x. Inner x → Outer x
+extensions:
+- FlexibleContexts
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  data Inner a = Inner a
+  -- The axiom of this newtype eta-reduces to @Outer ~R Inner@.
+  newtype Outer a = Outer (Inner a)
+  coerce00 :: Coercible f g => f x -> g x
+  coerce00 = coerce
+  wrap :: Inner x -> Outer x
+  wrap = coerce00
+reason: an unapplied newtype has the representation of its eta-reduced field type
+status: pass
