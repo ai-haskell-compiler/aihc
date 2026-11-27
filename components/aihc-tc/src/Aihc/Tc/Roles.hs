@@ -14,7 +14,7 @@ module Aihc.Tc.Roles
   )
 where
 
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
@@ -32,7 +32,9 @@ data RoleFacts m = RoleFacts
   { -- | The data type of a type constructor, if it is a data type.
     roleFactsDataType :: TyCon -> m (Maybe DataTypeInfo),
     -- | Whether a class is @Coercible@.
-    roleFactsIsCoercible :: TyCon -> m Bool
+    roleFactsIsCoercible :: TyCon -> m Bool,
+    -- | The class of a type constructor, if it is a class.
+    roleFactsClass :: TyCon -> m (Maybe ClassInfo)
   }
 
 -- | The role of each parameter of a data type. A parameter with an
@@ -108,21 +110,33 @@ representationParameter facts visited constructor index
           fieldsAllow <- and <$> mapM (representationPosition facts next parameter . applySubst substitution . dcfiType) (dciFields con)
           pure (contextAllows && fieldsAllow)
       | otherwise = pure False
-    -- Both arguments of a @Coercible@ context are representation
-    -- positions, as the role of @Coercible@ is representational. Any other
-    -- context that mentions the parameter makes it nominal.
-    contextPosition parameter predicate =
-      case predicate of
-        ClassPred className arguments@[_, _] -> do
-          coercible <- roleFactsIsCoercible facts className
-          if coercible
-            then and <$> mapM (representationPosition facts next parameter) arguments
-            else pure (not (any (mentions parameter) arguments))
-        ClassPred _ arguments -> pure (not (any (mentions parameter) arguments))
-        EqPred left right -> pure (not (mentions parameter left || mentions parameter right))
-        IParamPred _ payload -> pure (not (mentions parameter payload))
-        IrredPred constraint -> pure (not (mentions parameter constraint))
-        QuantifiedPred {} -> pure False
+    contextPosition parameter = predicatePosition facts next parameter
+
+-- | Whether a predicate uses a variable only in representation positions.
+--
+-- Both arguments of a @Coercible@ predicate are representation positions,
+-- as the role of @Coercible@ is representational. The argument of a class
+-- parameter with an explicit representational role is a representation
+-- position, as in GHC. Any other predicate that mentions the variable makes
+-- it nominal.
+predicatePosition :: (Monad m) => RoleFacts m -> [(TyCon, Int)] -> TyVarId -> Pred -> m Bool
+predicatePosition facts visited variable predicate =
+  case predicate of
+    ClassPred className arguments -> do
+      coercible <- roleFactsIsCoercible facts className
+      classInfo <- roleFactsClass facts className
+      let representational index
+            | coercible && length arguments == 2 = True
+            | otherwise = maybe False (or . take 1 . drop index . ciRepresentationalRoles) classInfo
+          checkArgument index argument
+            | not (mentions variable argument) = pure True
+            | representational index = representationPosition facts visited variable argument
+            | otherwise = pure False
+      and <$> zipWithM checkArgument [0 ..] arguments
+    EqPred left right -> pure (not (mentions variable left || mentions variable right))
+    IParamPred _ payload -> pure (not (mentions variable payload))
+    IrredPred constraint -> pure (not (mentions variable constraint))
+    QuantifiedPred {} -> pure False
 
 representationPosition :: (Monad m) => RoleFacts m -> [(TyCon, Int)] -> TyVarId -> TcType -> m Bool
 representationPosition facts visited variable ty = case ty of
@@ -149,7 +163,12 @@ representationPosition facts visited variable ty = case ty of
   TcForAllTy binder body
     | mentions variable (tvKind binder) -> pure False
     | otherwise -> representationPosition facts visited variable body
-  TcQualTy _ _ -> pure False
+  -- A constraint in a field is like an argument of the class type
+  -- constructor. Thus each predicate and the body must allow the change.
+  TcQualTy predicates body -> do
+    predicatesAllow <- and <$> mapM (predicatePosition facts visited variable) predicates
+    bodyAllows <- representationPosition facts visited variable body
+    pure (predicatesAllow && bodyAllows)
 
 mentions :: TyVarId -> TcType -> Bool
 mentions variable = elem (tvUnique variable) . typeVariables

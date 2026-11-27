@@ -108,12 +108,14 @@ reifyRoles interface global
   | otherwise = Left (notDeclared global)
   where
     dataTypes = Map.fromList [(dtiTyCon dataType, dataType) | dataType <- tcInterfaceDataTypes interface]
+    classes = Map.fromList [(ciTyCon classInfo, classInfo) | classInfo <- tcInterfaceClasses interface]
     -- A data type that is not in the interface gives no facts, and the
     -- rules then make the parameter nominal.
     facts =
       RoleFacts
         { roleFactsDataType = \constructor -> Identity (Map.lookup constructor dataTypes),
-          roleFactsIsCoercible = \constructor -> Identity (TcTypes.tyConName constructor == "Coercible")
+          roleFactsIsCoercible = \constructor -> Identity (TcTypes.tyConName constructor == "Coercible"),
+          roleFactsClass = \constructor -> Identity (Map.lookup constructor classes)
         }
     roleTree role =
       case role of

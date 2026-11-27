@@ -1,0 +1,55 @@
+extensions:
+- RoleAnnotations
+- RankNTypes
+- MagicHash
+modules:
+- |
+  {-# LANGUAGE RoleAnnotations, RankNTypes, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  newtype Catch a = Catch a
+  class Throws e
+  type role Throws representational
+  newtype Wrap e a = Wrap (Throws e => a)
+  coerceWrap :: Wrap e a -> Wrap (Catch e) a
+  coerceWrap = coerce
+  class Plain e
+  newtype WrapPlain e a = WrapPlain (Plain e => a)
+  coercePlain :: WrapPlain e a -> WrapPlain (Catch e) a
+  coercePlain = coerce
+annotated:
+- |-
+  {-# LANGUAGE RoleAnnotations, RankNTypes, MagicHash #-}
+  module Test where
+  import GHC.Types (Coercible)
+  import GHC.Prim (unsafeCoerce#)
+  coerce :: Coercible a b => a -> b
+  coerce = unsafeCoerce#
+  │        └─ type: a → b; type-args: 'BoxedRep 'Lifted, 'BoxedRep 'Lifted, a, b
+  └─ type: ∀ a b. (GHC.Types.Coercible a b) ⇒ a → b
+  newtype Catch a = Catch a
+          │         └─ type: ∀ a. a → Catch a
+          └─ type: Type → Type
+  class Throws e
+  └─ class methods:
+  type role Throws representational
+  newtype Wrap e a = Wrap (Throws e => a)
+          │          └─ type: ∀ e a. ((Throws e) ⇒ a) → Wrap e a
+          └─ type: Type → Type → Type
+  coerceWrap :: Wrap e a -> Wrap (Catch e) a
+  coerceWrap = coerce
+  │            └─ type: Wrap e a → Wrap (Catch e) a; type-args: Wrap e a, Wrap (Catch e) a; evidence: coercible @Wrap e a @Wrap (Catch e) a
+  └─ type: ∀ e a. Wrap e a → Wrap (Catch e) a
+  class Plain e
+  └─ class methods:
+  newtype WrapPlain e a = WrapPlain (Plain e => a)
+          │               └─ type: ∀ e a. ((Plain e) ⇒ a) → WrapPlain e a
+          └─ type: Type → Type → Type
+  coercePlain :: WrapPlain e a -> WrapPlain (Catch e) a
+  coercePlain = coerce
+                └─ error: unsolved constraint Coercible WrapPlain e a WrapPlain (Catch e) a
+status: pass
+reason: A role annotation can make a class parameter representational. A constraint with that class in a field keeps the parameter representational. A class parameter without an annotation is nominal
