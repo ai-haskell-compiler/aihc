@@ -1,0 +1,71 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, RankNTypes #-}
+  module Test where
+  apply :: (a -> b) -> a -> b
+  apply f x = f x
+  │     │ └─ type: a
+  │     └─ type: a → b
+  └─ type: ∀ a b. (a → b) → a → b
+  data Pr a b = Pr
+       │        └─ type: ∀ a b. Pr a b
+       └─ type: Type → Type → Type
+  data Ord x y where
+       └─ type: Type → Type → Type
+    Lt :: Ord x y
+    └─ type: ∀ x y. Ord x y
+    Eq :: Ord x x
+    └─ type: ∀ x y. (y ~ x) ⇒ Ord x y
+  join :: Ord a b -> (a ~ b => Ord c d) -> Ord c d
+  join Eq y = y
+  │    │  │   └─ type: Ord c d; evidence: sym (given b ~ a)
+  │    │  └─ type: (a ~ b) ⇒ Ord c d
+  │    └─ type: Ord a b; type-args: a, b; evidence: given b ~ a
+  └─ type: ∀ a b c d. Ord a b → ((a ~ b) ⇒ Ord c d) → Ord c d
+  join Lt _ = Lt
+  │    │  │   └─ type: Ord c d; type-args: c, d
+  │    │  └─ type: (a ~ b) ⇒ Ord c d
+  │    └─ type: Ord a b
+  └─ type: ∀ a b c d. Ord a b → ((a ~ b) ⇒ Ord c d) → Ord c d
+  nested :: Ord x1 y1 -> Ord x2 y2 -> Ord (Pr x1 x2) (Pr y1 y2)
+  nested o1 o2 = join o1 (join o2 Eq)
+  │      │  │    ││        └─ type: (x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)
+  │      │  │    ││        └─ type: Ord x2 y2 → ((x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: x2, y2, Pr x1 x2, Pr y1 y2
+  │      │  │    ││        └─ type: Ord (Pr x1 x2) (Pr y1 y2); type-args: Pr x1 x2, Pr y1 y2; evidence: sym (Pr given x1 ~ y1 given x2 ~ y2)
+  │      │  │    └─ type: Ord x1 y1 → ((x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: x1, y1, Pr x1 x2, Pr y1 y2
+  │      │  │    └─ type: (x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)
+  │      │  └─ type: Ord x2 y2
+  │      └─ type: Ord x1 y1
+  └─ type: ∀ x1 y1 x2 y2. Ord x1 y1 → Ord x2 y2 → Ord (Pr x1 x2) (Pr y1 y2)
+  applied :: Ord x1 y1 -> Ord x2 y2 -> Ord (Pr x1 x2) (Pr y1 y2)
+  applied o1 o2 = apply (join o1) (apply (join o2) Eq)
+  │       │  │    ││      │         │││      └─ type: Ord x2 y2 → ((x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: x2, y2, Pr x1 x2, Pr y1 y2
+  │       │  │    ││      │         └─ type: Ord (Pr x1 x2) (Pr y1 y2); type-args: Pr x1 x2, Pr y1 y2; evidence: sym (Pr given x1 ~ y1 given x2 ~ y2)
+  │       │  │    ││      │         └─ type: (((x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2)) → ((x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: (x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2), Ord (Pr x1 x2) (Pr y1 y2)
+  │       │  │    ││      │         └─ type: (x2 ~ y2) ⇒ Ord (Pr x1 x2) (Pr y1 y2)
+  │       │  │    ││      └─ type: Ord x1 y1 → ((x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: x1, y1, Pr x1 x2, Pr y1 y2
+  │       │  │    └─ type: (x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)
+  │       │  │    └─ type: (((x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2)) → ((x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2)) → Ord (Pr x1 x2) (Pr y1 y2); type-args: (x1 ~ y1) ⇒ Ord (Pr x1 x2) (Pr y1 y2), Ord (Pr x1 x2) (Pr y1 y2)
+  │       │  └─ type: Ord x2 y2
+  │       └─ type: Ord x1 y1
+  └─ type: ∀ x1 y1 x2 y2. Ord x1 y1 → Ord x2 y2 → Ord (Pr x1 x2) (Pr y1 y2)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, RankNTypes #-}
+  module Test where
+  apply :: (a -> b) -> a -> b
+  apply f x = f x
+  data Pr a b = Pr
+  data Ord x y where
+    Lt :: Ord x y
+    Eq :: Ord x x
+  join :: Ord a b -> (a ~ b => Ord c d) -> Ord c d
+  join Eq y = y
+  join Lt _ = Lt
+  nested :: Ord x1 y1 -> Ord x2 y2 -> Ord (Pr x1 x2) (Pr y1 y2)
+  nested o1 o2 = join o1 (join o2 Eq)
+  applied :: Ord x1 y1 -> Ord x2 y2 -> Ord (Pr x1 x2) (Pr y1 y2)
+  applied o1 o2 = apply (join o1) (apply (join o2) Eq)
+reason: The result type fixes c and d of the outer join before its qualified argument is checked, as in GHC. The inner call and Eq then see them under the givens a ~ b. With apply, the parameter type is qualified only after the look at the first argument.
+status: pass

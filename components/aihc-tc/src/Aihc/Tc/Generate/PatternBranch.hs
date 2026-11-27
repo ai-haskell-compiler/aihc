@@ -18,7 +18,7 @@ import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkPred, zonkType)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
 import Data.List (nub)
@@ -32,12 +32,30 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
       pure (pcWantedCts patternCheck <> bodyWanteds)
   | otherwise = do
       let givens = pcGivenCts patternCheck
-          implication =
+          givesEquality = any (isEqPred . ctPred) givens
+      -- When the uses of a local binder came first (see
+      -- 'Aihc.Tc.Generate.Bind.inferLocalDeclGroup'), the result type of
+      -- the branch can still hold their meta variables. As in GHC, a
+      -- branch that gives an equality does not fix them: another branch
+      -- does. In @let m = case t of Empty -> Empty; _ -> PlusZero s t@,
+      -- the second branch fixes the index of the type of @m@ at @x@, and
+      -- the given @x ~ 'EmptyCtx@ of the first branch proves that its
+      -- result has that type. Thus such an equality leaves the branch
+      -- with the givens.
+      usesFirst <- localUsesFirst
+      resultMetas <- metaVariables <$> zonkType branchResultType
+      (leaving, staying) <-
+        if usesFirst && givesEquality && not (null resultMetas)
+          then partitionLeaving resultMetas bodyWanteds
+          else pure ([], bodyWanteds)
+      let implication =
             Implication
               { implSkols = pcSkolems patternCheck,
                 implGivenCts = givens,
-                implWantedCts = pcWantedCts patternCheck <> bodyWanteds
+                implWantedCts = pcWantedCts patternCheck <> staying
               }
+          withGivens ct = ct {ctBranchGivens = givens <> ctBranchGivens ct}
+      when givesEquality noteGivenBranch
       before <- lift get
       result <- solveWithImpls [] [implication]
       escaping <- escapingSkolems skolems branchResultType
@@ -48,9 +66,22 @@ solvePatternBranch sourceSpan patternCheck branchResultType bodyWanteds
       let final = fromMaybe result repaired
       rejectEscapingPatternType sourceSpan skolems branchResultType
       -- The wanteds that wait on the enclosing scope continue outward.
-      pure (inertDicts (srInerts final))
+      pure (map withGivens leaving <> inertDicts (srInerts final))
   where
     skolems = pcSkolems patternCheck
+    -- The equalities that mention a meta variable of the result type and
+    -- no skolem of the branch.
+    partitionLeaving resultMetas wanteds = do
+      tagged <- mapM (\ct -> (ct,) <$> zonkPred (ctPred ct)) wanteds
+      let leaves predicate = case predicate of
+            EqPred left right ->
+              any (`elem` resultMetas) (metaVariables left <> metaVariables right)
+                && not (any (\skolem -> typeMentionsTyVar skolem left || typeMentionsTyVar skolem right) skolems)
+            _ -> False
+      pure ([ct | (ct, predicate) <- tagged, leaves predicate], [ct | (ct, predicate) <- tagged, not (leaves predicate)])
+    isEqPred predicate = case predicate of
+      EqPred {} -> True
+      _ -> False
 
     -- The solver can give a meta variable of the enclosing scope a type
     -- that holds a skolem of the branch. The givens can make that skolem

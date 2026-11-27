@@ -5,6 +5,7 @@ module Aihc.Tc.Generate.Bind
   ( InferExpr,
     freeVarsDecl,
     freeVarsMatch,
+    checkLocalDecls,
     inferLocalDecls,
     inferRhsWithLocals,
     inferGuardedRhss,
@@ -94,6 +95,13 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
+
+-- | Check local declarations and a body that is checked against a type.
+-- The groups of the declarations can then use the type (see
+-- 'inferLocalDeclGroup').
+checkLocalDecls :: InferExpr -> TcType -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
+checkLocalDecls inferExpr expected decls body =
+  withLocalBodyExpected (Just expected) (inferLocalDecls inferExpr decls (withLocalBodyExpected Nothing body))
 
 -- | Infer local declarations, then infer a body under the resulting binders.
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
@@ -366,8 +374,48 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
+  expectedBody <- localBodyExpected
+  -- A group that is not generalized has monomorphic binders, and its
+  -- constraints go to the enclosing scope unsolved. Thus the body can
+  -- come first, and its uses then fix the types of the binders. GHC
+  -- solves the constraints in any order, and a GADT match in a binding
+  -- needs this. In @zipA f x y = go x y where go AE AE = AE; go (AX a
+  -- u) (AX b v) = ...@, the first equation alone fixes the result type
+  -- of @go@ to @A 'E@ under the given @c0 ~ 'E@. The use @go x y :: A
+  -- c@ fixes it to @A c@, and the given then proves @A 'E ~ A c@.
+  --
+  -- Thus a group with a match that gives an equality is checked again
+  -- after the body. The first order stays when the second order reports
+  -- an error.
+  let checkBodyFirst beforeGroup errorsBeforeGroup = do
+        failed <- saveTcSnapshot
+        restoreTcSnapshot beforeGroup
+        (bodyResult, bodyTy, rawBodyCts) <- withLocalUsesFirst False body
+        -- The caller relates the type of the body to the expected type
+        -- later. The equations need that relation now.
+        forM_ expectedBody (void . unifyTypes bodyTy)
+        -- The uses give the binders their types by equalities. These are
+        -- solved now, so that the equations see the types.
+        let (bodyEqualities, otherBodyCts) = partition plainEquality rawBodyCts
+            plainEquality ct = case ctPred ct of
+              EqPred {} -> null (ctBranchGivens ct)
+              _ -> False
+        solvedBody <- solveConstraints bodyEqualities
+        let bodyCts = srResidual solvedBody <> inertDicts (srInerts solvedBody) <> otherBodyCts
+        groupInferences <- withLocalBodyExpected Nothing (withLocalUsesFirst True (mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups))
+        errors <- currentErrorCount
+        if errors > errorsBeforeGroup
+          then Nothing <$ restoreTcSnapshot failed
+          else do
+            let groupResults = [(group, cts) | (group, cts, _) <- groupInferences]
+            monoBinders <- traverse (monomorphicBinder sigs placeholderMap) binders
+            decls' <- annotateLocalBindingDecls Set.empty monoBinders (concatMap (renderGroup . fst) groupResults)
+            pure (Just (decls', bodyResult, bodyTy, concatMap snd groupResults ++ bodyCts))
   withLocalPlaceholders sigs [placeholder | placeholder@(_, key, _) <- placeholders, not (Set.member key boundSignatureKeys)] $ do
-    groupInferences <- mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups
+    beforeGroup <- saveTcSnapshot
+    errorsBeforeGroup <- currentErrorCount
+    givenBranchesBeforeGroup <- givenBranchCount
+    groupInferences <- withLocalBodyExpected Nothing (withLocalUsesFirst False (mapM (inferLocalGroup inferExpr sigs scopedSigs placeholderMap) groups))
     let groupResults = [(group, cts) | (group, cts, _) <- groupInferences]
         bindingCts = concatMap snd groupResults
         -- A binder that a pattern binds to a polymorphic field keeps the
@@ -391,13 +439,21 @@ inferLocalDeclGroup inferExpr boundSignatureKeys decls body = do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, localResidualOuterCts residuals ++ bodyCts)
       else do
-        monoBinders <- traverse (monomorphicBinder binderSchemes placeholderMap) binders
-        decls' <- annotateLocalBindingDecls Set.empty monoBinders (concatMap (renderGroup . fst) groupResults)
-        -- The body sees the placeholders of the other binders.
-        polymorphicPatternBinders <- filterM (fmap (`Map.member` patternSchemes) . resolvedLocalTermKey . fst) monoBinders
-        withReboundLocalBinders polymorphicPatternBinders $ do
-          (bodyResult, bodyTy, bodyCts) <- body
-          pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
+        givenBranchesAfterGroup <- givenBranchCount
+        bodyFirst <-
+          if givenBranchesAfterGroup > givenBranchesBeforeGroup && Map.null patternSchemes
+            then checkBodyFirst beforeGroup errorsBeforeGroup
+            else pure Nothing
+        case bodyFirst of
+          Just result -> pure result
+          Nothing -> do
+            monoBinders <- traverse (monomorphicBinder binderSchemes placeholderMap) binders
+            decls' <- annotateLocalBindingDecls Set.empty monoBinders (concatMap (renderGroup . fst) groupResults)
+            -- The body sees the placeholders of the other binders.
+            polymorphicPatternBinders <- filterM (fmap (`Map.member` patternSchemes) . resolvedLocalTermKey . fst) monoBinders
+            withReboundLocalBinders polymorphicPatternBinders $ do
+              (bodyResult, bodyTy, bodyCts) <- body
+              pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
 
 isImplicitParamDecl :: Decl -> Bool
 isImplicitParamDecl decl =
@@ -985,8 +1041,16 @@ inferLocalFunction inferExpr sigs scopedSigs placeholders name matches = do
             matchCts = arityCts <> concatMap snd results
         residualCts <- solveWithSigGivens scheme matchCts
         pure (matches', sigTy, residualCts)
-      Nothing ->
-        tcMatches inferExpr matches
+      Nothing -> do
+        usesFirst <- localUsesFirst
+        knownTy <- traverse zonkType (Map.lookup key placeholders)
+        case knownTy of
+          Just placeholderTy
+            | usesFirst,
+              not (isMeta placeholderTy),
+              arrowCount placeholderTy >= maybe 0 (length . matchPats) (listToMaybe matches) ->
+                checkMatchesAgainst placeholderTy matches
+          _ -> tcMatches inferExpr matches
   cts' <- tiePlaceholder placeholders key ty cts
   pure (matches', ty, cts')
 
@@ -1056,6 +1120,10 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
   key <- resolvedLocalTermKey name
   let signature = Map.lookup key sigs
       signatureTy = (\scheme -> fromMaybe (typeSchemeBody scheme) (Map.lookup key placeholders)) <$> signature
+  -- When the uses came first (see 'inferLocalDeclGroup'), the body gets the
+  -- type that they gave the binder.
+  usesFirst <- localUsesFirst
+  usedTy <- traverse zonkType (Map.lookup key placeholders)
   (rhs', rhsTy, rhsCts) <-
     withScopedTyVars (Map.findWithDefault Map.empty key scopedSigs) $
       case signatureTy of
@@ -1071,6 +1139,11 @@ inferLocalPatternBind inferExpr sigs scopedSigs placeholders name rhs = do
         Just expected
           | Just (ForAll _ sigPredicates _) <- signature ->
               withGivenPredicates sigPredicates (checkRhs expected rhs)
+        _
+          | usesFirst,
+            Just placeholderTy <- usedTy,
+            not (isMeta placeholderTy) ->
+              checkRhs placeholderTy rhs
         _ -> inferRhsWithLocals inferExpr rhs
   let ty = fromMaybe (maybe rhsTy typeSchemeBody signature) (Map.lookup key placeholders)
   ev <- freshEvVar
@@ -1110,6 +1183,34 @@ tiePatternPlaceholder :: Map Entity TcType -> [Ct] -> (UnqualifiedName, TcType) 
 tiePatternPlaceholder placeholders cts (name, ty) = do
   key <- resolvedLocalTermKey name
   tiePlaceholder placeholders key ty cts
+
+-- | Check the equations of a binder against the type that its uses gave
+-- it (see 'inferLocalDeclGroup'). The type is a monotype.
+checkMatchesAgainst :: TcType -> [Match] -> TcM ([Match], TcType, [Ct])
+checkMatchesAgainst ty [] = pure ([], ty, [])
+checkMatchesAgainst ty matches@(m0 : _)
+  | null (matchPats m0) = do
+      results <- forM matches $ \match -> do
+        (rhs', rhsTy, rhsCts) <- checkRhs ty (matchRhs match)
+        ev <- freshEvVar
+        let rhsLocation = (<|>) (rhsSourceSpan (matchRhs match)) (sourceSpanFromAnnotations (matchAnns match))
+            eqCt = mkWantedCt (EqPred rhsTy ty) ev (AppOrigin rhsLocation) rhsLocation
+        pure (match {matchRhs = annotateRhsCast ty ev rhs'}, rhsCts ++ [eqCt])
+      pure (map fst results, ty, concatMap snd results)
+  | otherwise = do
+      (argTys, resTy, arityMatches, arityCts) <- splitMatchType ty matches
+      results <- mapM (tcMatchEquation argTys resTy) arityMatches
+      pure (map fst results, ty, arityCts <> concatMap snd results)
+
+isMeta :: TcType -> Bool
+isMeta ty = case ty of
+  TcMetaTv {} -> True
+  _ -> False
+
+arrowCount :: TcType -> Int
+arrowCount ty = case ty of
+  TcFunTy _ result -> 1 + arrowCount result
+  _ -> 0
 
 tcMatches :: InferExpr -> [Match] -> TcM ([Match], TcType, [Ct])
 tcMatches _ [] = do

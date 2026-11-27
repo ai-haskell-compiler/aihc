@@ -17,10 +17,10 @@ where
 import Aihc.Resolve (RecKnotVariables (..), Resolved (..), displayIdentifier, resolvedOf)
 import Aihc.Tc.Annotations (TcAnnotated (..), TcAnnotation (..), TcOccurrence (..), TcRecStmt (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..), EvVar)
-import Aihc.Tc.Generate.Bind (checkGuardedRhss, inferGuardedRhss, inferLocalDecls)
+import Aihc.Tc.Generate.Bind (checkGuardedRhss, checkLocalDecls, inferGuardedRhss, inferLocalDecls)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Generate.Record (lookupRecordHead, orderRecordFields, recordFieldLabel, recordHeadNameSyntax, recordUpdateHeads, synthesizedRecordLocal)
@@ -686,7 +686,7 @@ checkExpr expected expression = case expression of
     (statements', ty, constraints) <- inferDoStmtsWith (Just expected) (exprSpan expression) statements
     pure (atSpan (exprSpan expression) (EDo (Just ty) statements' flavor), ty, constraints)
   ELetDecls declarations body -> do
-    (declarations', body', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected body)
+    (declarations', body', ty, constraints) <- checkLocalDecls inferExpr expected declarations (checkExpr expected body)
     pure (ELetDecls declarations' body', ty, constraints)
   _
     | isAnnotatedApplication expression -> checkApplicationAt Nothing expression
@@ -750,7 +750,7 @@ checkRhs expected rhs = case rhs of
     (expression', ty, constraints) <- checkExpr expected expression
     pure (UnguardedRhs annotations rhsInfos expression' Nothing, ty, constraints)
   UnguardedRhs annotations rhsInfos expression (Just declarations) -> do
-    (declarations', expression', ty, constraints) <- inferLocalDecls inferExpr declarations (checkExpr expected expression)
+    (declarations', expression', ty, constraints) <- checkLocalDecls inferExpr expected declarations (checkExpr expected expression)
     pure (UnguardedRhs annotations rhsInfos expression' (Just declarations'), ty, constraints)
   -- A guarded body gets the expected type, as an unguarded body does.
   GuardedRhss annotations rhsInfos guardedRhss Nothing -> do
@@ -758,7 +758,7 @@ checkRhs expected rhs = case rhs of
     pure (GuardedRhss annotations rhsInfos guardedRhss' Nothing, ty, constraints)
   GuardedRhss annotations rhsInfos guardedRhss (Just declarations) -> do
     (declarations', guardedRhss', ty, constraints) <-
-      inferLocalDecls inferExpr declarations (checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss)
+      checkLocalDecls inferExpr expected declarations (checkGuardedRhss inferExpr (checkExpr expected) expected guardedRhss)
     pure (GuardedRhss annotations rhsInfos guardedRhss' (Just declarations'), ty, constraints)
 
 -- | Whether 'checkExpr' gives the expected type to this expression.
@@ -1054,17 +1054,23 @@ applicationSpine expected ambient expr = do
     case spineHead of
       SpineHeadExpr headSyntax -> do
         (headExpr, headTy, headCts) <- inferExprAt ambient headSyntax
-        pure (headExpr, headTy, headCts, pendingTypeArgs headExpr)
+        typeArgs <-
+          if any isTypeArgFrame frames
+            then visibleTypeArgs headExpr
+            else pure (pendingTypeArgs headExpr)
+        pure (headExpr, headTy, headCts, typeArgs)
       SpineHeadOperator sp op -> do
         (op', opTy, opCts) <- inferOperator sp op
         pure (EVar op', opTy, opCts, nameTypeArgs op')
   let instantiationVariables = IntSet.fromList (map uniqueKey (concatMap typeMetaVariables headTypeArgs))
   -- Fix the result before a guarded argument can fix it outside the
   -- givens of a later lambda or do block.
-  case (expected, spineResultType headTy frames) of
+  -- An expression is checked against a qualified type under its givens,
+  -- thus the body of that type is what the result must have.
+  case (qualifiedBody <$> expected, spineResultType headTy frames) of
     (Just expectedTy, Just resultType)
       | not (isPolyType expectedTy),
-        any frameNeedsExpectedType frames -> do
+        any frameNeedsExpectedType frames || spineHasQualifiedParameter headTy frames -> do
           quickLookUnify instantiationVariables expectedTy resultType
           -- A GADT constructor relates its result to its fields by an
           -- equality: @(:*) :: (ys ~ (x ': xs)) => f x -> NP f xs -> NP f
@@ -1073,7 +1079,7 @@ applicationSpine expected ambient expr = do
           forM_ [(left, right) | ct <- headCts, EqPred left right <- [ctPred ct]] $
             uncurry (quickLookUnify instantiationVariables)
     _ -> pure ()
-  (steps, resultTy, spineVariables) <- planSpine instantiationVariables headTypeArgs headTy frames
+  (steps, resultTy, spineVariables) <- planSpine (qualifiedBody <$> expected) instantiationVariables headTypeArgs headTy frames
   case expected of
     Just expectedTy -> do
       qualified <- anyM qualifiedArgument steps
@@ -1094,6 +1100,14 @@ applicationSpine expected ambient expr = do
       let pending = pendingAnnotation instantiated typeArgs (map ctEvVar cts) []
       pure (instantiateExprAt sp pending expr', instantiated, headCts <> stepCts <> cts)
     else pure (expr', resultTy, headCts <> stepCts)
+
+-- | The body of a qualified type, as @OrderingF c d@ of @a ~ b =>
+-- OrderingF c d@. A quantified type stays as it is: its body mentions the
+-- bound variables.
+qualifiedBody :: TcType -> TcType
+qualifiedBody ty = case ty of
+  TcQualTy _ body -> qualifiedBody body
+  _ -> ty
 
 guidedArgument :: SpineStep -> Bool
 guidedArgument (StepArg plan) = case argPlanArgument plan of
@@ -1134,6 +1148,25 @@ spineResultType ty (frame : rest) = case frame of
     resultAfterArgument = case ty of
       TcFunTy _ result -> spineResultType result rest
       _ -> Nothing
+
+-- | Whether a value argument of the spine has a qualified parameter type,
+-- as the @a ~ b => OrderingF c d@ of @joinOrderingF@. The planning pass
+-- can infer such an argument, as the nested call of @joinOrderingF o1
+-- (joinOrderingF o2 EQF)@, under the givens of the parameter. The result
+-- type must fix @c@ and @d@ first. If not, the inner @EQF@ makes them
+-- equal under the givens, and the outer result then does not hold.
+spineHasQualifiedParameter :: TcType -> [SpineFrame] -> Bool
+spineHasQualifiedParameter ty frames = case frames of
+  [] -> False
+  frame : rest -> case frame of
+    SpineTypeArg {} -> False
+    SpineValueArg {} -> parameter rest
+    SpineInfixRhs {} -> parameter rest
+    _ -> spineHasQualifiedParameter ty rest
+  where
+    parameter rest = case ty of
+      TcFunTy argument result -> hasQualifiedGivens argument || spineHasQualifiedParameter result rest
+      _ -> False
 
 -- | Whether an argument gives its fresh type variables to the quick look of
 -- the spine: a bare data constructor, as @Comp@, or an operator section,
@@ -1193,14 +1226,16 @@ mentionsPolyType ty = case ty of
 qualifiedArgument :: SpineStep -> TcM Bool
 qualifiedArgument step =
   case step of
-    StepArg plan -> hasGivens <$> zonkType (argPlanExpected plan)
+    StepArg plan -> hasQualifiedGivens <$> zonkType (argPlanExpected plan)
     _ -> pure False
-  where
-    hasGivens ty =
-      case ty of
-        TcForAllTy _ body -> hasGivens body
-        TcQualTy (_ : _) _ -> True
-        _ -> False
+
+-- | Whether a type has givens, under its quantifiers.
+hasQualifiedGivens :: TcType -> Bool
+hasQualifiedGivens ty =
+  case ty of
+    TcForAllTy _ body -> hasQualifiedGivens body
+    TcQualTy (_ : _) _ -> True
+    _ -> False
 
 uniqueKey :: Unique -> Int
 uniqueKey (Unique key) = key
@@ -1215,8 +1250,8 @@ nameTypeArgs name =
 -- instantiation's type arguments that visible type applications have not
 -- consumed yet; a value argument ends them. The result holds the
 -- instantiation variables of the whole spine.
-planSpine :: IntSet -> [TcType] -> TcType -> [SpineFrame] -> TcM ([SpineStep], TcType, IntSet)
-planSpine = go
+planSpine :: Maybe TcType -> IntSet -> [TcType] -> TcType -> [SpineFrame] -> TcM ([SpineStep], TcType, IntSet)
+planSpine spineExpected = go
   where
     go instantiationVariables _ funTy [] = pure ([], funTy, instantiationVariables)
     go instantiationVariables remainingTypeArgs funTy (frame : frames) =
@@ -1291,6 +1326,18 @@ planSpine = go
             -- type, and then FC needs the cast the proof carries. The
             -- annotation is dropped again when the proof is reflexivity.
             pure (argTy, resTy, [mkWantedCt (EqPred instantiatedFunTy arrowTy) ev (AppOrigin sp) sp], Just (arrowTy, ev))
+      -- An argument of a qualified type is inferred under the givens of
+      -- that type. The result type of the spine must fix the types of
+      -- the argument type first, as in 'applicationSpine'. With @f $ x@,
+      -- the parameter type of @$@ is qualified only after the look at @f@.
+      zonkedExpectedArg <- zonkType expectedArgTy
+      case (spineExpected, spineResultType resultTy frames) of
+        (Just expectedTy, Just spineResult)
+          | isGuardedArgument arg,
+            hasQualifiedGivens zonkedExpectedArg,
+            not (isPolyType expectedTy) ->
+              quickLookUnify instantiationVariables' expectedTy spineResult
+        _ -> pure ()
       (argState, instantiationVariables'') <-
         if isGuardedArgument arg
           then do
@@ -1630,6 +1677,66 @@ predicateMetaVariables predicate =
       concatMap (typeMetaVariables . tvKind) variables
         <> concatMap predicateMetaVariables antecedents
         <> predicateMetaVariables consequent
+
+isTypeArgFrame :: SpineFrame -> Bool
+isTypeArgFrame frame = case frame of
+  SpineTypeArg {} -> True
+  _ -> False
+
+-- | The type arguments that the visible type applications of a spine head
+-- instantiate, in order. For most heads these are the arguments of the
+-- specified binders ('pendingTypeArgs'). A GADT constructor can have
+-- other visible binders (see 'Aihc.Tc.Env.dciVisibleTyVars').
+visibleTypeArgs :: Expr -> TcM [TcType]
+visibleTypeArgs expr =
+  case occurrenceName expr of
+    Just (name, pending) -> do
+      let typeArgs = tcOccTypeArgs pending
+          defaultArgs = drop (tcOccInferredTypeArgs pending) typeArgs
+      target <- resolvedTermTarget name
+      binder <- lookupResolvedTerm (nameToText name) target
+      case binder of
+        Just (TcIdBinder (ForAll tyVars _ body) _)
+          | length tyVars == length typeArgs -> do
+              visible <- constructorVisibleTyVars target body
+              let argumentOf = Map.fromList (zip (map tvUnique tyVars) typeArgs)
+              pure $ case visible of
+                Just visibleTyVars -> mapMaybe ((`Map.lookup` argumentOf) . tvUnique) visibleTyVars
+                Nothing -> defaultArgs
+        _ -> pure defaultArgs
+    Nothing -> pure (pendingTypeArgs expr)
+  where
+    occurrenceName current = case current of
+      EAnn _ inner -> occurrenceName inner
+      ETc (ExprCast _) inner -> occurrenceName inner
+      EVar name -> (name,) <$> nameTc name
+      EParen inner -> occurrenceName inner
+      EPragma _ inner -> occurrenceName inner
+      _ -> Nothing
+
+-- | The visible binders of a data constructor, when they are not the
+-- specified binders of its term scheme. A constructor of this module
+-- has them in the checker state, and an imported one in its metadata.
+constructorVisibleTyVars :: Entity -> TcType -> TcM (Maybe [TyVarId])
+constructorVisibleTyVars target constructorType = do
+  local <- lookupConVisibleTyVars target
+  case (local, target, resultOf constructorType) of
+    (Just tyVars, _, _) -> pure (Just tyVars)
+    (Nothing, EntityGlobal global, TcTyCon tyCon _) -> do
+      dataType <- lookupDataType tyCon
+      familyInstances <- getDataFamilyInstances
+      let constructors =
+            maybe [] dtiConstructors dataType
+              <> concatMap dfiiConstructors familyInstances
+          matches constructor =
+            dciName constructor == globalNameText global
+              && dciOrigin constructor == (globalNamePackage global, globalNameModule global)
+      pure (listToMaybe [tyVars | constructor <- constructors, matches constructor, Just tyVars <- [dciVisibleTyVars constructor]])
+    _ -> pure Nothing
+  where
+    resultOf ty = case ty of
+      TcFunTy _ result -> resultOf result
+      _ -> ty
 
 pendingTypeArgs :: Expr -> [TcType]
 pendingTypeArgs expr =

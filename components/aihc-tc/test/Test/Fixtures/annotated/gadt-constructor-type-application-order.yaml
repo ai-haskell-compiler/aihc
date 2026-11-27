@@ -1,0 +1,51 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, TypeApplications, DataKinds, KindSignatures #-}
+  module Cmp where
+  data N = Z | S N
+       │   │   └─ type: N → N
+       │   └─ type: N
+       └─ type: Type
+  data Cmp (a :: N) (b :: N) where
+       └─ type: N → N → Type
+    Lt :: forall x y. Cmp x ('S y) -> Cmp x ('S ('S y))
+    └─ type: ∀ x b y. (b ~ ('S ('S y))) ⇒ Cmp x ('S y) → Cmp x b
+    Same :: forall y x. Cmp x y -> Cmp x y
+    └─ type: ∀ x y. Cmp x y → Cmp x y
+  lt :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S ('S 'Z))
+  lt = Lt @'Z @'Z
+  │    └─ type: Cmp 'Z ('S 'Z) → Cmp 'Z ('S ('S 'Z)); type-args: 'Z, 'S ('S 'Z), 'Z; evidence: refl 'S ('S 'Z)
+  └─ type: Cmp 'Z ('S 'Z) → Cmp 'Z ('S ('S 'Z))
+- |-
+  {-# LANGUAGE GADTs, TypeApplications, DataKinds #-}
+  module Test where
+  import Cmp
+  lt2 :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S ('S 'Z))
+  lt2 = Lt @'Z @'Z
+  │     └─ type: Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z) → Cmp.Cmp 'Cmp.Z ('Cmp.S ('Cmp.S 'Cmp.Z)); type-args: 'Z, 'S ('S 'Z), 'Z; evidence: refl 'S ('S 'Z)
+  └─ type: Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z) → Cmp.Cmp 'Cmp.Z ('Cmp.S ('Cmp.S 'Cmp.Z))
+  same :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S 'Z)
+  same = Same @('S 'Z) @'Z
+  │      └─ type: Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z) → Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z); type-args: 'Z, 'S 'Z
+  └─ type: Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z) → Cmp.Cmp 'Cmp.Z ('Cmp.S 'Cmp.Z)
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, TypeApplications, DataKinds, KindSignatures #-}
+  module Cmp where
+  data N = Z | S N
+  data Cmp (a :: N) (b :: N) where
+    Lt :: forall x y. Cmp x ('S y) -> Cmp x ('S ('S y))
+    Same :: forall y x. Cmp x y -> Cmp x y
+  lt :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S ('S 'Z))
+  lt = Lt @'Z @'Z
+- |
+  {-# LANGUAGE GADTs, TypeApplications, DataKinds #-}
+  module Test where
+  import Cmp
+  lt2 :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S ('S 'Z))
+  lt2 = Lt @'Z @'Z
+  same :: Cmp 'Z ('S 'Z) -> Cmp 'Z ('S 'Z)
+  same = Same @('S 'Z) @'Z
+reason: A visible type application instantiates the binders that the constructor signature writes, in the written order, as in GHC. The term scheme puts the universal variables first, and it has an unwritten universal variable b for the index 'S ('S y).
+status: pass

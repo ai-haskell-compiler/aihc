@@ -725,11 +725,12 @@ getDataTypeInfo table = do
 
 putDataConInfo :: PartIndex -> DataConInfo -> Builder.Builder
 putDataConInfo table info =
-  cborArray 8
+  cborArray 9
     <> cborText (dciName info)
     <> putOrigin (dciOrigin info)
     <> encodeList (putTyVar table) (dciUnivTyVars info)
     <> encodeList (putTyVar table) (dciExTyVars info)
+    <> putMaybe (encodeList (putTyVar table)) (dciVisibleTyVars info)
     <> encodeList (putPred table) (dciTheta info)
     <> encodeList (putDataConFieldInfo table) (dciFields info)
     <> putType table (dciResTy info)
@@ -737,16 +738,17 @@ putDataConInfo table info =
 
 getDataConInfo :: PartTable -> Get.Get DataConInfo
 getDataConInfo table = do
-  expectArray 8
+  expectArray 9
   dciName <- getText
   dciOrigin <- getOrigin
   dciUnivTyVars <- getList (getTyVar table)
   dciExTyVars <- getList (getTyVar table)
+  dciVisibleTyVars <- getMaybe (getList (getTyVar table))
   dciTheta <- getList (getPred table)
   dciFields <- getList (getDataConFieldInfo table)
   dciResTy <- getType table
   dciSourceForm <- getDataConSourceForm
-  pure DataConInfo {dciName, dciOrigin, dciUnivTyVars, dciExTyVars, dciTheta, dciFields, dciResTy, dciSourceForm}
+  pure DataConInfo {dciName, dciOrigin, dciUnivTyVars, dciExTyVars, dciVisibleTyVars, dciTheta, dciFields, dciResTy, dciSourceForm}
 
 putDataConFieldInfo :: PartIndex -> DataConFieldInfo -> Builder.Builder
 putDataConFieldInfo table info =

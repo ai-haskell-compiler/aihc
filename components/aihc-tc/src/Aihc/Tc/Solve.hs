@@ -39,6 +39,7 @@ import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (unless, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, put)
+import Data.List (partition)
 
 -- | Result of solving constraints.
 data SolveResult = SolveResult
@@ -61,9 +62,16 @@ solveWithImpls wanteds impls = do
   solveLoop wl emptyInertSet
 
 -- | Add a constraint to the appropriate bucket in the worklist.
+--
+-- An equality that left a branch with its givens comes after the other
+-- equalities. These can fix a meta variable that it mentions, and the
+-- givens then prove it. If it came first, it would fix the meta variable
+-- without the givens.
 addWork :: Ct -> WorkList -> WorkList
 addWork ct = case ctPred ct of
-  EqPred {} -> addEq ct
+  EqPred {}
+    | null (ctBranchGivens ct) -> addEq ct
+    | otherwise -> addDict ct
   ClassPred {} -> addDict ct
   QuantifiedPred {} -> addDict ct
   IParamPred {} -> addDict ct
@@ -414,8 +422,14 @@ solveImplicationEqualities skolems predicates entailed equalities constraints = 
         then solveImplicationEqualities skolems predicates entailed equalities remaining
         else concat <$> mapM (solveWantedWithGivens skolems predicates equalities) remaining
 
+-- | Split the wanteds of an implication into the equalities and the other
+-- wanteds. An equality that left an inner branch with its givens comes
+-- after the other equalities, as in 'addWork'.
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
-partitionWanteds = foldr partitionOne ([], [])
+partitionWanteds wanteds =
+  let (equalities, dictionaries) = foldr partitionOne ([], []) wanteds
+      (branchEqualities, plainEqualities) = partition (not . null . ctBranchGivens) equalities
+   in (plainEqualities <> branchEqualities, dictionaries)
   where
     partitionOne ct (equalities, dictionaries) =
       case ctPred ct of
