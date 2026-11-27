@@ -18,6 +18,7 @@ import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Map.Strict qualified as Map
 
 -- | Unify two types, recording the solution and emitting an error if
 -- they are incompatible.
@@ -121,6 +122,12 @@ unifyCollecting _ (TcTyVar v1) (TcTyVar v2)
   -- kind refinement rewrites the kinds of occurrences) is still one
   -- variable.
   | sameTyVar v1 v2 = pure (Right [])
+-- Two polymorphic types are equal up to the names of their bound
+-- variables. The solver uses the same rule for a wanted equality. A meta
+-- variable in the bodies can then get a solution, as @α@ does in
+-- @(forall d. P d -> α) ~ (forall d. P d -> a)@.
+unifyCollecting loc (TcForAllTy v1 b1) (TcForAllTy v2 b2) =
+  unifyCollecting loc b1 (applySubst (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)
 unifyCollecting loc t1 t2
   | t1 == t2 = pure (Right [])
   | otherwise = do

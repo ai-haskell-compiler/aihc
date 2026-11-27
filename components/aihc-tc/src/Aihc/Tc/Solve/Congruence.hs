@@ -207,8 +207,14 @@ reduceRewritten equalities ty = do
       | otherwise = do
           steps <- concat <$> traverse (\(current, before) -> traverse (reduceOne current before) (rulesFor current)) frontier
           let found = [(ty, reduced, proof) | Just (_, Just reduced, proof) <- steps]
-              stuck = unique seen [(rewritten, Just proof) | Just (rewritten, Nothing, proof) <- steps]
-          rest <- go rulesFor (depth - 1) (seen <> map fst stuck) stuck
+              stuck = [(rewritten, Just proof) | Just (rewritten, Nothing, proof) <- steps]
+              -- A reduced type can hold a family application that another
+              -- given rewrites again. Two nested GADT matches give @s ~ Try
+              -- f@ and @f ~ BF@. Then @Res s@ reduces to @PRes f@, and only
+              -- the second given lets @PRes f@ reduce to @PRes BF@.
+              reducedFrontier = [(reduced, Just proof) | Just (_, Just reduced, proof) <- steps]
+              next = unique seen (stuck <> reducedFrontier)
+          rest <- go rulesFor (depth - 1) (seen <> map fst next) next
           pure (found <> rest)
     unique _ [] = []
     unique seen ((candidate, proof) : rest)

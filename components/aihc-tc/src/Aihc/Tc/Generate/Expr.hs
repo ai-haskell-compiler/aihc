@@ -1313,8 +1313,15 @@ planSpine = go
             -- ns of Z fx -> Some fx)@, the result type then fixes @Comp@ at
             -- @f (g x)@. Thus the branch @Z fx@, checked later under its
             -- givens, does not fix the open @x@ of @Comp@ at the
-            -- existential of @Z@. A variable keeps its old behavior: its
-            -- type can relate to a given of the enclosing scope.
+            -- existential of @Z@.
+            --
+            -- A bare variable also gives the fresh variables of its
+            -- instantiation, as in GHC. In @return $ case args of NotIn ->
+            -- Unit; In p -> ...@, the result type then fixes the type of
+            -- the case before a GADT branch is checked. Without this, the
+            -- first branch fixes it at the type of that branch. Only the
+            -- variables of the new instantiation count, thus the type of a
+            -- local variable is not changed.
             zonkedArgTy <- zonkType argTy
             zonkedExpectedArgTy <- zonkType expectedArgTy
             family <- isTypeFamilyTyCon
@@ -1324,7 +1331,7 @@ planSpine = go
                     && not (any (mentionsFamily family) (zonkedArgTy : zonkedExpectedArgTy : concat [[left, right] | (left, right) <- sectionEqualities]))
                 sectionEqualities = [(left, right) | isSectionArgument arg, ct <- argCts, EqPred left right <- [ctPred ct]]
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy || familyFree =
+                  | mentionsPolyType zonkedArgTy || familyFree || isBareVariable arg =
                       IntSet.fromList
                         [ key
                         | Unique key <- typeMetaVariables zonkedArgTy <> concat [typeMetaVariables left <> typeMetaVariables right | (left, right) <- sectionEqualities],
@@ -2658,3 +2665,14 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
+
+-- | Whether an argument is a variable, without an application.
+isBareVariable :: Expr -> Bool
+isBareVariable expr =
+  case expr of
+    EVar {} -> True
+    EParen inner -> isBareVariable inner
+    EPragma _ inner -> isBareVariable inner
+    EAnn _ inner -> isBareVariable inner
+    ETc _ inner -> isBareVariable inner
+    _ -> False
