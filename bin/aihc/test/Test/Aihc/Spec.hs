@@ -124,6 +124,7 @@ tests =
                 testCase "runs the splices of a program as native code without the sandbox" (test_buildNativeSplices coreStore),
                 testCase "runs the quotes of a package that does not depend on template-haskell" (test_buildQuoteBelow coreStore),
                 testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
+                testCase "links each framework of a package" (test_buildFrameworks coreStore),
                 testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
                 -- The --lto builds need core libraries built with the flag,
                 -- which the other stores do not hold.
@@ -1836,6 +1837,22 @@ test_buildExtraLibraries getStore = do
     (linkedStatus, linkedStdout, _) <- readProcessWithExitCode linked [] ""
     assertEqual "linked executable exit status" ExitSuccess linkedStatus
     assertEqual "linked executable stdout" "42\n" linkedStdout
+
+-- | A package can link more than one macOS framework. Each framework
+-- gets its own -framework argument in the link.
+test_buildFrameworks :: IO SeedStore -> Assertion
+test_buildFrameworks getStore
+  | System.Info.os /= "darwin" = pure ()
+  | otherwise =
+      withBuildPackageSandbox getStore "aihc-build-frameworks" $ \_ buildRoot options -> do
+        fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/frameworks"
+        let binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget options) </> "bin"
+        outputs <- build options {buildInput = fixtureRoot}
+        assertEqual "built executables" [binDirectory </> "clock"] outputs
+        (status, stdout, stderr) <- readProcessWithExitCode (binDirectory </> "clock") [] ""
+        assertEqual "clock exit status" ExitSuccess status
+        assertEqual "clock stdout" "True\n" stdout
+        assertEqual "clock stderr" "" stderr
 
 -- | The store key of a package includes what pkg-config gives for its
 -- @pkgconfig-depends@. The first install runs when pkg-config does not know
