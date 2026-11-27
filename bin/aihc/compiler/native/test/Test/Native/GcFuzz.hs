@@ -89,7 +89,8 @@ tests =
           testCase "grows the nursery after a local collection beside a young large array" (checkScript getDriver localGrowthScript),
           testCase "updates a gen2 referrer of a bridge survivor in a later local collection" (checkScript getDriver bridgeSurvivorScript),
           testCase "keeps what a frame names when a pop passes the frame in a cycle" (checkScript getDriver passedFrameScript),
-          testCase "promotes gen1 at a bridge collection with several capabilities" (checkScript getDriver bridgeGen1Script)
+          testCase "promotes gen1 at a bridge collection with several capabilities" (checkScript getDriver bridgeGen1Script),
+          testCase "copies a young thunk into the value of a global thunk without a collection" (checkScript getDriver globalUpdateScript)
         ]
 
 -- | Evaluate a static thunk into a heap object that only the thunk keeps
@@ -220,6 +221,26 @@ bridgeGen1Script =
     CHeap 1,
     CReserve 57,
     CStable (VHeap 2)
+  ]
+
+-- | Thunk 2 is in gen2, and the update of thunk 2 gives the young thunk 3.
+-- No update frame names thunk 3, so the update copies thunk 3 into gen2
+-- and does not collect.
+globalUpdateScript :: [Command]
+globalUpdateScript =
+  [ CMachine 0 1 128 0,
+    CCapabilities 2,
+    CPush 1 FSStop,
+    CReserve 2,
+    CNew 2 KThunk [] Nothing,
+    CRoot 0 (VHeap 2),
+    CCollect,
+    CCollect,
+    CPush 3 (FSUpdate 2),
+    CReserve 2,
+    CNew 3 KThunk [] Nothing,
+    CEnter 3 (Just (VHeap 3)),
+    CCollect
   ]
 
 -- | The second capability stores into a gen2 object, which then dies. A
@@ -1103,8 +1124,15 @@ continueInto thread fid value model = case enteredFrame fid model of
                 -- With several capabilities, the update can promote the
                 -- result, and a stable name of the thunk would then lead to
                 -- the copy while the original lives.
-                mCapabilities model < 2 || VHeap thunk `notElem` mStable model ->
-                  maybe failed (update thunk result) (escapeStore (isGlobal model thunk) result popped)
+                mCapabilities model < 2 || VHeap thunk `notElem` mStable model,
+                -- The update of a global thunk copies each unclaimed young
+                -- thunk of the result without a pause walk. The runtime
+                -- thus assumes that no such thunk is under evaluation. In
+                -- a program, the young objects of the result are new since
+                -- the evaluation of the global thunk started. So no update
+                -- frame below names one of them.
+                not (reachesEvaluation popped result) ->
+                  maybe failed (update thunk result) (escapeStoreWith True (isGlobal model thunk) result popped)
             _ -> failed
           FStop -> schedule (storeThread thread (ThreadState RNone Nothing) popped)
           _ -> popped
@@ -1113,6 +1141,19 @@ continueInto thread fid value model = case enteredFrame fid model of
     chain Nothing = []
     chain (Just frame) = frame : chain (fParent =<< Map.lookup frame (mFrames model))
     passesUpdate frame = (fKind <$> Map.lookup frame (mFrames model)) == Just FUpdate
+    -- Whether a copy of the value reaches an unclaimed thunk that a live
+    -- update frame names.
+    reachesEvaluation current result = case untagValue result of
+      VHeap identity
+        | mCapabilities current > 1,
+          Just (reached, _, _) <- promotionWith True current identity ->
+            any (`Set.member` reached) (evaluated current)
+      _ -> False
+    evaluated current =
+      [ thunk
+      | Frame {fKind = FUpdate, fFields = [VHeap thunk]} <- Map.elems (mFrames current),
+        Just (Object KThunk _ _ _ Nothing) <- [Map.lookup thunk (mHeap current)]
+      ]
     update thunk result after =
       let waiters = Map.findWithDefault [] thunk (mBlackholes after)
           updated = after {mHeap = Map.insert thunk (Ind result) (mHeap after), mBlackholes = Map.delete thunk (mBlackholes after)}
