@@ -493,8 +493,10 @@ in {
       set -euo pipefail
       ${repoRootGuard}
       # GHCRTS=-N would stop the ghc-pkg of GHC, which is not threaded, so
-      # the script gives the option to aihc only.
-      export AIHC_GHCRTS=-N
+      # the script gives the option to aihc only. The option -M2G limits the
+      # heap of aihc to 2 GiB. Without a limit, one package can use all of
+      # the memory and the swap of the machine, and other compiles fail.
+      export AIHC_GHCRTS="-N -M2G"
       export LANG=C.UTF-8
       export LC_ALL=C.UTF-8
       export AIHC="''${AIHC:-${aihcExe}}"

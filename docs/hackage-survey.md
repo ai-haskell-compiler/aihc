@@ -26,7 +26,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 ## Summary
 
 - Packages that compile with GHC: 535
-- Packages that compile with aihc: 449
+- Packages that compile with aihc: 462
 - Packages that do not compile with GHC: 398
 - Packages whose test suites pass with aihc: 2
 - Packages whose test suites fail with aihc: 0
@@ -39,7 +39,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | BNFC | 2.9.6.3 | pass | - |  |
 | Cabal | 3.18.2.0 | pass | - |  |
 | Cabal-syntax | 3.18.2.0 | pass | - |  |
-| Chart-diagrams | 1.9.5.1 | fail | - | timed out after 900 seconds |
+| Chart-diagrams | 1.9.5.1 | fail | - | src/Diagrams/LinearMap.hs:174:33: error: unsolved constraint AffineMappable (Located (Trail v n)) (Located (Trail u n)) |
 | ChasingBottoms | 1.3.1.17 | pass | - |  |
 | Diff | 2.0.1 | pass | pass |  |
 | GLFW-b | 3.3.9.1 | pass | - |  |
@@ -79,9 +79,9 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | ansi-terminal | 1.1.5 | pass | - |  |
 | ansi-terminal-game | 1.9.4.0 | pass | - |  |
 | ansi-wl-pprint | 1.1.1 | pass | - |  |
-| apecs | 0.10.1 | fail | - | apecs-0.10.1/src/Apecs/Experimental/Reactive.hs:77:26: error: unsolved constraint Has w m (Elem s) |
+| apecs | 0.10.1 | pass | - |  |
 | arbtt | 0.12.0.3 | pass | - |  |
-| arch-hs | 0.16.2 | fail | - | arch-hs-0.16.2/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strategy |
+| arch-hs | 0.16.2 | fail | - | src/Algebra/Graph/Undirected.hs:253:9: error: unsolved constraint Coercible Graph Graph |
 | arithmoi | 0.13.4.0 | pass | - |  |
 | async | 2.2.6 | pass | - |  |
 | atomic-primops | 0.8.8 | pass | - |  |
@@ -98,8 +98,8 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | base64 | 2.1 | pass | - |  |
 | base64-bytestring | 1.2.1.0 | pass | - |  |
 | basement | 0.0.16 | pass | - |  |
-| beam-postgres | 0.6.4.0 | fail | - | pqueue-1.7.0.0/src/Data/PQueue/Min.hs:32:3: error: pattern synonym Empty has the scrutinee type Seq and cannot be bundled with MinQueue |
-| bearriver | 0.15.1 | fail | - | dunai-0.14.2/src/Data/MonadicStreamFunction/Util.hs:41:17: error: unhandled syntax: term name ‘EProc’ |
+| beam-postgres | 0.6.4.0 | fail | - | src/Data/PQueue/Min.hs:32:3: error: pattern synonym Empty has the scrutinee type Seq and cannot be bundled with MinQueue |
+| bearriver | 0.15.1 | fail | - | src/Data/MonadicStreamFunction/Util.hs:41:17: error: unhandled syntax: term name ‘EProc’ |
 | bifunctors | 5.6.3 | pass | - |  |
 | binary | 0.8.9.3 | pass | - |  |
 | bitvec | 1.1.6.0 | pass | - |  |
@@ -109,19 +109,19 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | bloodhound | 1.0.0.0 | pass | - |  |
 | bluefin | 0.10.1.0 | pass | - |  |
 | bound | 2.0.7 | pass | - |  |
-| brick | 3.0 | fail | - | brick-3.0/.aihc-target/llvm/splices/brick/Brick.Widgets.List/package/src/Brick/Main.hs:81:8: error: module ‘Graphics.Vty.CrossPlatform’ not found |
+| brick | 3.0 | fail | - | src/Brick/Main.hs:81:8: error: module ‘Graphics.Vty.CrossPlatform’ not found |
 | bson | 0.4.0.1 | pass | - |  |
-| bv-sized | 1.0.8 | fail | - | parameterized-utils-2.3.1.0/src/Data/Parameterized/NatRepr/Internal.hs:71:25: error: unsolved constraint 0 ~ + t0 1 |
+| bv-sized | 1.0.8 | fail | - | src/Data/Parameterized/NatRepr/Internal.hs:71:25: error: unsolved constraint 0 ~ + t0 1 |
 | bytes | 0.17.5 | pass | - |  |
 | byteslice | 0.2.15.0 | pass | - |  |
 | bytestring | 0.12.2.0 | pass | - |  |
 | c2hs | 0.28.8 | pass | - |  |
-| cabal-debian | 5.5.1 | fail | - | timed out after 900 seconds |
+| cabal-debian | 5.5.1 | fail | - | src/Debian/Debianize/Optparse.hs:58:58: error: unsolved constraint Unwrapped BuildDep ~ GUnwrapped (Rep BuildDep) |
 | cabal-doctest | 1.0.13 | pass | - |  |
 | cabal-gild | 1.8.4.2 | pass | - |  |
 | cabal-rpm | 2.3.2 | pass | - |  |
-| cabal2nix | 2.21.3 | fail | - | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
-| cachix-api | 1.14.0 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
+| cabal2nix | 2.21.3 | fail | - | In language-nix-2.3.0: Template Haskell failed in module Language.Nix.Identifier: splice 0: the engine failed: unreachable) |
+| cachix-api | 1.14.0 | fail | - | <unknown location in >: error: could not match Value with [Char] |
 | call-alloy | 0.6.0.3 | pass | - |  |
 | call-stack | 0.4.0 | pass | - |  |
 | case-insensitive | 1.2.2.0 | pass | - |  |
@@ -130,7 +130,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | cgi | 3001.5.2.0 | pass | - |  |
 | cgrep | 9.2.3 | pass | - |  |
 | charset | 0.3.12 | pass | - |  |
-| chart-svg | 0.8.3.3 | fail | - | In Color-0.4.1: FC lint failed: |
+| chart-svg | 0.8.3.3 | fail | - | <unknown location in Graphics.Color.Adaptation.Internal>: error: kind mismatch: expected Type, got k1 |
 | chronos | 1.1.7.0 | pass | - |  |
 | citeproc | 0.14.2 | pass | - |  |
 | classy-prelude | 1.5.0.3 | pass | - |  |
@@ -140,7 +140,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | cmark | 0.6.1 | pass | - |  |
 | cmdargs | 0.10.22 | pass | - |  |
 | cndict | 0.10.0 | pass | - |  |
-| cobot-io | 0.1.5.8 | fail | - | timed out after 900 seconds |
+| cobot-io | 0.1.5.8 | fail | - | In cobot-io-0.1.5.8: FC lint failed: |
 | colour | 2.3.7 | pass | - |  |
 | commonmark | 0.3.2 | pass | - |  |
 | commonmark-extensions | 0.2.8 | pass | - |  |
@@ -156,15 +156,15 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | containers | 0.8.1 | pass | - |  |
 | contravariant | 1.5.6 | pass | - |  |
 | cookie | 0.5.1 | pass | - |  |
-| copilot | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
+| copilot | 4.8.2 | fail | - | src/Data/Parameterized/NatRepr/Internal.hs:68:25: error: unsolved constraint 0 ~ + t0 1 |
 | copilot-c99 | 4.8.2 | pass | - |  |
 | copilot-core | 4.8.2 | pass | - |  |
-| copilot-language | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| copilot-libraries | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| copilot-theorem | 4.8.2 | fail | - | fp-ieee-0.1.0.7/src/Numeric/Floating/IEEE/Internal/Classify.hs:6:36: error: not exported: term name ‘isDoubleFinite’ |
-| core-program | 0.7.0.0 | fail | - | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
+| copilot-language | 4.8.2 | fail | - | src/Data/Parameterized/NatRepr/Internal.hs:68:25: error: unsolved constraint 0 ~ + t0 1 |
+| copilot-libraries | 4.8.2 | fail | - | src/Data/Parameterized/NatRepr/Internal.hs:68:25: error: unsolved constraint 0 ~ + t0 1 |
+| copilot-theorem | 4.8.2 | fail | - | src/Data/Parameterized/NatRepr/Internal.hs:68:25: error: unsolved constraint 0 ~ + t0 1 |
+| core-program | 0.7.0.0 | pass | - |  |
 | cpphs | 1.20.10 | pass | - |  |
-| cql-io | 2.0.0 | fail | - | network-info-0.2.1/cbits/network-unix.c:14:13: fatal error: 'net/if.h' file not found |
+| cql-io | 2.0.0 | fail | - | In cql-4.1.0.0: Template Haskell failed in module Database.CQL.Protocol.Tuple: splice 0: the engine failed: unreachable) |
 | criterion | 1.6.5.0 | pass | - |  |
 | crypto-api | 0.13.3 | pass | - |  |
 | cryptohash | 0.11.9 | pass | - |  |
@@ -172,26 +172,26 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | crypton-x509 | 1.10.1 | pass | - |  |
 | crypton-x509-validation | 1.10.1 | pass | - |  |
 | cryptonite | 0.30 | pass | - |  |
-| csound-expression | 5.4.4.1 | fail | - | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
-| csound-expression-typed | 0.2.9.0 | fail | - | csound-expression-typed-0.2.9.0/src/Csound/Typed/GlobalState/Opcodes.hs:91:1: error: kind mismatch: expected Type → Type, got Type |
+| csound-expression | 5.4.4.1 | pass | - |  |
+| csound-expression-typed | 0.2.9.0 | pass | - |  |
 | data-accessor | 0.2.3.1 | pass | - |  |
 | data-default | 0.8.0.2 | pass | - |  |
 | data-default-class | 0.2.0.0 | pass | - |  |
 | data-fix | 0.3.4 | pass | - |  |
 | dataframe | 3.8.0.0 | fail | - | The plan needs build tools this compiler cannot run: |
-| dbus | 1.4.3 | fail | - | timed out after 900 seconds |
-| debian | 4.1.2 | fail | - | timed out after 900 seconds |
+| dbus | 1.4.3 | fail | - | In dbus-1.4.3: Template Haskell failed in module DBus.TH: splice 0: the engine failed: unreachable) |
+| debian | 4.1.2 | pass | - |  |
 | deepseq | 1.5.2.0 | pass | - |  |
 | deferred-folds | 0.9.18.10 | pass | - |  |
 | dejafu | 2.4.0.8 | pass | - |  |
 | dependent-sum | 0.7.2.0 | pass | - |  |
 | deriving-compat | 0.6.8 | pass | - |  |
 | dhall | 1.42.3 | pass | - |  |
-| diagrams-contrib | 1.4.8 | fail | - | timed out after 900 seconds |
+| diagrams-contrib | 1.4.8 | fail | - | src/Diagrams/LinearMap.hs:174:33: error: unsolved constraint AffineMappable (Located (Trail v n)) (Located (Trail u n)) |
 | diagrams-core | 1.5.1.2 | pass | - |  |
-| diagrams-lib | 1.6 | fail | - | timed out after 900 seconds |
-| diagrams-rasterific | 1.5.0.1 | fail | - | timed out after 900 seconds |
-| diagrams-svg | 1.5.1 | fail | - | timed out after 900 seconds |
+| diagrams-lib | 1.6 | fail | - | src/Diagrams/LinearMap.hs:174:33: error: unsolved constraint AffineMappable (Located (Trail v n)) (Located (Trail u n)) |
+| diagrams-rasterific | 1.5.0.1 | fail | - | src/Diagrams/LinearMap.hs:174:33: error: unsolved constraint AffineMappable (Located (Trail v n)) (Located (Trail u n)) |
+| diagrams-svg | 1.5.1 | fail | - | src/Diagrams/LinearMap.hs:174:33: error: unsolved constraint AffineMappable (Located (Trail v n)) (Located (Trail u n)) |
 | digestive-functors | 0.8.4.2 | pass | - |  |
 | digit | 0.15 | pass | - |  |
 | dimensional | 1.6.2 | pass | - |  |
@@ -242,8 +242,8 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | gnuplot | 0.5.7 | pass | - |  |
 | graphql | 1.5.0.3 | pass | - |  |
 | graphviz | 2999.20.2.1 | pass | - |  |
-| h-raylib | 6.1.0.0 | fail | - | timed out after 900 seconds |
-| hackage-security | 0.6.4.0 | fail | - | hackage-security-0.6.4.0/src/Hackage/Security/Trusted.hs:40:31: error: unbound term name ‘static’ |
+| h-raylib | 6.1.0.0 | pass | - |  |
+| hackage-security | 0.6.4.0 | fail | - | src/Hackage/Security/Trusted.hs:40:31: error: unbound term name ‘static’ |
 | haddock-library | 1.11.0 | pass | - |  |
 | hakyll | 4.17.0.0 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | half | 0.3.3 | pass | - |  |
@@ -257,8 +257,8 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | haskeline | 0.8.5.0 | pass | - |  |
 | haskell-src-exts | 1.24.0 | pass | - |  |
 | haskell-src-meta | 0.8.16 | pass | - |  |
-| haskoin-core | 2.0.0 | fail | - | haskoin-core-2.0.0/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
-| haskoin-store-data | 3.0.0 | fail | - | haskoin-core-2.0.1/src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
+| haskoin-core | 2.0.0 | fail | - | src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
+| haskoin-store-data | 3.0.0 | fail | - | src/Haskoin/Block/Common.hs:105:33: error: could not match Headers with t0 → Encoding' Value |
 | hasql | 2.0.1.0 | pass | - |  |
 | hasql-optparse-applicative | 0.9.1.1 | pass | - |  |
 | hasql-pool | 1.5.1.1 | pass | - |  |
@@ -273,10 +273,10 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | hledger | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | hledger-ui | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | hledger-web | 1.52.4 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| hmatrix | 0.20.2 | fail | - | built  semigroups-0.20.1 in 0.4 s |
-| hmatrix-gsl-stats | 0.4.1.8 | fail | - | built  semigroups-0.20.1 in 0.5 s |
+| hmatrix | 0.20.2 | fail | - | Heap exhausted; |
+| hmatrix-gsl-stats | 0.4.1.8 | fail | - | Heap exhausted; |
 | hoauth2 | 2.15.2 | pass | - |  |
-| hpack | 0.39.6 | fail | - | hpack-0.39.6/src/Hpack/Syntax/Defaults.hs:29:22: error: unsolved constraint M1 D ('MetaData "ParseGithub" "Hpack.Syntax.Defaults" "hpack-0.39.6" 'False) (M1 C ( |
+| hpack | 0.39.6 | pass | - |  |
 | hsc2hs | 0.68.10 | pass | - |  |
 | hslogger | 1.3.2.0 | pass | - |  |
 | hslua | 2.5.0 | pass | - |  |
@@ -312,7 +312,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | io-streams | 1.5.2.2 | pass | - |  |
 | ip | 1.7.8 | pass | - |  |
 | iproute | 1.8.0 | pass | - |  |
-| jose | 0.13 | fail | - | <unknown location in Crypto.JOSE.JWA.JWS>: error: could not match Value with [Char] |
+| jose | 0.13 | fail | - | <unknown location in >: error: could not match Value with [Char] |
 | jose-jwt | 0.11.0 | pass | - |  |
 | jsaddle | 0.9.10.0 | pass | - |  |
 | kan-extensions | 5.2.8 | pass | - |  |
@@ -321,7 +321,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | keiro-core | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
 | keiro-dsl | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
 | keiro-pgmq | 0.25.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
-| keter | 2.3.6 | fail | - | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
+| keter | 2.3.6 | pass | - |  |
 | keys | 3.12.5 | pass | - |  |
 | kiroku-otel | 0.3.0.1 | fail | - | In streamly-core-0.3.3: FC lint failed: |
 | kiroku-store | 0.13.0.2 | fail | - | In streamly-core-0.3.3: FC lint failed: |
@@ -337,10 +337,10 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | lifted-async | 0.11.0 | pass | - |  |
 | lifted-base | 0.2.3.12 | pass | - |  |
 | linear | 1.23.3 | pass | - |  |
-| liquid-fixpoint | 0.9.6.3.7 | fail | - | liquid-fixpoint-0.9.6.3.7/.aihc-target/llvm/splices/liquid-fixpoint/Language.Fixpoint.Types.Config/package/src/AihcSplice.hs:7:18: error: module ‘Data.Store’ no |
+| liquid-fixpoint | 0.9.6.3.7 | fail | - | src/AihcSplice.hs:7:18: error: module ‘Data.Store’ not found |
 | list-t | 1.0.5.7 | pass | - |  |
 | logict | 0.8.2.0 | pass | - |  |
-| lsp-test | 0.18.0.0 | fail | - | row-types-1.0.1.2/src/Data/Row/Dictionaries.hs:106:1: error: kind mismatch: expected Row k0, got k0 |
+| lsp-test | 0.18.0.0 | fail | - | src/Data/Row/Dictionaries.hs:106:1: error: kind mismatch: expected Row k0, got k0 |
 | lucid | 2.11.20260427 | pass | - |  |
 | massiv | 1.0.5.0 | pass | - |  |
 | math-functions | 0.3.4.4 | pass | - |  |
@@ -364,7 +364,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | monoid-extras | 0.7.0.2 | pass | - |  |
 | monoid-subclasses | 1.2.6.1 | pass | - |  |
 | monoidal-containers | 0.6.8.0 | pass | - |  |
-| morpheus-graphql | 0.28.5 | fail | - | timed out after 900 seconds |
+| morpheus-graphql | 0.28.5 | fail | - | src/Data/Morpheus/Server/Deriving/Internal/Value.hs:103:34: error: unsolved constraint DecodeFields t0 a |
 | mtl | 2.3.2 | pass | - |  |
 | mwc-random | 0.15.3.0 | pass | - |  |
 | mysql-haskell | 1.5.0 | pass | - |  |
@@ -375,30 +375,30 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | ngx-export-tools | 1.2.6.3 | pass | - |  |
 | numhask | 0.13.3.0 | pass | - |  |
 | old-time | 1.1.1.0 | pass | - |  |
-| opaleye | 0.10.8.0 | fail | - | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 419699 for K with arguments [TcT |
+| opaleye | 0.10.8.0 | fail | - | In opaleye-0.10.8.0: FC generation failed: Opaleye.Internal.TypeFamilies: body: cannot infer the invisible kind argument Unique 415810 for K with arguments [TcT |
 | optparse-applicative | 0.19.0.0 | pass | - |  |
 | optparse-generic | 1.5.3 | pass | - |  |
 | os-string | 2.0.11 | pass | - |  |
 | pandoc | 3.14 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
-| pandoc-crossref | 0.3.26 | fail | - | timed out after 900 seconds |
+| pandoc-crossref | 0.3.26 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | pandoc-types | 1.23.1.2 | pass | - |  |
 | parallel | 3.3.0.0 | pass | - |  |
 | parsec | 3.1.18.0 | pass | - |  |
 | parser-combinators | 1.3.1 | pass | - |  |
 | parsers | 0.12.12 | pass | - |  |
-| patat | 0.15.2.0 | fail | - | /private/tmp/claude-501/-Users-lemmih-coding-ai-haskell-compiler-aihc--claude-worktrees-cool-cartwright-9e650f/ccd7b847-4a56-4111-8600-07df72506c9d/scratchpad/s |
-| path | 0.9.6 | fail | - | path-0.9.6/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
-| path-io | 1.8.2 | fail | - | path-io-1.8.2/.aihc-target/llvm/splices/path/OsPath.Windows/package/src/OsPath/Internal/Include.hs:55:59: error: not exported: type name ‘PLATFORM_CHAR’ |
+| patat | 0.15.2.0 | fail | - | src/Text/Pandoc/ImageSize.hs:41:19: error: not exported: term name ‘bitReverse32’ |
+| path | 0.9.6 | pass | - |  |
+| path-io | 1.8.2 | pass | - |  |
 | persistent | 2.18.1.0 | pass | - |  |
 | persistent-mongoDB | 2.13.1.0 | pass | - |  |
-| persistent-postgresql | 2.14.3.0 | fail | - | configure: error: Library requirements (PostgreSQL) not met. |
-| persistent-sqlite | 2.13.3.1 | fail | - | In persistent-sqlite-2.13.3.1: Template Haskell failed in module Database.Persist.Sqlite: the engine failed: the shared module refers to the unknown symbol sqli |
+| persistent-postgresql | 2.14.3.0 | pass | - |  |
+| persistent-sqlite | 2.13.3.1 | pass | - |  |
 | persistent-template | 2.12.0.0 | pass | - |  |
 | phino | 0.0.165 | fail | - | In phino-0.0.165: GRIN generation failed: value Name {nameText = "$fEqGLOBAL$c==", nameSort = SortValue, nameOrigin = OriginTop (PackageId {packageIdText = "phi |
 | pipes | 4.3.16 | pass | - |  |
 | pointed | 5.0.5 | pass | - |  |
-| polysemy | 1.9.2.0 | fail | - | polysemy-1.9.2.0/.aihc-target/llvm/splices/polysemy/Polysemy.Final/package/src/Polysemy/Internal/Strategy.hs:60:38: error: unsolved constraint Coercible (Strate |
-| pontarius-xmpp | 0.5.7.2 | fail | - | pontarius-xmpp-0.5.7.2/source/Network/Xmpp/Tls.hs:125:1: error: could not match CertificateStore with CertificateStore |
+| polysemy | 1.9.2.0 | fail | - | In polysemy-1.9.2.0: Template Haskell failed in module Polysemy.Final: The compiler does not support `isExtEnabled' in a splice.) |
+| pontarius-xmpp | 0.5.7.2 | fail | - | source/Network/Xmpp/Tls.hs:125:1: error: could not match CertificateStore with CertificateStore |
 | postgresql-binary | 0.15.0.1 | pass | - |  |
 | postgresql-libpq | 0.11.0.0 | pass | - |  |
 | postgresql-query | 3.10.0 | fail | - | configure: error: Library requirements (PostgreSQL) not met. |
@@ -428,7 +428,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | recursion-schemes | 5.2.3 | pass | - |  |
 | reducers | 3.12.5 | pass | - |  |
 | reflection | 2.1.9 | pass | - |  |
-| reflex | 0.9.4.1 | fail | - | reflex-0.9.4.1/src/Reflex/Profiled.hs:71:34: error: unbound type name ‘CostCentreStack’ |
+| reflex | 0.9.4.1 | fail | - | src/Reflex/Class.hs:341:1: error: kind mismatch: expected k0, got k0 |
 | regex-base | 0.94.0.3 | pass | - |  |
 | regex-posix | 0.96.0.2 | pass | - |  |
 | regex-tdfa | 1.3.2.7 | pass | - |  |
@@ -441,20 +441,20 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | safe | 0.3.21 | pass | - |  |
 | safe-exceptions | 0.1.7.4 | pass | - |  |
 | sbp | 6.5.2 | pass | - |  |
-| sbv | 14.9 | fail | - | sbv-14.9/.aihc-target/llvm/splices/sbv/Data.SBV.Maybe/package/src/Data/SBV/List.hs:564:1: error: could not match SBV [a] with [SBV a] |
+| sbv | 14.9 | fail | - | In sbv-14.9: Template Haskell failed in module Data.SBV.Either: splice 0 (after reify of Either, Either, Either): the engine failed: unreachable) |
 | scientific | 0.3.10.0 | pass | - |  |
 | scotty | 0.30 | pass | - |  |
 | secp256k1-haskell | 3.0.0 | pass | - |  |
 | semialign | 1.4 | pass | - |  |
 | semigroupoids | 6.0.2 | pass | - |  |
 | semigroups | 0.20.1 | pass | - |  |
-| servant | 0.20.3.0 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-client | 0.20.3.0 | fail | - | In servant-client-core-0.20.3.0: FC lint failed: |
-| servant-docs | 0.13.1 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-lucid | 0.9.0.6 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-server | 0.20.3.0 | fail | - | In servant-server-0.20.3.0: FC lint failed: |
-| servant-swagger | 1.2.3 | fail | - | servant-0.20.3.0/src/Servant/API/ResponseHeaders.hs:81:29: error: unsolved constraint NFData (ResponseHeader h x) |
-| servant-swagger-ui | 0.3.5.5.0.1 | fail | - | In servant-server-0.20.3.0: FC lint failed: |
+| servant | 0.20.3.0 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-client | 0.20.3.0 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-docs | 0.13.1 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-lucid | 0.9.0.6 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-server | 0.20.3.0 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-swagger | 1.2.3 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
+| servant-swagger-ui | 0.3.5.5.0.1 | fail | - | <unknown location in Servant.Links>: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized type-family instanc |
 | shake | 0.19.9 | pass | - |  |
 | shakespeare | 2.2.0 | pass | - |  |
 | shakespeare-css | 1.1.0 | pass | - |  |
@@ -462,7 +462,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | shelly | 1.12.1.1 | pass | - |  |
 | shibuya-kiroku-adapter | 0.8.0.0 | fail | - | In streamly-core-0.3.3: FC lint failed: |
 | simple-sendfile | 0.2.33 | pass | - |  |
-| singletons | 3.0.4 | fail | - | singletons-3.0.4/src/Data/Singletons.hs:806:1: error: could not match SLambda with SWrappedSing |
+| singletons | 3.0.4 | fail | - | src/Data/Singletons.hs:806:1: error: could not match SLambda with SWrappedSing |
 | skylighting | 0.15.0.1 | pass | - |  |
 | skylighting-core | 0.15.0.1 | pass | - |  |
 | snap | 1.1.3.3 | pass | - |  |
@@ -482,7 +482,7 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | streamly | 0.11.1 | fail | - | In streamly-core-0.3.3: FC lint failed: |
 | strict | 0.5.1 | pass | - |  |
 | strive | 6.1.0.5 | pass | - |  |
-| swagger2 | 2.9.1 | fail | - | timed out after 900 seconds |
+| swagger2 | 2.9.1 | fail | - | In swagger2-2.9.1: Template Haskell failed in module Data.Swagger.Optics: The compiler does not support `isExtEnabled' in a splice.) |
 | syb | 0.7.4 | pass | - |  |
 | system-fileio | 0.3.16.7 | pass | - |  |
 | system-filepath | 0.4.14.1 | pass | - |  |
@@ -500,10 +500,10 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | text-icu | 0.8.0.5 | pass | - |  |
 | text-iso8601 | 0.2.0.0 | pass | - |  |
 | text-short | 0.1.6.1 | pass | - |  |
-| text-show | 3.11.4 | fail | - | src/TextShow/Foreign/Ptr.hs:49:7: error: unbound term name ‘integerFromWord#’ |
+| text-show | 3.11.4 | fail | - | In text-show-3.11.4: GRIN lint failed in TextShow.Control.Concurrent: [GrinLintResultLayout "bind" [AddrRep] [BoxedRep Unlifted]]) |
 | th-abstraction | 0.7.2.0 | pass | - |  |
 | th-compat | 0.1.7 | pass | - |  |
-| th-desugar | 1.19 | fail | - | th-desugar-1.19/Language/Haskell/TH/Desugar/Util.hs:60:22: error: not exported: type name ‘IP’ |
+| th-desugar | 1.19 | fail | - | Language/Haskell/TH/Desugar/Util.hs:60:22: error: not exported: type name ‘IP’ |
 | th-expand-syns | 0.4.12.0 | pass | - |  |
 | th-lift | 0.8.7 | pass | - |  |
 | th-lift-instances | 0.1.20 | pass | - |  |
@@ -555,19 +555,19 @@ packages with the Tests value `-`, give the option `--tests-only`.
 | warp | 3.4.21 | pass | - |  |
 | warp-tls | 3.4.18 | pass | - |  |
 | web-routes | 0.27.16 | pass | - |  |
-| webdriver | 0.15.0.0 | fail | - | In webdriver-0.15.0.0: Template Haskell failed in module Test.WebDriver.Capabilities.FirefoxOptions: the wasm32-wasip3 target has no C++ standard library: its s |
+| webdriver | 0.15.0.0 | fail | - | In webdriver-0.15.0.0: Template Haskell failed in module Test.WebDriver.Types: The compiler does not support `extsEnabled' in a splice.) |
 | websockets | 0.13.0.0 | pass | - |  |
 | wide-word | 0.1.9.0 | pass | - |  |
 | witch | 1.4.0.1 | pass | - |  |
 | witherable | 0.5 | pass | - |  |
 | x509 | 1.7.7 | pass | - |  |
 | x509-validation | 1.6.12 | pass | - |  |
-| xlsx | 1.3.0 | fail | - | timed out after 900 seconds |
+| xlsx | 1.3.0 | fail | - | <unknown location in >: error: internal type checker abort: internal type annotation error: unzonked meta-variable in finalized deriving annotation |
 | xml-conduit | 1.10.1.0 | pass | - |  |
 | xmlhtml | 0.2.5.4 | pass | - |  |
 | yaml | 0.11.11.2 | pass | - |  |
-| yesod-test | 1.7.0.3 | fail | - | basement-0.0.16/Basement/Types/OffsetSize.hs:231:33: error: could not match Word32 with Word64 |
-| yi | 0.19.3 | fail | - | src/Yi/Lexer/common.hsinc:24:34: error: could not match Int with [(Point, Char)] → () → (a, b) |
+| yesod-test | 1.7.0.3 | pass | - |  |
+| yi | 0.19.3 | fail | - | src/Data/ConcreteTypeRep.hs:116:15: error: unsolved constraint Binary (([Char], [Char], [Char], Int, KindRep), [SerialRep]) |
 | yst | 0.7.2 | fail | - | In text-builder-linear-0.1.4: Template Haskell failed in module Data.Text.Builder.Linear.Dec.Bounded: splice 0: the engine failed: unreachable) |
 | zip-archive | 0.5 | pass | - |  |
 | zlib | 0.7.1.1 | pass | - |  |
