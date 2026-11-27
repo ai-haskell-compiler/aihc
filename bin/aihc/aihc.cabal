@@ -115,6 +115,12 @@ extra-source-files:
   test/Test/Fixtures/install/local-dependencies/dep/dep.cabal
   test/Test/Fixtures/install/local-dependencies/dep/src/Dep.hs
   test/Test/Fixtures/install/local-dependencies/dep/src/Dep/Unused.hs
+  test/Test/Fixtures/install/reproducible-store/configure
+  test/Test/Fixtures/install/reproducible-store/include/ReproConfig.h.in
+  test/Test/Fixtures/install/reproducible-store/include/repro.h
+  test/Test/Fixtures/install/reproducible-store/reproducible-store.cabal
+  test/Test/Fixtures/install/reproducible-store/src/Repro/Capi.hs
+  test/Test/Fixtures/install/reproducible-store/src/Repro/Constants.hsc
   test/Test/Fixtures/install/resolve-error/demo.cabal
   test/Test/Fixtures/install/resolve-error/expected.txt
   test/Test/Fixtures/install/resolve-error/src/Aardvark.hs

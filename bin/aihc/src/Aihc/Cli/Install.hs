@@ -85,14 +85,19 @@ import Aihc.Cli.Backend (compileGrinToFor, compileLirObject, lirModuleDefinesCod
 import Aihc.Cli.BuildStamp
   ( BackendStamp (..),
     FileStamp (..),
+    FileTime,
     ModuleDigests (..),
     PackageDigests (..),
     ResolveStamp (..),
+    StampRoots,
     UnitStamp (..),
     filesMatchStamps,
+    newStampRoots,
     packageDigestsPath,
     readStamp,
+    stampExternalFiles,
     stampFiles,
+    writeRecord,
     writeStamp,
   )
 import Aihc.Cli.CapiStub (CapiStubOptions (..), capiStubArguments)
@@ -268,7 +273,7 @@ import Aihc.Th.Splices (PackageFile (..), RunSplice, SpliceRequest (..), expandS
 import Aihc.Wasm.Lir qualified as Wasm
 import Control.Concurrent (getNumCapabilities, threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, takeMVar, withMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newEmptyTMVarIO, newTVarIO, putTMVar, readTMVar, readTVar, takeTMVar, tryReadTMVar, tryTakeTMVar, writeTVar)
 import Control.DeepSeq (NFData (..), force)
@@ -288,6 +293,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import Data.MonoidMap (MonoidMap)
 import Data.MonoidMap qualified as MonoidMap
+import Data.Ord (Down (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -302,10 +308,10 @@ import GHC.IO.Exception (IOException (..))
 import GHC.IO.Handle.Lock qualified as HandleLock
 import Prettyprinter (defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.String (renderString)
-import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
+import System.Directory (XdgDirectory (XdgCache), canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, getXdgDirectory, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, dropTrailingPathSeparator, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
 import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
 import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
@@ -701,6 +707,8 @@ data PackageTaskContext = PackageTaskContext
     -- imports from here.
     taskModuleProvider :: !ModuleProvider,
     taskCapiStubOptions :: !CapiStubOptions,
+    -- | The roots of the paths in the stamps of the package.
+    taskStampRoots :: !StampRoots,
     taskBackendPhaseTimings :: !(IORef BackendPhaseTimings),
     -- | The splices of one module of the graph run while the task holds
     -- this lock. See 'sharedSpliceLock'.
@@ -1010,11 +1018,21 @@ data InstallShared = InstallShared
     -- published from its root when the graph ends, and what is left after
     -- that is removed.
     sharedTemporaryRoots :: !(IORef (Set.Set FilePath)),
+    -- | The directory that holds the temporary roots, made when the first
+    -- store package builds. A temporary root has the name of the store
+    -- entry of its package. Thus a path into a package that builds in the
+    -- same install is a path in the store with a different directory for
+    -- the store, and a hash that names the store root and this directory
+    -- the same gives the same result as a hash of the store entry.
+    sharedStagingRoot :: !(MVar (Maybe FilePath)),
     sharedBackendPhaseTimings :: !(IORef BackendPhaseTimings),
     -- | The facts of the store modules that the packages read. Each
     -- package reads them through its own provider, and this cache lets
     -- the providers decode each artifact only once.
     sharedProviderCache :: !ProviderCache,
+    -- | The digest of each file that a stamp of this install recorded, by
+    -- path, size, and modification time. See 'StampRoots'.
+    sharedFileDigests :: !(IORef (Map.Map FilePath FileTime)),
     -- | Held while the splices of one module run. Each run builds packages
     -- and starts an engine, so the modules take turns. The first run builds
     -- the packages of the engine image for @wasm32-wasip3@ and the next
@@ -1161,16 +1179,22 @@ installGraph config locations plans components = do
   phaseTimings <- newIORef mempty
   providerCache <- maybe newProviderCache providerCacheForGraph (compileProviderCache config)
   spliceLock <- newMVar ()
+  fileDigests <- newIORef Map.empty
+  stagingRoot <- newMVar Nothing
   let shared =
         InstallShared
           { sharedConfig = config,
             sharedLocations = locations,
             sharedTemporaryRoots = temporaryRoots,
+            sharedStagingRoot = stagingRoot,
             sharedBackendPhaseTimings = phaseTimings,
             sharedProviderCache = providerCache,
+            sharedFileDigests = fileDigests,
             sharedSpliceLock = spliceLock
           }
-      removeTemporaryRoots = readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
+      removeTemporaryRoots = do
+        readIORef temporaryRoots >>= mapM_ removeTemporaryStoreRoot . Set.toList
+        readMVar stagingRoot >>= mapM_ removeTemporaryStoreRoot
       publishFinished = readIORef slotsRef >>= mapM_ (publishSlot shared) . sortOn slotOrder . Map.elems
       seed graph = do
         mapM (planSlot shared graph slotsRef True) plans >>= writeIORef rootsRef
@@ -1715,7 +1739,7 @@ prepareStorePackage shared config named reinstall dependencies headerPackages pl
       pure (package, Nothing)
     else do
       createDirectoryIfMissing True storeRoot
-      temporaryRoot <- createTemporaryStoreRoot storeRoot packageDirectory
+      temporaryRoot <- createTemporaryStoreRoot shared storeRoot packageDirectory
       atomicModifyIORef' (sharedTemporaryRoots shared) (\roots -> (Set.insert temporaryRoot roots, ()))
       preparePackageBuild config packageDirectory unitIdentity True temporaryRoot storePath exists dependencies headerPackages plan inputs configured
 
@@ -1797,7 +1821,7 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
       cCompileInfo = configuredCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs configuredCInfo <> headerDirs)}
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
   installPackageHeaders root buildPath configuredCInfo
-  files <- preprocessPackage config dependencyVersions root buildPath (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
+  files <- preprocessPackage config dependencyVersions root buildPath (nub [takeDirectory buildPath, takeDirectory publishPath]) (inputConfigureScript inputs) headerHash cCompileInfo sourceFiles
   reexports <- either (ioError . userError) pure (packageReexports unitIdentity inputs dependencies)
   let build =
         PackageBuild
@@ -2227,6 +2251,23 @@ partitionModules graph shared build sourceSlots = do
         <*> newEmptyTMVarIO
         <*> newEmptyTMVarIO
         <*> newEmptyTMVarIO
+  -- A store package builds in a temporary root. Nothing checks its stamps
+  -- again, so it records no times.
+  temporaryRoots <- readIORef (sharedTemporaryRoots shared)
+  let outputRoot = moduleBuildOutputRoot build
+      storeRoot = locationStoreRoot (sharedLocations shared)
+      temporary = outputRoot `Set.member` temporaryRoots
+  stampRoots <-
+    newStampRoots
+      outputRoot
+      -- The other packages of a store package are in the store, or in the
+      -- staging directory until the install publishes them.
+      (if temporary then storeRoot else takeDirectory outputRoot)
+      [takeDirectory outputRoot | temporary]
+      storeRoot
+      (moduleBuildPackageRoot build)
+      (not temporary)
+      (sharedFileDigests shared)
   let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
       context =
         PackageTaskContext
@@ -2238,6 +2279,7 @@ partitionModules graph shared build sourceSlots = do
             taskPackageRoot = moduleBuildPackageRoot build,
             taskModuleProvider = provider,
             taskCapiStubOptions = moduleBuildCapiOptions build,
+            taskStampRoots = stampRoots,
             taskBackendPhaseTimings = sharedBackendPhaseTimings shared,
             taskSpliceLock = sharedSpliceLock shared
           }
@@ -2345,7 +2387,7 @@ finishModules build runtimes parsed = do
           ]
   -- A consumer takes the digests from here rather than encoding the
   -- interfaces again, and finds the facts artifact of each module here.
-  writeStamp
+  writeRecord
     (packageDigestsPath outputRoot)
     PackageDigests
       { packageDigestsModules =
@@ -2603,11 +2645,22 @@ backendOptionsKey config =
         <> ["profile-time" | compileProfileTime config]
     )
 
-createTemporaryStoreRoot :: FilePath -> FilePath -> IO FilePath
-createTemporaryStoreRoot storeRoot packageDirectory = do
-  (path, handle) <- openBinaryTempFile storeRoot (".tmp-" <> packageDirectory <> "-")
-  hClose handle
-  removeFile path
+-- | The temporary root of a store package: a directory with the name of
+-- the store entry, in the staging directory of the install. See
+-- 'sharedStagingRoot'.
+createTemporaryStoreRoot :: InstallShared -> FilePath -> FilePath -> IO FilePath
+createTemporaryStoreRoot shared storeRoot packageDirectory = do
+  staging <- modifyMVar (sharedStagingRoot shared) $ \current ->
+    case current of
+      Just path -> pure (current, path)
+      Nothing -> do
+        (path, handle) <- openBinaryTempFile storeRoot ".tmp-install-.d"
+        hClose handle
+        removeFile path
+        createDirectory path
+        pure (Just path, path)
+  let path = staging </> packageDirectory
+  removeTemporaryStoreRoot path
   createDirectory path
   pure path
 
@@ -3059,7 +3112,7 @@ runResolveUnit context runtimes runtime = do
   packageModules <- takePackageModuleUnits resolvePackage sources >>= expandUnitSplices context runtimes unit availableExports sources
   reused <-
     if parseSuccess && dependenciesSucceeded
-      then reuseResolveUnit storePath stampPath inputs resolvePackage (map resolvePath sources)
+      then reuseResolveUnit (taskStampRoots context) storePath stampPath inputs resolvePackage (map resolvePath sources)
       else pure Nothing
   (result, typeInput) <- case reused of
     Just (unitExports, scopeHashes) -> do
@@ -3086,8 +3139,8 @@ runResolveUnit context runtimes runtime = do
         if success
           then do
             digests <- forM sources $ \source -> writeArtifact verbose unitExports resolvePackage (storePath </> resolvePath source) source
-            files <- stampFiles storePath (map resolvePath sources)
-            writeStamp stampPath ResolveStamp {resolveStampInputs = inputs, resolveStampScopes = Map.fromList digests, resolveStampFiles = files}
+            files <- stampFiles (taskStampRoots context) (map resolvePath sources)
+            writeStamp (taskStampRoots context) stampPath ResolveStamp {resolveStampInputs = inputs, resolveStampScopes = Map.fromList digests, resolveStampFiles = files} files
             pure (Map.fromList digests)
           else pure Map.empty
       pure
@@ -3405,12 +3458,12 @@ importedModuleReaches context resolvePackage unitNames dependencies dependencyRe
 -- | The exports and scope digests of a unit whose resolve artifacts were
 -- built from the same inputs, if the artifacts are the ones the stamp
 -- recorded.
-reuseResolveUnit :: FilePath -> FilePath -> [(Text, Text)] -> Package -> [FilePath] -> IO (Maybe (ModuleExports, Map.Map Text Text))
-reuseResolveUnit storePath stampPath inputs resolvePackage artifactPaths = do
+reuseResolveUnit :: StampRoots -> FilePath -> FilePath -> [(Text, Text)] -> Package -> [FilePath] -> IO (Maybe (ModuleExports, Map.Map Text Text))
+reuseResolveUnit roots storePath stampPath inputs resolvePackage artifactPaths = do
   stamp <- readStamp stampPath
   case stamp of
     Just recorded | resolveStampInputs recorded == inputs -> do
-      current <- filesMatchStamps storePath (resolveStampFiles recorded)
+      current <- filesMatchStamps roots stampPath (resolveStampFiles recorded)
       if not current
         then pure Nothing
         else do
@@ -3550,7 +3603,7 @@ runTypeUnit context runtimes runtime = do
       resolveSuccess = resolveUnitSuccess resolvedOutput
   reused <-
     if resolveSuccess && dependencySuccess
-      then reuseTypeUnit config storePath stampPath inputs
+      then reuseTypeUnit config (taskStampRoots context) stampPath inputs
       else pure Nothing
   case reused of
     -- A unit only reaches the checker with a resolved tree and with the
@@ -3726,7 +3779,7 @@ runTypeUnit context runtimes runtime = do
             }
       when (compileNoCode config) $
         forM_ pendingStamp $
-          \pending -> writeUnitStamp storePath pending Nothing
+          \pending -> writeUnitStamp (taskStampRoots context) pending Nothing
       atomically $ do
         putTMVar (runtimeTypeResult runtime) typeResult
         putTMVar (runtimeBackendInput runtime) pendingBackend
@@ -3736,12 +3789,12 @@ runTypeUnit context runtimes runtime = do
 
 -- | The stamp of a unit whose type artifacts, and objects when code is
 -- wanted, were built from the same inputs and are still the recorded files.
-reuseTypeUnit :: ModuleCompileConfig -> FilePath -> FilePath -> [(Text, Text)] -> IO (Maybe UnitStamp)
-reuseTypeUnit config storePath stampPath inputs = do
+reuseTypeUnit :: ModuleCompileConfig -> StampRoots -> FilePath -> [(Text, Text)] -> IO (Maybe UnitStamp)
+reuseTypeUnit config roots stampPath inputs = do
   stamp <- readStamp stampPath
   case stamp of
     Just recorded | unitStampInputs recorded == inputs -> do
-      frontendCurrent <- filesMatchStamps storePath (unitStampFiles recorded)
+      frontendCurrent <- filesMatchStamps roots stampPath (unitStampFiles recorded)
       backendCurrent <-
         if compileNoCode config
           then pure True
@@ -3750,16 +3803,17 @@ reuseTypeUnit config storePath stampPath inputs = do
               | backendStampOptions backend == T.pack (backendOptionsKey config) ->
                   -- A capi wrapper is rebuilt when a header it included
                   -- changed, which nothing else in the build would notice.
-                  (&&) <$> filesMatchStamps storePath (backendStampFiles backend) <*> filesMatchStamps "" (backendStampExternalFiles backend)
+                  filesMatchStamps roots stampPath (backendStampFiles backend <> backendStampExternalFiles backend)
             _ -> pure False
       pure (if frontendCurrent && backendCurrent then Just recorded else Nothing)
     _ -> pure Nothing
 
-writeUnitStamp :: FilePath -> PendingStamp -> Maybe (Text, [FilePath], [FileStamp]) -> IO ()
-writeUnitStamp storePath pending backend = do
-  files <- stampFiles storePath (pendingStampFrontendFiles pending)
-  backendStamp <- forM backend $ \(options, paths, headers) -> BackendStamp options <$> stampFiles storePath paths <*> pure headers
+writeUnitStamp :: StampRoots -> PendingStamp -> Maybe (Text, [FilePath], [FileStamp]) -> IO ()
+writeUnitStamp roots pending backend = do
+  files <- stampFiles roots (pendingStampFrontendFiles pending)
+  backendStamp <- forM backend $ \(options, paths, headers) -> BackendStamp options <$> stampFiles roots paths <*> pure headers
   writeStamp
+    roots
     (pendingStampPath pending)
     UnitStamp
       { unitStampInputs = pendingStampInputs pending,
@@ -3768,6 +3822,7 @@ writeUnitStamp storePath pending backend = do
         unitStampFiles = files,
         unitStampBackend = backendStamp
       }
+    (files <> concat [backendStampFiles stamp <> backendStampExternalFiles stamp | Just stamp <- [backendStamp]])
 
 runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
 runBackendUnit context runtime = do
@@ -3802,10 +3857,10 @@ runBackendUnit context runtime = do
           backend
       -- The headers of the capi wrappers and the interfaces the passes
       -- read: a change in either one rebuilds the objects of the unit.
-      externalFiles <- stampFiles "" (sortOn id (nub (concatMap capiStubHeaders capiOutputs <> map fst interfaces)))
+      externalFiles <- stampExternalFiles (taskStampRoots context) (sortOn id (nub (concatMap capiStubHeaders capiOutputs <> map fst interfaces)))
       forM_ (typeUnitPendingStamp result) $ \stamp ->
         writeUnitStamp
-          storePath
+          (taskStampRoots context)
           stamp
           ( Just
               ( T.pack (backendOptionsKey config),
@@ -4211,7 +4266,11 @@ compileUnitFcModules primPackage config capiOptions verbose outputPaths interfac
                 <> ["-MD", "-MF", outputCapiDependencyPath paths]
                 <> ["-c", outputCapiSourcePath paths, "-o", outputCapiObjectPath paths]
             )
-          recorded <- readFile (outputCapiDependencyPath paths)
+          -- The dependency file names the build directory, which a store
+          -- package builds in a temporary root. Thus the file is read here
+          -- and is not kept: it would make two builds of one plan differ.
+          recorded <- T.unpack . TE.decodeUtf8With lenientDecode <$> BS.readFile (outputCapiDependencyPath paths)
+          removeFile (outputCapiDependencyPath paths)
           source' <- canonicalizePath (outputCapiSourcePath paths)
           -- The stub itself is a prerequisite of its own object, and it is
           -- already recorded as an output of this unit.
@@ -4490,8 +4549,14 @@ dependencyIncludeDirs dependencies =
 -- | Header changes in local dependencies invalidate C and hsc2hs outputs.
 includeDirectoriesHash :: [FilePath] -> IO String
 includeDirectoriesHash directories = do
-  files <- concat <$> mapM directoryFiles directories
-  sourceFilesHash "" files
+  -- Each file is named by its path in its include directory, which is the
+  -- name an @#include@ line gives, and by the place of that directory in
+  -- the search order. The place of the store is not a part.
+  hashes <- forM (zip [0 :: Int ..] directories) $ \(index, directory) -> do
+    files <- directoryFiles directory
+    hash <- sourceFilesHash directory files
+    pure (BS8.pack (show index <> ":" <> hash))
+  pure (stableHash hashes)
   where
     directoryFiles directory = do
       names <- listDirectory directory
@@ -4528,7 +4593,7 @@ capiStubPaths target outputs =
   [ path
   | output <- outputs,
     let paths = moduleOutputPaths "" target (capiStubModule output),
-    path <- [outputCapiSourcePath paths, outputCapiObjectPath paths, outputCapiDependencyPath paths]
+    path <- [outputCapiSourcePath paths, outputCapiObjectPath paths]
   ]
 
 removeFileIfPresent :: FilePath -> IO ()
@@ -4713,10 +4778,29 @@ runConfigureScript config cacheRoot inputs =
           createDirectoryIfMissing True directory
           verbose ("Configure: " <> unwords (executable : arguments))
           runToolIn directory environment executable arguments
+            `finally` moveConfigureLogs verbose directory (takeFileName directory)
           BS8.writeFile stampPath (BS8.pack inputsHash)
     pure directory
   where
     verbose = compileVerbose config
+
+-- | Move the logs of a configure run out of its directory, to the cache
+-- directory of aihc. Autoconf writes the load average, the host name, the
+-- date and absolute paths into @config.log@ and @config.status@. The
+-- configure directory of a store package is a part of the store, and two
+-- builds of one plan must give the same store. Nothing reads the logs
+-- again, so they go where a user can read them after a failure.
+moveConfigureLogs :: (String -> IO ()) -> FilePath -> FilePath -> IO ()
+moveConfigureLogs verbose directory name = do
+  logRoot <- getXdgDirectory XdgCache ("aihc" </> "logs" </> "configure" </> name)
+  forM_ ["config.log", "config.status"] $ \logName -> do
+    let source = directory </> logName
+    exists <- doesFileExist source
+    when exists $ do
+      createDirectoryIfMissing True logRoot
+      copyFile source (logRoot </> logName)
+      removeFile source
+      verbose ("Configure log: " <> (logRoot </> logName))
 
 -- | Run an action while this process holds the lock file. Another process
 -- that asks for the same lock waits until the action ends.
@@ -4881,8 +4965,8 @@ targetCCompiler target level = do
 -- @{\# import \#}@ hook. c2hs then reads the @.chi@ file that it wrote for
 -- the imported module. Thus an import waits until c2hs has processed the
 -- imported module, as in Cabal. The @.chi@ files are part of the stamp.
-preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
-preprocessPackage config versions root storePath configureScript headerHash cInfo files = do
+preprocessPackage :: ModuleCompileConfig -> DependencyVersions -> FilePath -> FilePath -> [FilePath] -> Maybe FilePath -> String -> HackageCabal.CCompileInfo -> [HackageCabal.FileInfo] -> IO [HackageCabal.FileInfo]
+preprocessPackage config versions root storePath siblings configureScript headerHash cInfo files = do
   capabilities <- getNumCapabilities
   limit <- newQSem (max 1 capabilities)
   imports <- forM files $ \file ->
@@ -4906,6 +4990,7 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
     (zip3 [0 :: Int ..] files imports)
   where
     verbose = compileVerbose config
+    placeholders = buildPlaceholders config root storePath siblings
 
     stemFor file = storePath </> "preprocess" </> dropExtension (makeRelative root (HackageCabal.fileInfoPath file))
     stemAt index = stemFor (files !! index)
@@ -4934,7 +5019,14 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
               macrosPath = stem <.> "macros.h"
               stampPath = output <.> "hash"
               macros = cabalMacrosHeader (HackageCabal.fileInfoCppOptions file) versions (HackageCabal.fileInfoDependencies file)
-          (executable, arguments) <- preprocessorCommand config preprocessor cInfo file output macrosPath importRoots
+          -- The tool runs in the package root and reads the input by its
+          -- relative path, so the LINE pragmas of the module name the
+          -- input relative to the root, as the spans of the package do.
+          let relativeInput = makeRelative root input
+              toolFile
+                | isRelative relativeInput = file {HackageCabal.fileInfoPath = relativeInput}
+                | otherwise = file
+          (executable, arguments) <- preprocessorCommand config preprocessor cInfo toolFile output macrosPath importRoots
           toolIdentity <- preprocessorIdentity executable
           inputBytes <- BS.readFile input
           chiBytes <- mapM BS.readFile chiPaths
@@ -4946,7 +5038,7 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
                     inputBytes,
                     TE.encodeUtf8 macros,
                     BS8.pack toolIdentity,
-                    BS8.pack (show (executable, arguments)),
+                    BS8.pack (show (map (placeholderPaths placeholders) arguments)),
                     BS8.pack configureHash,
                     BS8.pack headerHash,
                     BS8.pack environmentIdentity
@@ -4964,7 +5056,7 @@ preprocessPackage config versions root storePath configureScript headerHash cInf
               -- an @#include "..."@ in the source resolves against the
               -- source's own directory through the -I passed above.
               environment <- preprocessorEnvironment
-              runToolIn (takeDirectory output) environment executable arguments
+              runToolIn (if isRelative relativeInput then root else takeDirectory output) environment executable arguments
               BS8.writeFile stampPath (BS8.pack inputsHash)
           pure file {HackageCabal.fileInfoPath = output, HackageCabal.fileInfoPreprocessor = Nothing}
 
@@ -5102,14 +5194,51 @@ preprocessorExecutable preprocessor = do
                 )
             )
 
--- | What identifies a preprocessor for the stamps of its outputs: where it
--- is and what it says its version is.
+-- | What identifies a preprocessor for the stamps of its outputs: what it
+-- says its version is. The place of the tool is not a part: the same tool
+-- in a different directory gives the same outputs, and the store must not
+-- depend on where the toolchain is.
 preprocessorIdentity :: FilePath -> IO String
 preprocessorIdentity executable = do
-  path <- canonicalizePath executable
   environment <- preprocessorEnvironment
   version <- readCreateProcess (proc executable ["--version"]) {env = Just environment} ""
-  pure (stableHash [BS8.pack path, BS8.pack version])
+  pure (stableHash [BS8.pack version])
+
+-- | The directories of a package build that the arguments of a tool can
+-- name, each with the name a hash uses for it. A hash of the arguments
+-- then does not depend on where the source, the build directory, or the
+-- store is.
+--
+-- The siblings are the directories that hold the other packages of the
+-- build. For a store package, they are the store root and the staging
+-- directory of the install, so that a dependency gets the same name in the
+-- store and in the staging directory.
+buildPlaceholders :: ModuleCompileConfig -> FilePath -> FilePath -> [FilePath] -> [(FilePath, String)]
+buildPlaceholders config root storePath siblings =
+  sortOn
+    (Down . length . fst)
+    ( [(storePath, "$build")]
+        <> [(directory, "$siblings") | directory <- siblings]
+        <> [ (root, "$source"),
+             (compileHeaderDirectory config, "$headers"),
+             (takeDirectory (compileHeaderDirectory config), "$store")
+           ]
+    )
+
+-- | An argument with each directory of the placeholders replaced by its
+-- name. The longest directory is replaced first, so that a directory inside
+-- a different one gets its own name.
+placeholderPaths :: [(FilePath, String)] -> String -> String
+placeholderPaths placeholders argument = T.unpack (foldl replace (T.pack argument) placeholders)
+  where
+    replace text (directory, name)
+      | null directory = text
+      | otherwise =
+          let directory' = T.pack (dropTrailingPathSeparator directory)
+              replaced = T.replace (directory' <> "/") (T.pack name <> "/") text
+           in if directory' `T.isSuffixOf` replaced
+                then T.dropEnd (T.length directory') replaced <> T.pack name
+                else replaced
 
 -- | The environment a preprocessor runs in: that of aihc, without the RTS
 -- options meant for aihc itself. hsc2hs is a GHC program too, and one that
@@ -5145,7 +5274,9 @@ configureInputsHash config script = do
         [ TE.encodeUtf8 packageArtifactFormatVersion,
           scriptBytes,
           BS8.pack environmentIdentity,
-          BS8.pack (show (executable, arguments, map (`lookup` environment) ["CC", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBS"]))
+          -- The script is named by its file name: its directory is where the
+          -- package source is, which does not change the outputs.
+          BS8.pack (show (executable, map (\argument -> if argument == script then takeFileName script else argument) arguments, map (`lookup` environment) ["CC", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBS"]))
         ]
     )
 
@@ -5521,4 +5652,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-61"
+packageArtifactFormatVersion = "aihc-artifacts-62"

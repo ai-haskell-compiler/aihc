@@ -1,0 +1,11 @@
+#!/bin/sh
+# A stand-in for an autoconf script. It writes a generated header, and it
+# writes logs that record the process, the time, and the directory, as
+# config.log and config.status of autoconf do.
+set -e
+mkdir -p include
+cat > include/ReproConfig.h <<HEADER
+#define REPRO_CONFIGURED 7
+HEADER
+printf 'process %s\ntime %s\ndirectory %s\n' "$$" "$(date)" "$(pwd)" > config.log
+printf 'process %s\n' "$$" > config.status

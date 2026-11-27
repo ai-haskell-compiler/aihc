@@ -282,7 +282,7 @@ runPackage config jobs headerDirectory dependencies root = do
     (files, preprocessTime) <- timed $ do
       directory <- runConfigureScript config scratch inputs
       (configured, cInfo) <- configurePackage root name inputs directory
-      preprocessPackage config versions root scratch (inputConfigureScript inputs) "" cInfo configured
+      preprocessPackage config versions root scratch [] (inputConfigureScript inputs) "" cInfo configured
     let preprocessed = length (filter (isJust . HackageCabal.fileInfoPreprocessor) (inputSources inputs))
     reportPhase "preprocess" preprocessTime (show preprocessed <> " " <> plural preprocessed "file")
     let loader = excerptSourceLoader headerDirectory root versions files

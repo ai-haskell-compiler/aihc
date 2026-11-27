@@ -147,6 +147,7 @@ tests =
                       testCase "runs the splices and quotes of a program" (test_buildSplices coreStore engineStore),
                       testCase "evaluates the inputs of a session in one instance" (test_replSession engineStore)
                     ],
+                testCase "gives the same store in each place" (test_installReproducibleStore coreStore),
                 testCase "compiles and archives capi wrappers" (test_installCapi primStore),
                 testCase "spells capi pointer arguments from CTYPE pragmas" (test_installCapiCType primStore),
                 testCase "installs the runtime as the aihc-rts package" (test_installRuntimePackage primStore),
@@ -2231,6 +2232,73 @@ test_installCapi getStore =
 -- with a pragma of its own by that pragma.  The header a pragma names is
 -- included ahead of the entity's header.  A pointer whose pointee has no
 -- pragma keeps the @HsPtr@ spelling, which any C function accepts.
+-- | Two installs of one package into two stores give the same store. The
+-- installs read the package from two source directories, as from the
+-- Hackage caches of two users, and build in two build roots. The package
+-- has a configure script whose logs record the process and the time, a
+-- @.hsc@ module, and a capi wrapper that includes a header of the
+-- configure script. Thus the store entry holds stamps, preprocessed
+-- modules, and wrapper objects that a path, a time, or a process could
+-- change.
+--
+-- The test cannot give the installs two working directories or two home
+-- directories: the tests of the suite run at the same time in one process.
+test_installReproducibleStore :: IO SeedStore -> Assertion
+test_installReproducibleStore getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install/reproducible-store"
+  target <- hostBackendTarget
+  withSandbox getStore "aihc-install-reproducible-store" $ \sandbox -> do
+    let installIn name = do
+          let root = sandboxRoot sandbox </> name
+              source = root </> "home" </> ".cache" </> "aihc" </> "hackage" </> "reproducible-store-0.1.0.0"
+          copyWritable fixtureRoot source
+          storeRoot <- sandboxStore sandbox (name </> "store")
+          result <-
+            install
+              InstallOptions
+                { installPackageTarget = source,
+                  installStoreRoot = Just storeRoot,
+                  installBuildRoot = Just (root </> "work" </> "build"),
+                  installImmutable = True,
+                  installKeepCore = False,
+                  installKeepGrin = False,
+                  installKeepNative = False,
+                  installLint = False,
+                  installCheckPrimBounds = False,
+                  installLto = False,
+                  installOptimization = O0,
+                  installReinstall = False,
+                  installNoCode = False,
+                  installPositionIndependent = False,
+                  installVerbose = False,
+                  installPrintTimings = False,
+                  installTarget = target,
+                  installWorkspace = Nothing,
+                  installPlanOptions = defaultPlanOptions
+                }
+          let targetStore = storeRoot </> nativeTargetStoreDirectory target
+          paths <- filesUnder targetStore
+          files <- mapM (\path -> (,) path <$> BS.readFile (targetStore </> path)) paths
+          pure (makeRelativeTo targetStore (installStorePath result), Map.fromList files)
+    (firstEntry, firstFiles) <- installIn "first"
+    (secondEntry, secondFiles) <- installIn "second-place"
+    assertEqual "the store entry" firstEntry secondEntry
+    assertBool "the store entry is in the store" (any ((firstEntry <> "/") `isPrefixOf`) (Map.keys firstFiles))
+    assertEqual "the files only in the first store" [] (Map.keys (Map.difference firstFiles secondFiles))
+    assertEqual "the files only in the second store" [] (Map.keys (Map.difference secondFiles firstFiles))
+    assertEqual "the files that differ" [] (Map.keys (Map.filter not (Map.intersectionWith (==) firstFiles secondFiles)))
+  where
+    makeRelativeTo directory path = fromMaybe path (stripPrefix (directory <> "/") path)
+    filesUnder root = do
+      entries <- listDirectory root
+      concat
+        <$> mapM
+          ( \entry -> do
+              isDirectory <- doesDirectoryExist (root </> entry)
+              if isDirectory then map (entry </>) <$> filesUnder (root </> entry) else pure [entry]
+          )
+          entries
+
 test_installCapiCType :: IO SeedStore -> Assertion
 test_installCapiCType getStore =
   withSandbox getStore "aihc-install-capi-ctype" $ \sandbox -> do
