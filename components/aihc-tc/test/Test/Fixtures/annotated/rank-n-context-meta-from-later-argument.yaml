@@ -1,0 +1,36 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, MultiParamTypeClasses #-}
+  module Test where
+  class Le a b
+  └─ class methods:
+  data P a = P
+       │     └─ type: ∀ a. P a
+       └─ type: Type → Type
+  go :: (forall n. P n -> (forall m. Le m n => P m -> f m) -> f n) -> f p
+  go g = go g
+  │  │   └─ type: (∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n) → f p; type-args: f, p
+  │  │   └─ type: ∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n
+  │  │   └─ type: P n → (∀ m. (Le m n) ⇒ P m → f m) → f n; type-args: n
+  │  └─ type: ∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n
+  └─ type: ∀ f p. (∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n) → f p
+  rec :: (forall n. P n -> (forall m. Le m n => P m -> f m) -> f n) -> f p
+  rec ind = go ind
+  │   │     └─ type: (∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n) → f p; type-args: f, p
+  │   │     └─ type: ∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n
+  │   │     └─ type: P n → (∀ m. (Le m n) ⇒ P m → f m) → f n; type-args: n
+  │   └─ type: ∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n
+  └─ type: ∀ f p. (∀ n. P n → (∀ m. (Le m n) ⇒ P m → f m) → f n) → f p
+extensions: []
+modules:
+- |
+  {-# LANGUAGE RankNTypes, MultiParamTypeClasses #-}
+  module Test where
+  class Le a b
+  data P a = P
+  go :: (forall n. P n -> (forall m. Le m n => P m -> f m) -> f n) -> f p
+  go g = go g
+  rec :: (forall n. P n -> (forall m. Le m n => P m -> f m) -> f n) -> f p
+  rec ind = go ind
+reason: The instantiation of ind gives n a meta variable t0. The context Le m t0 must equal Le m n. The argument P t0 ~ P n then gives t0 := n, as in GHC.
+status: pass

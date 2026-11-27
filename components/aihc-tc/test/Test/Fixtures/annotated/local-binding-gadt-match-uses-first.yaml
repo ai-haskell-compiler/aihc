@@ -1,0 +1,81 @@
+annotated:
+- |-
+  {-# LANGUAGE GADTs, DataKinds, KindSignatures #-}
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data Ctx = E | S Ctx
+       │     │   └─ type: Ctx → Ctx
+       │     └─ type: Ctx
+       └─ type: Type
+  data A (c :: Ctx) where
+       └─ type: Ctx → Type
+    AE :: A 'E
+    └─ type: ∀ c. (c ~ 'E) ⇒ A c
+    AX :: A c -> Bool -> A ('S c)
+    └─ type: ∀ c c. (c ~ ('S c)) ⇒ A c → Bool → A c
+  extend :: Bool -> A c -> A c
+  extend f x = go x
+  │      │ └─ type: A c
+  │      └─ type: Bool
+  └─ type: ∀ c. Bool → A c → A c
+    where
+      go AE = AE
+      │  │    └─ type: A 'E; type-args: 'E; evidence: refl 'E
+      │  └─ type: A c; type-args: c; evidence: given c ~ 'E
+      └─ type: A c → A c
+      go (AX a u) = AX a f
+      │   │  │ │    └─ type: A c → Bool → A ('S c); type-args: 'S c, c; evidence: refl 'S c
+      │   │  │ └─ type: Bool
+      │   │  └─ type: A c
+      │   └─ type: A c → Bool → A c; type-args: c, c; evidence: given c ~ 'S c
+      └─ type: A c → A c
+  keep :: A c -> A c
+  keep t =
+  │    └─ type: A c
+  └─ type: ∀ c. A c → A c
+    let m = case t of
+        │   └─ type: A c
+        └─ type: A c
+              AE -> AE
+              │     └─ type: A 'E; type-args: 'E; evidence: refl 'E
+              └─ type: A c; type-args: c; evidence: given c ~ 'E
+              _ -> t
+              └─ type: A c
+     in m
+  wrong :: Bool -> A c -> A c
+  wrong f x = go x
+              └─ error: expression has type A 'E, but expected A c from the type signature for wrong
+    where
+      go AE = AE
+      go (AX a u) = AE
+extensions: []
+modules:
+- |
+  {-# LANGUAGE GADTs, DataKinds, KindSignatures #-}
+  module Test where
+  data Bool = True | False
+  data Ctx = E | S Ctx
+  data A (c :: Ctx) where
+    AE :: A 'E
+    AX :: A c -> Bool -> A ('S c)
+  extend :: Bool -> A c -> A c
+  extend f x = go x
+    where
+      go AE = AE
+      go (AX a u) = AX a f
+  keep :: A c -> A c
+  keep t =
+    let m = case t of
+              AE -> AE
+              _ -> t
+     in m
+  wrong :: Bool -> A c -> A c
+  wrong f x = go x
+    where
+      go AE = AE
+      go (AX a u) = AE
+reason: The local binders have no signature and are not generalized. A GADT branch does not fix the type of a binder alone, as in GHC. The use go x, or the other branch, fixes it, and the givens of the branch then prove the branch result. The function wrong still gets an error.
+status: pass

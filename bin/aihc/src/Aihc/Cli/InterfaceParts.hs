@@ -214,6 +214,7 @@ walkDataConInfo :: DataConInfo -> Parts ()
 walkDataConInfo info = do
   traverse_ internTyVar (dciUnivTyVars info)
   traverse_ internTyVar (dciExTyVars info)
+  traverse_ (traverse_ internTyVar) (dciVisibleTyVars info)
   traverse_ internPred (dciTheta info)
   traverse_ walkFieldInfo (dciFields info)
   void (internType (dciResTy info))

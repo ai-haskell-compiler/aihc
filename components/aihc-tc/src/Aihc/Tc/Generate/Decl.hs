@@ -1149,6 +1149,7 @@ defaultGlobalKindMetas initialKeys = do
     defaultDataConKinds info = do
       universalTyVars <- mapM defaultTyVarKinds (dciUnivTyVars info)
       existentialTyVars <- mapM defaultTyVarKinds (dciExTyVars info)
+      visibleTyVars <- traverse (mapM defaultTyVarKinds) (dciVisibleTyVars info)
       predicates <- mapM defaultPredKinds (dciTheta info)
       fields <- mapM defaultDataConFieldKinds (dciFields info)
       resultType <- defaultTypeKinds (dciResTy info)
@@ -1163,6 +1164,7 @@ defaultGlobalKindMetas initialKeys = do
         info
           { dciUnivTyVars = universals,
             dciExTyVars = filter (\tyVar -> tvUnique tyVar `notElem` map tvUnique universals) (inventedKindVariablesFirst existentialTyVars),
+            dciVisibleTyVars = visibleTyVars,
             dciTheta = predicates,
             dciFields = fields,
             dciResTy = resultType
@@ -6384,7 +6386,17 @@ registerDataConWithResult gadtHiddenNames paramInfos resTy con = case con of
         writtenUniques = [tvUnique tyVar | name <- writtenNames, Just (tyVar, _) <- [Map.lookup name constructorEnv]]
         (inferredTyVars, specifiedTyVars) = break ((`elem` writtenUniques) . tvUnique) (closeKindVariables quantifiedTyVars)
         gadtScheme = Scheme inferredTyVars specifiedTyVars predicates conTy
+        -- A visible type application instantiates the written binders in
+        -- the written order, as in GHC. The scheme can have them in
+        -- another order, and it can have unwritten universal variables
+        -- among them.
+        schemeTyVars = inferredTyVars <> specifiedTyVars
+        visibleTyVars = [tyVar | unique <- nub writtenUniques, tyVar <- schemeTyVars, tvUnique tyVar == unique]
     mapM_ (\n -> extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)) names
+    unless (map tvUnique visibleTyVars == map tvUnique specifiedTyVars) $
+      forM_ names $ \n -> do
+        constructorKey <- resolvedUnqualifiedTermKey n
+        setConVisibleTyVars constructorKey visibleTyVars
     case names of
       (n : _) -> do
         constructorKey <- resolvedUnqualifiedTermKey n
@@ -6637,6 +6649,7 @@ checkedDataConInfo origin@(originPackage, originModule) sourceForm sourceFields 
   case maybeBinder of
     Just (TcIdBinder (ForAll tyVars predicates constructorType) _) -> do
       let (argumentTypes, resultType) = splitFunctionType constructorType
+      visibleTyVars <- lookupConVisibleTyVars (GlobalTerm originPackage originModule constructorName)
       if length sourceFields /= length argumentTypes
         then abortTc ("constructor metadata arity disagrees with checked type for " <> T.unpack constructorName)
         else do
@@ -6647,6 +6660,7 @@ checkedDataConInfo origin@(originPackage, originModule) sourceForm sourceFields 
                 dciOrigin = origin,
                 dciUnivTyVars = universalTyVars,
                 dciExTyVars = existentialTyVars,
+                dciVisibleTyVars = visibleTyVars,
                 dciTheta = predicates,
                 dciFields = zipWith checkedFieldInfo sourceFields argumentTypes,
                 dciResTy = resultType,

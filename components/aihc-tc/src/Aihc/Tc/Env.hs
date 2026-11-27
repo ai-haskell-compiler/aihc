@@ -258,6 +258,15 @@ data DataConInfo = DataConInfo
     dciUnivTyVars :: ![TyVarId],
     -- | Existentially quantified type variables (GADTs).
     dciExTyVars :: ![TyVarId],
+    -- | The binders that a visible type application instantiates, in
+    -- order. A GADT signature can write them in another order than the
+    -- term scheme has them: the scheme puts the universal variables
+    -- first, as the System FC constructor binds them, and it has a
+    -- universal variable for each index that is not a variable. In
+    -- @NatLT :: NatRepr y -> NatComparison x (x + (y + 1))@, the
+    -- binders are @x@ and @y@. 'Nothing' means the specified binders of
+    -- the term scheme.
+    dciVisibleTyVars :: !(Maybe [TyVarId]),
     -- | Constructor constraints (given on match).
     dciTheta :: ![Pred],
     -- | Checked fields in runtime argument order.

@@ -16,7 +16,7 @@ import Aihc.Tc.Evidence
 import Aihc.Tc.Kind (kindedTyConAt, tcTypeKind, unifyKindsAt)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Congruence (allGivenEqualities, applyGivenSubst, proveFromEqualities, proveGivenEquality)
-import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
+import Aihc.Tc.Solve.Decompose (decomposeNominalEquality, predicateArgumentPairs)
 import Aihc.Tc.Solve.Family (isTypeFamilyApplication, occursOutsideFamilies, reduceTypeFamilies, tyVarOccursOutsideFamilies, unsaturateFamilyApplication)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -257,10 +257,16 @@ solveEqShapes ct t1 t2 = case (t1, t2) of
   (TcForAllTy v1 b1, TcForAllTy v2 b2) ->
     do
       solveDecomposed ct t1 [(b1, applySubst (Map.singleton (tvUnique v2) (TcTyVar v1)) b2)]
+  -- Two contexts are equal when their predicates are equal one by one.
+  -- A predicate can still hold a meta variable that another part of the
+  -- same equality binds, as the @t0@ of @(forall m. (m <= t0) => f m) ~
+  -- (forall m. (m <= n) => f m)@ that the instantiation of @forall n.
+  -- NatRepr n -> ...@ makes. Thus each pair of predicate arguments
+  -- becomes an equality.
   (TcQualTy p1 b1, TcQualTy p2 b2)
     | length p1 == length p2,
-      and (zipWith samePred p1 p2) ->
-        solveDecomposed ct t1 [(b1, b2)]
+      Just predicatePairs <- concat <$> sequence (zipWith predicateArgumentPairs p1 p2) ->
+        solveDecomposed ct t1 (predicatePairs <> [(b1, b2)])
   _ -> do
     children <- decomposeNominalEquality t1 t2
     case children of

@@ -258,10 +258,11 @@ shareDataConInfo :: DataConInfo -> Share DataConInfo
 shareDataConInfo info = do
   univTyVars <- mapM shareTyVar (dciUnivTyVars info)
   exTyVars <- mapM shareTyVar (dciExTyVars info)
+  visibleTyVars <- traverse (mapM shareTyVar) (dciVisibleTyVars info)
   theta <- mapM sharePred (dciTheta info)
   fields <- mapM shareField (dciFields info)
   resTy <- shareType (dciResTy info)
-  pure info {dciUnivTyVars = univTyVars, dciExTyVars = exTyVars, dciTheta = theta, dciFields = fields, dciResTy = resTy}
+  pure info {dciUnivTyVars = univTyVars, dciExTyVars = exTyVars, dciVisibleTyVars = visibleTyVars, dciTheta = theta, dciFields = fields, dciResTy = resTy}
   where
     shareField field = do
       ty <- shareType (dcfiType field)

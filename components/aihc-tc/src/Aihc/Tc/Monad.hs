@@ -146,6 +146,14 @@ module Aihc.Tc.Monad
     getClassInstancesForArguments,
     addDataFamilyInstance,
     getDataFamilyInstances,
+    setConVisibleTyVars,
+    noteGivenBranch,
+    givenBranchCount,
+    withLocalUsesFirst,
+    localUsesFirst,
+    withLocalBodyExpected,
+    localBodyExpected,
+    lookupConVisibleTyVars,
     addTypeFamilyInstance,
     sameTypeFamilyEquation,
     getTypeFamilyInstances,
@@ -165,6 +173,9 @@ module Aihc.Tc.Monad
     emitWarning,
     withAmbientSpan,
     withErrorTracking,
+    TcSnapshot,
+    saveTcSnapshot,
+    restoreTcSnapshot,
     currentErrorCount,
 
     -- * Speculation
@@ -292,7 +303,14 @@ data TcEnv = TcEnv
     -- emitted without a span of its own, as the checks of internal types
     -- do, reports here instead of nowhere.
     tcEnvAmbientSpan :: !(Maybe SourceSpan),
-    tcEnvVisibleTerms :: !(Set.Set Entity)
+    tcEnvVisibleTerms :: !(Set.Set Entity),
+    -- | Whether the uses of the local binders of the group that is being
+    -- checked came first, so that their placeholder types are what the
+    -- equations are checked against.
+    tcEnvLocalUsesFirst :: !Bool,
+    -- | The type that the body of the local declarations that are being
+    -- checked must have, when the body is checked against a type.
+    tcEnvLocalBodyExpected :: !(Maybe TcType)
   }
   deriving (Show)
 
@@ -524,7 +542,9 @@ emptyTcEnv config =
       tcEnvScopedTyVars = Map.empty,
       tcEnvTyVarTypes = Map.empty,
       tcEnvAmbientSpan = Nothing,
-      tcEnvVisibleTerms = Set.empty
+      tcEnvVisibleTerms = Set.empty,
+      tcEnvLocalUsesFirst = False,
+      tcEnvLocalBodyExpected = Nothing
     }
 
 -- | The mutable state of the type checker.
@@ -589,6 +609,13 @@ data TcState = TcState
     tcsInstances :: !InstanceEnv,
     -- | Standalone data-family instance equations in scope.
     tcsDataFamilyInstances :: !(Map TcAxiomKey DataFamilyInstanceInfo),
+    -- | The visible binders of each GADT constructor of this module whose
+    -- signature writes them in another order than its term scheme has
+    -- them. 'Aihc.Tc.Env.dciVisibleTyVars' gives them to other modules.
+    tcsConVisibleTyVars :: !(Map Entity [TyVarId]),
+    -- | How many pattern branches with given equalities the checker has
+    -- solved.
+    tcsGivenBranchCount :: !Int,
     -- | Type-family equations in scope.
     tcsTypeFamilyInstances :: !(Map TcAxiomKey TypeFamilyInstanceInfo),
     -- | The same equations by the family of their left-hand side, so that
@@ -647,6 +674,8 @@ initTcState =
       tcsClasses = Map.empty,
       tcsInstances = emptyInstanceEnv,
       tcsDataFamilyInstances = Map.empty,
+      tcsConVisibleTyVars = Map.empty,
+      tcsGivenBranchCount = 0,
       tcsTypeFamilyInstances = Map.empty,
       tcsFamilyEquations = MonoidMap.empty,
       tcsForeignImports = Map.empty,
@@ -1236,6 +1265,32 @@ addDataFamilyInstance instanceInfo = do
 getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
 getDataFamilyInstances = lift $ gets (Map.elems . tcsDataFamilyInstances)
 
+-- | Record the visible binders of a constructor of this module.
+setConVisibleTyVars :: Entity -> [TyVarId] -> TcM ()
+setConVisibleTyVars key tyVars =
+  lift $ modify' $ \state -> state {tcsConVisibleTyVars = Map.insert key tyVars (tcsConVisibleTyVars state)}
+
+lookupConVisibleTyVars :: Entity -> TcM (Maybe [TyVarId])
+lookupConVisibleTyVars key = lift $ gets (Map.lookup key . tcsConVisibleTyVars)
+
+noteGivenBranch :: TcM ()
+noteGivenBranch = lift $ modify' $ \state -> state {tcsGivenBranchCount = tcsGivenBranchCount state + 1}
+
+givenBranchCount :: TcM Int
+givenBranchCount = lift $ gets tcsGivenBranchCount
+
+withLocalUsesFirst :: Bool -> TcM a -> TcM a
+withLocalUsesFirst usesFirst = local (\env -> env {tcEnvLocalUsesFirst = usesFirst})
+
+localUsesFirst :: TcM Bool
+localUsesFirst = asks tcEnvLocalUsesFirst
+
+withLocalBodyExpected :: Maybe TcType -> TcM a -> TcM a
+withLocalBodyExpected expected = local (\env -> env {tcEnvLocalBodyExpected = expected})
+
+localBodyExpected :: TcM (Maybe TcType)
+localBodyExpected = asks tcEnvLocalBodyExpected
+
 -- | Register a type family equation. A module can repeat an open family
 -- equation, and GHC accepts the copy because it is compatible with the
 -- original. The copy gets the same axiom key, so it is not registered again.
@@ -1527,6 +1582,18 @@ tcSpeculate action = do
   result <- action
   lift (put saved)
   pure result
+
+-- | The checker state at one point, to go back to it.
+newtype TcSnapshot = TcSnapshot TcState
+
+saveTcSnapshot :: TcM TcSnapshot
+saveTcSnapshot = lift (gets TcSnapshot)
+
+-- | Go back to a saved state. The unique supply stays as it is now, so a
+-- fresh unique never repeats a unique that was given out after the save.
+restoreTcSnapshot :: TcSnapshot -> TcM ()
+restoreTcSnapshot (TcSnapshot saved) =
+  lift $ modify' $ \current -> saved {tcsNextUnique = tcsNextUnique current}
 
 currentErrorCount :: TcM Int
 currentErrorCount =
