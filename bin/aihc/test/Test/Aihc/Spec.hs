@@ -1388,6 +1388,7 @@ test_testSuites getStore =
     let root = sandboxRoot sandbox
         project = ProjectFileAt (fixtureRoot </> "cabal.project")
         binDirectory = buildRoot </> nativeTargetStoreDirectory (buildTarget buildOptions) </> "test-bin"
+        checksBin = binDirectory </> "checks"
         options =
           TestOptions
             { testInput = fixtureRoot </> "checks",
@@ -1414,7 +1415,7 @@ test_testSuites getStore =
     hClose progressHandle
     progress <- map normalizeProgressLine . lines <$> readFile progressPath
     assertBool ("plan heading: " <> unlines progress) (any (" 2 test suites" `isSuffixOf`) (filter ("Plan: " `isPrefixOf`) progress))
-    assertEqual "built test suites" [("pass", binDirectory </> "pass"), ("fail", binDirectory </> "fail")] [(builtName program, builtOutput program) | program <- programs]
+    assertEqual "built test suites" [("pass", checksBin </> "pass"), ("fail", checksBin </> "fail")] [(builtName program, builtOutput program) | program <- programs]
     packageRoots <- mapM (canonicalizePath . builtPackageRoot) programs
     checksRoot <- canonicalizePath (fixtureRoot </> "checks")
     assertEqual "package roots" [checksRoot, checksRoot] packageRoots
@@ -1445,9 +1446,17 @@ test_testSuites getStore =
     assertEqual "selected test suite" ["pass"] (map builtName selected)
     byTarget <- buildTests quiet options {testInput = "checks:test:fail"}
     assertEqual "project target" ["fail"] (map builtName byTarget)
-    -- all passes over the project package without a test suite.
+    -- all passes over the project package without a test suite. The twin
+    -- package also has a test suite named pass, and each pass runs its own
+    -- program.
     everything <- buildTests quiet options {testInput = "all"}
-    assertEqual "all" ["pass", "fail"] (map builtName everything)
+    assertEqual "all" [("pass", checksBin </> "pass"), ("fail", checksBin </> "fail"), ("pass", binDirectory </> "twin" </> "pass")] [(builtName program, builtOutput program) | program <- everything]
+    (allPath, allHandle) <- openTempFile root "all.txt"
+    allResults <- runTestSuites allHandle [] everything
+    hClose allHandle
+    allOutput <- lines <$> readFile allPath
+    assertEqual "all results" [TestSuiteResult "pass" ExitSuccess, TestSuiteResult "fail" (ExitFailure 3), TestSuiteResult "pass" ExitSuccess] allResults
+    assertEqual "the output of the two pass test suites" ["count 3 expected ok", "twin runs"] (filter (`elem` ["count 3 expected ok", "twin runs"]) allOutput)
     -- A package without a test suite is an error when it is named.
     missing <- try (buildTests quiet options {testInput = fixtureRoot </> "plain"}) :: IO (Either IOException [BuiltProgram])
     case missing of
