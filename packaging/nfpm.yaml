@@ -1,0 +1,59 @@
+# The nfpm configuration of the Debian and RPM packages of aihc.
+# scripts/release-packages.sh sets the environment variables and runs nfpm
+# in the unpacked archive. The packages contain the static release
+# executable, which carries the core libraries.
+#
+# aihc runs clang to compile and link, and ar (or llvm-ar) to make archives.
+# The C library and its startup files must be available to the linker.
+# A package with C++ sources also links the C++ standard library, and a
+# package with pkgconfig-depends runs pkg-config.
+name: aihc
+arch: ${AIHC_PACKAGE_ARCH}
+platform: linux
+version: ${AIHC_PACKAGE_VERSION}
+version_schema: semver
+release: "1"
+section: devel
+priority: optional
+maintainer: David Himmelstrup <lemmih@gmail.com>
+description: |-
+  Haskell compiler that AI models write.
+  AIHC compiles Haskell source code to native machine code, to LLVM IR,
+  and to WebAssembly. It builds Cabal packages from Hackage.
+vendor: AIHC
+homepage: https://aihc.app/
+license: Unlicense
+
+contents:
+  - src: ./aihc
+    dst: /usr/bin/aihc
+    file_info:
+      mode: 0755
+  - src: ./LICENSE
+    dst: /usr/share/doc/aihc/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: ./LICENSE
+    dst: /usr/share/licenses/aihc/LICENSE
+    packager: rpm
+    type: license
+    file_info:
+      mode: 0644
+
+overrides:
+  deb:
+    depends:
+      - clang
+      - binutils
+      - libc6-dev
+    recommends:
+      - pkg-config
+  rpm:
+    depends:
+      - clang
+      - binutils
+      - glibc-devel
+    recommends:
+      - libstdc++-devel
+      - pkgconf-pkg-config

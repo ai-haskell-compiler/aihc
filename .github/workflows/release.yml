@@ -24,6 +24,14 @@ name: Release
 # The release executables must run without Nix. The Linux executable is a
 # static musl executable. The macOS executable loads only libraries of macOS.
 # The release-compile-stage app supplies the toolchain for each target.
+#
+# The Linux build job also makes a Debian package and an RPM package that
+# contain the same executable as the Linux archive. packaging/nfpm.yaml
+# gives their dependencies. A test installs each package in a container of
+# its distribution, and builds and runs an example with it.
+#
+# The homebrew workflow updates the Homebrew formula after you publish the
+# draft release.
 
 on:
   push:
@@ -258,6 +266,60 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Make the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          nix run .#release-packages -- \
+            --archive "$RUNNER_TEMP/aihc-$VERSION-$TARGET.tar.gz" \
+            --version "$VERSION" \
+            --output "$RUNNER_TEMP/packages"
+          {
+            echo "### Linux packages"
+            echo
+            for file in "$RUNNER_TEMP"/packages/*; do
+              echo "- $(basename "$file") ($(wc -c <"$file" | tr -d ' ') bytes)"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # Each container has only the base system of its distribution. Thus
+      # the package manager must install all the tools that aihc needs.
+      - name: Test the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          test_package() {
+            local image="$1"
+            local install="$2"
+            docker run --rm \
+              --volume "$RUNNER_TEMP/packages:/packages:ro" \
+              --volume "$GITHUB_WORKSPACE/examples/arithmetic:/example:ro" \
+              "$image" sh -euc "
+                $install
+                cp /example/Main.hs /tmp/Main.hs
+                cd /tmp
+                aihc build Main.hs -o example
+                ./example | cmp - /example/stdout
+              "
+          }
+          test_package docker.io/library/debian:trixie \
+            'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /packages/*.deb >/dev/null'
+          test_package docker.io/library/ubuntu:24.04 \
+            'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /packages/*.deb >/dev/null'
+          test_package registry.fedoraproject.org/fedora:43 \
+            'dnf install -y -q /packages/*.rpm >/dev/null'
+
+      - name: Upload the Linux packages
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: aihc-${{ env.VERSION }}-linux-packages
+          path: |
+            ${{ runner.temp }}/packages/*.deb
+            ${{ runner.temp }}/packages/*.rpm
+          retention-days: 30
+          if-no-files-found: error
+
       # The stage 2 work and cache directories are not necessary after this
       # step. Remove them to make disk space for the web kit.
       - name: Remove the stage 2 directories
@@ -327,7 +389,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Download the archives
+      - name: Download the archives and packages
         uses: actions/download-artifact@v8
         with:
           pattern: aihc-${{ env.VERSION }}-*
@@ -338,13 +400,16 @@ jobs:
         run: |
           set -euo pipefail
           cd archives
-          sha256sum aihc-*.tar.gz >SHA256SUMS
+          sha256sum aihc-*.tar.gz aihc*.deb aihc*.rpm >SHA256SUMS
           cat SHA256SUMS >>"$GITHUB_STEP_SUMMARY"
 
       - name: Attest the build provenance
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: archives/aihc-*.tar.gz
+          subject-path: |
+            archives/aihc-*.tar.gz
+            archives/aihc*.deb
+            archives/aihc*.rpm
 
       - name: Make the draft release
         env:
@@ -355,8 +420,9 @@ jobs:
             echo "Binaries of aihc $VERSION, compiled with aihc at -O$OPTIMIZATION."
             echo "The core libraries are embedded in each binary."
             echo "The web archive is aihc for the browser, also at https://assets.aihc.app/play/releases/$VERSION/manifest.json."
+            echo "The .deb and .rpm packages contain the Linux AMD64 binary."
             echo
-            echo "| Archive | SHA-256 |"
+            echo "| File | SHA-256 |"
             echo "| --- | --- |"
             while read -r sum name; do
               echo "| $name | $sum |"
@@ -367,7 +433,7 @@ jobs:
             --verify-tag \
             --title "aihc $VERSION" \
             --notes-file notes.md \
-            archives/aihc-*.tar.gz archives/SHA256SUMS
+            archives/aihc-*.tar.gz archives/aihc*.deb archives/aihc*.rpm archives/SHA256SUMS
           echo "Draft release v$VERSION is ready for review." >>"$GITHUB_STEP_SUMMARY"
 
   # A website pins a version of the kit. Thus the files of a version must

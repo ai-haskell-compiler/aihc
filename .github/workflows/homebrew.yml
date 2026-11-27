@@ -1,0 +1,83 @@
+name: Homebrew
+
+# Update the Homebrew formula in ai-haskell-compiler/homebrew-tap when you
+# publish a release. The formula uses the release archives, and it gets
+# their SHA-256 sums from the SHA256SUMS file of the release. A manual run
+# writes the formula of the release that you name.
+#
+# The workflow pushes with the HOMEBREW_TAP_TOKEN secret. The token must
+# have write access to the contents of the tap repository.
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The release version without the leading v, for example 0.3.0.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew
+  cancel-in-progress: false
+
+jobs:
+  formula:
+    name: Update the formula
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ inputs.version || github.event.release.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Write the formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          gh release download "v$version" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
+          bash scripts/homebrew-formula.sh \
+            --version "$version" \
+            --sums "$RUNNER_TEMP/SHA256SUMS" \
+            >"$RUNNER_TEMP/aihc.rb"
+          {
+            echo "### Homebrew formula of aihc $version"
+            echo
+            echo '```ruby'
+            cat "$RUNNER_TEMP/aihc.rb"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout the tap
+        uses: actions/checkout@v7
+        with:
+          repository: ai-haskell-compiler/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Push the formula
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          mkdir -p Formula
+          cp "$RUNNER_TEMP/aihc.rb" Formula/aihc.rb
+          git add Formula/aihc.rb
+          if git diff --cached --quiet; then
+            echo "The formula of aihc $VERSION is already in the tap." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --message "feat: update aihc to $VERSION"
+          git push
+          echo "Pushed the formula of aihc $VERSION to the tap." >>"$GITHUB_STEP_SUMMARY"
