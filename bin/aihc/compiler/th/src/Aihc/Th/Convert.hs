@@ -397,9 +397,15 @@ expression tree =
     TreeNode "SigE" [inner, signature] -> ETypeSig <$> expression inner <*> typeFromTree signature
     TreeNode "RecConE" [name, fields] -> (\name' fields' -> ERecordCon name' fields' False) <$> nameFromTree name <*> (list fields >>= mapM field)
     TreeNode "RecUpdE" [record, fields] -> ERecordUpd <$> expression record <*> (list fields >>= mapM field)
-    -- Template Haskell gives a chain of @UInfixE@ with no fixity, as the
-    -- source text has it. Name resolution gives the fixity to the chain.
-    TreeNode "UInfixE" [left, operator, right] -> EInfix <$> unresolvedOperand left <*> operatorName operator <*> unresolvedOperand right
+    -- Template Haskell gives a chain of @UInfixE@ with no fixity. The
+    -- nesting of the nodes has no meaning: GHC reads all the operands of
+    -- the chain in sequence. The parser gives a chain that nests on the
+    -- left, and an infix expression on the right has parentheses. Thus,
+    -- the function makes a chain that nests on the left. Name resolution
+    -- gives the fixity to the chain.
+    TreeNode "UInfixE" [_, _, _] -> do
+      (first, rest) <- unresolvedChain tree
+      pure (foldl (\left (name, right) -> EInfix left name right) first rest)
     TreeNode "AppTypeE" [function, argument] -> ETypeApp <$> expression function <*> typeFromTree argument
     TreeNode "UnboxedTupE" [fields] -> ETuple Unboxed <$> (list fields >>= mapM (optional expression))
     TreeNode "LamCasesE" [clauses] -> ELambdaCases <$> (list clauses >>= mapM lambdaCaseAlternative)
@@ -410,11 +416,16 @@ expression tree =
     TreeNode "ArithSeqE" [range] -> EArithSeq <$> arithmeticSequence range
     _ -> unsupported "expression" tree
   where
+    -- The operands and the operators of a chain of @UInfixE@, in sequence.
     -- An operand that is not @UInfixE@ is not part of the chain.
-    unresolvedOperand operandTree =
-      case operandTree of
-        TreeNode "UInfixE" _ -> expression operandTree
-        _ -> operand operandTree
+    unresolvedChain chainTree =
+      case chainTree of
+        TreeNode "UInfixE" [left, operator, right] -> do
+          (leftFirst, leftRest) <- unresolvedChain left
+          name <- operatorName operator
+          (rightFirst, rightRest) <- unresolvedChain right
+          pure (leftFirst, leftRest <> ((name, rightFirst) : rightRest))
+        _ -> (\value -> (value, [])) <$> operand chainTree
     qualifierName nameTree =
       case nameTree of
         TreeNode "ModName" [TreeString name] -> Right name
