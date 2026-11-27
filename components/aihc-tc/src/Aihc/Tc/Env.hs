@@ -385,7 +385,10 @@ data ClassInfo = ClassInfo
     -- | Associated type families that the class declares.
     ciAssociatedTypes :: ![AssociatedTypeInfo],
     -- | Functional dependencies that the class declares.
-    ciFunDeps :: ![FunDep]
+    ciFunDeps :: ![FunDep],
+    -- | Type parameters with an explicit representational role. A class
+    -- parameter without a role annotation is nominal, as in GHC.
+    ciRepresentationalRoles :: ![Bool]
   }
   deriving (Eq, Show, Read, Generic)
 

@@ -331,7 +331,7 @@ connected edges seen frontier goal
 
 -- | The facts of the constraint solver for the role rules.
 solverRoleFacts :: RoleFacts (ReaderT TcEnv (StateT TcState TcResult))
-solverRoleFacts = RoleFacts {roleFactsDataType = lookupDataType, roleFactsIsCoercible = isCoercibleClass}
+solverRoleFacts = RoleFacts {roleFactsDataType = lookupDataType, roleFactsIsCoercible = isCoercibleClass, roleFactsClass = lookupClass}
 
 -- | Whether one parameter of a type constructor holds its representation role.
 -- Newtype deriving lifts coercions through such parameters.

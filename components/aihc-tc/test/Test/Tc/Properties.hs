@@ -71,7 +71,7 @@ genInterface = do
   let tcInterfaceTerms = firstTerm <> secondTerm
   tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (Scheme [] [] [] testTypeKind) DataTyCon Nothing Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] testTypeKind DataTyCon [] [] Nothing)
-  tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]])
+  tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [] [] [] [FunDep [0] [1]] [True])
   incoherent <- Gen.bool
   tcInterfaceInstances <- optionalEntry (InstanceInfo classTyCon "$fC" ("pkg", moduleName) ty [] [] [] incoherent)
   tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] [] False)

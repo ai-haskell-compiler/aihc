@@ -365,7 +365,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
     mapM_ (atDecl checkTypeSynonymBody . snd) group
     mapM_ (atDeclOf registerStructuralDecl) group
     generalizeDeclarationKinds polyKindOrigins (Set.fromList (concatMap (declarationTypeKeys . snd) group))
-  mapM_ (atDecl registerNominalRoles) declarations
+  mapM_ (atDecl registerRoleAnnotations) declarations
   componentTyCons <- componentTyConKeys initialKeys
   withComponentTyCons componentTyCons $
     mapM_ (atDeclOf registerStructuralDecl) (filter (isInstanceDecl . snd) structuralDeclarations)
@@ -500,20 +500,23 @@ associatedDataFamilyClasses declarations =
       Just key <- [resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl))]
     ]
 
--- | Keep explicit nominal roles in the checked interface.
-registerNominalRoles :: Decl -> TcM ()
-registerNominalRoles declaration = case peelDeclAnn declaration of
+-- | Keep explicit roles in the checked interface. A data type keeps its
+-- explicit nominal roles. A class keeps its explicit representational
+-- roles, because a class parameter is nominal without an annotation.
+registerRoleAnnotations :: Decl -> TcM ()
+registerRoleAnnotations declaration = case peelDeclAnn declaration of
   DeclRoleAnnotation annotation -> do
     info <- lookupDeclaredTyCon (roleAnnotationName annotation)
     case info of
       Just constructor -> lift $ modify' $ \state ->
-        state
-          { tcsDataTypes =
-              Map.adjust
-                (\dataType -> dataType {dtiNominalRoles = map (== RoleNominal) (roleAnnotationRoles annotation)})
-                (tyConKey (tciTyCon constructor))
-                (tcsDataTypes state)
-          }
+        let key = tyConKey (tciTyCon constructor)
+            roles = roleAnnotationRoles annotation
+         in state
+              { tcsDataTypes =
+                  Map.adjust (\dataType -> dataType {dtiNominalRoles = map (== RoleNominal) roles}) key (tcsDataTypes state),
+                tcsClasses =
+                  Map.adjust (\classInfo -> classInfo {ciRepresentationalRoles = map (== RoleRepresentational) roles}) key (tcsClasses state)
+              }
       Nothing -> pure ()
   _ -> pure ()
 
@@ -4629,7 +4632,8 @@ registerClassDecl origin classDecl = do
         ciDefaultMethods = defaults,
         ciDefaultSignatures = defaultSignatures,
         ciAssociatedTypes = associatedTypes,
-        ciFunDeps = funDeps
+        ciFunDeps = funDeps,
+        ciRepresentationalRoles = []
       }
   pure (methodResults <> catMaybes defaultResults)
   where
