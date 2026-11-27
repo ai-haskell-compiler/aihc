@@ -44,8 +44,6 @@ class (Semigroup a) => Monoid a where
   mappend = (<>)
   mconcat = foldMonoid
 
-infixr 6 `mappend`
-
 sconcatList :: (Semigroup a) => a -> [a] -> a
 sconcatList value [] = value
 sconcatList value (next : rest) = value <> sconcatList next rest

@@ -17,8 +17,8 @@ annotated:
   f i z = let go j = ix j id z in go i
   │ │ │       │  │   │    └─ type: s → s; type-args: s
   │ │ │       │  │   └─ type: Index s → (s → s) → s → s; type-args: s
-  │ │ │       │  └─ type: Index s
-  │ │ │       └─ type: Index s → s
+  │ │ │       │  └─ type: i
+  │ │ │       └─ type: i → s
   │ │ └─ type: s
   │ └─ type: i
   └─ type: ∀ i s. (i ~ (Index s)) ⇒ i → s → s
