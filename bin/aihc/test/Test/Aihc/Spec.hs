@@ -122,6 +122,7 @@ tests =
                 testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
                 testCase "gives the -with-rtsopts options of a Cabal executable to the runtime" (test_buildRuntimeOptions coreStore),
                 testCase "runs the splices of a program as native code without the sandbox" (test_buildNativeSplices coreStore),
+                testCase "runs the quotes of a package that does not depend on template-haskell" (test_buildQuoteBelow coreStore),
                 testCase "links the extra-libraries of a package" (test_buildExtraLibraries coreStore),
                 testCase "keeps the intermediate output of the executable modules" (test_buildModuleKeepIntermediates coreStore),
                 -- The --lto builds need core libraries built with the flag,
@@ -829,6 +830,32 @@ test_buildNativeSplices getStore =
     (status, out, err) <- readProcessWithExitCode output [] ""
     assertEqual "exit status" ExitSuccess status
     assertEqual "stdout" "64\n3\nLabel \"text\"\n" out
+    assertEqual "stderr" "" err
+
+-- | A package can use a quote when @aihc-internal@, which has the quote
+-- library, is below one of its dependencies. The package @quote-below@
+-- depends only on @base@ and on a package that depends on @ghc-internal@.
+-- @quote-quot@ has this form. Without the quote library, the quotes stay
+-- as they are and fail when the program runs.
+test_buildQuoteBelow :: IO SeedStore -> Assertion
+test_buildQuoteBelow getStore =
+  withBuildModuleSandbox getStore "aihc-quote-below" $ \sandbox _fixtureRoot _storeRoot options -> do
+    fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/quote-below"
+    let output = sandboxRoot sandbox </> "program"
+    void $
+      buildWithConfig
+        (quietProgress SystemIO.stdout)
+        options
+          { buildInput = fixtureRoot </> "Main.hs",
+            buildSourceDirectories = [fixtureRoot],
+            buildPackageConstraints = buildPackageConstraints options <> ["template-haskell", "quote-below == 1.0.0"],
+            buildWorkspace = Just (fixtureRoot </> "workspace"),
+            buildOutput = Just output
+          }
+        withSplices
+    (status, out, err) <- readProcessWithExitCode output [] ""
+    assertEqual "exit status" ExitSuccess status
+    assertEqual "stdout" "TupE [Just (AppE (VarE GHC.Classes.not) (ConE GHC.Types.True)),Just (LitE (StringL \"q\"))]\nAppE (VarE GHC.Classes.not) (ConE GHC.Types.False)\n" out
     assertEqual "stderr" "" err
 
 -- | A session evaluates each input in one instance. A later input uses the
