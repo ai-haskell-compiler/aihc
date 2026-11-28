@@ -1235,8 +1235,13 @@ defaultGlobalKindMetas initialKeys = do
             Nothing -> False
       when (polyKinds || hasKindVariables) (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
-      left <- defaultTypeKinds (tfiiLeft info)
-      right <- defaultTypeKinds (tfiiRight info)
+      -- A kind meta-variable can stand in a type position of a side. The
+      -- synonym @type Arity (ty :: k) = Arity' k@ uses its kind variable as
+      -- a type, and its expansion in @F x = Proxy (Arity x)@ gives @Arity'
+      -- k0@ with a meta-variable @k0@. The generalization above solves
+      -- @k0@, so zonk both sides before the kinds are defaulted.
+      left <- zonkType (tfiiLeft info) >>= defaultTypeKinds
+      right <- zonkType (tfiiRight info) >>= defaultTypeKinds
       -- A kind variable that only the result kind of the family mentions,
       -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
       -- forall j k. j -> k@), is not determined by an argument. Each
