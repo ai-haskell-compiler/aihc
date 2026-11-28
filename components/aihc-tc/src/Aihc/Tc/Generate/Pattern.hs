@@ -36,6 +36,7 @@ import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, 
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Syntax
   ( Annotation,
     BuiltinCon (..),
@@ -1362,16 +1363,28 @@ patternNameText name =
 -- Its result is then equal to an arrow type, but it is not an arrow. An
 -- example is an associated family application: with
 -- @type D Unit = Unit -> Unit@, the method @f :: a -> D a@ can have the
--- equation @f u x = x@. The other arguments get fresh types, and a wanted
--- equality relates their arrow type to the result that the checked type
--- shows. The first equation gets the pending cast for the FC desugarer.
+-- equation @f u x = x@. A wanted equality relates the arrow type of the
+-- other arguments to the result that the checked type shows. The first
+-- equation gets the pending cast for the FC desugarer.
+--
+-- The other arguments take their types from the reduced result, when the
+-- reduction shows arrows. Thus a pattern of such an argument is checked
+-- against its known type, and a GADT match in the body does not have to
+-- infer it. In @servant@, the argument of @toLink toA _ l mv@ has the type
+-- @If (FoldRequired mods) v (Maybe v)@, and each branch of a match on
+-- @SBool (FoldRequired mods)@ uses it at a different type. An argument that
+-- the reduced result does not show gets a fresh type.
 splitMatchType :: TcType -> [Match] -> TcM ([TcType], TcType, [Match], [Ct])
 splitMatchType ty matches =
   case matches of
     first : rest
       | missing > 0 -> do
-          hidden <- mapM (const freshMetaTv) [1 .. missing]
-          result <- freshMetaTv
+          reduced <- zonkType shownResult >>= reduceTypeFamilies
+          let (revealed, revealedResult) = peel missing reduced
+              remaining = missing - length revealed
+          fresh <- mapM (const freshMetaTv) [1 .. remaining]
+          result <- if remaining == 0 then pure revealedResult else freshMetaTv
+          let hidden = revealed <> fresh
           evidence <- freshEvVar
           let arrow = foldr TcFunTy result hidden
               location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
