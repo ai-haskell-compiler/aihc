@@ -45,7 +45,7 @@ import Aihc.Tc.Constraint (CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Deriving.Functorial (FieldUse, FunctionFields, fieldUse, fieldUseObligations, splitLastArgument)
 import Aihc.Tc.Deriving.References (DerivingReferences (..), StockClassLocation (..), UnliftedFieldReferences (..), referenceIdentity)
 import Aihc.Tc.Deriving.StockClass (StockMethods (..), StockObligations (..), generatesStockMethods, stockClassMethodsOf, stockClassObligationsOf)
-import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
+import Aihc.Tc.Env (AssociatedTypeInfo (..), ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Match (matchTypes)
 import Aihc.Tc.Monad
@@ -414,12 +414,32 @@ inferredContext :: DerivingEnv -> TcDerivingPlan -> Either Pred [Pred]
 inferredContext environment plan =
   Map.findWithDefault (Left (planPredicate plan)) (planKey plan) (derivingEnvContexts environment)
 
--- | The associated type equations that a newtype or via plan declares. Each
--- equation sends the family at the derived head to the family at the type
--- that the methods come from, as the generated instance does.
+-- | The associated type equations that a plan declares. For a newtype or
+-- via plan, each equation sends the family at the derived head to the
+-- family at the type that the methods come from, as the generated instance
+-- does. For an anyclass plan, each equation is the default equation of the
+-- class at the derived head. A default signature can constrain the family,
+-- as @Unwrapped s ~ GUnwrapped (Rep s)@ in the @Wrapped@ class of lens.
 forwardedFamilyEquations :: TcDerivingPlan -> TcM [(TcType, TcType)]
 forwardedFamilyEquations plan =
   case source of
+    Nothing
+      | tcDerivingStrategy plan == TcDerivingAnyclass -> do
+          info <- lookupClass (tcDerivingClassTyCon plan)
+          let heads = tcDerivingHeadTypes plan
+              instantiate defaultArgument position =
+                case position of
+                  Just index | index < length heads -> heads !! index
+                  _ -> defaultArgument
+          pure
+            [ (left, applySubst substitution (tfiiRight equation))
+            | Just classInfo <- [info],
+              associated <- ciAssociatedTypes classInfo,
+              Just equation <- [atiDefault associated],
+              TcTyConApp family kindArguments defaultArguments <- [tfiiLeft equation],
+              let left = TcTyConApp family kindArguments (zipWith instantiate defaultArguments (atiClassParams associated <> repeat Nothing)),
+              Just substitution <- [matchTypes [tfiiLeft equation] [left]]
+            ]
     Nothing -> pure []
     Just sourceType -> do
       info <- lookupClass (tcDerivingClassTyCon plan)

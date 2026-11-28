@@ -1,0 +1,33 @@
+extensions:
+  - OverloadedRecordDot
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE NoFieldSelectors, OverloadedRecordDot #-}
+    module Test where
+
+    import Prelude
+
+    data Box = Box { value :: Int, size :: Int }
+
+    value :: Int
+    value = 7
+
+    box :: Box
+    box = Box { value = 1, size = 2 }
+
+    bigger :: Box
+    bigger = box { size = 40 }
+
+    sizeOf :: Box -> Int
+    sizeOf Box { size = s } = s
+
+    result :: Bool
+    result = bigger.value + bigger.size + value == 48 && sizeOf bigger == 40
+expression: |
+  result
+output: |
+  True
+status: pass
+reason: With NoFieldSelectors, the label of a field is not a term, so a top-level value can have the same name. Record construction, update, pattern, and record dot syntax still find the field

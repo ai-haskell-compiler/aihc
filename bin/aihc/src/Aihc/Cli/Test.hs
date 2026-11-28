@@ -17,6 +17,7 @@ where
 import Aihc.Cli.Build (BuiltProgram (..), buildTestSuites)
 import Aihc.Cli.Options (BuildOptions (..), PlanOptions (..), TestOptions (..))
 import Aihc.Cli.Progress (ProgressReporter, withProgress)
+import Aihc.Cli.Splice (withSplices)
 import Aihc.PackagePlan.Project (Project (..), ProjectPackage (..), selectProject)
 import Control.Monad (forM, unless, when)
 import Data.Map.Strict qualified as Map
@@ -45,16 +46,18 @@ runTest options = do
 -- suites of every package of the project, one package after another, and
 -- passes over a package without a test suite. Another input builds the
 -- test suites of its package, and a package without a buildable test
--- suite is an error.
+-- suite is an error. The splices of the packages run in the WebAssembly
+-- engine, as with build: a test suite can depend on a package with
+-- splices, as aihc depends on vty-unix.
 buildTests :: ProgressReporter -> TestOptions -> IO [BuiltProgram]
 buildTests reporter options
   | testInput options == "all" = do
       project <- selectProject (planProject (testPlanOptions options))
       found <- maybe (ioError (userError "all names every package of a cabal.project, and there is no project")) pure project
       let withTests = [info | info <- Map.elems (projectPackages found), not (null (projectPackageTestSuites info))]
-      concat <$> forM withTests (\info -> buildTestSuites reporter (testBuildOptions options) {buildInput = projectPackageDirectory info})
+      concat <$> forM withTests (\info -> buildTestSuites reporter (testBuildOptions options) {buildInput = projectPackageDirectory info} withSplices)
   | otherwise = do
-      programs <- buildTestSuites reporter (testBuildOptions options)
+      programs <- buildTestSuites reporter (testBuildOptions options) withSplices
       when (null programs) $
         ioError (userError (testInput options <> " has no buildable test suite"))
       pure programs
