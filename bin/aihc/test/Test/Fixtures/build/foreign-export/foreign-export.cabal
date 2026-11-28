@@ -1,0 +1,20 @@
+cabal-version: 3.0
+name: foreign-export
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules: Callback
+  hs-source-dirs: src
+  c-sources: cbits/callback.c
+  build-depends: base
+  default-language: Haskell2010
+
+executable callback
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    foreign-export,
+
+  default-language: Haskell2010

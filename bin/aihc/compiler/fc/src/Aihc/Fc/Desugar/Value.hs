@@ -813,7 +813,9 @@ patSynMatcherUnitType info = do
 desugarEarlyDecl :: Syn.Decl -> ValueM [Decl]
 desugarEarlyDecl declaration =
   case annotatedForeignDecl declaration of
-    Just (_, foreignPlan, foreignDecl) -> desugarForeign foreignPlan foreignDecl
+    Just (annotation, foreignPlan, foreignDecl)
+      | Syn.foreignDirection foreignDecl == Syn.ForeignExport -> desugarForeignExport annotation foreignPlan foreignDecl
+      | otherwise -> desugarForeign foreignPlan foreignDecl
     Nothing ->
       case declaration of
         Syn.DeclClass classDecl
@@ -1060,6 +1062,52 @@ desugarForeign foreignPlan foreignDecl =
       _ <- convertForeignSafety (Syn.foreignSafety foreignDecl)
       pure []
     callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
+
+-- | A foreign export becomes a public value whose body is a foreign call
+-- with the 'CCallExport' target. The call takes the exported value as its
+-- argument and gives it, so the value of the declaration is the exported
+-- value, and each pass that walks references sees the exported value.
+-- Lowering emits the C function from the call. The value is public, so
+-- that no pass drops it as unused.
+desugarForeignExport :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
+desugarForeignExport annotation foreignPlan foreignDecl = do
+  plan <- maybe (failValue "missing checked foreign export plan") pure foreignPlan
+  key <- maybe (failValue "foreign export without a resolved value") pure (binderTermKey (Syn.foreignName foreignDecl))
+  exported <- case key of
+    GlobalTerm package moduleName' name -> pure (Name name SortValue (OriginTop package moduleName'))
+    _ -> failValue "a foreign export must name a top-level value"
+  let ty = tcAnnType annotation
+  foreignType <- convertCheckedType ty
+  dependencies <- foreignImportPlanDependencies ty plan
+  moduleOrigin <- gets vsModuleOrigin
+  convertEnv <- gets vsConvertEnv
+  let symbol = tcForeignSymbol plan
+      call =
+        ForeignCall
+          { foreignCallName = exported,
+            foreignCallConvention =
+              CCall
+                CCallSpec
+                  { ccallSymbol = symbol,
+                    ccallTarget = CCallExport,
+                    ccallSafety = ForeignSafe,
+                    ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
+                    ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
+                    ccallEffect = convertForeignEffect (tcForeignEffect plan)
+                  },
+            foreignCallDependencies = dependencies,
+            foreignCallType = funType convertEnv foreignType foreignType
+          }
+  pure
+    [ DeclVal
+        ValDecl
+          { valVis = Pub,
+            valName = topName moduleOrigin ("$fexport$" <> symbol),
+            valType = foreignType,
+            valBody = ExForeignCall call [] [ExVar exported],
+            valInline = InlineDefault
+          }
+    ]
 
 -- | The System FC facts of a foreign import: its calling convention and the
 -- axioms and constructors that its marshalling needs.

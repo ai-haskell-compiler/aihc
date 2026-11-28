@@ -126,7 +126,10 @@ data LowerState = LowerState
     lowerValueGlobalNames :: !(Set Fc.Name),
     -- | The environment constructors of the closures that keep their
     -- captured values in a separate node. See 'makeClosure'.
-    lowerEnvironmentConstructorsRev :: ![GrinConstructorDecl]
+    lowerEnvironmentConstructorsRev :: ![GrinConstructorDecl],
+    -- | The closure of each foreign export, by the name of its global. The
+    -- C function of the export applies it. See 'lowerForeignExport'.
+    lowerExportGlobals :: !(Map Text GrinNode)
   }
 
 type LowerM = StateT LowerState (Either String)
@@ -162,7 +165,7 @@ lowerProgram primPackage program = do
           ]
       baseEnv = typeEnv {lowerPublicEntries = publicEntries}
       declaredConstructors = Set.fromList [Fc.conName con | Fc.DeclType declaration <- Fc.programDecls program, con <- Fc.typeCons declaration]
-      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty Set.empty []
+      initialState = LowerState (-1000000000) Nothing (functionNamesFrom Set.empty) [] Map.empty Map.empty Map.empty Map.empty Map.empty Set.empty [] Map.empty
   (parts, finalState) <- flip runStateT initialState $ do
     -- The public entries take their names first: another unit spells the
     -- same names, so no other function of the module can have one.
@@ -182,7 +185,10 @@ lowerProgram primPackage program = do
             -- A static closure exists only because a private
             -- function of this module is used as a value, so no
             -- other module can name it.
-            <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)],
+            <> [GrinGlobal name node GrinPrivate | (name, node) <- Map.toList (lowerValueGlobals finalState)]
+            -- C code calls a foreign export through its global, so the
+            -- global is a root of reachability.
+            <> [GrinGlobal name node GrinPub | (name, node) <- Map.toList (lowerExportGlobals finalState)],
         grinFunctions = reverse (lowerFunctionsRev finalState),
         grinExternFunctions = Map.elems (lowerExternFunctions finalState),
         grinExportedFunctions = map publicEntryName (Map.elems publicEntries)
@@ -443,8 +449,12 @@ functionArity expression =
 -- happens when the source type hides an argument, for example the state
 -- token of an @IO@ result.
 lowerForeignCallExpr :: LowerEnv -> Fc.ForeignCall -> [Fc.Type] -> [Fc.Expr] -> LowerM GrinExpr
-lowerForeignCallExpr env call types arguments =
-  lowerForeignCallApplication env (expressionResultRep env (Fc.ExForeignCall call types arguments)) call types arguments
+lowerForeignCallExpr env call types arguments
+  | Fc.CCall specification <- Fc.foreignCallConvention call,
+    Fc.CCallExport <- Fc.ccallTarget specification =
+      lowerForeignExport env call specification arguments
+  | otherwise =
+      lowerForeignCallApplication env (expressionResultRep env (Fc.ExForeignCall call types arguments)) call types arguments
 
 -- | Use the result representation of the original application. Its casts
 -- can expose an IO state argument that the foreign source type hides.
@@ -530,13 +540,31 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
   callbackType <- case argumentTypes of
     first : _ -> pure first
     _ -> throwLower "a wrapper needs a callback"
-  (sourceArguments, sourceResult) <- splitOperationalFunctionType env axioms callbackType
   let descriptor = lowerForeignCall (Fc.foreignCallName call) specification
       callbackSignature = grinForeignCallSignature descriptor
       rawReps = grinForeignOperandReps callbackSignature
-      resultRep = foreignTypeRuntimeRep (grinForeignResultType callbackSignature)
       wrapper = descriptor {grinForeignCallSignature = GrinForeignSignature [GrinForeignClosure] GrinForeignAddr GrinForeignRealWorld}
   declareForeignCall wrapper
+  adapter <- foreignCallbackAdapter env axioms constructors callbackType callbackSignature
+  closure <- freshVar "callback_adapter" liftedGrinRep
+  callback <- case concat valueGroups of
+    [one] -> pure one
+    _ -> throwLower "a wrapper needs one runtime callback value"
+  outputTypes <- sourceValueTypes env resultType
+  output <- case outputTypes of
+    [(source, representation)] -> adaptForeignResult env axioms constructors source representation AddrRep (GrinForeignCallExpr wrapper [GrinVarValue closure])
+    _ -> throwLower "a wrapper must produce a function pointer"
+  pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure adapter [rawReps]) [callback])) output)
+
+-- | The function that a C callback runs: it takes the captured Haskell
+-- function and the raw C arguments, boxes the arguments, applies the
+-- function, and gives the raw C result. A @wrapper@ import and a foreign
+-- export both use it.
+foreignCallbackAdapter :: LowerEnv -> [Fc.AxiomDecl] -> [Fc.Name] -> Fc.Type -> GrinForeignSignature -> LowerM FunctionName
+foreignCallbackAdapter env axioms constructors callbackType callbackSignature = do
+  (sourceArguments, sourceResult) <- splitOperationalFunctionType env axioms callbackType
+  let rawReps = grinForeignOperandReps callbackSignature
+      resultRep = foreignTypeRuntimeRep (grinForeignResultType callbackSignature)
   adapter <- freshFunction "foreign_callback"
   captured <- freshVar "callback" liftedGrinRep
   raw <- mapM (freshVar "callback_argument") rawReps
@@ -556,15 +584,7 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
   body <- applyCallback (GrinVarValue captured) sourceValues' result resultSourceRep finish
   boxedBody <- boxArguments (zip sourceArguments sourceGroups) raw body
   emitFunction (GrinFunction adapter (captured : raw) (ResultRep resultRep) boxedBody)
-  closure <- freshVar "callback_adapter" liftedGrinRep
-  callback <- case concat valueGroups of
-    [one] -> pure one
-    _ -> throwLower "a wrapper needs one runtime callback value"
-  outputTypes <- sourceValueTypes env resultType
-  output <- case outputTypes of
-    [(source, representation)] -> adaptForeignResult env axioms constructors source representation AddrRep (GrinForeignCallExpr wrapper [GrinVarValue closure])
-    _ -> throwLower "a wrapper must produce a function pointer"
-  pure (GrinBind [closure] (GrinStore (GrinNode (GrinClosure adapter [rawReps]) [callback])) output)
+  pure adapter
   where
     boxArguments [] [] body = pure body
     boxArguments ((_, []) : rest) raw body = boxArguments rest raw body
@@ -578,6 +598,39 @@ lowerForeignWrapper env call specification axioms constructors argumentTypes val
       evaluated <- freshVar "callback_function" liftedGrinRep
       applied <- applyArgumentGroups (ResultRep representation) (GrinVarValue evaluated) groups
       pure (GrinBind [evaluated] (GrinEval EvalUpdate liftedGrinRep function) (GrinBind [result] applied finish))
+
+
+-- | Lower a foreign export. The C function of the export applies a static
+-- closure: the callback adapter with the exported value. The closure is a
+-- public global, so no pass drops it, and the foreign call record with the
+-- 'GrinForeignExport' target names it. The expression gives the exported
+-- value.
+lowerForeignExport :: LowerEnv -> Fc.ForeignCall -> Fc.CCallSpec -> [Fc.Expr] -> LowerM GrinExpr
+lowerForeignExport env call specification arguments = do
+  name <- case arguments of
+    [argument] | Just variable <- exportedVariable argument -> pure variable
+    _ -> throwLower ("a foreign export must give one top-level value: " <> T.unpack (Fc.ccallSymbol specification))
+  exportedType <- case Fc.foreignCallType call of
+    Fc.TyFun _ _ argumentType _ -> pure argumentType
+    _ -> throwLower "a foreign export call must have a function type"
+  axioms <- foreignAxiomDeclarations env (Fc.foreignCallDependencies call)
+  let constructors = foreignConstructorNames (Fc.foreignCallDependencies call)
+      descriptor = lowerForeignCall name specification
+      signature = grinForeignCallSignature descriptor
+      globalName = "$fexport$" <> Fc.ccallSymbol specification
+  exported <- valueGlobalName env name
+  adapter <- foreignCallbackAdapter env axioms constructors exportedType signature
+  let node = GrinNode (GrinClosure adapter [grinForeignOperandReps signature]) [GrinGlobalValue exported]
+  modify' (\state -> state {lowerExportGlobals = Map.insert globalName node (lowerExportGlobals state)})
+  declareForeignCall descriptor {grinForeignCallName = globalName}
+  pure (GrinEval EvalUpdate liftedGrinRep (GrinGlobalValue exported))
+  where
+    exportedVariable expression =
+      case expression of
+        Fc.ExVar variable -> Just variable
+        Fc.ExTyApp inner _ -> exportedVariable inner
+        Fc.ExCast inner _ -> exportedVariable inner
+        _ -> Nothing
 
 -- | The function of a foreign import that takes every argument of the
 -- import. The module has one such function for each import that it applies
@@ -2612,7 +2665,8 @@ lowerForeignCall name specification =
         Fc.CCallFunction -> if unsafe then GrinForeignUnsafeFunction else GrinForeignFunction
         Fc.CCallDynamic -> if unsafe then GrinForeignUnsafeDynamic else GrinForeignDynamic
         Fc.CCallAddress -> GrinForeignAddress
-        Fc.CCallFunctionAddress -> GrinForeignFunctionAddress signature,
+        Fc.CCallFunctionAddress -> GrinForeignFunctionAddress signature
+        Fc.CCallExport -> GrinForeignExport,
       grinForeignCallSignature = case Fc.ccallTarget specification of
         -- The call takes no argument and gives the address.
         Fc.CCallFunctionAddress -> GrinForeignSignature [] GrinForeignAddr GrinForeignPure

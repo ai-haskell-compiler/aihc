@@ -2,6 +2,7 @@
 module Aihc.Fc.Prune
   ( pruneProgram,
     dropRules,
+    foreignExportNames,
   )
 where
 
@@ -163,3 +164,14 @@ ruleHead declaration = go (ruleLhs declaration)
         ExTyApp function _ -> go function
         ExCast inner _ -> go inner
         _ -> Nothing
+
+-- | The values of the foreign exports of a program. C code calls them, so a
+-- whole program keeps them as it keeps its entry.
+foreignExportNames :: Program -> [Name]
+foreignExportNames program =
+  [ valName declaration
+  | DeclVal declaration <- programDecls program,
+    ExForeignCall call _ _ <- [valBody declaration],
+    CCall specification <- [foreignCallConvention call],
+    ccallTarget specification == CCallExport
+  ]

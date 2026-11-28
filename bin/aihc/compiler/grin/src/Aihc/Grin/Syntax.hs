@@ -845,6 +845,11 @@ data GrinForeignTarget
     -- function, so that a target that declares the function can; the call
     -- itself takes no argument and gives the address.
     GrinForeignFunctionAddress !GrinForeignSignature
+  | -- | A C function that the program defines (@foreign export@). No
+    -- expression calls it. The name of the call is the public global that
+    -- holds the closure the C function applies to its arguments, and the
+    -- signature is the one of the C function.
+    GrinForeignExport
   deriving (Eq, Show, Read)
 
 data GrinForeignSignature = GrinForeignSignature
