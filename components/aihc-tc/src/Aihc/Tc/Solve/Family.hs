@@ -310,15 +310,16 @@ reduceHead ty =
                   -- and no equation matches. Thus each meta variable stands
                   -- for a variable of its kind while the kinds are computed.
                   -- The equations still match the arguments as they are.
-                  argumentKinds <-
+                  viewedArguments <-
                     if any typeMentionsMeta familyArguments
-                      then kindsOfArguments <$> mapM metasAsVariables familyArguments
-                      else pure (kindsOfArguments familyArguments)
+                      then mapM metasAsVariables familyArguments
+                      else pure familyArguments
+                  let argumentKinds = kindsOfArguments viewedArguments
                   let bareKindArguments bare expectedKind = do
                         ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments viewedArguments actualKinds extraArguments of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -399,8 +400,12 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 --
 -- The result also lists the variables of the equation that the match did
 -- not bind and that the reduced type still mentions.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf bareKindArguments equations arguments argumentKinds extraArguments =
+--
+-- The viewed arguments are the arguments with each meta variable replaced
+-- by a variable of its kind. They give the kinds of the types that the
+-- equation variables match.
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf bareKindArguments equations arguments viewedArguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -409,7 +414,7 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
             Just substitution <- matchTypes patterns arguments,
-            Just variableSubstitution <- variableKinds equation substitution,
+            Just variableSubstitution <- variableKinds equation (fromMaybe substitution (matchTypes patterns viewedArguments)),
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
                   completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
@@ -425,7 +430,7 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf bareKindArguments rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf bareKindArguments rest arguments viewedArguments argumentKinds extraArguments
   where
     -- A poly-kinded constructor with no visible argument gets its kind
     -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
@@ -454,6 +459,11 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
     -- checked when its kind has no variable. In @MkLink (arr :> sub) _@ of
     -- @servant@ the variable @arr@ has the kind @k1 -> k2@, and the
     -- 'Symbol' @\"x\"@ does not match it.
+    --
+    -- A kind with a meta variable can match the kind of the variable only
+    -- after the meta variable is solved. Until then, the equation does not
+    -- match. In @simpleToLink@ of @servant@, a meta variable @t0@ of the
+    -- kind @k0@ does not match @arr@ of @MkLink (arr :> sub) _@.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
@@ -467,8 +477,8 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
               | any rigidMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
     rigidMismatch (patternKind, actual, actualKind) =
-      (isTyVar actual || closedKind actualKind)
-        && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
+      (isTyVar actual || closedKind actualKind || typeMentionsMeta actualKind)
+        && not (typeMentionsMeta patternKind)
         && isNothing (matchTypes [patternKind] [actualKind])
     isTyVar ty =
       case ty of
