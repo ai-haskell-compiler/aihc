@@ -29,7 +29,7 @@ import Aihc.Resolve (OperatorFixity)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (declarationsFromTree, expressionFromTree, patternResultFromTree, typeResultFromTree)
 import Aihc.Th.Reify (fixityTree, reifyConStrictness, reifyInfo, reifyRoles)
-import Aihc.Th.Request (Request (..), RequestName (..), lookupNameReply, reportedFailure, requestFromTree)
+import Aihc.Th.Request (Request (..), RequestName (..), extensionsReply, lookupNameReply, reportedFailure, requestFromTree)
 import Aihc.Th.Splices (FactsAnswer, LocalFacts, LocalFixity, NameLookup, Splice (..), SpliceRequest (..), SpliceResult (..))
 import Aihc.Th.Wire (Tree (..), decodeTree, encodeTree)
 import Control.Exception (IOException, try)
@@ -78,7 +78,7 @@ runSpliceClosure runClosure environment index lookupName localFacts localFixity 
       fixity global = localFixity global >>= maybe (spliceEnvironmentFixity environment global) (pure . Right)
   requests <- newIORef []
   let location = spliceLocation request (join (lookup index (zip [0 ..] (spliceRequestSpans request))))
-  outcome <- try (runClosure (answerRequest fromGuest toGuest lookupName reify fixity location requests))
+  outcome <- try (runClosure (answerRequest fromGuest toGuest lookupName reify fixity request location requests))
   made <- reverse <$> readIORef requests
   forM_ [message | RequestReport False message <- made] (spliceEnvironmentWarn environment)
   -- A report of an error is the cause of a failure of the closure, so the
@@ -173,6 +173,7 @@ describeRequests made =
         RequestReport {} -> Nothing
         RequestLocation -> Nothing
         RequestLookupName {} -> Nothing
+        RequestExtensions -> Nothing
 
 -- | Do the request of a splice and give the bytes of the reply. Each
 -- request goes to the list. The reply to a report has no bytes. The reply
@@ -182,8 +183,10 @@ describeRequests made =
 -- an @Either String (Maybe Fixity)@ value. A name that the compiler cannot
 -- find has no fixity declaration that the compiler knows, so it gives
 -- 'Nothing'. The reply to @location@ is the @Loc@ value of the splice.
-answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> (GlobalName -> IO (Either Text (Maybe OperatorFixity))) -> Tree -> IORef [Request] -> ByteString -> IO ByteString
-answerRequest fromGuest toGuest lookupName reify fixity location requests bytes =
+-- The reply to @extsEnabled@ is a @[String]@ value with the name of each
+-- extension that is on in the module of the request.
+answerRequest :: (Tree -> Tree) -> (Tree -> Tree) -> NameLookup -> (FactsAnswer -> GlobalName -> IO (Either Text Tree)) -> (GlobalName -> IO (Either Text (Maybe OperatorFixity))) -> SpliceRequest -> Tree -> IORef [Request] -> ByteString -> IO ByteString
+answerRequest fromGuest toGuest lookupName reify fixity request location requests bytes =
   case decodeTree bytes >>= requestFromTree . fromGuest of
     Right made -> do
       modifyIORef' requests (made :)
@@ -202,6 +205,7 @@ answerRequest fromGuest toGuest lookupName reify fixity location requests bytes 
         RequestLookupName isType scoped ->
           let namespace = if isType then ResolutionNamespaceType else ResolutionNamespaceTerm
            in pure (encodeTree (toGuest (lookupNameReply (lookupName namespace scoped))))
+        RequestExtensions -> pure (encodeTree (extensionsReply (spliceRequestEnabledExtensions request)))
     Left message -> ioError (userError (T.unpack message))
   where
     facts question name requested =

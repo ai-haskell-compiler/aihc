@@ -12,11 +12,12 @@ module Aihc.Th.Request
     RequestName (..),
     requestFromTree,
     lookupNameReply,
+    extensionsReply,
     reportedFailure,
   )
 where
 
-import Aihc.Parser.Syntax (Name)
+import Aihc.Parser.Syntax (Extension (..), Name, extensionName)
 import Aihc.Resolve.Types (GlobalName (..), PackageId (..), ResolutionNamespace (..))
 import Aihc.Th.Convert (nameFromTree)
 import Aihc.Th.Wire (Tree (..))
@@ -46,6 +47,9 @@ data Request
     -- ('True') or @lookupValueName@ ('False'). The name has no package,
     -- and it can have a module qualifier.
     RequestLookupName !Bool !Name
+  | -- | Give each extension that is on in the module, for @extsEnabled@
+    -- and @isExtEnabled@.
+    RequestExtensions
   deriving (Eq, Show)
 
 -- | The name of a request for facts.
@@ -79,6 +83,7 @@ requestFromTree tree =
     TreeNode "Location" [] -> Right RequestLocation
     TreeNode "LookupName" [TreeNode "True" [], name] -> RequestLookupName True <$> nameFromTree name
     TreeNode "LookupName" [TreeNode "False" [], name] -> RequestLookupName False <$> nameFromTree name
+    TreeNode "Extensions" [] -> Right RequestExtensions
     TreeNode name _ -> Left ("The compiler does not know the splice request " <> name <> ".")
     _ -> Left "A splice request is not a constructor."
 
@@ -126,6 +131,25 @@ lookupNameReply found =
       | globalNameNamespace global == ResolutionNamespaceType = "TcClsName"
       | Just (first, _) <- T.uncons (globalNameText global), isUpper first || first == ':' = "DataName"
       | otherwise = "VarName"
+
+-- | The @[String]@ reply to 'RequestExtensions': the name of each
+-- extension that is on, as the constructor of the Template Haskell type
+-- @Extension@ has it. The guest ignores a name that its type does not
+-- have. Some extensions have an old name that is the same as a newer
+-- extension. Such an extension gets the newer name, as with GHC.
+extensionsReply :: [Extension] -> Tree
+extensionsReply extensions =
+  foldr (\name rest -> TreeNode "(:)" [TreeString name, rest]) (TreeNode "[]" []) (map templateName extensions)
+  where
+    templateName extension =
+      case extension of
+        CPP -> "Cpp"
+        Rank2Types -> "RankNTypes"
+        PolymorphicComponents -> "RankNTypes"
+        RecordPuns -> "NamedFieldPuns"
+        PatternSignatures -> "ScopedTypeVariables"
+        DoRec -> "RecursiveDo"
+        _ -> extensionName extension
 
 -- | The errors that a splice reported, as one message. A splice that
 -- reported an error fails, also when it gives a result.
