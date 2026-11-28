@@ -1,0 +1,26 @@
+modules:
+  - |
+    module Test where
+
+    import Control.Exception (ArithException (..), NoBacktrace (..), throwIO, try)
+    import GHC.Base (eqChar, neChar)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (eqChar 'a' 'a', eqChar 'a' 'b', neChar 'a' 'b', neChar 'z' 'z')
+      result <- try (throwIO (NoBacktrace DivideByZero))
+      print (result :: Either ArithException ())
+      wrapped <- try (throwIO Overflow)
+      print (wrapped :: Either (NoBacktrace ArithException) ())
+      print (Just (NoBacktrace Underflow))
+stdout: |
+  (True,False,True,False)
+  Left divide by zero
+  Left (NoBacktrace arithmetic overflow)
+  Just (NoBacktrace arithmetic underflow)
+output: |
+  ()
+expression: main
+status: pass
+reason: GHC.Base exports eqChar and neChar, and Control.Exception exports NoBacktrace, as GHC base does. A NoBacktrace exception reaches the handler of the exception that it holds.

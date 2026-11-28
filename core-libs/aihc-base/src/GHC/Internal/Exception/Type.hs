@@ -7,6 +7,7 @@ module GHC.Internal.Exception.Type
     SomeException (..),
     HasExceptionContext,
     ExceptionWithContext (..),
+    NoBacktrace (..),
     someExceptionContext,
     addExceptionContext,
     mapExceptionContext,
@@ -14,7 +15,8 @@ module GHC.Internal.Exception.Type
 where
 
 import Data.Typeable.Internal (Typeable, cast)
-import GHC.Internal.Base (Maybe (..), String, (++))
+import GHC.Classes (Ord (..))
+import GHC.Internal.Base (Maybe (..), String, otherwise, (++))
 import GHC.Internal.Exception.Context (ExceptionAnnotation, ExceptionContext, addExceptionAnnotation)
 import GHC.Prim.Show (Show (..))
 
@@ -62,6 +64,26 @@ instance (Exception e) => Exception (ExceptionWithContext e) where
       Just value -> Just (ExceptionWithContext (someExceptionContext exception) value)
       Nothing -> Nothing
   displayException (ExceptionWithContext _ exception) = displayException exception
+
+-- | An exception that does not want a backtrace when it is thrown. GHC
+-- uses it to throw an exception again without a new backtrace. This
+-- runtime collects no backtraces, so the wrapper only gives the exception
+-- to its handlers.
+newtype NoBacktrace e = NoBacktrace e
+
+instance (Show e) => Show (NoBacktrace e) where
+  showsPrec precedence (NoBacktrace exception) suffix
+    | precedence >= 11 = '(' : body (')' : suffix)
+    | otherwise = body suffix
+    where
+      body rest = "NoBacktrace " ++ showsPrec 11 exception rest
+
+instance (Exception e) => Exception (NoBacktrace e) where
+  toException (NoBacktrace exception) = toException exception
+  fromException exception =
+    case fromException exception of
+      Just value -> Just (NoBacktrace value)
+      Nothing -> Nothing
 
 instance Show SomeException where
   showsPrec precedence (SomeException exception) = showsPrec precedence exception
