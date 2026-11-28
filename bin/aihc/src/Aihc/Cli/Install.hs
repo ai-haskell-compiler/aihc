@@ -2157,6 +2157,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
+                  spliceRequestEnabledExtensions = sourceModuleExtensions source,
                   spliceRequestImports = Syntax.moduleImports modu,
                   spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
                   spliceRequestOwnModules = [],

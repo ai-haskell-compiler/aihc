@@ -71,7 +71,7 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Marshal.Array (peekArray, withArrayLen)
 import Foreign.Ptr (Ptr, plusPtr)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
-import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, Exp, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, mkName, runQ, unTypeCode)
+import Language.Haskell.TH.Syntax (Bytes (..), Dec, DecidedStrictness, DocLoc, Exp, Extension, Fixity, Info, Loc, Name, Pat, Q, Quasi (..), Role, Type, mkName, runQ, unTypeCode)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
@@ -162,6 +162,10 @@ data Request
     -- qualifier, as from @mkName@. The reply is a @Maybe Name@ value. A
     -- name that is not in scope gives 'Nothing'.
     LookupName Bool Name
+  | -- | Give each extension that is on in the module of the splice. The
+    -- reply is a @[String]@ value with the names of the constructors of
+    -- 'Extension'.
+    Extensions
   deriving (Data)
 
 -- | Send a request and give the bytes of the reply.
@@ -187,6 +191,13 @@ recoverReports = unsafePerformIO (newIORef [])
 userState :: IORef [(TypeRep, Dynamic)]
 userState = unsafePerformIO (newIORef [])
 {-# NOINLINE userState #-}
+
+-- | The documentation that the splices added with 'qPutDoc', by its
+-- location. The instance runs the splices of one module, so it is the
+-- documentation of that module.
+spliceDocs :: IORef [(DocLoc, String)]
+spliceDocs = unsafePerformIO (newIORef [])
+{-# NOINLINE spliceDocs #-}
 
 -- | Give a report to the 'qRecover' that is in progress, or to the compiler.
 report :: Request -> IO ()
@@ -270,10 +281,25 @@ instance Quasi Splice where
   qAddForeignFilePath _ _ = unsupported "addForeignFilePath"
   qAddModFinalizer _ = unsupported "addModFinalizer"
   qAddCorePlugin _ = unsupported "addCorePlugin"
-  qIsExtEnabled _ = unsupported "isExtEnabled"
-  qExtsEnabled = unsupported "extsEnabled"
-  qPutDoc _ _ = unsupported "putDoc"
-  qGetDoc _ = unsupported "getDoc"
+  qIsExtEnabled extension = Splice (elem extension <$> enabledExtensions)
+  qExtsEnabled = Splice enabledExtensions
+  -- The compiler does not keep the documentation of the source, as GHC
+  -- without @-haddock@. Thus, a splice only finds the documentation that a
+  -- splice of the same module added.
+  qPutDoc location text = Splice (modifyIORef' spliceDocs (((location, text) :) . filter ((/= location) . fst)))
+  qGetDoc location = Splice (lookup location <$> readIORef spliceDocs)
+
+-- | Each extension that is on in the module of the splice. The compiler
+-- can know an extension that 'Extension' does not have. The result does
+-- not include such an extension.
+enabledExtensions :: IO [Extension]
+enabledExtensions = do
+  reply <- sendRequest Extensions
+  case decodeValue reply of
+    Just names -> pure [extension | extension <- [minBound .. maxBound], show extension `elem` (names :: [String])]
+    Nothing -> do
+      report (Report True "The reply of the compiler to `extsEnabled' is not valid.")
+      fail "Template Haskell failure"
 
 -- | Send a request for facts and give the facts of the reply. The reply is
 -- an error message or the facts. An error message stops the splice.

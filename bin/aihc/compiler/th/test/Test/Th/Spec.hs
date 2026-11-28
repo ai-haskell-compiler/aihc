@@ -630,6 +630,7 @@ spliceModuleTest = do
             spliceRequestExtensions = [],
             spliceRequestLanguage = Nothing,
             spliceRequestPragmas = [EnableExtension TemplateHaskell],
+            spliceRequestEnabledExtensions = [TemplateHaskell],
             spliceRequestImports = take 1 (moduleImports modu),
             spliceRequestPackageFiles = mempty,
             spliceRequestOwnModules = [],
