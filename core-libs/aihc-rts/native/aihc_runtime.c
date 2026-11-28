@@ -1497,9 +1497,7 @@ AihcThread *aihc_my_thread_id(AihcCapability *capability) {
 
 /* The number of a thread, as rts_getThreadId in the GHC RTS API. A library
    gives the ThreadId# to C as an address, for example text-show. */
-uint64_t rts_getThreadId(void *thread) {
-  return ((AihcThread *)thread)->id;
-}
+uint64_t rts_getThreadId(void *thread) { return ((AihcThread *)thread)->id; }
 
 /* The thread can run on a different capability, and that capability can
    change the state at the same time. The result is a snapshot, as in GHC.
