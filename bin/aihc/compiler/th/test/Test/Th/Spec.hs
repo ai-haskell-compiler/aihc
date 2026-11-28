@@ -627,6 +627,7 @@ spliceModuleTest = do
             spliceRequestBuildRoot = "build",
             spliceRequestPackageRoot = ".",
             spliceRequestDependencies = [("base", [4, 21, 2, 0])],
+            spliceRequestPlanConstraints = [],
             spliceRequestExtensions = [],
             spliceRequestLanguage = Nothing,
             spliceRequestPragmas = [EnableExtension TemplateHaskell],
