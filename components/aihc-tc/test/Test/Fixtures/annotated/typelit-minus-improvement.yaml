@@ -1,0 +1,25 @@
+extensions: [DataKinds, KindSignatures, TypeFamilies, TypeOperators]
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, TypeOperators #-}
+  module GHC.TypeNats where
+  import GHC.Prim.Natural (Natural)
+  type family (-) (a :: Natural) (b :: Natural) :: Natural
+  infixl 6 -
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeOperators #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.TypeNats (type (-))
+  data P (n :: Natural) = P
+  split :: P n -> (P p, P (n - p))
+  split _ = (P, P)
+  rest :: P n -> P (n - 1)
+  rest v = snd (split v)
+  four :: P 4
+  four = snd (split (P :: P 7))
+  snd :: (a, b) -> b
+  snd (_, b) = b
+status: pass
+reason: The equality n - p0 ~ n - 1 gives p0 ~ 1, and the equality
+  7 - p1 ~ 4 gives p1 ~ 3, as in GHC.
