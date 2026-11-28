@@ -4,7 +4,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A module of the program that the splices of "Main" use.
-module Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType) where
+module Helper (Couple (..), Describe (..), Size (..), Tally (..), coupleSum, deriveDescribe, deriveLabel, fraction, helperValue, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType) where
 
 import Data.Proxy (Proxy)
 import Data.Ratio ((%))
@@ -149,3 +149,13 @@ fraction =
       case break (== '/') text of
         (top, '/' : bottom) -> read top % read bottom
         _ -> fromInteger (read text)
+
+-- A declaration quote with a data declaration, a newtype declaration, and
+-- a function that uses their constructors.
+$( [d|
+     data Couple a = Couple {coupleLeft :: a, coupleRight :: !a} deriving (Show)
+     newtype Tally = Tally Int deriving stock (Show)
+     coupleSum :: Couple Int -> Int
+     coupleSum (Couple left right) = left + right
+     |]
+ )

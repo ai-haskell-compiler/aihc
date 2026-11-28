@@ -35,6 +35,8 @@ module Aihc.Resolve.Scope
     lookupImportedModule,
     emptyScope,
     unionScope,
+    DeclExports (..),
+    declExportedNames,
     insertTerm,
     insertType,
     lookupTerm,
