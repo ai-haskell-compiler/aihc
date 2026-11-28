@@ -9,11 +9,14 @@ module Aihc.Cli.Hackage
   )
 where
 
-import Aihc.Hackage.Fetch (newHackageSource)
+import Aihc.Hackage.Fetch (newHackageSource, newOfflineHackageSource)
 import Aihc.Hackage.Source (HackageSource)
 
 -- | Query Hackage for the packages a plan resolves and download the
 -- releases it chooses. The function shows the progress messages and the
--- warnings.
-defaultHackageSource :: (String -> IO ()) -> IO (Maybe HackageSource)
-defaultHackageSource message = Just <$> newHackageSource message
+-- warnings. When the first argument is 'True', the source does not use the
+-- network, and it answers from the cache only.
+defaultHackageSource :: Bool -> (String -> IO ()) -> IO (Maybe HackageSource)
+defaultHackageSource offline message
+  | offline = Just <$> newOfflineHackageSource message
+  | otherwise = Just <$> newHackageSource message

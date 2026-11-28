@@ -842,6 +842,12 @@ test_verifiesLock = do
     "a constraint the lock contradicts"
     (Left "a constraint needs x >=2, but 1.0 is listed")
     (fmap chosen (runIdentity (verifySolution (inputsFor packages) config {configConstraints = [ConstraintVersion (mkPackageName "x") (range ">=2")]} (recorded [("aihc-base", "4.21.2.0", Nothing), ("root", "0.1", Nothing), ("x", "1.0", Just 0)]))))
+  -- A project can constrain a package that this plan does not use, as the
+  -- cabal.project of a project constrains a package for one of its members.
+  assertEqual
+    "a constraint on a package that the plan does not use"
+    (Right [("aihc-base", "4.21.2.0"), ("root", "0.1"), ("x", "1.0")])
+    (fmap chosen (runIdentity (verifySolution (inputsFor packages) config {configConstraints = [ConstraintVersion (mkPackageName "y") (range "==1.0")]} (recorded [("aihc-base", "4.21.2.0", Nothing), ("root", "0.1", Nothing), ("x", "1.0", Just 0)]))))
 
 test_parsesConstraints :: Assertion
 test_parsesConstraints = do

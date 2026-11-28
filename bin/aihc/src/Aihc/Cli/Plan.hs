@@ -56,7 +56,7 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 -- name order, so the order does not change from one run to the next.
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
-  hackageSource <- defaultHackageSource (hPutStrLn stderr)
+  hackageSource <- defaultHackageSource (planCommandOffline options) (hPutStrLn stderr)
   TargetRoot root _ _ components project <- installTargetRoot (planCommandProject options) (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
       executables = [name | ProjectExecutable name <- components] <> planCommandExecutables options

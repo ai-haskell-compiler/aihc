@@ -85,7 +85,8 @@ test_readsCabalFileRevision = do
 -- as one Hackage does not have: a plan that silently drops a package
 -- resolves to the wrong thing. That case is here rather than in a test of
 -- its own because both set @XDG_CACHE_HOME@, and tasty runs test cases at
--- the same time.
+-- the same time. An answer that Hackage does not have a package is cached
+-- as well, because a plan asks for such packages on each run.
 test_answersFromCache :: Assertion
 test_answersFromCache =
   withIsolatedCache $ \cacheDir -> do
@@ -113,6 +114,11 @@ test_answersFromCache =
     case missing of
       Right answer -> assertFailure ("expected a failure, got " <> show (fst <$> answer))
       Left err -> assertBool (show err) ("at revision 4" `isInfixOf` show (err :: IOException))
+    -- An earlier run learned that Hackage does not have the package, so
+    -- the answer without the network is that Hackage does not have it.
+    BSC.writeFile (cacheDir </> "versions" </> "gone.json.not-found") BSC.empty
+    gone <- queryPackageVersions queries "gone"
+    assertEqual "a cached answer that Hackage does not have gone" Nothing (map queryVersionVersion <$> gone)
     unknown <- try (queryPackageVersions queries "no-such-package")
     case unknown of
       Right answer -> assertFailure ("expected a failure, got " <> show (fmap (map queryVersionVersion) answer))
