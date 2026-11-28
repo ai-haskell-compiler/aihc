@@ -245,7 +245,13 @@ data DerivingEnv = DerivingEnv
     -- batch will declare. The plans register them only after context
     -- inference, but a superclass obligation can need them, as
     -- @Additive (Mag (Wrapped a))@ needs @Mag (Wrapped a) = Mag a@.
-    derivingEnvForwarded :: ![(TcType, TcType)]
+    derivingEnvForwarded :: ![(TcType, TcType)],
+    -- | The contexts to use after the search goes through an instance
+    -- declaration of the environment. The dictionary function of that
+    -- instance builds a new dictionary, so a reused plan that the search
+    -- finds below it does not stand on itself. 'Nothing' keeps the
+    -- contexts as they are.
+    derivingEnvGuardedContexts :: !(Maybe (Map PlanKey (Either Pred [Pred])))
   }
 
 derivingEnv :: TcKinds -> [UnliftedFieldType] -> [InstanceInfo] -> [(TcType, TcType)] -> [TcDerivingPlan] -> TcM DerivingEnv
@@ -258,7 +264,8 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
         { derivingEnvInstances = groupByClass (tyConKey . iiClass) existingInstances,
           derivingEnvPlans = groupByClass (tyConKey . tcDerivingClassTyCon) plans,
           derivingEnvContexts = Map.empty,
-          derivingEnvForwarded = forwarded
+          derivingEnvForwarded = forwarded,
+          derivingEnvGuardedContexts = Nothing
         }
     groupByClass classKey = MonoidMap.fromList . map (\value -> (classKey value, [value]))
 
@@ -271,16 +278,20 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
     -- reused instances only. The second iteration finds these plans: each
     -- reusing plan starts blocked and the structural contexts stay fixed,
     -- so a structural instance breaks a cycle and a reused one does not.
+    -- An instance declaration also breaks a cycle, because its dictionary
+    -- function builds a new dictionary. Below such an instance, the search
+    -- uses the structural contexts. Thus @newtype S = S (Int, [S])
+    -- deriving newtype C@ stands on @C S@ through @C [a]@, as in GHC.
     -- A rejected plan keeps its blocked context, which can block other
     -- plans, so the search starts again until no new plan is rejected.
     solveContexts :: Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
     solveContexts rejected = do
       let isOpen plan = not (Map.member (planKey plan) rejected)
       structural <-
-        iterateContexts isOpen (length inferable + 2) $
+        iterateContexts Nothing isOpen (length inferable + 2) $
           rejected `Map.union` Map.fromList [(planKey plan, Right []) | (plan, _) <- inferable]
       grounded <-
-        iterateContexts (\plan -> isOpen plan && reusesInstance (tcDerivingStrategy plan)) (length reusing + 2) $
+        iterateContexts (Just structural) (\plan -> isOpen plan && reusesInstance (tcDerivingStrategy plan)) (length reusing + 2) $
           Map.fromList [(planKey plan, Left (planPredicate plan)) | plan <- reusing, isOpen plan] `Map.union` structural
       let newlyRejected =
             Map.fromList
@@ -297,17 +308,17 @@ derivingEnv kinds unlifted existingInstances forwarded plans = do
     -- declared later, or to itself through a cycle, without the search
     -- re-deriving the same plan once per path through the batch. Only the
     -- selected plans change. The other contexts stay as they are.
-    iterateContexts :: (TcDerivingPlan -> Bool) -> Int -> Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
-    iterateContexts selected fuel contexts
+    iterateContexts :: Maybe (Map PlanKey (Either Pred [Pred])) -> (TcDerivingPlan -> Bool) -> Int -> Map PlanKey (Either Pred [Pred]) -> TcM (Map PlanKey (Either Pred [Pred]))
+    iterateContexts guarded selected fuel contexts
       | fuel <= 0 = pure contexts
       | otherwise = do
-          let environment = base {derivingEnvContexts = contexts}
+          let environment = base {derivingEnvContexts = contexts, derivingEnvGuardedContexts = guarded}
           updates <-
             mapM
               (\(plan, obligations) -> (,) (planKey plan) . fmap nub <$> simplifyObligations kinds environment plan obligations)
               [entry | entry@(plan, _) <- inferable, selected plan]
           let next = Map.fromList updates `Map.union` contexts
-          if next == contexts then pure contexts else iterateContexts selected (fuel - 1) next
+          if next == contexts then pure contexts else iterateContexts guarded selected (fuel - 1) next
 
 -- | The obligations of a plan whose context the compiler has to infer, or
 -- 'Nothing' when the plan carries its context or needs no inference. A
@@ -620,7 +631,11 @@ simplifyReducedPredicate kinds environment owner predicate
     withInstanceKinds (instanceInfo, substitution) =
       maybe [] (\kinded -> [(instanceInfo, kinded)]) <$> matchInstanceKinds (iiTyVars instanceInfo) substitution
     simplifyExisting (instanceInfo, substitution) =
-      simplifyPredicates kinds environment owner (map (applySubstPred substitution) (iiContext instanceInfo))
+      simplifyPredicates kinds guardedEnvironment owner (map (applySubstPred substitution) (iiContext instanceInfo))
+    guardedEnvironment =
+      case derivingEnvGuardedContexts environment of
+        Nothing -> environment
+        Just contexts -> environment {derivingEnvContexts = contexts, derivingEnvGuardedContexts = Nothing}
     simplifyDerived (candidate, substitution) =
       case candidateContext candidate of
         Left blocked -> pure (Left blocked)
