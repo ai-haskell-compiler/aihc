@@ -1,0 +1,80 @@
+extensions: [DataKinds, GADTs, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies, FlexibleContexts, AllowAmbiguousTypes, TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, GADTs, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies, FlexibleContexts, NoImplicitPrelude #-}
+    module Test where
+    import GHC.Types (Bool (..), Type)
+    data Maybe a = Nothing | Just a
+    data Proxy (a :: k) = Proxy
+    type family If (c :: Bool) (t :: k) (e :: k) :: k where
+      If 'True t e = t
+      If 'False t e = e
+    data SBool (b :: Bool) where
+      STrue :: SBool 'True
+      SFalse :: SBool 'False
+    class SBoolI (b :: Bool) where
+      sbool :: SBool b
+    data Q (b :: Bool) (v :: Type)
+    class Link endpoint where
+      type MkLink endpoint
+      toLink :: Proxy endpoint -> MkLink endpoint
+    instance SBoolI b => Link (Q b v) where
+      type MkLink (Q b v) = If b v (Maybe v) -> v
+      toLink _ mv = case sbool :: SBool b of
+        STrue -> mv
+        SFalse -> fromMaybe' mv
+    fromMaybe' :: Maybe v -> v
+    fromMaybe' m = fromMaybe' m
+status: pass
+reason: An equation argument that only the reduced family result shows takes its type from that result, thus a GADT match in the body uses it at the refined types.
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, GADTs, KindSignatures, PolyKinds, ScopedTypeVariables, TypeFamilies, FlexibleContexts, NoImplicitPrelude #-}
+    module Test where
+    import GHC.Types (Bool (..), Type)
+    data Maybe a = Nothing | Just a
+         │         │         └─ type: ∀ a. a → Maybe a
+         │         └─ type: ∀ a. Maybe a
+         └─ type: Type → Type
+    data Proxy (a :: k) = Proxy
+         │                └─ type: ∀ k a. Proxy a
+         └─ type: k → Type
+    type family If (c :: Bool) (t :: k) (e :: k) :: k where
+                └─ type: GHC.Types.Bool → k → k → k
+      If 'True t e = t
+      If 'False t e = e
+    data SBool (b :: Bool) where
+         └─ type: GHC.Types.Bool → Type
+      STrue :: SBool 'True
+      └─ type: ∀ b. (b ~ 'GHC.Types.True) ⇒ SBool b
+      SFalse :: SBool 'False
+      └─ type: ∀ b. (b ~ 'GHC.Types.False) ⇒ SBool b
+    class SBoolI (b :: Bool) where
+    └─ class methods: sbool ∷ ∀ b. (SBoolI b) ⇒ SBool b
+      sbool :: SBool b
+    data Q (b :: Bool) (v :: Type)
+         └─ type: GHC.Types.Bool → Type → Type
+    class Link endpoint where
+    └─ class methods: toLink ∷ ∀ k0 endpoint. (Link endpoint) ⇒ Proxy endpoint → MkLink endpoint
+      type MkLink endpoint
+           └─ type: k0 → Type
+      toLink :: Proxy endpoint -> MkLink endpoint
+    instance SBoolI b => Link (Q b v) where
+    └─ $fLinkQbv ∷ ∀ b v. (SBoolI b) ⇒ Link (Q b v) [associated types: MkLink (Q b v) = If b v (Maybe v) → v]
+      type MkLink (Q b v) = If b v (Maybe v) -> v
+      toLink _ mv = case sbool :: SBool b of
+      │      │ │    │    └─ type: SBool b; type-args: b; evidence: given SBoolI b
+      │      │ │    └─ type: v
+      │      │ └─ type: If b v (Maybe v)
+      │      └─ type: Proxy (Q b v)
+      └─ toLink ∷ Proxy (Q b v) → MkLink (Q b v)
+        STrue -> mv
+        └─ type: SBool b; type-args: b; evidence: given b ~ 'True
+        SFalse -> fromMaybe' mv
+        │         └─ type: Maybe v → v; type-args: v
+        └─ type: SBool b; type-args: b; evidence: given b ~ 'False
+    fromMaybe' :: Maybe v -> v
+    fromMaybe' m = fromMaybe' m
+    │          │   └─ type: Maybe v → v; type-args: v
+    │          └─ type: Maybe v
+    └─ type: ∀ v. Maybe v → v

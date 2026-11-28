@@ -3835,6 +3835,11 @@ compilePrimitive ctx env vars runtimeRep name arguments =
     ("int2Addr#", [value]) -> do
       operand <- pointerValue ctx env value
       bind [Typed operand Ptr]
+    -- The address of the heap object of an unlifted box. The bits do not
+    -- change. The collector does not trace an address.
+    ("aihcUnliftedToAddr#", [value]) -> do
+      operand <- pointerValue ctx env value
+      bind [Typed operand Ptr]
     ("cstringLength#", [address]) -> do
       operand <- pointerValue ctx env address
       helper <- requireHelper HelperCStringLength

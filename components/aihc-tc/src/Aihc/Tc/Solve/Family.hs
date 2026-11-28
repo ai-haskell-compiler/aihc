@@ -31,7 +31,7 @@ import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get)
-import Data.List (sortOn)
+import Data.List (sortOn, unsnoc)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text qualified as T
@@ -310,16 +310,11 @@ reduceHead ty =
                   -- and no equation matches. Thus each meta variable stands
                   -- for a variable of its kind while the kinds are computed.
                   -- The equations still match the arguments as they are.
-                  -- The kind check of an equation variable needs the kind of
-                  -- the type that it matched, and that type can be a meta
-                  -- variable or mention one.
-                  (argumentKinds, matchedKindOf) <-
+                  viewedArguments <-
                     if any typeMentionsMeta familyArguments
-                      then do
-                        metaKinds <- Map.fromList <$> mapM (\unique -> (,) unique <$> readMetaTvKind unique) (concatMap typeMetaUniques familyArguments)
-                        let viewed = map (replaceMetas metaKinds) familyArguments
-                        pure (kindsOfArguments viewed, kindOf . replaceMetas metaKinds)
-                      else pure (kindsOfArguments familyArguments, kindOf)
+                      then mapM metasAsVariables familyArguments
+                      else pure familyArguments
+                  let argumentKinds = kindsOfArguments viewedArguments
                   let bareKindArguments bare expectedKind = do
                         ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
@@ -343,7 +338,7 @@ reduceHead ty =
                   -- A meta variable stands for a variable of its kind here
                   -- too, but only its kind is used.
                   extraKindViews <- mapM metasAsVariables extraArguments
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions equations familyArguments actualKinds extraKindViews of
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments openKindPositions equations familyArguments viewedArguments actualKinds extraKindViews of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -354,34 +349,14 @@ reduceHead ty =
 -- | The type with each meta variable replaced by a variable of the same
 -- unique and the kind of the meta variable. Only the kind of the result
 -- is used.
-replaceMetas :: Map.Map Unique TcType -> TcType -> TcType
-replaceMetas metaKinds = go
-  where
-    go ty =
-      case ty of
-        TcMetaTv unique
-          | Just kind <- Map.lookup unique metaKinds -> TcTyVar (mkTyVarId (T.pack "meta") unique kind)
-        TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
-        TcAppTy function argument -> TcAppTy (go function) (go argument)
-        TcFunTy argument result -> TcFunTy (go argument) (go result)
-        _ -> ty
-
--- | 'replaceMetas' for the meta variables of one type, with their kinds
--- from the solver.
 metasAsVariables :: TcType -> TcM TcType
-metasAsVariables ty = do
-  metaKinds <- Map.fromList <$> mapM (\unique -> (,) unique <$> readMetaTvKind unique) (typeMetaUniques ty)
-  pure (replaceMetas metaKinds ty)
-
--- | The meta variables that 'replaceMetas' replaces.
-typeMetaUniques :: TcType -> [Unique]
-typeMetaUniques ty =
+metasAsVariables ty =
   case ty of
-    TcMetaTv unique -> [unique]
-    TcTyCon _ arguments -> concatMap typeMetaUniques arguments
-    TcAppTy function argument -> typeMetaUniques function <> typeMetaUniques argument
-    TcFunTy argument result -> typeMetaUniques argument <> typeMetaUniques result
-    _ -> []
+    TcMetaTv unique -> TcTyVar . mkTyVarId (T.pack "meta") unique <$> readMetaTvKind unique
+    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM metasAsVariables arguments
+    TcAppTy function argument -> TcAppTy <$> metasAsVariables function <*> metasAsVariables argument
+    TcFunTy argument result -> TcFunTy <$> metasAsVariables argument <*> metasAsVariables result
+    _ -> pure ty
 
 -- | Give each equation variable that the match left without a value a
 -- fresh kind meta-variable. Such a variable is a result kind of the
@@ -449,20 +424,24 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 -- give. An equation that fixes one of these kind arguments can match only
 -- when the kind is known. In a closed family, such an equation blocks the
 -- equations after it.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [Int] -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions equations arguments argumentKinds extraArguments =
+--
+-- The viewed arguments are the arguments with each meta variable replaced
+-- by a variable of its kind. They give the kinds of the types that the
+-- equation variables match.
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [Int] -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf bareKindArguments openKindPositions equations arguments viewedArguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
       case equationArguments equation of
         Just _
           | fixesOpenKind equation ->
-              if tfiiClosed equation then Nothing else firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
+              if tfiiClosed equation then Nothing else firstEquation family kindOf bareKindArguments openKindPositions rest arguments viewedArguments argumentKinds extraArguments
         Just patterns
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
             Just substitution <- matchTypes patterns arguments,
-            Just variableSubstitution <- variableKinds equation substitution,
+            Just variableSubstitution <- variableKinds equation (fromMaybe substitution (matchTypes patterns viewedArguments)),
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
                   completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
@@ -478,7 +457,7 @@ firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions eq
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf bareKindArguments openKindPositions rest arguments viewedArguments argumentKinds extraArguments
   where
     fixesOpenKind equation =
       case tfiiLeft equation of
@@ -508,31 +487,47 @@ firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions eq
     -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
     -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
     -- in GHC. The kind of another type can have a free variable of its
-    -- signature: a bare @'[]@ or @TypeError m@. Thus, for another type, the
-    -- equation does not match only when the two kinds are apart. In
-    -- @MkLink ((arr :: a -> b) :> sub) r@ the variable @arr@ does not match
-    -- @QueryParam' mods sym v@ of the kind 'Type'.
+    -- signature: a bare @'[]@ or @TypeError m@. Thus another type is only
+    -- checked when its kind has no variable. In @MkLink (arr :> sub) _@ of
+    -- @servant@ the variable @arr@ has the kind @k1 -> k2@, and the
+    -- 'Symbol' @\"x\"@ does not match it.
+    --
+    -- A kind with a meta variable can match the kind of the variable only
+    -- after the meta variable is solved. Until then, the equation does not
+    -- match. In @simpleToLink@ of @servant@, a meta variable @t0@ of the
+    -- kind @k0@ does not match @arr@ of @MkLink (arr :> sub) _@.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
             | variable <- tfiiTyVars equation,
               Just actual <- [Map.lookup (tvUnique variable) substitution],
-              Just actualKind <- [matchedKindOf actual]
+              Just actualKind <- [kindOf actual]
             ]
        in case matchTypes [patternKind | (patternKind, _, _) <- pairs] [actualKind | (_, _, actualKind) <- pairs] of
             Just kinds -> Just kinds
             Nothing
-              | any kindMismatch pairs -> Nothing
+              | any rigidMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
-    kindMismatch (patternKind, actual, actualKind)
-      | typeMentionsMeta patternKind = False
-      | typeMentionsMeta actualKind = isNothing (matchTypes [patternKind] [actualKind])
-      | isTyVar actual = isNothing (matchTypes [patternKind] [actualKind])
-      | otherwise = not (couldUnify family patternKind actualKind)
+    rigidMismatch (patternKind, actual, actualKind) =
+      (isTyVar actual || closedKind actualKind || typeMentionsMeta actualKind)
+        && not (typeMentionsMeta patternKind)
+        && isNothing (matchTypes [patternKind] [actualKind])
     isTyVar ty =
       case ty of
         TcTyVar _ -> True
         _ -> False
+    closedKind ty =
+      case ty of
+        TcTyVar _ -> False
+        TcMetaTv _ -> False
+        TcArrowTy -> True
+        TcTyLit _ -> True
+        TcKindedTyCon _ kindArguments -> all closedKind kindArguments
+        TcTyConApp _ kindArguments typeArguments -> all closedKind kindArguments && all closedKind typeArguments
+        TcFunTy argument result -> closedKind argument && closedKind result
+        TcAppTy function argument -> closedKind function && closedKind argument
+        TcForAllTy {} -> False
+        TcQualTy {} -> False
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
       resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)
@@ -596,6 +591,19 @@ patternBindings family = go
           (<>) <$> go argument targetArgument <*> go result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
           (<>) <$> go function targetFunction <*> go argument targetArgument
+        -- An application can have a variable head, as @subs m@. It is not
+        -- apart from a constructor application, because the variable can
+        -- become the constructor applied to the other arguments. Thus
+        -- @IsUndefined (subs m)@ is not apart from @IsUndefined (Undefined
+        -- m')@.
+        (TcTyConApp tyCon kindArguments arguments, TcAppTy targetFunction targetArgument)
+          | Just (initial, final) <- unsnoc arguments ->
+              (<>) <$> go (TcTyConApp tyCon kindArguments initial) targetFunction <*> go final targetArgument
+        (TcAppTy function argument, TcTyConApp targetTyCon targetKindArguments targetArguments)
+          | Just (initial, final) <- unsnoc targetArguments ->
+              (<>) <$> go function (TcTyConApp targetTyCon targetKindArguments initial) <*> go argument final
+        (TcFunTy {}, TcAppTy {}) -> Just []
+        (TcAppTy {}, TcFunTy {}) -> Just []
         _
           | patternType == target -> Just []
           | otherwise -> Nothing
@@ -626,4 +634,12 @@ typesCouldUnify family = go
                 && and (zipWith go arguments arguments')
             (TcFunTy argument result, TcFunTy argument' result') -> go argument argument' && go result result'
             (TcAppTy function argument, TcAppTy function' argument') -> go function function' && go argument argument'
+            (TcTyConApp tyCon kindArguments arguments, TcAppTy function' argument')
+              | Just (initial, final) <- unsnoc arguments ->
+                  go (TcTyConApp tyCon kindArguments initial) function' && go final argument'
+            (TcAppTy function argument, TcTyConApp tyCon' kindArguments' arguments')
+              | Just (initial, final) <- unsnoc arguments' ->
+                  go function (TcTyConApp tyCon' kindArguments' initial) && go argument final
+            (TcFunTy {}, TcAppTy {}) -> True
+            (TcAppTy {}, TcFunTy {}) -> True
             _ -> left == right

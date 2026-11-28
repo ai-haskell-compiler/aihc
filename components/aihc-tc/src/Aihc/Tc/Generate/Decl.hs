@@ -1254,8 +1254,13 @@ defaultGlobalKindMetas initialKeys = do
             Nothing -> False
       when (polyKinds || hasKindVariables) (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
-      left <- defaultTypeKinds (tfiiLeft info)
-      right <- defaultTypeKinds (tfiiRight info)
+      -- A kind meta-variable can stand in a type position of a side. The
+      -- synonym @type Arity (ty :: k) = Arity' k@ uses its kind variable as
+      -- a type, and its expansion in @F x = Proxy (Arity x)@ gives @Arity'
+      -- k0@ with a meta-variable @k0@. The generalization above solves
+      -- @k0@, so zonk both sides before the kinds are defaulted.
+      left <- zonkType (tfiiLeft info) >>= defaultTypeKinds
+      right <- zonkType (tfiiRight info) >>= defaultTypeKinds
       -- A kind variable that only the result kind of the family mentions,
       -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
       -- forall j k. j -> k@), is not determined by an argument. Each
@@ -5563,33 +5568,39 @@ checkTypeFamilyEquation = checkTypeFamilyEquationIn []
 -- scope, as the variables of an associated equation are the variables of
 -- its instance head. A variable of the equation gets the kind of the
 -- scope variable of the same name when the equation leaves its own kind
--- open. In @instance HasLink ((arr :: a -> b) :> sub)@, the variable
--- @arr@ of the equation @MkLink (arr :> sub) r@ has the kind @a -> b@, as
--- in GHC. Without that kind, the equation also matches @sym :> sub@ with
--- @sym :: Symbol@.
+-- open.
 --
--- A kind variable of the scope kind is the variable of the equation with
--- the same name, when the equation names it, as @k@ in @type Result (p ::
--- k -> Constraint)@. Otherwise, the equation binds the kind variable of
--- the instance (see 'closeKindVariables').
+-- The kind variables of the instance are not variables of the equation.
+-- Thus each of them becomes a fresh kind meta-variable of the equation,
+-- one for each kind variable, and the equation generalizes it. In
+-- @instance HasLink ((arr :: a -> b) :> sub)@ of @servant@, the equation
+-- @type MkLink (arr :> sub) _ = ...@ gets @arr :: k1 -> k2@. Without the
+-- arrow, the equation also matches @MkLink (sym :> sub) a@ of the
+-- instance for a 'Symbol'.
 checkTypeFamilyEquationIn :: [TyVarId] -> (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM (Maybe TypeFamilyInstanceInfo)
 checkTypeFamilyEquationIn scopeTyVars (packageName, moduleName') isClosed extraBinders equation = do
   paramInfos <- typeFamilyEquationParams extraBinders equation
-  forM_ scopeTyVars $ \scopeTyVar ->
-    forM_ [param | param <- paramInfos, paramName param == tvName scopeTyVar] $ \param -> do
-      scopeKind <- zonkKind (tvKind scopeTyVar)
-      ownKind <- zonkKind (paramKind param)
-      let open = case ownKind of
-            TcMetaTv {} -> True
-            _ -> False
-          renaming =
-            Map.fromList
-              [ (tvUnique kindVariable, TcTyVar (paramTyVar own))
-              | kindVariable <- typeTyVars scopeKind,
-                own <- take 1 [other | other <- paramInfos, paramName other == tvName kindVariable]
-              ]
-      when (open && null (collectMetaVars scopeKind)) $
-        unifyKinds (applySubst renaming scopeKind) ownKind
+  let shared =
+        [ (scopeTyVar, param)
+        | scopeTyVar <- scopeTyVars,
+          param <- paramInfos,
+          paramName param == tvName scopeTyVar
+        ]
+  sharedKinds <- forM shared $ \(scopeTyVar, param) -> (,) <$> zonkKind (tvKind scopeTyVar) <*> zonkKind (paramKind param)
+  let openKinds =
+        [ scopeKind
+        | (scopeKind, ownKind) <- sharedKinds,
+          TcMetaTv {} <- [ownKind],
+          null (collectMetaVars scopeKind)
+        ]
+      scopeKindVariables = nubBy (\left right -> tvUnique left == tvUnique right) (concatMap typeTyVars openKinds)
+  kindMetas <- forM scopeKindVariables $ \variable -> (,) (tvUnique variable) <$> freshKindMeta
+  let kindSubstitution = Map.fromList kindMetas
+  forM_ sharedKinds $ \(scopeKind, ownKind) ->
+    case ownKind of
+      TcMetaTv {}
+        | null (collectMetaVars scopeKind) -> unifyKinds (applySubst kindSubstitution scopeKind) ownKind
+      _ -> pure ()
   let tvEnv =
         Map.fromList
           [ (paramName param, (paramTyVar param, paramKind param))

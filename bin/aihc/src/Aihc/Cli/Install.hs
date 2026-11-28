@@ -1410,6 +1410,7 @@ prepareExecutable shared graph slot = do
         moduleBuildFinishAfter = map slotFinishTask closure,
         moduleBuildDependencies = mapM slotDependency closure,
         moduleBuildQuoteLibrary = quoteLibraryOf closure closure,
+        moduleBuildPlanConstraints = planConstraintsOf closure,
         moduleBuildPartitioned = const (pure ()),
         moduleBuildFinished = finished
       }
@@ -1503,6 +1504,7 @@ packageModuleBuild shared slot installed build =
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
       moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
       moduleBuildQuoteLibrary = quoteLibraryOf (slotDependencies slot) (slotClosure slot),
+      moduleBuildPlanConstraints = planConstraintsOf (slotClosure slot),
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
         built <- finishPackageBuild config build compiled
@@ -1515,6 +1517,23 @@ packageModuleBuild shared slot installed build =
     item = planProgressItem (slotPlan slot)
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
     dependencies = buildDependencies build
+
+-- | The version and the flags of each Hackage release of a closure, as
+-- plan constraints. A splice of a module builds packages in a nested build.
+-- With these constraints, the nested build uses the same releases as the
+-- build of the module, and does not solve the plan again with newer
+-- releases. A core library has one version for each compiler. A local
+-- package is not available to the nested build, so a constraint on it
+-- would make the nested build look for it on Hackage.
+planConstraintsOf :: [PackageSlot] -> [String]
+planConstraintsOf slots =
+  concat
+    [ (name <> " ==" <> showVersion (Cabal.packageVersion (planDescription plan)))
+        : [name <> (if value then " +" else " -") <> unFlagName flag | (flag, value) <- unFlagAssignment (planFlags plan)]
+    | plan <- map slotPlan slots,
+      planOrigin plan == PlanHackage,
+      let name = unPackageName (planName plan)
+    ]
 
 -- | A package of the graph as the partition task of a module build above
 -- it sees it, once the package is partitioned.
@@ -2081,6 +2100,9 @@ data ModuleBuild = ModuleBuild
     -- | The dependencies, read by the partition task.
     moduleBuildDependencies :: !(IO [PreparedDependency]),
     moduleBuildQuoteLibrary :: !QuoteLibrary,
+    -- | The version and the flags of each package below the package in the
+    -- plan, as plan constraints. See 'planConstraintsOf'.
+    moduleBuildPlanConstraints :: ![String],
     -- | Takes the unit of each compiled module, before the partition task ends.
     moduleBuildPartitioned :: !(Map.Map Text UnitRuntime -> IO ()),
     moduleBuildFinished :: !(CompiledPackageModules -> IO ())
@@ -2161,6 +2183,7 @@ moduleSpliceRequest shared build file source =
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
                   spliceRequestPackageRoot = moduleBuildPackageRoot build,
                   spliceRequestDependencies = packageFileDependencies (packageFile file),
+                  spliceRequestPlanConstraints = moduleBuildPlanConstraints build,
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,

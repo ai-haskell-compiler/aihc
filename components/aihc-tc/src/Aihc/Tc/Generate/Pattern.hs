@@ -1369,31 +1369,34 @@ patternNameText name =
 -- Its result is then equal to an arrow type, but it is not an arrow. An
 -- example is an associated family application: with
 -- @type D Unit = Unit -> Unit@, the method @f :: a -> D a@ can have the
--- equation @f u x = x@. The family reduction of the shown result gives
--- the types of the other arguments and of the result where it can. Each
--- argument that the reduction does not show gets a fresh type. A wanted
--- equality relates the arrow type to the result that the checked type
--- shows. The first equation gets the pending cast for the FC desugarer.
+-- equation @f u x = x@. A wanted equality relates the arrow type of the
+-- other arguments to the result that the checked type shows. The first
+-- equation gets the pending cast for the FC desugarer.
 --
--- The reduction comes before the body is checked. The body then checks
--- against the known result type, as a case on a GADT must: with @type
--- MkLink (Q b v) = If b v (Maybe v) -> Maybe v@, each branch of @case
--- sbool :: SBool b of@ has the result @Maybe v@.
+-- The other arguments take their types from the reduced result, when the
+-- reduction shows arrows. Thus a pattern of such an argument is checked
+-- against its known type, and a GADT match in the body does not have to
+-- infer it. In @servant@, the argument of @toLink toA _ l mv@ has the type
+-- @If (FoldRequired mods) v (Maybe v)@, and each branch of a match on
+-- @SBool (FoldRequired mods)@ uses it at a different type. An argument that
+-- the reduced result does not show gets a fresh type.
 splitMatchType :: TcType -> [Match] -> TcM ([TcType], TcType, [Match], [Ct])
 splitMatchType ty matches =
   case matches of
     first : rest
       | missing > 0 -> do
-          reducedResult <- reduceTypeFamilies =<< zonkType shownResult
-          let (revealed, revealedResult) = peel missing reducedResult
-          hidden <- mapM (const freshMetaTv) [1 .. missing - length revealed]
-          result <- if null hidden then pure revealedResult else freshMetaTv
+          reduced <- zonkType shownResult >>= reduceTypeFamilies
+          let (revealed, revealedResult) = peel missing reduced
+              remaining = missing - length revealed
+          fresh <- mapM (const freshMetaTv) [1 .. remaining]
+          result <- if remaining == 0 then pure revealedResult else freshMetaTv
+          let hidden = revealed <> fresh
           evidence <- freshEvVar
-          let arrow = foldr TcFunTy result (revealed <> hidden)
+          let arrow = foldr TcFunTy result hidden
               location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
               cast = pendingMatchArityCast arrow evidence
-          pure (shown <> revealed <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
+          pure (shown <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
     _ -> pure (shown, shownResult, matches, [])
   where
     arity =
