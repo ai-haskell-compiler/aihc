@@ -420,7 +420,7 @@ resolvedExportTerm export name =
 exportedScopeFor :: Package -> ModuleExports -> [Extension] -> Module -> Maybe [ExportSpec] -> Scope
 exportedScopeFor package exports extensions modu = \case
   Nothing -> ownScope
-  Just specs -> withSeparatelyExportedFields (withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs)))
+  Just specs -> withSeparatelyExportedFields (withSeparatelyExportedAssociatedTypes (withSeparatelyExportedMethods (List.foldl' unionScope emptyScope (map exportSpecScope specs))))
   where
     (ownScope, imported) = ownAndImportedScopes package exports extensions modu
     availableScope = ownScope `unionScope` imported
@@ -446,6 +446,30 @@ exportedScopeFor package exports extensions modu = \case
                       Map.lookup method (scopeTerms scope) == Just resolvedMethod
                     ],
               not (null exportedMethods)
+            ]
+
+    -- A class item without members exports the class alone, but a
+    -- separate item can export an associated type of it, as @module Styles
+    -- (HasStyleName, StyleName)@ of pandoc does. The type stays an
+    -- associated type of the class: an item @C(..)@ in a module that
+    -- imports both names it, as in GHC.
+    withSeparatelyExportedAssociatedTypes scope =
+      scope {scopeAssociatedTypes = Map.unionWith (\bundled separate -> List.nub (bundled <> separate)) (scopeAssociatedTypes scope) separateAssociatedTypes}
+      where
+        separateAssociatedTypes =
+          Map.fromList
+            [ (className, exportedAssociatedTypes)
+            | (className, resolvedClass) <- Map.toList (scopeTypes scope),
+              candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
+              Map.lookup className (scopeTypes candidate) == Just resolvedClass,
+              Just associatedTypes <- [Map.lookup className (scopeAssociatedTypes candidate)],
+              let exportedAssociatedTypes =
+                    [ associatedType
+                    | associatedType <- associatedTypes,
+                      Just resolvedType <- [Map.lookup associatedType (scopeTypes candidate)],
+                      Map.lookup associatedType (scopeTypes scope) == Just resolvedType
+                    ],
+              not (null exportedAssociatedTypes)
             ]
 
     -- A type item without members exports the type alone, but a separate
@@ -510,13 +534,27 @@ exportedScopeFor package exports extensions modu = \case
         unionScope
         ( reexportedModuleScope
             (Map.findWithDefault emptyScope qualifier (scopeQualifiedModules availableScope))
-            availableScope
+            unqualifiedScopes
         )
-        [ reexportedModuleScope importScope availableScope
+        [ reexportedModuleScope (importDeclScope importDecl) unqualifiedScopes
         | importDecl <- moduleImports modu,
-          fromMaybe (importDeclModule importDecl) (importDeclAs importDecl) == qualifier,
-          let importScope = filterImportSpec (importDeclSpec importDecl) (lookupImportedModule package (importDeclPackage importDecl) (importDeclModule importDecl) exports)
+          fromMaybe (importDeclModule importDecl) (importDeclAs importDecl) == qualifier
         ]
+
+    importDeclScope importDecl =
+      filterImportSpec (importDeclSpec importDecl) (lookupImportedModule package (importDeclPackage importDecl) (importDeclModule importDecl) exports)
+
+    -- Each scope that gives names unqualified. Two imports can give one
+    -- name: HsLua of hslua imports 'error' from the Prelude and from
+    -- HsLua.Core. The union keeps only one of them, but the unqualified
+    -- name is in scope for each entity, so each import counts on its own.
+    unqualifiedScopes =
+      availableScope
+        : ownScope
+        : [ importDeclScope importDecl
+          | importDecl <- moduleImports modu,
+            not (importDeclQualified importDecl || importDeclQualifiedPost importDecl)
+          ]
 
     -- A qualified export item such as @L.smallChunkSize@ names an entity
     -- of the module that the qualifier imports. The module can also use
@@ -590,13 +628,17 @@ exportedScopeFor package exports extensions modu = \case
 -- that the qualifier brought in but that no unqualified import made visible
 -- is not re-exported, and neither is one that some other entity shadows
 -- unqualified.
-reexportedModuleScope :: Scope -> Scope -> Scope
-reexportedModuleScope qualified available =
+reexportedModuleScope :: Scope -> [Scope] -> Scope
+reexportedModuleScope qualified availableScopes =
   (filterScopeByNames reexported qualified) {scopeQualifiedModules = Map.empty}
   where
     reexported name =
-      sameEntity (Map.lookup name (scopeTerms qualified)) (Map.lookup name (scopeTerms available))
-        || sameEntity (Map.lookup name (scopeTypes qualified)) (Map.lookup name (scopeTypes available))
+      any
+        ( \available ->
+            sameEntity (Map.lookup name (scopeTerms qualified)) (Map.lookup name (scopeTerms available))
+              || sameEntity (Map.lookup name (scopeTypes qualified)) (Map.lookup name (scopeTypes available))
+        )
+        availableScopes
     sameEntity (Just qualifiedName) (Just availableName) = qualifiedName == availableName
     sameEntity _ _ = False
 

@@ -1,0 +1,39 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Styles (HasName, Name, getName) where
+    class HasName a where
+      type Name a
+      getName :: a -> Name a
+  - |
+    module Parse (HasName (..)) where
+    import Styles
+  - |
+    module Reader where
+    import Parse
+    nameOf :: HasName a => a -> Name a
+    nameOf = getName
+annotated:
+  - |-
+    module Parse (HasName (..)) where
+    import Styles
+  - |-
+    module Reader where
+    import Parse
+    nameOf :: HasName a => a -> Name a
+    │         └─ t Styles       └─ t Styles
+    └─ v Reader
+    nameOf = getName
+    │        └─ v Styles
+    └─ v Reader
+  - |-
+    module Styles (HasName, Name, getName) where
+    class HasName a where
+          └─ t Styles
+      type Name a
+           └─ t Styles
+      getName :: a -> Name a
+      └─ v Styles     └─ t Styles
+status: pass
+reason: As pandoc-3.14 Text.Pandoc.Readers.Docx.Parse does, an export of an imported class with (..) also exports the associated type that is in scope.

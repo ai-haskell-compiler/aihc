@@ -1,0 +1,39 @@
+extensions: []
+modules:
+- |
+  module Other (clash) where
+  clash = clash
+- |
+  module Core (clash) where
+  clash = clash
+- |
+  module Reexport (module Core) where
+  import Other
+  import Core
+- |
+  module Main where
+  import qualified Reexport as R
+  main = R.clash
+annotated:
+- |-
+  module Core (clash) where
+  clash = clash
+  │       └─ v Core
+  └─ v Core
+- |-
+  module Main where
+  import qualified Reexport as R
+  main = R.clash
+  │      └─ v Core
+  └─ v Main
+- |-
+  module Other (clash) where
+  clash = clash
+  │       └─ v Other
+  └─ v Other
+- |-
+  module Reexport (module Core) where
+  import Other
+  import Core
+status: pass
+reason: As HsLua of hslua-2.5.0 exports error, module Core exports each entity that Core gives unqualified, also when another import gives the same name.

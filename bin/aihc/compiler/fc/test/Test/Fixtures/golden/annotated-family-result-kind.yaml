@@ -1,0 +1,26 @@
+extensions:
+- DataKinds
+- FlexibleContexts
+- FlexibleInstances
+- KindSignatures
+- PolyKinds
+- TypeFamilies
+- UndecidableInstances
+modules:
+- |
+  {-# LANGUAGE FlexibleContexts, PolyKinds, TypeFamilies, UndecidableInstances #-}
+  module Test where
+  import GHC.Types (Constraint, Type)
+  -- As Servant.API.TypeErrors and Servant.Links of servant-0.20.3.0 declare them.
+  type family Stuck :: k where
+  type family Break err (a :: Type -> Type) :: Constraint where
+    Break _ a = ()
+  type family NoGeneric (routes :: Type -> Type) where
+    NoGeneric routes = Stuck
+  class HasLink (api :: Type) where
+    toLink :: api -> ()
+  data Named (api :: Type -> Type) = Named
+  instance Break (NoGeneric api :: Type) api => HasLink (Named api) where
+    toLink _ = ()
+status: pass
+reason: Only the annotation gives the result kind of the family application, because the parameter of Break is poly-kinded. The type checker keeps that kind as a kind argument.
