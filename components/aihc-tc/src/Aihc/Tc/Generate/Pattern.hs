@@ -70,6 +70,7 @@ import Aihc.Tc.Syntax
     resolvedBinderEntity,
   )
 import Aihc.Tc.Types
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
@@ -1362,22 +1363,31 @@ patternNameText name =
 -- Its result is then equal to an arrow type, but it is not an arrow. An
 -- example is an associated family application: with
 -- @type D Unit = Unit -> Unit@, the method @f :: a -> D a@ can have the
--- equation @f u x = x@. The other arguments get fresh types, and a wanted
--- equality relates their arrow type to the result that the checked type
+-- equation @f u x = x@. The family reduction of the shown result gives
+-- the types of the other arguments and of the result where it can. Each
+-- argument that the reduction does not show gets a fresh type. A wanted
+-- equality relates the arrow type to the result that the checked type
 -- shows. The first equation gets the pending cast for the FC desugarer.
+--
+-- The reduction comes before the body is checked. The body then checks
+-- against the known result type, as a case on a GADT must: with @type
+-- MkLink (Q b v) = If b v (Maybe v) -> Maybe v@, each branch of @case
+-- sbool :: SBool b of@ has the result @Maybe v@.
 splitMatchType :: TcType -> [Match] -> TcM ([TcType], TcType, [Match], [Ct])
 splitMatchType ty matches =
   case matches of
     first : rest
       | missing > 0 -> do
-          hidden <- mapM (const freshMetaTv) [1 .. missing]
-          result <- freshMetaTv
+          reducedResult <- reduceTypeFamilies =<< zonkType shownResult
+          let (revealed, revealedResult) = peel missing reducedResult
+          hidden <- mapM (const freshMetaTv) [1 .. missing - length revealed]
+          result <- if null hidden then pure revealedResult else freshMetaTv
           evidence <- freshEvVar
-          let arrow = foldr TcFunTy result hidden
+          let arrow = foldr TcFunTy result (revealed <> hidden)
               location = listToMaybe (mapMaybe annotationSpan (matchAnns first))
               wanted = mkWantedCt (EqPred arrow shownResult) evidence (AppOrigin location) location
               cast = pendingMatchArityCast arrow evidence
-          pure (shown <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
+          pure (shown <> revealed <> hidden, result, first {matchArityCast = Just cast} : rest, [wanted])
     _ -> pure (shown, shownResult, matches, [])
   where
     arity =

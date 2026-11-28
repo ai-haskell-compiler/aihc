@@ -1,0 +1,61 @@
+extensions: [TypeFamilies, PolyKinds, KindSignatures, DataKinds, GADTs, ScopedTypeVariables]
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, PolyKinds, KindSignatures, DataKinds, GADTs, ScopedTypeVariables #-}
+    module Test where
+    import GHC.Types
+    data M a = N | J a
+    data SBool (b :: Bool) where
+      STrue :: SBool 'True
+      SFalse :: SBool 'False
+    class SBoolI (b :: Bool) where sbool :: SBool b
+    type family If (c :: Bool) (t :: k) (e :: k) :: k where
+      If 'True t e = t
+      If 'False t e = e
+    data Q (b :: Bool) (v :: Type)
+    type family MkLink e
+    type instance MkLink (Q b v) = If b v (M v) -> M v
+    g :: forall b v. SBoolI b => Q b v -> MkLink (Q b v)
+    g _ mv = case sbool :: SBool b of
+      STrue -> J mv
+      SFalse -> mv
+annotated:
+  - |-
+    {-# LANGUAGE TypeFamilies, PolyKinds, KindSignatures, DataKinds, GADTs, ScopedTypeVariables #-}
+    module Test where
+    import GHC.Types
+    data M a = N | J a
+         │     │   └─ type: ∀ a. a → M a
+         │     └─ type: ∀ a. M a
+         └─ type: Type → Type
+    data SBool (b :: Bool) where
+         └─ type: GHC.Types.Bool → Type
+      STrue :: SBool 'True
+      └─ type: ∀ b. (b ~ 'GHC.Types.True) ⇒ SBool b
+      SFalse :: SBool 'False
+      └─ type: ∀ b. (b ~ 'GHC.Types.False) ⇒ SBool b
+    class SBoolI (b :: Bool) where sbool :: SBool b
+    └─ class methods: sbool ∷ ∀ b. (SBoolI b) ⇒ SBool b
+    type family If (c :: Bool) (t :: k) (e :: k) :: k where
+                └─ type: GHC.Types.Bool → k → k → k
+      If 'True t e = t
+      If 'False t e = e
+    data Q (b :: Bool) (v :: Type)
+         └─ type: GHC.Types.Bool → Type → Type
+    type family MkLink e
+                └─ type: Type → Type
+    type instance MkLink (Q b v) = If b v (M v) -> M v
+    g :: forall b v. SBoolI b => Q b v -> MkLink (Q b v)
+    g _ mv = case sbool :: SBool b of
+    │ │ │    │    └─ type: SBool b; type-args: b; evidence: given SBoolI b
+    │ │ │    └─ type: M v
+    │ │ └─ type: If b v (M v)
+    │ └─ type: Q b v
+    └─ type: ∀ b v. (SBoolI b) ⇒ Q b v → MkLink (Q b v)
+      STrue -> J mv
+      │        └─ type: If b v (M v) → M (If b v (M v)); type-args: If b v (M v)
+      └─ type: SBool b; type-args: b; evidence: given b ~ 'True
+      SFalse -> mv
+      └─ type: SBool b; type-args: b; evidence: given b ~ 'False
+status: pass
+reason: the family reduction of a signature result gives the hidden argument and result types before the body is checked, so each GADT case branch checks against the result type
