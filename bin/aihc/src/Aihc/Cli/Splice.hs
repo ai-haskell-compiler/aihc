@@ -458,7 +458,7 @@ buildImage settings request = do
           buildPrintTimings = False,
           buildOutput = Just (spliceRequestBuildRoot request </> "image.wasm"),
           buildExecutables = [],
-          buildPlanOptions = splicePlanOptions
+          buildPlanOptions = splicePlanOptions request
         }
       (spliceConfig settings Nothing)
   case images of
@@ -498,7 +498,7 @@ nativeProgramOptions target request directory =
       buildPrintTimings = False,
       buildOutput = Just (spliceRequestBuildRoot request </> "bin"),
       buildExecutables = [nativeGuestName],
-      buildPlanOptions = splicePlanOptions
+      buildPlanOptions = splicePlanOptions request
     }
 
 -- | The options that install the splice package: for a shared module of
@@ -526,15 +526,16 @@ packageOptions engine request directory =
       installPrintTimings = False,
       installTarget = engineTarget engine,
       installWorkspace = Nothing,
-      installPlanOptions = splicePlanOptions
+      installPlanOptions = splicePlanOptions request
     }
 
 -- | The plan options of the image build and of the splice package install.
--- The constraints pin the version of each package, so the builds use no
--- lock. A lock would be in the working directory of the user, and the
--- modules of a package run their splices at the same time.
-splicePlanOptions :: PlanOptions
-splicePlanOptions = defaultPlanOptions {planUseLock = False}
+-- The constraints pin the version and the flags of each package below the
+-- module, so the builds use no lock. A lock would be in the working
+-- directory of the user, and the modules of a package run their splices at
+-- the same time.
+splicePlanOptions :: SpliceRequest -> PlanOptions
+splicePlanOptions request = defaultPlanOptions {planUseLock = False, planConstraints = spliceRequestPlanConstraints request}
 
 -- | The Cabal file of the splice package. The package depends on each
 -- package that the module can import, at the version that the build of the

@@ -20,6 +20,7 @@ module Aihc.Resolve
     LocalId (..),
     globalTerm,
     fieldSelectorName,
+    fieldOnlyName,
     ResolutionNamespace (..),
 
     -- * Annotations
@@ -1222,8 +1223,8 @@ resolveExpr expr =
     ETHTypedQuote inner ->
       R.ETHTypedQuote <$> withExpressionQuote True (resolveExpr inner)
     -- The names of a declaration quote with only value bindings, type
-    -- signatures, instances, and standalone deriving declarations have the
-    -- scope of the quote, as the names of an expression quote. The binders
+    -- signatures, instances, standalone deriving declarations, data
+    -- declarations, and newtype declarations have the scope of the quote, as the names of an expression quote. The binders
     -- of the quote are local to the quote, as the binders of a let. The
     -- change of the quote reads the resolutions. The body of a different
     -- declaration quote stays unresolved. But each splice in the body is an expression at the
@@ -1231,7 +1232,8 @@ resolveExpr expr =
     ETHDeclQuote decls
       | all resolvedQuoteDecl decls -> do
           (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
-          R.ETHDeclQuote <$> withExpressionQuote True (extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls))
+          typeScope <- allocateQuoteTypeBinders decls
+          R.ETHDeclQuote <$> withExpressionQuote True (extendScope (unionScope typeScope localScope) (resolveBoundDecls binderAnnotations Map.empty decls))
       | otherwise ->
           R.ETHDeclQuote <$> mapM (convertDecl quoteSpliceHooks) decls
     -- The names of a type quote have the scope of the quote, as the names
@@ -1269,7 +1271,32 @@ resolvedQuoteDecl decl =
     DeclTypeSig {} -> True
     DeclInstance {} -> True
     DeclStandaloneDeriving {} -> True
+    DeclData {} -> True
+    DeclNewtype {} -> True
     _ -> False
+
+-- | The local binders of the data declarations and the newtype
+-- declarations of a declaration quote: each type, each constructor, and
+-- each record field. The declarations of the quote can use them.
+allocateQuoteTypeBinders :: [Decl] -> ResolveM Scope
+allocateQuoteTypeBinders decls = do
+  fieldScope <- currentScope
+  foldM (add fieldScope) emptyScope decls
+  where
+    add fieldScope scope decl =
+      case snd (peelDeclSpan decl) of
+        inner@DeclData {} -> binders fieldScope scope inner
+        inner@DeclNewtype {} -> binders fieldScope scope inner
+        _ -> pure scope
+    binders fieldScope scope decl = do
+      let DeclExports termNames typeNames constructors recordFields _ _ _ = declExportedNames fieldScope decl
+      scope' <- foldM (\acc name -> (\entity -> insertTerm (renderUnqualifiedName name) entity acc) <$> freshLocal) scope termNames
+      scope'' <- foldM (\acc name -> (\entity -> insertType (renderUnqualifiedName name) entity acc) <$> freshLocal) scope' typeNames
+      pure
+        scope''
+          { scopeConstructors = constructors `Map.union` scopeConstructors scope'',
+            scopeRecordFields = recordFields `Map.union` scopeRecordFields scope''
+          }
 
 -- | Resolve the splices in the unresolved body of a quote.
 --
@@ -1709,11 +1736,13 @@ recordFieldPunValue field
 -- selector must be in scope. The resolution of each label tells the type
 -- checker which data type the update rebuilds. Two data types can declare a
 -- field with the same name, and then only the resolution separates them.
+-- A field that a module declares with NoFieldSelectors is not a term, so
+-- its label is looked up as a field first.
 resolveRecordUpdateFields :: [RecordField Expr] -> ResolveM [R.RecordField R.Expr]
 resolveRecordUpdateFields =
   mapM
     ( \field -> do
-        name' <- resolveTermUseAtName (recordFieldName field)
+        name' <- resolveFieldLabelAtName (recordFieldName field)
         value' <- resolveExpr (recordFieldPunValue field)
         pure (R.RecordField name' value' (recordFieldPun field))
     )
@@ -2917,6 +2946,23 @@ resolveTermUseAtName name = do
   resolved <- closedTermUse name (termUseResolution scope name)
   resolveNameTo nameSpan ResolutionNamespaceTerm resolved name
 
+-- | Resolve the label of a record field in a record update. A field
+-- without a selector function has no term with its label, so the label
+-- names it before any term.
+resolveFieldLabelAtName :: Name -> ResolveM R.Name
+resolveFieldLabelAtName name = do
+  scope <- currentScope
+  let fieldScope =
+        case nameQualifier name of
+          Nothing -> Just scope
+          Just qualifier -> Map.lookup qualifier (scopeQualifiedModules scope)
+  case fieldScope >>= lookupFieldOnly (nameText name) of
+    Nothing -> resolveTermUseAtName name
+    Just entity -> do
+      sp <- currentSpan
+      let nameSpan = sourceSpanFromAnns (nameAnns name) <|> spanStartNameSpan sp (nameText name)
+      resolveNameTo nameSpan ResolutionNamespaceTerm (Found entity) name
+
 resolveInfixExpr :: Expr -> ResolveM R.Expr
 resolveInfixExpr expr = do
   operands <- traverse resolveExpr (flattenInfixExpr expr)
@@ -3090,15 +3136,19 @@ resolveDataConDefinitions scope firstConstructor =
         R.GadtRecordBody fields result -> R.GadtRecordBody (map resolveFieldSelectors fields) result
         _ -> body
 
-    -- A duplicate record field has a selector with its own name. The field
-    -- binder gets that selector, so the type checker and the desugarer use
-    -- the same name. Other field binders keep no resolution.
+    -- A duplicate record field, and a field that a module declares with
+    -- NoFieldSelectors, has a selector with its own name. The field binder
+    -- gets that selector, so the type checker and the desugarer use the
+    -- same name. Other field binders keep no resolution.
     resolveFieldSelectors field =
       field {R.fieldNames = map (resolveFieldSelector (sourceSpanFromAnns (R.fieldAnns field))) (R.fieldNames field)}
 
     resolveFieldSelector span' name =
       let rendered = R.renderUnqualifiedName name
-       in case firstConstructor >>= \constructor -> Map.lookup (fieldSelectorName rendered constructor) (scopeTerms scope) of
+          ownSelector constructor =
+            Map.lookup (fieldSelectorName rendered constructor) (scopeTerms scope)
+              <|> Map.lookup (fieldOnlyName rendered constructor) (scopeTerms scope)
+       in case firstConstructor >>= ownSelector of
             Just entity ->
               name {R.unqualifiedNameResolution = Just (ResolutionOk (Resolved (spanStartNameSpan span' rendered) (IdentifierNamed rendered) ResolutionNamespaceTerm entity))}
             Nothing -> name

@@ -46,10 +46,10 @@ import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isCon
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars, quantifiableEquality)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -360,7 +360,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
         | modu <- modules,
           declaration <- moduleDecls modu
         ]
-  forM_ (structuralDeclGroups (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
+  forM_ (structuralDeclGroups associatedFamilyClasses (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
     mapM_ (atDecl registerTypeSynonymBody . snd) group
     mapM_ (atDecl checkTypeSynonymBody . snd) group
     mapM_ (atDeclOf registerStructuralDecl) group
@@ -917,12 +917,31 @@ reservedKindMetas = do
   pure (IntSet.fromList [key | Unique key <- concatMap collectMetaVars kinds])
 
 -- | Complete each type declaration group before its users constrain its kinds.
-structuralDeclGroups :: [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
-structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
+--
+-- A hoisted associated data family depends on its class. The class and the
+-- family share the kinds of the class parameters, and the class
+-- registration settles them. Thus, an instance of the family, which
+-- depends only on the family, comes after the class, as in GHC. Without
+-- this dependency, @data instance Adaptation NoAdaptation i i e@ can set
+-- the shared kinds to the kinds of its arguments before the class reads
+-- its own annotations, as @(t :: k)@.
+structuralDeclGroups :: Map GlobalName (BinderHead UnqualifiedName) -> [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
+structuralDeclGroups associatedClasses declarations = map flatten (stronglyConnComp nodes)
   where
     numbered = zip [0 :: Int ..] declarations
     owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration <> declarationDataConKeys declaration]
-    nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
+    nodes = [(declaration, index, dependencies (snd declaration) <> classDependencies (snd declaration)) | (index, declaration) <- numbered]
+    classDependencies declaration =
+      [ owner
+      | familyKey <- associatedFamilyKeys declaration,
+        Just classHead <- [Map.lookup familyKey associatedClasses],
+        Just classKey <- [resolvedTypeKey (binderHeadName classHead)],
+        Just owner <- [Map.lookup classKey owners]
+      ]
+    associatedFamilyKeys declaration =
+      case peelDeclAnn declaration of
+        DeclDataFamilyDecl {} -> declarationTypeKeys declaration
+        _ -> []
     signatures = collectStandaloneKindSignatures (map snd declarations)
     kindResolutions declaration =
       concat [collectResolutions resolvedOf kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
@@ -965,7 +984,7 @@ declarationTypeKeys declaration =
 generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set GlobalName -> TcM ()
 generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
-  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
+  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon, DataFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
   generalized <- traverse generalizeDataKindInfo constructors
   -- Only the classes among the generalized constructors change. A map
   -- over every class would read every imported class, and an imported
@@ -1235,8 +1254,13 @@ defaultGlobalKindMetas initialKeys = do
             Nothing -> False
       when (polyKinds || hasKindVariables) (generalizeTyVarKinds (tfiiTyVars info))
       tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
-      left <- defaultTypeKinds (tfiiLeft info)
-      right <- defaultTypeKinds (tfiiRight info)
+      -- A kind meta-variable can stand in a type position of a side. The
+      -- synonym @type Arity (ty :: k) = Arity' k@ uses its kind variable as
+      -- a type, and its expansion in @F x = Proxy (Arity x)@ gives @Arity'
+      -- k0@ with a meta-variable @k0@. The generalization above solves
+      -- @k0@, so zonk both sides before the kinds are defaulted.
+      left <- zonkType (tfiiLeft info) >>= defaultTypeKinds
+      right <- zonkType (tfiiRight info) >>= defaultTypeKinds
       -- A kind variable that only the result kind of the family mentions,
       -- as the @k@ of @type family F t where F t = TypeError ...@ (@F ::
       -- forall j k. j -> k@), is not determined by an argument. Each
@@ -4204,7 +4228,8 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty exception context.
   let (callStackCts, residualCts) = partition (isDefaultedImplicitParam . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
+  isFamily <- isTypeFamilyTyCon
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize isFamily . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
   -- dictionary solver a second attempt before the error report. Every
@@ -4215,9 +4240,12 @@ generalizableResidualPreds inferredType solveResult = do
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
-  -- one constraint in the generalized type.
+  -- one constraint in the generalized type. The proof of an equality is
+  -- the coercion that the caller gives for it.
   forM_ polymorphicCts $ \ct ->
-    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+    bindEvidence (ctEvVar ct) $ case ctPred ct of
+      predicate@EqPred {} -> EvCoercion (GivenCo predicate)
+      predicate -> EvGiven predicate
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
   forM_ (nubBy sameCtPred concreteCts) reportUnsolvedDict
@@ -4248,14 +4276,16 @@ generalizedMetaVars inferredType = do
   envMetaVars <- environmentMetaVars Set.empty
   pure (collectMetaVars zonked <> envMetaVars)
 
-predicateCanGeneralize :: Pred -> Bool
-predicateCanGeneralize predicate =
+predicateCanGeneralize :: (TyCon -> Bool) -> Pred -> Bool
+predicateCanGeneralize isFamily predicate =
   case predicate of
     -- A caller always supplies an implicit parameter, even at a concrete type.
     IParamPred {} -> True
-    -- An equality that waits on a type family application is not a
-    -- dictionary a caller can supply.
-    EqPred {} -> False
+    -- An equality that waits on a type family application with a
+    -- meta-variable becomes a part of the context, as in GHC. Each caller
+    -- supplies a proof for its own type. Each other residual equality is
+    -- an error.
+    EqPred left right -> quantifiableEquality isFamily left right
     _ -> not (null (predMetaVars predicate))
 
 rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
@@ -5537,22 +5567,40 @@ checkTypeFamilyEquation = checkTypeFamilyEquationIn []
 -- | Check an equation whose variables can be variables of an enclosing
 -- scope, as the variables of an associated equation are the variables of
 -- its instance head. A variable of the equation gets the kind of the
--- scope variable of the same name when that kind names no variable and
--- the equation leaves its own kind open. A kind with a kind variable
--- stays open, because the kind variables of the instance are not
--- variables of the equation.
+-- scope variable of the same name when the equation leaves its own kind
+-- open.
+--
+-- The kind variables of the instance are not variables of the equation.
+-- Thus each of them becomes a fresh kind meta-variable of the equation,
+-- one for each kind variable, and the equation generalizes it. In
+-- @instance HasLink ((arr :: a -> b) :> sub)@ of @servant@, the equation
+-- @type MkLink (arr :> sub) _ = ...@ gets @arr :: k1 -> k2@. Without the
+-- arrow, the equation also matches @MkLink (sym :> sub) a@ of the
+-- instance for a 'Symbol'.
 checkTypeFamilyEquationIn :: [TyVarId] -> (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM (Maybe TypeFamilyInstanceInfo)
 checkTypeFamilyEquationIn scopeTyVars (packageName, moduleName') isClosed extraBinders equation = do
   paramInfos <- typeFamilyEquationParams extraBinders equation
-  forM_ scopeTyVars $ \scopeTyVar ->
-    forM_ [param | param <- paramInfos, paramName param == tvName scopeTyVar] $ \param -> do
-      scopeKind <- zonkKind (tvKind scopeTyVar)
-      ownKind <- zonkKind (paramKind param)
-      let open = case ownKind of
-            TcMetaTv {} -> True
-            _ -> False
-      when (open && null (typeTyVars scopeKind) && null (collectMetaVars scopeKind)) $
-        unifyKinds scopeKind ownKind
+  let shared =
+        [ (scopeTyVar, param)
+        | scopeTyVar <- scopeTyVars,
+          param <- paramInfos,
+          paramName param == tvName scopeTyVar
+        ]
+  sharedKinds <- forM shared $ \(scopeTyVar, param) -> (,) <$> zonkKind (tvKind scopeTyVar) <*> zonkKind (paramKind param)
+  let openKinds =
+        [ scopeKind
+        | (scopeKind, ownKind) <- sharedKinds,
+          TcMetaTv {} <- [ownKind],
+          null (collectMetaVars scopeKind)
+        ]
+      scopeKindVariables = nubBy (\left right -> tvUnique left == tvUnique right) (concatMap typeTyVars openKinds)
+  kindMetas <- forM scopeKindVariables $ \variable -> (,) (tvUnique variable) <$> freshKindMeta
+  let kindSubstitution = Map.fromList kindMetas
+  forM_ sharedKinds $ \(scopeKind, ownKind) ->
+    case ownKind of
+      TcMetaTv {}
+        | null (collectMetaVars scopeKind) -> unifyKinds (applySubst kindSubstitution scopeKind) ownKind
+      _ -> pure ()
   let tvEnv =
         Map.fromList
           [ (paramName param, (paramTyVar param, paramKind param))

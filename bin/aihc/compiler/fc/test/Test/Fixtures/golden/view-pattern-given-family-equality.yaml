@@ -1,0 +1,68 @@
+extensions:
+  - TypeFamilies
+  - ViewPatterns
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, ViewPatterns #-}
+    module Test where
+    data Box w a = Box w a
+    class C s where
+      type M s
+      type W s
+      toB :: s -> Box (W s) (M s)
+      fromB :: Box (W s) (M s) -> s
+    weight :: Box w a -> w
+    weight (Box w _) = w
+    f :: (C s, M s ~ m) => s -> m -> s
+    f (toB -> b) x = fromB (Box (weight b) x)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  import headers
+    constructors [2.cLifted, 2.cUnlifted] 2.tLevity :: sType;
+    2.sLiftedRep :: tRuntimeRep;
+    constructors [2.cVecRep, 2.cTupleRep, 2.cSumRep, 2.cBoxedRep, 2.cIntRep, 2.cInt8Rep, 2.cInt16Rep, 2.cInt32Rep, 2.cInt64Rep, 2.cWordRep, 2.cWord8Rep, 2.cWord16Rep, 2.cWord32Rep, 2.cWord64Rep, 2.cAddrRep, 2.cFloatRep, 2.cDoubleRep] 2.tRuntimeRep :: sType;
+    2.tTYPE :: ∀(rep : tRuntimeRep). sType;
+    2.sType :: sType;
+    constructors [2.c[], 2.c:] 2.t[] :: ∀(a : sType). sType;
+    2.cBoxedRep :: tLevity → tRuntimeRep;
+    2.cLifted :: tLevity;
+    2.cTupleRep :: t[] tRuntimeRep → tRuntimeRep;
+    2.c[] :: ∀(a : sType). t[] a
+
+  import synonyms
+    2.sLiftedRep = cBoxedRep cLifted;
+    2.sType = tTYPE sLiftedRep
+
+  pub type 1.tBox (w : sType) (a : sType) :: sType {
+    pub 1.cBox :: ∀(w : sType) (a : sType). w → a → tBox w a
+  }
+
+  pub type 1.t$Dict$C (s : sType) :: sType {
+    pub 1.c$Dict$C :: ∀(s : sType). (s → tBox (tW s) (tM s)) → (tBox (tW s) (tM s) → s) → t$Dict$C s
+  }
+
+  pub type 1.tM (s : sType) :: sType @N {}
+
+  pub type 1.tW (s : sType) :: sType @N {}
+
+  pub val 1.vtoB :: ∀(s : sType). t$Dict$C s → s → tBox (tW s) (tM s)
+    = Λ(s : sType). λ($dC : t$Dict$C s).
+      let! c$Dict$C ($ctoB : s → tBox (tW s) (tM s)) (unused $cfromB : tBox (tW s) (tM s) → s) = $dC;
+      $ctoB
+
+  pub val 1.vfromB :: ∀(s : sType). t$Dict$C s → tBox (tW s) (tM s) → s
+    = Λ(s : sType). λ($dC : t$Dict$C s).
+      let! c$Dict$C (unused $ctoB : s → tBox (tW s) (tM s)) ($cfromB : tBox (tW s) (tM s) → s) = $dC;
+      $cfromB
+
+  pub val 1.vweight :: ∀(w : sType) (a : sType). tBox w a → w
+    = Λ(w : sType) (a : sType). λ(x : tBox w a).
+      let! cBox (w{1} : w) (unused _pat : a) = x;
+      w{1}
+
+  pub val 1.vf :: ∀(s : sType) (m : sType). t$Dict$C s → FUN @(cTupleRep (c[] tRuntimeRep)) @sLiftedRep (tM s ~ m) (s → m → s)
+    = Λ(s : sType) (m : sType). λ($dC : t$Dict$C s) ($co : tM s ~ m) (x : s) (y : m).
+      vfromB @s $dC ((cBox @(tW s) @m (vweight @(tW s) @m (((vtoB @s $dC) ▷ sym (fun-co (refl s) (tycon-co tBox (refl (tW s)) (sym ($co))))) x)) y) ▷ tycon-co tBox (refl (tW s)) (sym ($co)))
+status: pass

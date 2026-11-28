@@ -311,7 +311,7 @@ import Prettyprinter.Render.String (renderString)
 import System.Directory (XdgDirectory (XdgCache), canonicalizePath, copyFile, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getFileSize, getXdgDirectory, listDirectory, removeDirectoryRecursive, removeFile, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, dropTrailingPathSeparator, isRelative, makeRelative, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
+import System.FilePath (dropExtension, dropTrailingPathSeparator, isAbsolute, isRelative, makeRelative, normalise, pathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (<.>), (</>))
 import System.IO (IOMode (ReadWriteMode), hClose, hPutStrLn, openBinaryTempFile, openFile, stderr, stdout)
 import System.IO.Error (isAlreadyInUseError, modifyIOError)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcess, readCreateProcessWithExitCode)
@@ -1109,6 +1109,9 @@ data PackageBuild = PackageBuild
     buildInputs :: !PackageInputs,
     buildFiles :: ![HackageCabal.FileInfo],
     buildCCompileInfo :: !HackageCabal.CCompileInfo,
+    -- | The include directories outside the package that its library
+    -- names. See 'externalIncludeDirs'.
+    buildExternalIncludeDirs :: ![FilePath],
     buildHeaderHash :: !String,
     buildReexports :: !(Map.Map Text (Text, Text)),
     -- | The dependencies as they are while they build.
@@ -1366,7 +1369,7 @@ prepareExecutable shared graph slot = do
       outputRoot = componentOutputRoot component
   dependencies <- mapM (fmap preparedPackage . atomically . readTMVar . slotPrepared) closure
   (ownFiles, ownCInfo) <- componentInputs component dependencies
-  headerDirs <- dependencyIncludeDirs dependencies
+  headerDirs <- (<>) <$> dependencyIncludeDirs dependencies <*> dependencyExternalIncludeDirs dependencies
   let files = map (appendIncludeDirs headerDirs) ownFiles
       cCompileInfo = ownCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs ownCInfo <> headerDirs)}
       finished compiledModules = do
@@ -1407,6 +1410,7 @@ prepareExecutable shared graph slot = do
         moduleBuildFinishAfter = map slotFinishTask closure,
         moduleBuildDependencies = mapM slotDependency closure,
         moduleBuildQuoteLibrary = quoteLibraryOf closure closure,
+        moduleBuildPlanConstraints = planConstraintsOf closure,
         moduleBuildPartitioned = const (pure ()),
         moduleBuildFinished = finished
       }
@@ -1500,6 +1504,7 @@ packageModuleBuild shared slot installed build =
       moduleBuildFinishAfter = map slotFinishTask (slotDependencies slot),
       moduleBuildDependencies = mapM slotDependency (slotDependencies slot),
       moduleBuildQuoteLibrary = quoteLibraryOf (slotDependencies slot) (slotClosure slot),
+      moduleBuildPlanConstraints = planConstraintsOf (slotClosure slot),
       moduleBuildPartitioned = atomically . putTMVar (slotUnits slot),
       moduleBuildFinished = \compiled -> do
         built <- finishPackageBuild config build compiled
@@ -1512,6 +1517,23 @@ packageModuleBuild shared slot installed build =
     item = planProgressItem (slotPlan slot)
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
     dependencies = buildDependencies build
+
+-- | The version and the flags of each Hackage release of a closure, as
+-- plan constraints. A splice of a module builds packages in a nested build.
+-- With these constraints, the nested build uses the same releases as the
+-- build of the module, and does not solve the plan again with newer
+-- releases. A core library has one version for each compiler. A local
+-- package is not available to the nested build, so a constraint on it
+-- would make the nested build look for it on Hackage.
+planConstraintsOf :: [PackageSlot] -> [String]
+planConstraintsOf slots =
+  concat
+    [ (name <> " ==" <> showVersion (Cabal.packageVersion (planDescription plan)))
+        : [name <> (if value then " +" else " -") <> unFlagName flag | (flag, value) <- unFlagAssignment (planFlags plan)]
+    | plan <- map slotPlan slots,
+      planOrigin plan == PlanHackage,
+      let name = unPackageName (planName plan)
+    ]
 
 -- | A package of the graph as the partition task of a module build above
 -- it sees it, once the package is partitioned.
@@ -1816,11 +1838,13 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
   let gpd = inputDescription inputs
       packageNameText = HackagePackage.packageNameText (packageNameOf gpd)
   (configuredFiles, configuredCInfo) <- configurePackage root packageNameText inputs configured
-  headerDirs <- dependencyIncludeDirs headerPackages
-  headerHash <- includeDirectoriesHash headerDirs
+  storeHeaderDirs <- dependencyIncludeDirs headerPackages
+  headerHash <- includeDirectoriesHash storeHeaderDirs
+  externalHeaderDirs <- dependencyExternalIncludeDirs headerPackages
   let dependencyVersions =
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
+      headerDirs = nub (storeHeaderDirs <> externalHeaderDirs)
       cCompileInfo = configuredCInfo {HackageCabal.cCompileIncludeDirs = nub (HackageCabal.cCompileIncludeDirs configuredCInfo <> headerDirs)}
       sourceFiles = map (appendIncludeDirs headerDirs) configuredFiles
   installPackageHeaders root buildPath configuredCInfo
@@ -1838,6 +1862,7 @@ preparePackageBuild config packageDirectory unitIdentity immutable buildPath pub
             buildInputs = inputs,
             buildFiles = files,
             buildCCompileInfo = cCompileInfo,
+            buildExternalIncludeDirs = externalIncludeDirs root configured configuredCInfo,
             buildHeaderHash = headerHash,
             buildReexports = reexports,
             buildDependencies = dependencies,
@@ -1937,7 +1962,8 @@ packageBuildManifest config build compiledModules =
       packageManifestFlags = compileFlagNames config,
       packageManifestCabalFlags = Map.fromList [(T.pack (unFlagName flag), value) | (flag, value) <- unFlagAssignment (HackageCabal.contextFlags (inputContext inputs))],
       packageManifestCxxStdLib = not (null (HackageCabal.cCompileCxxSources (buildCCompileInfo build))),
-      packageManifestLinkArguments = map T.pack (packageLinkArguments (compileTarget config) (buildCCompileInfo build))
+      packageManifestLinkArguments = map T.pack (packageLinkArguments (compileTarget config) (buildCCompileInfo build)),
+      packageManifestIncludeDirs = map T.pack (buildExternalIncludeDirs build)
     }
   where
     inputs = buildInputs build
@@ -2022,7 +2048,7 @@ compileFlagNames config =
 -- same preprocessing and parse as the modules of a package.
 sourceFileModuleName :: ModuleCompileConfig -> FilePath -> [InstalledPackage] -> HackageCabal.FileInfo -> IO Text
 sourceFileModuleName config packageRoot dependencies file = do
-  headerDirs <- dependencyIncludeDirs dependencies
+  headerDirs <- (<>) <$> dependencyIncludeDirs dependencies <*> dependencyExternalIncludeDirs dependencies
   let versions =
         dependencyVersionsFromManifests
           [(installedName dependency, installedVersion dependency) | dependency <- dependencies]
@@ -2074,6 +2100,9 @@ data ModuleBuild = ModuleBuild
     -- | The dependencies, read by the partition task.
     moduleBuildDependencies :: !(IO [PreparedDependency]),
     moduleBuildQuoteLibrary :: !QuoteLibrary,
+    -- | The version and the flags of each package below the package in the
+    -- plan, as plan constraints. See 'planConstraintsOf'.
+    moduleBuildPlanConstraints :: ![String],
     -- | Takes the unit of each compiled module, before the partition task ends.
     moduleBuildPartitioned :: !(Map.Map Text UnitRuntime -> IO ()),
     moduleBuildFinished :: !(CompiledPackageModules -> IO ())
@@ -2154,9 +2183,11 @@ moduleSpliceRequest shared build file source =
                   spliceRequestBuildRoot = locationBuildRoot locations </> "splices" </> T.unpack ownName </> T.unpack (sourceModuleName source),
                   spliceRequestPackageRoot = moduleBuildPackageRoot build,
                   spliceRequestDependencies = packageFileDependencies (packageFile file),
+                  spliceRequestPlanConstraints = moduleBuildPlanConstraints build,
                   spliceRequestExtensions = HackageCabal.fileInfoExtensions file,
                   spliceRequestLanguage = HackageCabal.fileInfoLanguage file,
                   spliceRequestPragmas = Syntax.moduleLanguagePragmas modu,
+                  spliceRequestEnabledExtensions = sourceModuleExtensions source,
                   spliceRequestImports = Syntax.moduleImports modu,
                   spliceRequestPackageFiles = Map.fromList [(HackageCabal.fileInfoPath other, packageFile other) | other <- moduleBuildFiles build],
                   spliceRequestOwnModules = [],
@@ -4584,6 +4615,32 @@ dependencyIncludeDirs :: [InstalledPackage] -> IO [FilePath]
 dependencyIncludeDirs dependencies =
   filterM doesDirectoryExist (map (packageHeaderDirectory . installStorePath . installedResult) dependencies)
 
+-- | The include directories outside the store that the dependencies name,
+-- such as the directory of @libpq-fe.h@ that the configure script of
+-- @postgresql-libpq-configure@ finds. Cabal gives these directories to the
+-- C compiles and to hsc2hs of each dependent package. A directory that does
+-- not exist is left out.
+dependencyExternalIncludeDirs :: [InstalledPackage] -> IO [FilePath]
+dependencyExternalIncludeDirs dependencies =
+  filterM doesDirectoryExist (nub [T.unpack directory | dependency <- dependencies, directory <- packageManifestIncludeDirs (installedManifest dependency)])
+
+-- | The include directories of a package that are outside its source
+-- directory and outside the output of its configure script. These are the
+-- absolute include directories of its Cabal file, of the buildinfo of its
+-- configure script, and of pkg-config. A directory inside the package is
+-- private: a dependent package sees only the headers the package installs.
+externalIncludeDirs :: FilePath -> Maybe FilePath -> HackageCabal.CCompileInfo -> [FilePath]
+externalIncludeDirs root configured info =
+  [ directory
+  | directory <- HackageCabal.cCompileIncludeDirs info,
+    isAbsolute directory,
+    not (any (`containsPath` directory) (root : maybe [] pure configured))
+  ]
+  where
+    containsPath parent child =
+      let parentParts = splitDirectories (normalise parent)
+       in parentParts == take (length parentParts) (splitDirectories (normalise child))
+
 -- | Header changes in local dependencies invalidate C and hsc2hs outputs.
 includeDirectoriesHash :: [FilePath] -> IO String
 includeDirectoriesHash directories = do
@@ -5698,4 +5755,4 @@ stableHash :: [BS.ByteString] -> String
 stableHash = hashChunks
 
 packageArtifactFormatVersion :: Text
-packageArtifactFormatVersion = "aihc-artifacts-63"
+packageArtifactFormatVersion = "aihc-artifacts-64"

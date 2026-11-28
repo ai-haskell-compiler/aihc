@@ -13,7 +13,7 @@ import qualified Data.Kind as Kind
 import qualified GHC.Exts as Exts
 import Data.Proxy (Proxy (..))
 import Data.Word (Word8)
-import Helper (Describe (..), Size (..), deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType)
+import Helper (Couple (..), Describe (..), Size (..), Tally (..), coupleSum, deriveDescribe, deriveLabel, isMode, labelText, pathVariable, plusHelper, quoteDescribe, quoteShowVia, twiceHelper, typedOffset, typedSteps, typedWrap, warmType)
 import Language.Haskell.TH
 import Lower (Fam (..), Mode (..), lowerFile)
 -- The code outside the splices uses this package, and the splices do not.
@@ -429,3 +429,15 @@ main = do
   -- A chain of UInfixE that nests on the right. The nesting has no
   -- meaning, so the operators get their fixity: (1 - 2) - 3.
   print ($(pure (UInfixE (LitE (IntegerL 1)) (VarE '(-)) (UInfixE (LitE (IntegerL 2)) (VarE '(-)) (LitE (IntegerL 3))))) :: Integer)
+  -- The extensions of the module. The pragmas turn on TypeApplications and
+  -- TemplateHaskell. No pragma turns on OverloadedStrings.
+  print $(do
+            typeApplications <- isExtEnabled TypeApplications
+            overloadedStrings <- isExtEnabled OverloadedStrings
+            enabled <- extsEnabled
+            lift (typeApplications, overloadedStrings, TemplateHaskell `elem` enabled))
+  -- The module has no documentation, so the splice finds none.
+  putStrLn $(getDoc ModuleDoc >>= lift . maybe "none" id)
+  -- The declarations of a declaration quote with a data declaration and a
+  -- newtype declaration.
+  print (coupleSum (Couple 2 3), Tally 4, coupleLeft (Couple 'a' 'b'))

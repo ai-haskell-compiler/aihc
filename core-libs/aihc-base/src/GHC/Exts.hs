@@ -24,6 +24,8 @@ module GHC.Exts
     considerAccessible,
     lazy,
     inline,
+    noinline,
+    SpecConstrAnnotation (..),
     the,
     sortWith,
     groupWith,
@@ -151,7 +153,7 @@ import GHC.Int (Int16 (..), Int32 (..), Int64 (..), Int8 (..))
 import GHC.Internal.Base (augment, build, iShiftL#, iShiftRA#, iShiftRL#, shiftL#, shiftRL#)
 import GHC.Internal.Char (Char (..))
 import GHC.IsList (IsList (..))
-import GHC.Magic (inline, lazy, oneShot)
+import GHC.Magic (inline, lazy, noinline, oneShot)
 import GHC.Magic.Dict (WithDict (withDict))
 import GHC.Prim hiding (aihcAddWeakFinalizer#)
 import GHC.Prim qualified as Prim (aihcAddWeakFinalizer#)
@@ -159,6 +161,11 @@ import GHC.Ptr (FunPtr (..), Ptr (..))
 import GHC.Types (Any, Bool (..), Constraint, Double (..), Float (..), IO (..), Int (..), Levity (..), LiftedRep, Multiplicity (..), RuntimeRep (..), TYPE, UnliftedRep, UnliftedType, VecCount (..), VecElem (..), isTrue#)
 import GHC.Word (Word (..), Word16 (..), Word32 (..), Word64 (..), Word8 (..))
 import Prelude (Eq (..), Ord, all, errorWithoutStackTrace, otherwise)
+
+-- | An annotation for the SpecConstr optimization of GHC. aihc has no
+-- SpecConstr pass, so the annotation has no effect.
+data SpecConstrAnnotation = NoSpecConstr | ForceSpecConstr
+  deriving (Eq)
 
 -- | 'True', written so that the pattern-match checker cannot tell.
 --

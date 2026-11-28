@@ -84,10 +84,18 @@ data SpliceRequest = SpliceRequest
     -- | The name and the version of each package that the module can
     -- import, apart from its own package.
     spliceRequestDependencies :: ![(Text, [Int])],
+    -- | The version and the flags of each package below the module in the
+    -- plan of its build, as plan constraints. The builds of the splices
+    -- use the same packages as the build of the module.
+    spliceRequestPlanConstraints :: ![String],
     -- | The default extensions and the default language of the component.
     spliceRequestExtensions :: ![String],
     spliceRequestLanguage :: !(Maybe String),
     spliceRequestPragmas :: ![ExtensionSetting],
+    -- | Each extension that is on in the module: the extensions of the
+    -- language, the default extensions, and the pragmas, together. A
+    -- splice gets them with @extsEnabled@ and @isExtEnabled@.
+    spliceRequestEnabledExtensions :: ![Extension],
     -- | The imports of the module. An import of a module of its own
     -- package is only in the list when that module is in
     -- 'spliceRequestOwnModules'.

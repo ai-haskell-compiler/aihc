@@ -2,14 +2,18 @@ modules:
   - |
     module Test where
 
-    import Foreign.C.String (withCString)
-    import System.Posix.Internals (c_close, c_open, o_RDONLY)
+    import Foreign.C.String (CString, withCString)
+    import Foreign.C.Types (CInt)
+    import System.Posix.Types (CMode)
+    import System.Posix.Internals (c_close, c_interruptible_open, c_open, o_RDONLY)
     import Prelude
 
-    openClose :: FilePath -> IO (Maybe Bool)
-    openClose path =
+    type Open = CString -> CInt -> CMode -> IO CInt
+
+    openClose :: Open -> FilePath -> IO (Maybe Bool)
+    openClose open path =
       withCString path $ \cPath -> do
-        fd <- c_open cPath o_RDONLY 0
+        fd <- open cPath o_RDONLY 0
         if fd < 0
           then return Nothing
           else do
@@ -18,13 +22,17 @@ modules:
 
     main :: IO ()
     main = do
-      openClose "." >>= print
-      openClose "./aihc-no-such-file" >>= print
+      openClose c_open "." >>= print
+      openClose c_open "./aihc-no-such-file" >>= print
+      openClose c_interruptible_open "." >>= print
+      openClose c_interruptible_open "./aihc-no-such-file" >>= print
 expression: main
 stdout: |
+  Just True
+  Nothing
   Just True
   Nothing
 output: |
   ()
 status: pass
-reason: System.Posix.Internals opens and closes a descriptor with c_open and c_close, as in base
+reason: System.Posix.Internals opens and closes a descriptor with c_open, c_interruptible_open, and c_close, as in base

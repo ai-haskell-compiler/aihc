@@ -1,0 +1,40 @@
+extensions: [DataKinds, PolyKinds, TypeFamilies, UndecidableInstances]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    data Proxy (a :: k) = Proxy
+    type family Arity' (ty :: k) :: Type where
+      Arity' _ = ()
+    type Arity (ty :: k) = Arity' k
+    type family F (x :: k) :: Type
+    type instance F x = Proxy (Arity x)
+    data D = D
+    use :: F D -> Proxy ()
+    use p = p
+status: pass
+reason: A synonym that uses its kind variable as a type expands in a family equation, and the equation keeps no meta-variable.
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, PolyKinds, TypeFamilies, UndecidableInstances #-}
+    module Test where
+    import GHC.Types (Type)
+    data Proxy (a :: k) = Proxy
+         │                └─ type: ∀ k a. Proxy a
+         └─ type: k → Type
+    type family Arity' (ty :: k) :: Type where
+                └─ type: k → Type
+      Arity' _ = ()
+    type Arity (ty :: k) = Arity' k
+         └─ type: k → Type
+    type family F (x :: k) :: Type
+                └─ type: k → Type
+    type instance F x = Proxy (Arity x)
+    data D = D
+         │   └─ type: D
+         └─ type: Type
+    use :: F D -> Proxy ()
+    use p = p
+    │   └─ type: F D
+    └─ type: F D → Proxy ()

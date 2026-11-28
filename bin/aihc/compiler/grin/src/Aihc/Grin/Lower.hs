@@ -1432,10 +1432,13 @@ specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("raiseIO#", 2), ("catch#", 3), ("runRW#", 1), ("keepAlive#", 3), ("seq#", 2)]
 
 -- | The primitive that converts a word of one representation into a word
--- of another one without a change of its bits.
+-- of another one without a change of its bits. An unlifted box becomes the
+-- address of its heap object, as in GHC: @unsafeCoerce# tid@ from
+-- @ThreadId#@ to @Addr#@ in @text-show@ gives the thread to a C function.
 wordConversion :: GrinRep -> GrinRep -> Maybe Text
 wordConversion source target =
   case (source, target) of
+    (BoxedRep Unlifted, AddrRep) -> Just "aihcUnliftedToAddr#"
     (IntRep, AddrRep) -> Just "int2Addr#"
     (AddrRep, IntRep) -> Just "addr2Int#"
     (IntRep, WordRep) -> Just "int2Word#"
