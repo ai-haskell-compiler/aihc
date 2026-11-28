@@ -66,11 +66,14 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       -- reachability, here and in GRIN alike, so stating it once here is
       -- what makes them sweep a whole program to the entry without a flag
       -- that says a whole program is what they are looking at.
-      let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
+      -- The foreign exports are roots too: C code calls them.
+      let combined = Fc.mergePrograms programs
+          roots = entryName : Fc.foreignExportNames combined
+          merged = Fc.pruneProgram roots (demoteToEntry roots combined)
       verbose ("Merge System FC: " <> show (length programs) <> " modules, " <> show (length (Fc.programDecls merged)) <> " reachable declarations")
       -- The whole program is known here, so the inliner keeps only the
       -- entry and what it reaches.
-      optimized <- optimizeFcProgram (Fc.programEnv primPackage [entryName]) config verbose "program" merged
+      optimized <- optimizeFcProgram (Fc.programEnv primPackage roots) config verbose "program" merged
       -- Inlining drops the values that its copies made dead, and with them
       -- the last reference to a type or a constructor. Prune again, so that
       -- those constructors emit no info table. No pass comes after this
@@ -78,7 +81,7 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       -- because a rule keeps the values of its right-hand side.
       -- A merge keeps the scopes of each module, so the scopes that no
       -- name uses go too.
-      let pruned = Fc.pruneProgram [entryName] (Fc.dropRules optimized)
+      let pruned = Fc.pruneProgram roots (Fc.dropRules optimized)
       verbose ("Prune System FC: " <> show (length (Fc.programDecls optimized)) <> " -> " <> show (length (Fc.programDecls pruned)) <> " declarations")
       when (compileLint config) $ do
         let errors = Fc.lintProgram primPackage pruned
@@ -93,12 +96,13 @@ compileLtoProgram primPackage config buildRoot corePaths = do
       writeFile stampPath current
   pure object
 
--- | Make the entry the one declaration another unit can name.
+-- | Make the roots, the entry and the foreign exports, the only
+-- declarations another unit can name.
 --
 -- A constructor and a type go private with the rest: an info table and a
 -- layout of a whole program are named from inside it only.
-demoteToEntry :: Fc.Name -> Fc.Program -> Fc.Program
-demoteToEntry root program =
+demoteToEntry :: [Fc.Name] -> Fc.Program -> Fc.Program
+demoteToEntry roots program =
   program {Fc.programDecls = map demote (Fc.programDecls program)}
   where
     demote decl =
@@ -112,7 +116,7 @@ demoteToEntry root program =
         Fc.DeclSynonym declaration -> Fc.DeclSynonym declaration {Fc.synVis = Fc.Private}
         Fc.DeclAxiom declaration -> Fc.DeclAxiom declaration {Fc.axiomVis = Fc.Private}
         Fc.DeclVal declaration
-          | Fc.valName declaration == root -> decl
+          | Fc.valName declaration `elem` roots -> decl
           | otherwise -> Fc.DeclVal declaration {Fc.valVis = Fc.Private}
         Fc.DeclRule {} -> decl
 

@@ -606,6 +606,11 @@ AihcBackendEntry aihc_callback_create(AihcCapability *capability,
 void aihc_free_haskell_fun_ptr(AihcBackendEntry entry);
 void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
                          const AihcInfo *stop_info);
+/* Enter the C function of a foreign export. The closure is the static
+   closure of the export. The capability is the one that made the foreign
+   call on this thread. */
+void aihc_callback_export_enter(AihcCallbackFrame *frame, AihcValue *closure,
+                                const AihcInfo *stop_info);
 AihcCapability *aihc_callback_machine(AihcCallbackFrame *frame);
 AihcValue *aihc_callback_closure(AihcCallbackFrame *frame);
 AihcValue *aihc_callback_continuation(AihcCallbackFrame *frame);

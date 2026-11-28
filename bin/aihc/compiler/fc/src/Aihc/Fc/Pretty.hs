@@ -472,6 +472,7 @@ prettyCCallTarget target =
     CCallAddress -> "address "
     CCallDynamic -> "dynamic "
     CCallWrapper -> "wrapper "
+    CCallExport -> "export "
     CCallFunctionAddress -> "function-address "
 
 prettyCAbiType :: CAbiType -> Doc ann

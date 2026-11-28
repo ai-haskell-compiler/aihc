@@ -120,6 +120,7 @@ tests =
                 testCase "gives the same objects and executable in each build directory" (test_buildReproducible coreStore),
                 testCase "compiles cxx-sources and links the C++ standard library" (test_buildCxxSources coreStore),
                 testCase "assembles asm-sources and links their objects" (test_buildAsmSources coreStore),
+                testCase "links C code that calls foreign exports" (test_buildForeignExport coreStore),
                 testCase "gives the -with-rtsopts options of a Cabal executable to the runtime" (test_buildRuntimeOptions coreStore),
                 testCase "runs the splices of a program as native code without the sandbox" (test_buildNativeSplices coreStore),
                 testCase "runs the quotes of a package that does not depend on template-haskell" (test_buildQuoteBelow coreStore),
@@ -1695,6 +1696,53 @@ test_buildAsmSources getStore = do
     assertEqual "answer exit status" ExitSuccess status
     assertEqual "answer stdout" "42\n" stdout
     assertEqual "answer stderr" "" stderr
+
+-- A @foreign export@ defines a C function that runs Haskell code. The
+-- fixture's C code calls two exports from inside a safe foreign call, so
+-- the link fails if an export defines no symbol.
+test_buildForeignExport :: IO SeedStore -> Assertion
+test_buildForeignExport getStore = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build/foreign-export"
+  withSandbox getStore "aihc-build-foreign-export" $ \sandbox -> do
+    storeRoot <- sandboxStore sandbox "store"
+    let root = sandboxRoot sandbox
+        buildRoot = root </> "build"
+        targetRoot = buildRoot </> nativeTargetStoreDirectory buildHostTarget
+        options =
+          BuildOptions
+            { buildInput = fixtureRoot,
+              buildSourceDirectories = [],
+              buildPackageConstraints = [],
+              buildTarget = buildHostTarget,
+              buildStoreRoot = Just storeRoot,
+              buildBuildRoot = Just buildRoot,
+              buildWorkspace = Nothing,
+              buildKeepCore = False,
+              buildKeepGrin = False,
+              buildKeepLir = False,
+              buildKeepNative = False,
+              buildLint = False,
+              buildCheckPrimBounds = False,
+              buildProfileAllocations = False,
+              buildProfileTime = False,
+              buildLto = False,
+              buildOptimization = O0,
+              buildNoLink = False,
+              buildOnlyDependencies = False,
+              buildNoPie = False,
+              buildWasmImage = False,
+              buildVerbose = False,
+              buildPrintTimings = False,
+              buildOutput = Nothing,
+              buildExecutables = [],
+              buildPlanOptions = defaultPlanOptions
+            }
+    outputs <- build options
+    assertEqual "built executables" [targetRoot </> "bin" </> "callback"] outputs
+    (status, stdout, stderr) <- readProcessWithExitCode (targetRoot </> "bin" </> "callback") [] ""
+    assertEqual "callback exit status" ExitSuccess status
+    assertEqual "callback stdout" "142\n" stdout
+    assertEqual "callback stderr" "" stderr
 
 -- The @ghc-options@ of a Cabal executable can give default RTS options
 -- with @-with-rtsopts@. The runtime applies them before the options of the

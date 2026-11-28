@@ -209,7 +209,7 @@ runCommand (FcPasses primPackage paths level shown) = do
         Right program -> pure (program, Fc.PassEnv primPackage (Fc.declaredHome program) Nothing mempty)
     _ -> do
       programs <- readPrograms paths
-      let merged = Fc.pruneProgram [entryName] (demoteToEntry entryName (Fc.mergePrograms programs))
+      let merged = Fc.pruneProgram [entryName] (demoteToEntry [entryName] (Fc.mergePrograms programs))
       TIO.hPutStrLn stderr ("merged " <> T.pack (show (length programs)) <> " modules, " <> T.pack (show (length (Fc.programDecls merged))) <> " reachable declarations")
       pure (merged, Fc.programEnv primPackage [entryName])
   let passes = planPasses (optimizationPlan True level)

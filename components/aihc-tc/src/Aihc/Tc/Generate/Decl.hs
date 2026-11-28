@@ -166,6 +166,7 @@ import Aihc.Tc.Syntax
 import Aihc.Tc.Syntax.FromResolved (fromResolved)
 import Aihc.Tc.Syntax.Traverse (collectResolutions, collectTcTypes)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, schemeToType, typeSchemeFromType)
+import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Types
 import Aihc.Tc.Unpack (decideConstructorRepresentations)
 import Aihc.Tc.Wiring (BuiltinDataCon (..), builtinDataCon)
@@ -1431,6 +1432,7 @@ annotateDeclTc origin classMethods checkedValueTypes derived decl =
     DeclTypeFamilyInst familyInst -> annotateTypeFamilyInstTc origin familyInst
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
+      | otherwise -> annotateForeignExportTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc origin (derived || isJust (instanceDeclDerived instanceDecl)) instanceDecl
     DeclStandaloneDeriving {} -> pure decl
@@ -1735,6 +1737,50 @@ annotateForeignDeclTc foreignDecl = do
       registerForeignImport key (TcForeignPrimImport entity)
       pure annotated
     _ -> pure annotated
+
+-- | Check a foreign export. The exported value must have the declared type,
+-- or a type without constraints that the declared type instantiates. The
+-- declared type must be one that a C function can take and give, as the
+-- callback of a @wrapper@ import. The entity string is the C symbol. Without
+-- it, the symbol is the name of the value.
+annotateForeignExportTc :: ForeignDecl -> TcM Decl
+annotateForeignExportTc foreignDecl = do
+  key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
+  valueType <- bindingType key
+  declaredScheme <- sigToScheme (foreignType foreignDecl)
+  let declared = schemeToType declaredScheme
+      sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
+      annotatedWith plan = annotateDeclAt sourceSpan (typeAnnotation declared) (DeclForeign foreignDecl {foreignPlan = plan})
+      valueScheme = typeSchemeFromType valueType
+      symbol = case foreignEntity foreignDecl of
+        ForeignEntityNamed text
+          | named <- T.strip text,
+            not (T.null named) ->
+              named
+        _ -> unqualifiedNameText (foreignName foreignDecl)
+  case foreignCallConv foreignDecl of
+    CCall -> do
+      unless (equivalentTypeSchemes valueScheme declaredScheme) $ do
+        (instantiated, predicates) <- instantiate valueScheme
+        unless (null predicates) $
+          emitError sourceSpan (OtherError "a foreign export of a value with constraints must repeat the type of the value")
+        unified <- unifyTypes instantiated declared
+        either (emitError sourceSpan) pure unified
+      let (arguments, result) = splitFunctionType declared
+      when (null arguments && not (isIOType result)) $
+        emitError sourceSpan (OtherError "a foreign export must be a function or an IO action")
+      plan <- checkForeignImportType sourceSpan TcForeignCall symbol declared
+      when (any (isByteArrayType . tcForeignSourceType) (tcForeignResult plan : tcForeignArguments plan)) $
+        emitError sourceSpan (OtherError "a foreign export cannot use a byte array value")
+      pure (annotatedWith (Just plan))
+    _ -> do
+      emitError sourceSpan (OtherError "a foreign export must use the ccall calling convention")
+      pure (annotatedWith Nothing)
+  where
+    isIOType (TcTyCon (TyCon "IO" 1) [_]) = True
+    isIOType _ = False
+    isByteArrayType (TcTyCon constructor _) = tyConName constructor `elem` ["ByteArray#", "MutableByteArray#"]
+    isByteArrayType _ = False
 
 -- | A primitive declaration must retain the configured primitive type.
 checkPrimitiveImportType :: Maybe SourceSpan -> Entity -> TcType -> TcM ()

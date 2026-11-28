@@ -29,6 +29,7 @@ module Aihc.Fc
     stripInterfaces,
     pruneProgram,
     dropRules,
+    foreignExportNames,
     canonicalForeignCalls,
     inlineProgram,
     etaExpandProgram,
@@ -86,7 +87,7 @@ import Aihc.Fc.Origins (declaredHome)
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)
 import Aihc.Fc.Pass (Pass (..), PassEnv (..), PassReport (..), finishPasses, moduleEnv, passName, programEnv, runPass, runPasses)
 import Aihc.Fc.Pretty (renderProgram, renderProgramSections)
-import Aihc.Fc.Prune (dropRules, pruneProgram)
+import Aihc.Fc.Prune (dropRules, foreignExportNames, pruneProgram)
 import Aihc.Fc.Share (shareProgram)
 import Aihc.Fc.Simplify (SimplifyReport (..), simplifyProgram)
 import Aihc.Fc.Size (programSize)

@@ -424,6 +424,12 @@ data CCallTarget
     -- of the function the address points at, not those of the import, which
     -- takes no argument and gives the address.
     CCallFunctionAddress
+  | -- | A @foreign export@. The call takes the exported value and gives it.
+    -- The name of the call is the name of that value. The symbol is the C function that the program
+    -- defines, and the argument types, the result type and the effect are
+    -- those of that function. Lowering emits the C function, which applies
+    -- the value to the converted C arguments.
+    CCallExport
   deriving stock (Eq, Ord, Show, Read, Generic)
   deriving anyclass (NFData)
 

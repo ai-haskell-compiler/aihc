@@ -1500,6 +1500,7 @@ lowerUnitActions env program@(GrinProgram _ _ _ _ functions _ _) =
     <> map (lowerStaticObject env) (programStaticObjects program)
     <> map lowerInfo (envInfos env)
     <> [lowerCallbackPool call signature | call <- grinForeignCalls program, GrinForeignWrapper signature <- [grinForeignCallTarget call]]
+    <> [lowerForeignExportEntry call | call <- grinForeignCalls program, GrinForeignExport <- [grinForeignCallTarget call]]
     <> [lowerStaticReferenceTables env]
     <> [emitItem (ItemData (DataItem symbol Internal False 1 [DataBytes bytes, DataInt I8 0])) | (bytes, symbol) <- Map.toAscList (envAddrLiterals env)]
     <> [lowerAllocationProfile | lowerProfileAllocations (envOptions env), lowerUnitKind (envOptions env) == LibraryUnit]
@@ -3309,6 +3310,7 @@ pointerValue ctx env value = materialize ctx env value >>= coerce Ptr
 compileForeignCall :: FunctionCtx -> ValueEnv -> GrinForeignCall -> [GrinValue] -> LowerM [Typed]
 compileForeignCall ctx env foreignCall arguments =
   case grinForeignCallTarget foreignCall of
+    GrinForeignExport -> failWith (LowerUnsupportedExpression "a foreign export is not called")
     -- An address import materializes the symbol address instead of calling it.
     GrinForeignAddress
       | null arguments -> do
@@ -3405,47 +3407,73 @@ callbackPoolSymbol call = Symbol ("aihc_callbacks_" <> renderLinkedFunctionSymbo
 -- | Each entry has a distinct address and a slot with a protected closure.
 lowerCallbackPool :: GrinForeignCall -> GrinForeignSignature -> LowerM ()
 lowerCallbackPool call signature = do
-  target <- targetM
   let Symbol pool = callbackPoolSymbol call
       stop = Symbol (pool <> "_stop")
       info = Symbol (pool <> "_info")
-      resultTypes = map repType (grinForeignCallResultReps signature)
-      rawTypes = map repType (grinForeignOperandReps signature)
-      (parameters, results) = runtimeCallSignatureFor target False signature
       entries = [Symbol (pool <> "_" <> T.pack (show index)) | index <- [0 .. callbackPoolSize - 1]]
+  target <- targetM
   emitItem (ItemData (DataItem (Symbol pool) Internal True (toInteger (lowerWordSize target)) (concatMap (\entry -> [DataCode (Just entry), DataNull, DataNull, DataNull]) entries)))
+  callbackStopFunction info stop signature
+  forM_ entries $ \entry ->
+    callbackEntryFunction entry Internal signature $ \frame ->
+      () <$ callRuntime "aihc_callback_enter" [Ptr, Code, Ptr] [] [frame, OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
+
+-- | The C function of a foreign export. Its name is the symbol of the
+-- export. It applies the closure in the public global that the name of the
+-- call names, as a callback entry applies the closure of its slot.
+lowerForeignExportEntry :: GrinForeignCall -> LowerM ()
+lowerForeignExportEntry call = do
+  let symbol = grinForeignCallSymbol call
+      signature = grinForeignCallSignature call
+      stop = Symbol ("aihc_export_" <> symbol <> "_stop")
+      info = Symbol ("aihc_export_" <> symbol <> "_info")
+      closure = globalSymbol (grinForeignCallName call)
+  requireExternData closure
+  callbackStopFunction info stop signature
+  callbackEntryFunction (Symbol symbol) Export signature $ \frame ->
+    () <$ callRuntime "aihc_callback_export_enter" [Ptr, Ptr, Ptr] [] [frame, OperandLiteral (LitSymbol closure), OperandLiteral (LitSymbol info)]
+
+-- | The stop frame of a callback gives the context back to the capability:
+-- the foreign call that ran the callback loads the heap context from there.
+callbackStopFunction :: Symbol -> Symbol -> GrinForeignSignature -> LowerM ()
+callbackStopFunction info stop signature = do
+  let resultTypes = map repType (grinForeignCallResultReps signature)
   continuationInfoItems (ContinuationSpec info stop [] resultTypes ContinuationFrameStop)
-  -- The stop frame gives the context back to the capability: the foreign call
-  -- that ran the callback loads the heap context from there.
-  do
-    (context, contextParameters) <- freshContext
-    values <- mapM (\ty -> (,ty) <$> fresh "result") resultTypes
-    beginBlock (Label "entry") []
-    result <- case values of
-      [(value, ty)] -> coerce I64 (Typed (OperandVar value) ty)
-      [] -> pure (OperandLiteral (LitInt 0))
-      _ -> failWith (LowerUnsupportedExpression "a callback has too many results")
-    capability <- capabilityOperand context
-    storeContext capability context
-    _ <- callRuntime "aihc_callback_return" [Ptr, I64] [] [capability, result]
-    terminate (Return [])
-    finishFunction stop Internal (contextParameters <> values) [] AihcConvention
-  forM_ entries $ \entry -> do
-    arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
-    beginBlock (Label "entry") []
-    frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 64 (byteAlignment 8))
-    _ <- callRuntime "aihc_callback_enter" [Ptr, Code, Ptr] [] [frame, OperandLiteral (LitSymbol entry), OperandLiteral (LitSymbol info)]
-    capability <- callRuntime "aihc_callback_machine" [Ptr] [Ptr] [frame]
-    closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
-    continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
-    converted <- zipWithM (\foreignTy (value, ty) -> extendForeignResult foreignTy (Typed (OperandVar value) ty)) (grinForeignArgumentTypes signature) arguments
-    apply <- requireHelper (HelperApply [rawTypes])
-    context <- loadContext capability
-    emit [] (Call apply (contextOperands context <> (closure : continuation : map typedOperand converted)))
-    result <- callRuntime "aihc_callback_leave" [Ptr] [I64] [frame]
-    returned <- mapM (\ty -> coerce ty (Typed result I64)) results
-    terminate (Return returned)
-    finishFunction entry Internal arguments results CConvention
+  (context, contextParameters) <- freshContext
+  values <- mapM (\ty -> (,ty) <$> fresh "result") resultTypes
+  beginBlock (Label "entry") []
+  result <- case values of
+    [(value, ty)] -> coerce I64 (Typed (OperandVar value) ty)
+    [] -> pure (OperandLiteral (LitInt 0))
+    _ -> failWith (LowerUnsupportedExpression "a callback has too many results")
+  capability <- capabilityOperand context
+  storeContext capability context
+  _ <- callRuntime "aihc_callback_return" [Ptr, I64] [] [capability, result]
+  terminate (Return [])
+  finishFunction stop Internal (contextParameters <> values) [] AihcConvention
+
+-- | A C function that runs a Haskell callback. The enter action fills the
+-- callback frame: the capability, the closure, and the stop frame.
+callbackEntryFunction :: Symbol -> Linkage -> GrinForeignSignature -> (Operand -> LowerM ()) -> LowerM ()
+callbackEntryFunction entry linkage signature enter = do
+  target <- targetM
+  let rawTypes = map repType (grinForeignOperandReps signature)
+      (parameters, results) = runtimeCallSignatureFor target False signature
+  arguments <- mapM (\ty -> (,ty) <$> fresh "argument") parameters
+  beginBlock (Label "entry") []
+  frame <- typedOperand <$> emitValue "callback_frame" Ptr (StackAlloc 64 (byteAlignment 8))
+  enter frame
+  capability <- callRuntime "aihc_callback_machine" [Ptr] [Ptr] [frame]
+  closure <- callRuntime "aihc_callback_closure" [Ptr] [Ptr] [frame]
+  continuation <- callRuntime "aihc_callback_continuation" [Ptr] [Ptr] [frame]
+  converted <- zipWithM (\foreignTy (value, ty) -> extendForeignResult foreignTy (Typed (OperandVar value) ty)) (grinForeignArgumentTypes signature) arguments
+  apply <- requireHelper (HelperApply [rawTypes])
+  context <- loadContext capability
+  emit [] (Call apply (contextOperands context <> (closure : continuation : map typedOperand converted)))
+  result <- callRuntime "aihc_callback_leave" [Ptr] [I64] [frame]
+  returned <- mapM (\ty -> coerce ty (Typed result I64)) results
+  terminate (Return returned)
+  finishFunction entry linkage arguments results CConvention
 
 compileRuntimeCall :: FunctionCtx -> ValueEnv -> NativeRuntimeCall -> [GrinValue] -> LowerM Typed
 compileRuntimeCall ctx env runtimeCall arguments = do

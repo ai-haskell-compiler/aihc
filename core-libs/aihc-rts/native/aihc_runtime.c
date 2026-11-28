@@ -909,6 +909,11 @@ _Static_assert(sizeof(AihcCallbackFrame) <= 64,
 
 static AihcCallbackSlot *aihc_callback_slots;
 
+/* The capability that made the last foreign call on this thread. The C
+   function of a foreign export has no slot that names a capability, so it
+   runs Haskell code on this one. */
+static _Thread_local AihcCapability *aihc_thread_capability;
+
 static AihcBackendEntry aihc_callback_create_locked(AihcCapability *capability,
                                                     AihcValue *closure,
                                                     AihcCallbackSlot *slots,
@@ -969,6 +974,7 @@ void aihc_foreign_enter(AihcCapability *capability, AihcForeignFrame *frame,
                         uint64_t allow_callbacks) {
   *frame = (AihcForeignFrame){capability->foreign_frames, roots, count, srt,
                               allow_callbacks};
+  aihc_thread_capability = capability;
   capability->foreign_frames = frame;
   /* A safe call can block for a long time, for example in waitpid. With one
      capability, nothing waits for it. A stop that ran during a collection
@@ -1044,16 +1050,10 @@ void aihc_free_haskell_fun_ptr(AihcBackendEntry entry) {
   aihc_fail("invalid foreign callback release");
 }
 
-void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
-                         const AihcInfo *stop_info) {
-  AihcCallbackSlot *slot = aihc_callback_slots;
-  while (slot != NULL && slot->entry != entry) {
-    slot = slot->next;
-  }
-  if (slot == NULL || slot->closure == NULL) {
-    aihc_fail("invalid foreign callback");
-  }
-  AihcCapability *capability = slot->capability;
+static void aihc_callback_frame_enter(AihcCallbackFrame *frame,
+                                      AihcCapability *capability,
+                                      AihcValue *closure,
+                                      const AihcInfo *stop_info) {
   AihcForeignFrame *foreign = capability->foreign_frames;
   if (foreign != NULL && foreign->allow_callbacks == AIHC_FOREIGN_UNSAFE) {
     aihc_fail("an unsafe foreign call cannot enter a Haskell callback");
@@ -1067,7 +1067,7 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   *frame = (AihcCallbackFrame){0};
   frame->previous = capability->callback_frames;
   frame->capability = capability;
-  frame->closure = slot->closure;
+  frame->closure = closure;
   frame->stack_limit = capability->stack_limit;
   capability->callback_frames = frame;
   /* The callback runs on the stack of the thread that made the foreign call.
@@ -1076,6 +1076,28 @@ void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
   frame->continuation = aihc_stack_push(capability, 1, NULL);
   frame->continuation->header = (AihcSlot)(uintptr_t)stop_info;
   aihc_stack_enter_chunk(capability, frame->continuation);
+}
+
+void aihc_callback_enter(AihcCallbackFrame *frame, AihcBackendEntry entry,
+                         const AihcInfo *stop_info) {
+  AihcCallbackSlot *slot = aihc_callback_slots;
+  while (slot != NULL && slot->entry != entry) {
+    slot = slot->next;
+  }
+  if (slot == NULL || slot->closure == NULL) {
+    aihc_fail("invalid foreign callback");
+  }
+  aihc_callback_frame_enter(frame, slot->capability, slot->closure, stop_info);
+}
+
+void aihc_callback_export_enter(AihcCallbackFrame *frame, AihcValue *closure,
+                                const AihcInfo *stop_info) {
+  AihcCapability *capability = aihc_thread_capability;
+  if (capability == NULL || capability->foreign_frames == NULL) {
+    aihc_fail("a foreign export was called outside a foreign call of Haskell "
+              "code");
+  }
+  aihc_callback_frame_enter(frame, capability, closure, stop_info);
 }
 
 AihcCapability *aihc_callback_machine(AihcCallbackFrame *frame) {
