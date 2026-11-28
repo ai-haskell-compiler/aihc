@@ -1,0 +1,68 @@
+extensions: []
+modules:
+  - |
+    {-# LANGUAGE NoFieldSelectors #-}
+    module Network (Addr (..)) where
+    data Unit = Unit
+    data Addr = Addr { list :: Unit }
+  - |
+    module Encoding (list, count) where
+    list f = f
+    count f = f
+  - |
+    {-# LANGUAGE NoFieldSelectors #-}
+    module Test where
+    import Network
+    import Encoding
+    data Headers = Headers { list :: Addr, count :: Addr }
+    encode = list
+    replace h a = h { count = a }
+    build a = Addr { list = a }
+status: pass
+reason: With NoFieldSelectors, a record field label is not a term. The label "list" names the imported function, and a record update with the label "count" still finds the local field; reduced from haskoin-core Haskoin.Block.Common
+annotated:
+  - |-
+    module Encoding (list, count) where
+    list f = f
+    │    │   └─ v 0
+    │    └─ v 0
+    └─ v Encoding
+    count f = f
+    │     │   └─ v 1
+    │     └─ v 1
+    └─ v Encoding
+  - |-
+    {-# LANGUAGE NoFieldSelectors #-}
+    module Network (Addr (..)) where
+    data Unit = Unit
+         │      └─ v Network
+         └─ t Network
+    data Addr = Addr { list :: Unit }
+         │      │      │       └─ t Network
+         │      │      └─ v Network
+         │      └─ v Network
+         └─ t Network
+  - |-
+    {-# LANGUAGE NoFieldSelectors #-}
+    module Test where
+    import Network
+    import Encoding
+    data Headers = Headers { list :: Addr, count :: Addr }
+         └─ t Test └─ v Test │       │     │        └─ t Network
+                             │       │     └─ v Test
+                             │       └─ t Network
+                             └─ v Test
+    encode = list
+    │        └─ v Encoding
+    └─ v Test
+    replace h a = h { count = a }
+    │       │ │   │   │       └─ v 3
+    │       │ │   │   └─ v Test
+    │       │ │   └─ v 2
+    │       │ └─ v 3
+    │       └─ v 2
+    └─ v Test
+    build a = Addr { list = a }
+    │     │   └─ v Network  └─ v 4
+    │     └─ v 4
+    └─ v Test
