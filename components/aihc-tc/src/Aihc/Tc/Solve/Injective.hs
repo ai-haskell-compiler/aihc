@@ -16,9 +16,9 @@
 --     @rhs@, so @F t1 t2 ~ rhs@ equates @t1@ with the pattern @p1@ under
 --     the substitution that matches @rhs@.
 --
--- Addition on naturals has no annotation, but it is injective in each
--- argument when the other argument is fixed. Thus @n + t0 ~ n + m@ equates
--- @t0@ and @m@, as in GHC.
+-- Addition and subtraction on naturals have no annotation, but each is
+-- injective in each argument when the other argument is fixed. Thus
+-- @n + t0 ~ n + m@ and @n - t0 ~ n - m@ equate @t0@ and @m@, as in GHC.
 --
 -- Like functional dependency improvement this produces equalities, never
 -- evidence: the equality constraint itself is still solved afterwards, by
@@ -45,6 +45,7 @@ import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Wiring (TcWiring (..))
 import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (forM_, unless, void, when, zipWithM_)
+import Data.Text qualified as T
 
 -- | Improve the wanted predicates from the injectivity annotations of the
 -- families they mention, reading them in the light of the givens.
@@ -147,26 +148,31 @@ improveCancellation left right =
                     improveEqualities [leftFirst] [rightFirst]
               pure True
             else pure False
-    (TcTyLit (TyLitNat total), TcTyCon tyCon [first, second]) -> literalSum total tyCon first second
-    (TcTyCon tyCon [first, second], TcTyLit (TyLitNat total)) -> literalSum total tyCon first second
+    (TcTyLit (TyLitNat total), TcTyCon tyCon [first, second]) -> literalResult total tyCon first second
+    (TcTyCon tyCon [first, second], TcTyLit (TyLitNat total)) -> literalResult total tyCon first second
     _ -> pure False
   where
-    -- A sum with one literal argument that equals a literal gives the
-    -- other argument: @m + 1 ~ 2@ gives @m ~ 1@, as in GHC. A total that
-    -- is smaller than the literal argument gives nothing here, and the
+    -- An application with one literal argument that equals a literal gives
+    -- the other argument, as in GHC. A sum gives @m + 1 ~ 2@ to @m ~ 1@. A
+    -- difference gives @m - 1 ~ 2@ to @m ~ 3@, and @7 - m ~ 4@ to @m ~ 3@.
+    -- When no natural number is a solution, this gives nothing, and the
     -- equality itself is unsolved.
-    literalSum total tyCon first second
+    literalResult total tyCon first second
       | cancellableTypeLitFamily (tyConName tyCon) = do
           wiring <- getWiring
           if tyConModuleName tyCon `elem` tcWiringTypeLitFamilyModules wiring
-            then case (first, second) of
-              (_, TcTyLit (TyLitNat known))
-                | known <= total -> improveEqualities [first] [TcTyLit (TyLitNat (total - known))] >> pure True
-              (TcTyLit (TyLitNat known), _)
-                | known <= total -> improveEqualities [second] [TcTyLit (TyLitNat (total - known))] >> pure True
+            then case (T.unpack (tyConName tyCon), first, second) of
+              ("+", _, TcTyLit (TyLitNat known))
+                | known <= total -> improveEqualities [first] [natural (total - known)] >> pure True
+              ("+", TcTyLit (TyLitNat known), _)
+                | known <= total -> improveEqualities [second] [natural (total - known)] >> pure True
+              ("-", _, TcTyLit (TyLitNat known)) -> improveEqualities [first] [natural (total + known)] >> pure True
+              ("-", TcTyLit (TyLitNat known), _)
+                | total <= known -> improveEqualities [second] [natural (known - total)] >> pure True
               _ -> pure False
             else pure False
       | otherwise = pure False
+    natural = TcTyLit . TyLitNat
 
 improveInjectivePair :: TcType -> TcType -> TcM ()
 improveInjectivePair left right = do

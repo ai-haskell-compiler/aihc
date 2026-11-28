@@ -21,7 +21,7 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldSelectorName)
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldOnlyName, fieldSelectorName)
 import Aihc.Tc.Annotations (renderPred, renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
@@ -860,15 +860,32 @@ solveNormalizedDict visited givens ct
               when (changed || injective) (improveRounds (rounds - 1) cts equalities)
 
     -- Solve equalities first, but retain the dictionary field order.
+    --
+    -- An equality can need a variable that a later equality of the context
+    -- fixes. In @(N a ~ N b, r ~ Located b) => C (Located a) r@, the first
+    -- equality is stuck until the second one gives @b@. Thus a stuck
+    -- equality is tried again after the other equalities make progress,
+    -- and once more after the dictionaries, as GHC solves the context in
+    -- any order.
     solveContext visited' predicates = do
-      results <- mapM solveOne (sortOn (isDictionary . snd) (zip [0 :: Int ..] predicates))
-      pure (traverse snd (sortOn fst results))
+      let (equalities, dictionaries) = partition (isEquality . snd) (zip [0 :: Int ..] predicates)
+      (solvedEqualities, stuckEqualities) <- equalityRounds [] equalities
+      dictionaryResults <- mapM solveOne dictionaries
+      lateResults <- mapM solveOne stuckEqualities
+      pure (traverse snd (sortOn fst (solvedEqualities <> dictionaryResults <> lateResults)))
       where
         solveOne (index, predicate) = do
           evidence <- solveSubPred visited' predicate
           pure (index, evidence)
-        isDictionary EqPred {} = False
-        isDictionary _ = True
+        equalityRounds solved pending = do
+          results <- mapM (\entry -> (,) entry <$> solveOne entry) pending
+          let progress = [result | (_, result@(_, Just _)) <- results]
+              stuck = [entry | (entry, (_, Nothing)) <- results]
+          if null progress || null stuck
+            then pure (solved <> progress, stuck)
+            else equalityRounds (solved <> progress) stuck
+        isEquality EqPred {} = True
+        isEquality _ = False
 
     solveSubPred visited' pred' = do
       ev <- freshEvVar
@@ -1727,7 +1744,8 @@ solveHasField ct className args =
 -- The selector has the name of the label. When DuplicateRecordFields
 -- gives the label to more than one declaration of the module, the resolver
 -- gives the selector the name from 'fieldSelectorName' and the first
--- constructor of the declaration. Only one of the two keys can exist.
+-- constructor of the declaration. With NoFieldSelectors, the name comes from
+-- 'fieldOnlyName'. Only one of the keys can exist.
 recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], [Entity])
 recordField label recordTy dataType = do
   let candidates =
@@ -1749,7 +1767,7 @@ recordField label recordTy dataType = do
       ],
       let (package, moduleName') = dciOrigin constructor
        in [ GlobalTerm package moduleName' name
-          | name <- label : [fieldSelectorName label (dciName first) | first <- take 1 (dtiConstructors dataType)]
+          | name <- label : concat [[fieldSelectorName label (dciName first), fieldOnlyName label (dciName first)] | first <- take 1 (dtiConstructors dataType)]
           ]
     )
   where

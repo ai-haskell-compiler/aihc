@@ -1,0 +1,25 @@
+extensions: [DataKinds, KindSignatures, TypeFamilies, ConstraintKinds, FlexibleContexts]
+modules:
+- |
+  {-# LANGUAGE DataKinds, KindSignatures, TypeFamilies, ConstraintKinds, FlexibleContexts #-}
+  module Test where
+  import GHC.Prim.Natural (Natural)
+  import GHC.Types (Constraint)
+  data P (n :: Natural) = P
+  class Ok (n :: Natural)
+  instance Ok 1
+  instance Ok 2
+  type family Small (n :: Natural) :: Constraint
+  type instance Small 1 = Ok 1
+  type instance Small 2 = Ok 2
+  check :: Small n => P n -> ()
+  check _ = ()
+  both :: ((), ())
+  both = (first (P :: P 1), first (P :: P 2))
+    where
+      first v = check v
+status: pass
+reason: The local binding first has no signature and no free variables.
+  GHC abstracts it over the constraint Small n, whose head is a type family
+  that does not reduce while n is not known. Thus, the two uses of first can
+  have different types.

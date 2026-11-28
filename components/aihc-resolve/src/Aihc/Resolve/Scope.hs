@@ -50,6 +50,8 @@ module Aihc.Resolve.Scope
     allTypeMembers,
     fieldSelectorName,
     isFieldSelectorOf,
+    fieldOnlyName,
+    lookupFieldOnly,
     duplicateFieldSelectors,
     declarationFirstConstructor,
   )
@@ -648,7 +650,16 @@ selectTypeWithMembers name scope members =
         Just entity <- [Map.lookup selector (scopeTerms scope)]
       ]
     ownedSelectors = Map.fromListWith (\_ first -> first) [(member, entity) | (member, _, entity) <- fieldSelectors]
-    selectorNames = Map.fromList [(selector, entity) | (_, selector, entity) <- fieldSelectors]
+    selectorNames = Map.fromList ([(selector, entity) | (_, selector, entity) <- fieldSelectors] <> fieldOnlyEntries)
+    -- A field without a selector function keeps its own name, and its label
+    -- stays out of the term namespace.
+    fieldOnlyEntries =
+      [ (selector, entity)
+      | member <- List.nub members,
+        constructor <- existingConstructors,
+        let selector = fieldOnlyName member constructor,
+        Just entity <- [Map.lookup selector (scopeTerms scope)]
+      ]
     bundledAssociatedTypes =
       [member | member <- associatedTypeMembers name scope, member `Set.member` memberSet]
     knownMembers =
@@ -694,9 +705,12 @@ exportBundledMemberName = nameText . ieBundledMemberName
 -- the imports of the module. It gives the record fields of each imported
 -- constructor. A record wildcard in a top-level pattern binding binds one
 -- name for each such field.
-topLevelScope :: Scope -> Package -> Module -> Scope
-topLevelScope imported package modu =
-  List.foldl' addSelector (List.foldl' addDecl emptyScope (moduleDecls modu)) (duplicateFieldSelectors (moduleDecls modu))
+topLevelScope :: Scope -> Package -> [Extension] -> Module -> Scope
+topLevelScope imported package extensions modu
+  | FieldSelectors `elem` extensions =
+      List.foldl' addSelector (List.foldl' addDecl emptyScope (moduleDecls modu)) (duplicateFieldSelectors (moduleDecls modu))
+  | otherwise =
+      List.foldl' addFieldOnly (List.foldl' addDecl emptyScope (moduleDecls modu)) (concatMap declRecordFieldOwners (moduleDecls modu))
   where
     moduleKeyText = moduleKey modu
     -- A field label that two declarations of the module declare names two
@@ -706,6 +720,22 @@ topLevelScope imported package modu =
     addSelector scope (label, selector) =
       let entity = EntityGlobal (GlobalName selector (packageId package) moduleKeyText ResolutionNamespaceTerm)
        in insertTerm label entity (insertTerm selector entity scope)
+    -- With NoFieldSelectors, a record field is not a term: its label does
+    -- not name the selector. Each field gets a name of its own, and only a
+    -- record update, a record export, or a field declaration finds it.
+    addFieldOnly scope (constructor, labels) =
+      List.foldl'
+        ( \acc label ->
+            let name = fieldOnlyName label constructor
+             in insertTerm name (EntityGlobal (GlobalName name (packageId package) moduleKeyText ResolutionNamespaceTerm)) acc
+        )
+        scope
+        labels
+    -- The labels of the record fields of a declaration. With NoFieldSelectors
+    -- they are not terms of the module.
+    selectorLabels decl
+      | FieldSelectors `elem` extensions = []
+      | otherwise = concatMap snd (declRecordFieldOwners decl)
     qualify namespace name = EntityGlobal (GlobalName (unqualifiedNameText name) (packageId package) moduleKeyText namespace)
     -- A pattern binding can come before the data declaration that gives it
     -- the record fields, so collect all fields of the module first.
@@ -719,7 +749,7 @@ topLevelScope imported package modu =
         }
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods associatedTypes fixities = declExportedNames visibleFields decl
-          scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify ResolutionNamespaceTerm name) acc) scope termNames
+          scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify ResolutionNamespaceTerm name) acc) scope [name | name <- termNames, renderUnqualifiedName name `notElem` selectorLabels decl]
           scope'' = List.foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify ResolutionNamespaceType name) acc) scope' typeNames
           -- Each data instance of a data family adds constructors to the
           -- entry of the family, so keep the constructors of all instances.
@@ -931,10 +961,28 @@ dataDeclTermNames constructors =
 fieldSelectorName :: Text -> Text -> Text
 fieldSelectorName label constructor = "$sel:" <> label <> ":" <> constructor
 
+-- | The name of the selector of a record field that a module declares
+-- with NoFieldSelectors. Its first part differs from 'fieldSelectorName',
+-- so a module that imports the field does not make the label a term.
+fieldOnlyName :: Text -> Text -> Text
+fieldOnlyName label constructor = "$fld:" <> label <> ":" <> constructor
+
+-- | The record field with this label that a module declares with
+-- NoFieldSelectors, if a scope has one. A record update finds the field
+-- with it.
+lookupFieldOnly :: Text -> Scope -> Maybe Entity
+lookupFieldOnly label scope =
+  case Map.lookupGT prefix (scopeTerms scope) of
+    Just (name, entity) | prefix `T.isPrefixOf` name -> Just entity
+    _ -> Nothing
+  where
+    prefix = "$fld:" <> label <> ":"
+
 -- | Whether a top-level name is the selector of a duplicate record field
--- with this label.
+-- with this label, or of a field without a selector function.
 isFieldSelectorOf :: Text -> Text -> Bool
-isFieldSelectorOf label name = ("$sel:" <> label <> ":") `T.isPrefixOf` name
+isFieldSelectorOf label name =
+  ("$sel:" <> label <> ":") `T.isPrefixOf` name || ("$fld:" <> label <> ":") `T.isPrefixOf` name
 
 -- | The duplicate record fields of a module, each with its selector name.
 -- A label is a duplicate when more than one declaration declares it.
@@ -1046,7 +1094,7 @@ ownAndImportedScopes :: Package -> ModuleExports -> [Extension] -> Module -> (Sc
 ownAndImportedScopes packageId exports extensions modu = (ownScope, imported)
   where
     imported = importedScope packageId exports modu `unionScope` implicitPrelude
-    ownScope = topLevelScope imported packageId modu
+    ownScope = topLevelScope imported packageId extensions modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit imports supply both unqualified names and the Prelude qualifier.
     -- Export lists must see the same imported names as module bodies.
@@ -1149,7 +1197,18 @@ filterImportSpec maybeSpec scope =
               Just entity <- [Map.lookup selector (scopeTerms scope)]
             ]
           ownedSelectors = Map.fromListWith (\_ first -> first) [(label, entity) | (label, _, entity) <- fieldSelectors]
-          selectorNames = Map.fromList [(selector, entity) | (_, selector, entity) <- fieldSelectors]
+          selectorNames = Map.fromList ([(selector, entity) | (_, selector, entity) <- fieldSelectors] <> fieldOnlyEntries)
+          -- A field without a selector function keeps its own name, and
+          -- its label stays out of the term namespace.
+          fieldOnlyEntries =
+            [ (selector, entity)
+            | constructors <- Map.elems allowedConstructors,
+              label <- List.nub (concatMap (\constructor -> Map.findWithDefault [] constructor (scopeRecordFields scope)) constructors),
+              label `Set.member` allowedTerms,
+              constructor <- constructors,
+              let selector = fieldOnlyName label constructor,
+              Just entity <- [Map.lookup selector (scopeTerms scope)]
+            ]
        in Scope
             { scopeTerms = Map.unions [ownedSelectors, selectorNames, Map.restrictKeys (scopeTerms scope) allowedTerms],
               scopeTypes = Map.restrictKeys (scopeTypes scope) allowedTypes,
