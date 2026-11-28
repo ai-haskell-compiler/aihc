@@ -79,6 +79,7 @@ main =
       testCase "package lock fixtures" test_packageLockFixtures,
       testCase "parses a project file" test_parsesProjectFile,
       testCase "plans the packages and targets of a project" test_plansProject,
+      testCase "plans each component of a project package with tests: True" test_plansWholeProjectPackages,
       testProperty "finds a plan exactly when one exists" prop_solvesExactlyWhenPlanExists
     ]
 
@@ -228,6 +229,12 @@ inputsFor packages =
         Identity
           [ candidate {candidateRevision = revisionFor preference candidate}
           | candidate <- map fst (Map.findWithDefault [] name packages)
+          ],
+      inputsPinnedCandidates = \name wanted revision ->
+        Identity
+          [ candidate {candidateRevision = revision}
+          | candidate <- map fst (Map.findWithDefault [] name packages),
+            candidateVersion candidate == wanted
           ],
       inputsDescription = \candidate ->
         Identity
@@ -883,6 +890,7 @@ test_plansLocalPackages =
               requestTestSuites = False,
               requestCheckBuildTools = True,
               requestProjectPackages = Map.empty,
+              requestWholePackages = Set.empty,
               requestWorkspaces = [],
               requestHackage = Just (hackageSourceFor queries),
               requestPlatform = (Linux, X86_64),
@@ -957,6 +965,7 @@ test_packageLockFixtures =
                 requestTestSuites = False,
                 requestCheckBuildTools = True,
                 requestProjectPackages = Map.empty,
+                requestWholePackages = Set.empty,
                 requestWorkspaces = [],
                 requestHackage = Just (hackageSourceFor queries),
                 requestPlatform = (Linux, X86_64),
@@ -985,6 +994,13 @@ test_packageLockFixtures =
       exists <- doesFileExist lockFile
       assertBool "local packages with Hackage dependencies need a lock file" exists
       _ <- planPackages localRequest {requestLockMode = LockLocked}
+      -- A locked plan reads no version list. The list of a package changes
+      -- on Hackage, but its cabal file at the locked revision does not, so
+      -- the cache of a locked plan can be fixed once.
+      -- A new handle has no answers in memory, so it reads the cache.
+      removeFile (queryDirectory </> "versions" </> "dep.json")
+      freshQueries <- newHackageQueries offlineQueries
+      _ <- planPackages localRequest {requestLockMode = LockLocked, requestHackage = Just (hackageSourceFor freshQueries)}
       -- Without Hackage, dep has no source. The plan must fail and name
       -- dep and the package that needs it, also when the lock has dep.
       withoutHackage <- try (planPackages localRequest {requestHackage = Nothing})
@@ -1035,6 +1051,7 @@ checkHackageBootLibraryVersion directory queries = do
           requestTestSuites = False,
           requestCheckBuildTools = True,
           requestProjectPackages = Map.empty,
+          requestWholePackages = Set.empty,
           requestWorkspaces = [],
           requestHackage = Just (hackageSourceFor queries),
           requestPlatform = (Linux, X86_64),
@@ -1082,7 +1099,8 @@ test_parsesProjectFile = do
                 ConstraintFlag (mkPackageName "root") (mkFlagName "one") True,
                 ConstraintFlag (mkPackageName "root") (mkFlagName "two") False,
                 ConstraintFlag (mkPackageName "root") (mkFlagName "three") True
-              ]
+              ],
+            projectConfigTests = Just True
           }
     )
     (parseProjectConfig text)
@@ -1137,6 +1155,7 @@ test_plansProject =
               requestTestSuites = False,
               requestCheckBuildTools = True,
               requestProjectPackages = Map.empty,
+              requestWholePackages = Set.empty,
               requestWorkspaces = [],
               requestHackage = Nothing,
               requestPlatform = (Linux, X86_64),
@@ -1154,6 +1173,52 @@ test_plansProject =
     case withoutProject of
       Right _ -> assertFailure "without the project, dep has no source"
       Left err -> assertBool (show err) ("dep" `isInfixOf` show (err :: IOException))
+
+-- With @tests: True@, the plan of a project package includes each of its
+-- executables and test suites, whatever the command selects, as with
+-- cabal. Then a build of one executable and a test of the package make the
+-- same plan, and one lock is correct for both. Without the field, the plan
+-- has only what the command selects.
+test_plansWholeProjectPackages :: Assertion
+test_plansWholeProjectPackages =
+  withTempDir "aihc-package-project-tests" $ \directory -> do
+    let root = directory </> "root"
+    forM_ ["root", "tooldep", "testdep"] $ \name -> createDirectoryIfMissing True (directory </> name)
+    writeFile
+      (root </> "root.cabal")
+      ( cabalFile "root" "0.1" [] ["build-depends: base"]
+          <> unlines ["executable tool", "  main-is: Main.hs", "  build-depends: base, tooldep"]
+          <> unlines ["test-suite checks", "  type: exitcode-stdio-1.0", "  main-is: Checks.hs", "  build-depends: base, testdep"]
+      )
+    forM_ ["tooldep", "testdep"] $ \name ->
+      writeFile (directory </> name </> (name <> ".cabal")) (cabalFile name "1.0" [] ["build-depends: base"])
+    let request =
+          PlanRequest
+            { requestRoots = [RootLocal root],
+              requestGoals = [],
+              requestExecutables = Just [],
+              requestTestSuites = False,
+              requestCheckBuildTools = True,
+              requestProjectPackages = Map.empty,
+              requestWholePackages = Set.empty,
+              requestWorkspaces = [],
+              requestHackage = Nothing,
+              requestPlatform = (Linux, X86_64),
+              requestConstraints = [],
+              requestLockFile = Nothing,
+              requestLockMode = LockNormal,
+              requestPkgConfigModules = Nothing,
+              requestVerbose = const (pure ())
+            }
+        plannedNames project = do
+          planned <- planPackages (withProject project request)
+          pure [name | name <- ["tooldep", "testdep"], Map.member (mkPackageName name) (plannedSolution planned)]
+    writeFile (directory </> "cabal.project") "packages: root tooldep testdep\n"
+    selected <- plannedNames =<< loadProject (directory </> "cabal.project")
+    assertEqual "without tests, only what the command selects" [] selected
+    writeFile (directory </> "cabal.project.local") "tests: True\n"
+    whole <- plannedNames =<< loadProject (directory </> "cabal.project")
+    assertEqual "with tests: True, each executable and test suite" ["tooldep", "testdep"] whole
 
 -- | A fresh directory under the system temporary directory, removed
 -- afterwards. The temporary file only reserves a unique name.

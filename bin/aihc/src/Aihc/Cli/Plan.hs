@@ -57,20 +57,29 @@ runPlan options = planPackageRows options >>= mapM_ (putStrLn . renderPlanRow)
 planPackageRows :: PlanCommandOptions -> IO [PlanRow]
 planPackageRows options = do
   hackageSource <- defaultHackageSource (planCommandOffline options) (hPutStrLn stderr)
-  TargetRoot root _ _ components project <- installTargetRoot (planCommandProject options) (planCommandInput options)
+  TargetRoot root _ lockDirectory components project <- installTargetRoot (planCommandProject options) (planCommandInput options)
   let verbose message = when (planCommandVerbose options) (putStrLn message)
+      usesLock = planCommandLocked options || planCommandUpdate options || not (null (planCommandUpdatePackages options))
       executables = [name | ProjectExecutable name <- components] <> planCommandExecutables options
       -- A test suite target adds the dependencies of the test suites.
       testSuites = not (null [() | ProjectTestSuite _ <- components])
   request <-
     planRequestFor
       hackageSource
-      defaultPlanOptions {planConstraints = planCommandConstraints options}
+      defaultPlanOptions
+        { planConstraints = planCommandConstraints options,
+          planLocked = planCommandLocked options,
+          planUpdate = planCommandUpdate options,
+          planUpdatePackages = planCommandUpdatePackages options
+        }
       (cabalPlatformForTarget (planCommandTarget options))
       project
       (maybe [] pure (planCommandWorkspace options))
-      -- The command only reports the plan, so it keeps no lock.
-      Nothing
+      -- The command only reports the plan. It uses the lock only when an
+      -- option asks for it: --locked reads the lock, and --update and
+      -- --update-package write it. Thus a plan for a different target can
+      -- write the lock of that platform.
+      (if usesLock then lockDirectory else Nothing)
       verbose
   planned <-
     planPackages

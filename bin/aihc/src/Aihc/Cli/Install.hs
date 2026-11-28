@@ -973,6 +973,7 @@ planRequestFor hackage options platform project workspaces lockDirectory verbose
         requestTestSuites = False,
         requestCheckBuildTools = True,
         requestProjectPackages = Map.empty,
+        requestWholePackages = Set.empty,
         requestWorkspaces = workspaces,
         requestHackage = hackage,
         requestPlatform = platform,
