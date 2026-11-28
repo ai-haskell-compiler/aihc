@@ -66,6 +66,7 @@ main =
       testCase "maps boot library names to their standins" test_aliasesBootLibraries,
       testCase "maps the package of a boot library import to its standin" test_aliasesImportPackages,
       testCase "keeps the CPP lines of a literate source" test_literateSourceKeepsCppLines,
+      testCase "reads the code blocks of a literate source" test_literateSourceCodeBlocks,
       testCase "explains a failed solve" test_explainsFailure,
       testCase "reports an unknown package" test_reportsUnknownPackage,
       testCase "avoids and reports a package that aihc cannot build" test_reportsUnsupportedPackage,
@@ -633,6 +634,47 @@ test_literateSourceKeepsCppLines = do
   assertEqual
     "CPP keeps only the branch without DEBUG"
     ["value = 2"]
+    (filter ("value" `isPrefixOf`) (map (T.unpack . T.strip) (T.lines (parsedFileSource parsed))))
+
+-- | A literate source can put its code between @\\begin{code}@ and
+-- @\\end{code}@ lines instead of bird tracks. The text outside the blocks
+-- is not code, and the module header is in the first block.
+test_literateSourceCodeBlocks :: Assertion
+test_literateSourceCodeBlocks = do
+  let source =
+        BSC.pack
+          ( unlines
+              [ "\\begin{code}",
+                "module M (value) where",
+                "import Data.Maybe (fromMaybe)",
+                "\\end{code}",
+                "",
+                "\\section{The value}",
+                "value = text outside a code block",
+                "\\begin{code}",
+                "value = fromMaybe 1 Nothing",
+                "\\end{code}"
+              ]
+          )
+      fileInfo =
+        FileInfo
+          { fileInfoPath = "M.lhs",
+            fileInfoName = "M.lhs",
+            fileInfoExtensions = [],
+            fileInfoCppOptions = [],
+            fileInfoIncludeDirs = [],
+            fileInfoLanguage = Nothing,
+            fileInfoDependencies = [],
+            fileInfoPreprocessor = Nothing
+          }
+  parsed <- parseInterfaceBytes "." "." Map.empty fileInfo source
+  assertEqual
+    "the imports come from the first code block, and the source parses"
+    (["Data.Maybe"], 0)
+    (map (T.unpack . importDeclModule) (moduleImports (parsedFileModule parsed)), length (parsedFileParseDiagnostics parsed))
+  assertEqual
+    "only the code blocks give code lines"
+    ["value = fromMaybe 1 Nothing"]
     (filter ("value" `isPrefixOf`) (map (T.unpack . T.strip) (T.lines (parsedFileSource parsed))))
 
 -- The explanation of a failed solve is the derivation of the final
