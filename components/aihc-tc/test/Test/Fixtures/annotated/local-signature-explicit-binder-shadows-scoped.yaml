@@ -1,0 +1,44 @@
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types
+  data Box a = Box a
+  apply :: (forall r. r -> Box r) -> Bool -> Box Bool
+  apply g x = g x
+  outer :: forall r. r -> Box Bool
+  outer _ = apply inner True
+    where
+      inner :: forall r. r -> Box r
+      inner y = Box y
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  apply :: (forall r. r -> Box r) -> Bool -> Box Bool
+  apply g x = g x
+  │     │ │   └─ type: GHC.Types.Bool → Box GHC.Types.Bool; type-args: Bool
+  │     │ └─ type: GHC.Types.Bool
+  │     └─ type: ∀ r. r → Box r
+  └─ type: (∀ r. r → Box r) → GHC.Types.Bool → Box GHC.Types.Bool
+  outer :: forall r. r -> Box Bool
+  outer _ = apply inner True
+  │     │   └─ type: r → Box r; type-args: r
+  │     │   └─ type: ∀ r. r → Box r
+  │     └─ type: r
+  └─ type: ∀ r. r → Box GHC.Types.Bool
+    where
+      inner :: forall r. r -> Box r
+      inner y = Box y
+      │     │   └─ type: r → Box r; type-args: r
+      │     └─ type: r
+      └─ type: ∀ r. r → Box r
+status: pass
+reason: an explicit forall binder of a local signature shadows a scoped type variable of the same name. The r of inner is a new variable, so inner is polymorphic and is a correct argument of apply, as in GHC.
+extensions:
+- RankNTypes
+- ScopedTypeVariables

@@ -26,17 +26,70 @@ placeGrinAllocations program0 =
   program {grinFunctions = map placeFunction (grinFunctions program)}
   where
     program = storeArguments program0
-    placeFunction function = function {grinFunctionBody = place (grinFunctionBody function)}
+    placeFunction function = function {grinFunctionBody = fromPlaced (place (grinFunctionBody function))}
     place expression =
       case expression of
         GrinBind [pointer] (GrinStore node) body ->
           let body' = place body
-           in fromMaybe (GrinBind [pointer] (GrinStore node) body') (move pointer node body')
-        GrinBind vars value body -> GrinBind vars (place value) (place body)
-        GrinStoreRec nodes body -> GrinStoreRec nodes (place body)
+           in fromMaybe (placedBind [pointer] (placedOther (GrinStore node)) body') (move pointer node body')
+        GrinBind vars value body -> placedBind vars (place value) (place body)
+        GrinStoreRec nodes body -> placedStoreRec nodes (place body)
         GrinCase value binder alternatives ->
-          GrinCase value binder [alternative {grinAltRhs = place (grinAltRhs alternative)} | alternative <- alternatives]
-        _ -> expression
+          placedCase value binder [(alternative, place (grinAltRhs alternative)) | alternative <- alternatives]
+        _ -> placedOther expression
+
+-- | An expression with the set of its free variables. A move asks if
+-- the pointer is free in the code after each bind that it crosses. A new
+-- walk of that code for each store made long bind chains quadratic, as in
+-- the table of @Text.TeXMath.Unicode.ToTeX@. The set is lazy, and a node
+-- makes it from the sets of its parts, so the pass makes each set one
+-- time at most.
+data Placed = Placed
+  { placedFree :: Set GrinVar,
+    placedShape :: !PlacedShape
+  }
+
+-- | The forms that a move crosses or enters. Each other form is a leaf.
+-- The right side of each alternative of a case is in the pair, not in the
+-- alternative.
+data PlacedShape
+  = PlacedBind ![GrinVar] !Placed !Placed
+  | PlacedCase !GrinValue !GrinVar ![(GrinAlt, Placed)]
+  | PlacedStoreRec ![(GrinVar, GrinNode)] !Placed
+  | PlacedOther !GrinExpr
+
+placedBind :: [GrinVar] -> Placed -> Placed -> Placed
+placedBind vars value body =
+  Placed
+    (placedFree value <> (placedFree body `Set.difference` Set.fromList vars))
+    (PlacedBind vars value body)
+
+placedCase :: GrinValue -> GrinVar -> [(GrinAlt, Placed)] -> Placed
+placedCase value binder alternatives =
+  Placed
+    (freeValueVars value <> foldMap alternativeFree alternatives)
+    (PlacedCase value binder alternatives)
+  where
+    alternativeFree (alternative, rhs) =
+      placedFree rhs `Set.difference` Set.fromList (binder : grinAltBinders alternative)
+
+placedStoreRec :: [(GrinVar, GrinNode)] -> Placed -> Placed
+placedStoreRec bindings body =
+  Placed
+    ((foldMap (freeNodeVars . snd) bindings <> placedFree body) `Set.difference` Set.fromList (map fst bindings))
+    (PlacedStoreRec bindings body)
+
+placedOther :: GrinExpr -> Placed
+placedOther expression = Placed (freeExprVars expression) (PlacedOther expression)
+
+fromPlaced :: Placed -> GrinExpr
+fromPlaced placed =
+  case placedShape placed of
+    PlacedBind vars value body -> GrinBind vars (fromPlaced value) (fromPlaced body)
+    PlacedCase value binder alternatives ->
+      GrinCase value binder [alternative {grinAltRhs = fromPlaced rhs} | (alternative, rhs) <- alternatives]
+    PlacedStoreRec bindings body -> GrinStoreRec bindings (fromPlaced body)
+    PlacedOther expression -> expression
 
 -- | Cross a bind only when it neither uses the pointer nor captures an operand.
 -- Stop at every other use, including aliases, calls, updates, and captures.
@@ -50,44 +103,46 @@ placeGrinAllocations program0 =
 -- single-entry @eval@ of the known thunk. The stored object is then dead
 -- on that path, and only a rarer path, such as the inside of a string
 -- literal, passes it on.
-move :: GrinVar -> GrinNode -> GrinExpr -> Maybe GrinExpr
+move :: GrinVar -> GrinNode -> Placed -> Maybe Placed
 move pointer node = go
   where
     protected = Set.insert pointer (freeNodeVars node)
     safe vars = Set.disjoint protected (Set.fromList vars)
-    uses = Set.member pointer . freeExprVars
-    wrap body
-      | body == GrinConstant [GrinVarValue pointer] = GrinStore node
-      | otherwise = GrinBind [pointer] (GrinStore node) body
+    uses = Set.member pointer . placedFree
+    store = placedOther (GrinStore node)
+    wrap body =
+      case placedShape body of
+        PlacedOther (GrinConstant [GrinVarValue var]) | var == pointer -> store
+        _ -> placedBind [pointer] store body
     placeBranch body
       | not (uses body) = body
       | otherwise = fromMaybe (wrap body) (go body)
     go expression =
-      case expression of
-        GrinBind vars value body
+      case placedShape expression of
+        PlacedBind vars value body
           | safe vars,
             not (uses value) ->
-              GrinBind vars value <$> go body
-          | not (uses body) -> (\value' -> GrinBind vars value' body) <$> go value
-        GrinCase value binder alternatives
+              placedBind vars value <$> go body
+          | not (uses body) -> (\value' -> placedBind vars value' body) <$> go value
+        PlacedCase value binder alternatives
           | movable expression ->
-              Just (GrinCase value binder [alternative {grinAltRhs = placeBranch (grinAltRhs alternative)} | alternative <- alternatives])
+              Just (placedCase value binder [(alternative, placeBranch rhs) | (alternative, rhs) <- alternatives])
         _ -> Nothing
     -- Whether the store can enter a case, and a path through it does not
     -- use the pointer.
     movable expression =
-      case expression of
-        GrinCase value binder alternatives ->
+      case placedShape expression of
+        PlacedCase value binder alternatives ->
           Set.notMember pointer (freeValueVars value)
-            && safe (binder : concatMap grinAltBinders alternatives)
-            && any (avoids . grinAltRhs) alternatives
+            && safe (binder : concatMap (grinAltBinders . fst) alternatives)
+            && any (avoids . snd) alternatives
         _ -> False
     -- Whether a path through the expression does not use the pointer, past
     -- the binds and into the cases that the move can cross and enter.
     avoids expression = not (uses expression) || avoidsUsed expression
     avoidsUsed expression =
-      case expression of
-        GrinBind vars value body
+      case placedShape expression of
+        PlacedBind vars value body
           | safe vars,
             not (uses value) ->
               avoidsUsed body
