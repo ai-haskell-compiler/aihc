@@ -1245,6 +1245,7 @@ Thus, the optimizer can see user code and runtime code as one program.</p>
   <span class="k">br</span> <span class="nv">%claimed_22</span><span class="p">,</span> <span class="nl">eval_owner_19</span><span class="p">,</span> <span class="nl">eval_slow_8</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_19</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_23</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_9</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_24</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_23</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_25</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_24</span><span class="p">,</span> <span class="m">-4</span>

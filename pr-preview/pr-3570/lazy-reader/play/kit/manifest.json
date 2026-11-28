@@ -2,7 +2,7 @@
  "schema": 1,
  "name": "aihc-web-kit",
  "version": "0.3.0-dev",
- "build": "f1d1c2cee3da3139",
+ "build": "7846daae04bd1b45",
  "entry": "aihc.js",
  "worker": "worker.js",
  "compiler": {
@@ -32,24 +32,24 @@
   },
   {
    "path": "aihc-play-component.core.wasm.gz",
-   "bytes": 4287730,
-   "sha256": "922ece35a3780f1c3929fd3126974c7b3ae0c89012664b04f0bdfac625933a6d",
+   "bytes": 4320178,
+   "sha256": "9c1e966ba42d67ed69ca1c5a8e605fbb71b099dac35bcc6c0838ccdb310b0ffd",
    "group": "compiler",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/aihc-play-component.core.wasm.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/aihc-play-component.core.wasm.gz"
   },
   {
    "path": "aihc-play-component.core2.wasm.gz",
    "bytes": 421,
    "sha256": "09af0b2260ac15c680f9f97fbabfa4295f35c1e534adbee5c7df674c16bb7fcc",
    "group": "compiler",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/aihc-play-component.core2.wasm.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/aihc-play-component.core2.wasm.gz"
   },
   {
    "path": "aihc-play-component.core3.wasm.gz",
    "bytes": 291,
    "sha256": "9aa38af0e602407a882b99653afe8e6c9b9c27803dea28002ab5c7a99e21612c",
    "group": "compiler",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/aihc-play-component.core3.wasm.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/aihc-play-component.core3.wasm.gz"
   },
   {
    "path": "aihc-play-component.js",
@@ -67,15 +67,15 @@
   },
   {
    "path": "core.bundle.gz",
-   "bytes": 1082924,
-   "sha256": "3781e2c3f77bc7268cd1f9161e32d12222c411006654065d959cc71350b63aaf",
+   "bytes": 1084230,
+   "sha256": "4dc30247d67929c39ff30c2b835218eda531fda9b608e253ce7637c9734617eb",
    "group": "compiler",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/core.bundle.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/core.bundle.gz"
   },
   {
    "path": "engine-core.js",
-   "bytes": 38730,
-   "sha256": "4848fc23c3dc7015c2824366240def0a73884df59d6828a47383c615aed88d18",
+   "bytes": 39507,
+   "sha256": "0c1841529c34ce0843150bef6cba0062cb0fe4e48b046d128b824470df3d48e9",
    "group": "glue",
    "module": true
   },
@@ -95,17 +95,17 @@
   },
   {
    "path": "runtime.pack.gz",
-   "bytes": 13260539,
-   "sha256": "f68a5600c83d909450edcf5a911edff7655ab58295409b35e20dff91c5b87148",
+   "bytes": 13276857,
+   "sha256": "bca1f0b4ab7388363981c1a795113795e937e019cdbfd84cbbabba880eca9a83",
    "group": "linker",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/runtime.pack.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/runtime.pack.gz"
   },
   {
    "path": "th-image.wasm.gz",
-   "bytes": 5102935,
-   "sha256": "d483797578cd02e52066fb8500275d1a78a2acaf826082218e72503be92c869f",
+   "bytes": 5111261,
+   "sha256": "949d8fd87e6ee4b76913415fa18acf0f39e3a7ff6c7a823623c9f98b877820a6",
    "group": "splices",
-   "url": "https://assets.aihc.app/play/helper/f1d1c2cee3da3139/th-image.wasm.gz"
+   "url": "https://assets.aihc.app/play/helper/7846daae04bd1b45/th-image.wasm.gz"
   },
   {
    "path": "tools/jco-LICENSE",

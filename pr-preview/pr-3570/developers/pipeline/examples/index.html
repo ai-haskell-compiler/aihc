@@ -1189,6 +1189,7 @@ In System FC, a <code>Λ</code> binds the type variable <code>a</code> as an exp
   <span class="k">br</span> <span class="nv">%claimed_25</span><span class="p">,</span> <span class="nl">eval_owner_22</span><span class="p">,</span> <span class="nl">eval_slow_11</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_22</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_26</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_12</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_27</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_26</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_28</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_27</span><span class="p">,</span> <span class="m">-4</span>
@@ -1285,6 +1286,7 @@ In System FC, a <code>Λ</code> binds the type variable <code>a</code> as an exp
   <span class="k">br</span> <span class="nv">%claimed_94</span><span class="p">,</span> <span class="nl">eval_owner_91</span><span class="p">,</span> <span class="nl">eval_slow_80</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_91</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_95</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_81</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_96</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_95</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_97</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_96</span><span class="p">,</span> <span class="m">-4</span>
@@ -1675,6 +1677,7 @@ In System FC, the equations become one <code>case</code> expression.</p>
   <span class="k">br</span> <span class="nv">%claimed_21</span><span class="p">,</span> <span class="nl">eval_owner_18</span><span class="p">,</span> <span class="nl">eval_slow_7</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_18</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_22</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_8</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_23</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_22</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_24</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_23</span><span class="p">,</span> <span class="m">-4</span>
@@ -1995,6 +1998,7 @@ The recursive call is lazy: the tail of the result is not evaluated until a cons
   <span class="k">br</span> <span class="nv">%claimed_22</span><span class="p">,</span> <span class="nl">eval_owner_19</span><span class="p">,</span> <span class="nl">eval_slow_8</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_19</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_23</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_9</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_24</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_23</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_25</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_24</span><span class="p">,</span> <span class="m">-4</span>
@@ -2323,6 +2327,7 @@ In System FC, the class becomes a dictionary data type, and the instance becomes
   <span class="k">br</span> <span class="nv">%claimed_21</span><span class="p">,</span> <span class="nl">eval_owner_18</span><span class="p">,</span> <span class="nl">eval_slow_7</span>
 
 <span class="nl">cold</span> <span class="nl">eval_owner_18</span><span class="p">:</span>
+  <span class="k">fence</span> <span class="k">acquire</span>
   <span class="nv">%word_22</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">ptr</span> <span class="p">[</span><span class="nv">%current_8</span> <span class="o">+</span> <span class="m">8</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%header_word_23</span> <span class="o">=</span> <span class="k">load.dependent</span> <span class="no">i64</span> <span class="p">[</span><span class="nv">%word_22</span><span class="p">]</span> <span class="k">region</span> <span class="k">heap</span>
   <span class="nv">%info_word_24</span> <span class="o">=</span> <span class="k">and</span> <span class="no">i64</span> <span class="nv">%header_word_23</span><span class="p">,</span> <span class="m">-4</span>
