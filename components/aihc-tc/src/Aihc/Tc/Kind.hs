@@ -87,6 +87,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, forM_, replicateM, when, zipWithM, zipWithM_)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get)
+import Data.Either (isLeft, lefts)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (nub)
 import Data.Map.Strict (Map)
@@ -823,14 +824,10 @@ synonymApplicationSpine = go []
         TApp function argument -> go (Right argument : arguments) function
         TTypeApp function argument -> go (Left argument : arguments) function
         TCon name _ ->
-          let (kindArguments, typeArguments) = span isKindArgument arguments
-           in Just (name, [kind | Left kind <- kindArguments], map (either id id) typeArguments)
+          let (kindArguments, typeArguments) = span isLeft arguments
+           in Just (name, lefts kindArguments, map (either id id) typeArguments)
         TInfix lhs name Unpromoted rhs -> Just (name, [], lhs : rhs : map (either id id) arguments)
         _ -> Nothing
-    isKindArgument argument =
-      case argument of
-        Left {} -> True
-        Right {} -> False
 
 -- | Instantiate the kind scheme of a synonym. The visible kind arguments
 -- give the specified kind variables of the synonym in order, as for a

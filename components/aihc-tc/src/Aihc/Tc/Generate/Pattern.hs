@@ -36,6 +36,7 @@ import Aihc.Tc.Kind (checkSurfaceType, freeTypeVars, freshKindMeta, tcTypeKind, 
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Decompose (decomposeNominalEquality)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Syntax
   ( Annotation,
     BuiltinCon (..),
@@ -70,7 +71,6 @@ import Aihc.Tc.Syntax
     resolvedBinderEntity,
   )
 import Aihc.Tc.Types
-import Aihc.Tc.Solve.Family (reduceTypeFamilies)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, when)
