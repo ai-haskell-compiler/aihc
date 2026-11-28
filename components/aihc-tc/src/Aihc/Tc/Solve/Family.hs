@@ -457,7 +457,7 @@ firstEquation family kindOf bareKindArguments openKindPositions equations argume
     fixesOpenKind equation =
       case tfiiLeft equation of
         TcTyConApp _ kindPatterns _ ->
-          any (not . isTyVar) [kindPattern | (position, kindPattern) <- zip [0 :: Int ..] kindPatterns, position `elem` openKindPositions]
+          not (all isTyVar [kindPattern | (position, kindPattern) <- zip [0 :: Int ..] kindPatterns, position `elem` openKindPositions])
         _ -> False
     -- A poly-kinded constructor with no visible argument gets its kind
     -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
