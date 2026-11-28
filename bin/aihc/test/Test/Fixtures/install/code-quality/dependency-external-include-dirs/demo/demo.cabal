@@ -7,4 +7,6 @@ library
   hs-source-dirs: src
   build-depends: sysdep
   default-language: Haskell2010
-  default-extensions: NoImplicitPrelude, CPP
+  default-extensions:
+    CPP
+    NoImplicitPrelude
