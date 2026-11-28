@@ -173,6 +173,12 @@ data SolverInputs m = SolverInputs
   { -- | The candidates of a package, in any order. The preference, when
     -- there is one, names the revision to read for the version it prefers.
     inputsCandidates :: PackageName -> Maybe Preference -> m [Candidate],
+    -- | The candidates of one version of a package, at the revision when
+    -- one is given, as a lock file names them. A source can give such a
+    -- candidate without the list of all versions. The list of a Hackage
+    -- package changes, but a cabal file at a revision does not. Thus the
+    -- check of a lock file reads only answers that do not change.
+    inputsPinnedCandidates :: PackageName -> Version -> Maybe Int -> m [Candidate],
     -- | The cabal file of a candidate at its revision, with the revision
     -- that was read. The revision is zero for anything but a Hackage
     -- release.
@@ -1495,7 +1501,7 @@ verifySolution inputs initial recorded = do
       case acc of
         Left problem -> pure (Left problem)
         Right chosen -> do
-          available <- inputsCandidates inputs name (Just (Preference version revision flags))
+          available <- inputsPinnedCandidates inputs name version revision
           case [candidate | candidate <- available, candidateVersion candidate == version] of
             candidate : _
               -- A recorded revision must be the one the candidate reads, so

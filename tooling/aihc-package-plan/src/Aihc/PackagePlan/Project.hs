@@ -22,10 +22,15 @@
 --
 -- * @flags@ in a @package NAME@ section: the flag constraints of NAME.
 --
+-- * @tests@: with @True@, the plan of a project package includes all of
+--   its components: the library, each executable, and each test suite, as
+--   with @cabal@. Then each command that plans the package makes the same
+--   plan, and one lock file is correct for all of them.
+--
 -- The project file does not support conditionals, @import@ and
 -- @source-repository-package@. Such a file is an error, because a plan
--- without them can be a different plan. The other fields, such as @tests@
--- and @jobs@, do not change the plan, and the parser ignores them.
+-- without them can be a different plan. The other fields, such as @jobs@,
+-- do not change the plan, and the parser ignores them.
 module Aihc.PackagePlan.Project
   ( -- * The project file
     ProjectConfig (..),
@@ -81,15 +86,18 @@ data ProjectConfig = ProjectConfig
     projectConfigOptionalPackages :: ![String],
     -- | The constraints of the @constraints@ field and of the @flags@ of
     -- each @package@ section, in file order.
-    projectConfigConstraints :: ![Constraint]
+    projectConfigConstraints :: ![Constraint],
+    -- | The value of the @tests@ field. A later file, such as the
+    -- @.local@ file, replaces the value of an earlier one.
+    projectConfigTests :: !(Maybe Bool)
   }
   deriving (Eq, Show)
 
 instance Semigroup ProjectConfig where
-  ProjectConfig a b c <> ProjectConfig a' b' c' = ProjectConfig (a <> a') (b <> b') (c <> c')
+  ProjectConfig a b c d <> ProjectConfig a' b' c' d' = ProjectConfig (a <> a') (b <> b') (c <> c') (maybe d Just d')
 
 instance Monoid ProjectConfig where
-  mempty = ProjectConfig [] [] []
+  mempty = ProjectConfig [] [] [] Nothing
 
 -- | One line of a project file without its indentation. Comment lines and
 -- blank lines are not lines.
@@ -111,6 +119,7 @@ parseProjectConfig text = mconcat <$> mapM topItem (items (projectLines text))
             "packages" -> Right mempty {projectConfigPackages = entries value}
             "optional-packages" -> Right mempty {projectConfigOptionalPackages = entries value}
             "constraints" -> (\cs -> mempty {projectConfigConstraints = cs}) . concat <$> mapM projectConstraint (constraintItems value)
+            "tests" -> (\on -> mempty {projectConfigTests = Just on}) <$> boolean name value
             "import" -> Left "aihc does not support import in a project file"
             _ -> Right mempty
         Section header body ->
@@ -133,6 +142,12 @@ parseProjectConfig text = mconcat <$> mapM topItem (items (projectLines text))
         '-' : flag@(_ : _) -> Right (mkFlagName flag, False)
         flag@(c : _) | isAlphaNum c -> Right (mkFlagName flag, True)
         _ -> Left ("Invalid flag in a project file: " <> word)
+
+    boolean name value =
+      case map toLower <$> words value of
+        ["true"] -> Right True
+        ["false"] -> Right False
+        _ -> Left ("Invalid value of " <> name <> " in a project file: expected True or False")
 
     -- The entries of a list of paths, separated by white space or commas.
     entries = words . map (\c -> if c == ',' then ' ' else c)
@@ -204,7 +219,9 @@ data Project = Project
   { projectFile :: !FilePath,
     projectRoot :: !FilePath,
     projectPackages :: !(Map PackageName ProjectPackage),
-    projectConstraints :: ![Constraint]
+    projectConstraints :: ![Constraint],
+    -- | The plan of a project package includes all of its components.
+    projectTests :: !Bool
   }
   deriving (Eq, Show)
 
@@ -289,7 +306,8 @@ loadProject path = do
       { projectFile = file,
         projectRoot = root,
         projectPackages = Map.fromList packages,
-        projectConstraints = projectConfigConstraints config
+        projectConstraints = projectConfigConstraints config,
+        projectTests = projectConfigTests config == Just True
       }
 
 -- | The canonical package directories that one entry of @packages@ names.
@@ -378,7 +396,11 @@ withProject :: Project -> PlanRequest -> PlanRequest
 withProject project request =
   request
     { requestProjectPackages = Map.map projectPackageDirectory (projectPackages project),
-      requestConstraints = projectConstraints project <> requestConstraints request
+      requestConstraints = projectConstraints project <> requestConstraints request,
+      requestWholePackages =
+        if projectTests project
+          then Map.keysSet (projectPackages project) <> requestWholePackages request
+          else requestWholePackages request
     }
 
 -- | A target as @cabal build@ names it.

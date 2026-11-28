@@ -150,7 +150,14 @@ data PlanCommandOptions = PlanCommandOptions
     planCommandConstraints :: ![String],
     planCommandProject :: !ProjectSelection,
     -- | Do not use the network.
-    planCommandOffline :: !Bool
+    planCommandOffline :: !Bool,
+    -- | Take the plan from @aihc.lock@, and do not write the lock.
+    planCommandLocked :: !Bool,
+    -- | Solve the plan afresh and write @aihc.lock@.
+    planCommandUpdate :: !Bool,
+    -- | Solve these packages and their dependents afresh, and write
+    -- @aihc.lock@.
+    planCommandUpdatePackages :: ![String]
   }
   deriving (Eq, Show)
 
@@ -424,6 +431,9 @@ planCommandOptionsParser =
     <*> constraintOptions
     <*> projectOption
     <*> offlineOption
+    <*> lockedOption
+    <*> updateOption
+    <*> updatePackageOptions
 
 -- | Look for @cabal.project@ from the working directory up, unless an
 -- option names the project file or turns the project off.
@@ -489,24 +499,36 @@ planOptionsParser :: OA.Parser PlanOptions
 planOptionsParser =
   PlanOptions
     <$> constraintOptions
-    <*> OA.switch
-      ( OA.long "locked"
-          <> OA.help "Take the plan from aihc.lock and fail if the lock is absent or stale, instead of solving and rewriting it"
-      )
-    <*> OA.switch
-      ( OA.long "update"
-          <> OA.help "Ignore aihc.lock, solve the plan afresh, and rewrite the lock"
-      )
-    <*> OA.many
-      ( OA.strOption
-          ( OA.long "update-package"
-              <> OA.metavar "NAME"
-              <> OA.help "Ignore what aihc.lock says about NAME and the packages that depend on it, and rewrite the lock"
-          )
-      )
+    <*> lockedOption
+    <*> updateOption
+    <*> updatePackageOptions
     <*> projectOption
     <*> pure True
     <*> offlineOption
+
+lockedOption :: OA.Parser Bool
+lockedOption =
+  OA.switch
+    ( OA.long "locked"
+        <> OA.help "Take the plan from aihc.lock and fail if the lock is absent or stale, instead of solving and rewriting it"
+    )
+
+updateOption :: OA.Parser Bool
+updateOption =
+  OA.switch
+    ( OA.long "update"
+        <> OA.help "Ignore aihc.lock, solve the plan afresh, and rewrite the lock"
+    )
+
+updatePackageOptions :: OA.Parser [String]
+updatePackageOptions =
+  OA.many
+    ( OA.strOption
+        ( OA.long "update-package"
+            <> OA.metavar "NAME"
+            <> OA.help "Ignore what aihc.lock says about NAME and the packages that depend on it, and rewrite the lock"
+        )
+    )
 
 -- | The @--offline@ switch of the commands that plan.
 offlineOption :: OA.Parser Bool

@@ -56,6 +56,7 @@ import Aihc.Hackage.Package
     Version,
     VersionRange,
     anyVersion,
+    mkFlagAssignment,
     mkFlagName,
     mkPackageName,
     packageNameOf,
@@ -183,6 +184,11 @@ data PlanRequest = PlanRequest
     -- roots and the core libraries, and before the siblings of the roots
     -- and the workspaces.
     requestProjectPackages :: !(Map PackageName FilePath),
+    -- | The roots whose plan includes each executable and each test suite,
+    -- whatever 'requestExecutables' and 'requestTestSuites' say. A project
+    -- with @tests: True@ names its packages here, so that each command
+    -- makes the same plan of a package and one lock is correct for each.
+    requestWholePackages :: !(Set.Set PackageName),
     -- | Directories whose subdirectory @NAME@ is the source of the package
     -- @NAME@, before Hackage.
     requestWorkspaces :: ![FilePath],
@@ -275,7 +281,7 @@ planPackages request = do
               requestConstraints request
                 <> [ConstraintVersion name (thisVersion version) | (name, Right (Just version)) <- roots],
             configPreferences = Map.empty,
-            configRoots = Map.fromList [(name, rootStanzas) | (name, _) <- roots],
+            configRoots = Map.fromList [(name, stanzasOf name) | (name, _) <- roots],
             -- Every package depends on aihc-prim, so the plan needs it even
             -- when no cabal file names it; see 'withImplicitPrimDependency'.
             configGoals =
@@ -305,11 +311,13 @@ planPackages request = do
   where
     usesHackage assignment = assignmentSource assignment == CandidateHackage
     prim = mkPackageName "aihc-prim"
-    rootStanzas =
-      noStanzas
-        { stanzasTests = requestTestSuites request,
-          stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request
-        }
+    stanzasOf name
+      | Set.member name (requestWholePackages request) = noStanzas {stanzasTests = True, stanzasExecutables = Nothing}
+      | otherwise =
+          noStanzas
+            { stanzasTests = requestTestSuites request,
+              stanzasExecutables = Set.fromList . map T.pack <$> requestExecutables request
+            }
 
 -- | Take the plan from a valid lock, or solve and say so.
 solveWithLock :: PlanRequest -> SolverInputs IO -> SolverConfig -> [FilePath] -> IO (Solution, Bool)
@@ -471,24 +479,47 @@ solverInputs :: PlanRequest -> IORef (Map FilePath (FilePath, Package)) -> Map P
 solverInputs request descriptions localRoots localDirectories =
   SolverInputs
     { inputsCandidates = candidates,
+      inputsPinnedCandidates = pinnedCandidates,
       inputsDescription = description
     }
   where
-    candidates name preference =
+    candidates name preference = do
+      local <- nonHackageCandidates name
+      case local of
+        Just found -> pure found
+        Nothing -> maybe (pure []) (hackageCandidates name preference) (requestHackage request)
+
+    -- A Hackage release that a lock file names at a revision needs no
+    -- version list: the cabal file at that revision is the candidate. A
+    -- boot library from Hackage still has only the version of the
+    -- emulated release.
+    pinnedCandidates name version revision = do
+      local <- nonHackageCandidates name
+      case (local, revision, requestHackage request) of
+        (Just found, _, _) -> pure found
+        (Nothing, Just wanted, Just _)
+          | releaseAllows name version -> pure [Candidate name version (Just wanted) False CandidateHackage]
+          | otherwise -> pure []
+        (Nothing, _, _) -> candidates name (Just (Preference version revision (mkFlagAssignment [])))
+
+    releaseAllows name version =
+      maybe True ((== version) . versionFromList) (lookup (unPackageName name) (releaseHackageBootLibraries emulatedGhc))
+
+    -- The candidate of a root, a core library, a project package, or a
+    -- local directory, or 'Nothing' for a package that only Hackage has.
+    nonHackageCandidates name =
       case Map.lookup name localRoots of
-        Just path -> pure <$> localCandidate name path
+        Just path -> Just . pure <$> localCandidate name path
         Nothing ->
           case lookupCoreProvider (unPackageName name) of
             Just provider -> do
               path <- coreProviderSourcePath provider
-              pure [Candidate name (versionFromList (bootVersion provider)) Nothing False (CandidateCore path)]
+              pure (Just [Candidate name (versionFromList (bootVersion provider)) Nothing False (CandidateCore path)])
             Nothing -> do
               local <- case Map.lookup name (requestProjectPackages request) of
                 Just path -> pure (Just path)
                 Nothing -> findLocal name localDirectories
-              case local of
-                Just path -> pure <$> localCandidate name path
-                Nothing -> maybe (pure []) (hackageCandidates name preference) (requestHackage request)
+              traverse (fmap pure . localCandidate name) local
 
     bootVersion provider =
       maybe [] bootLibraryVersion (lookupBootLibraryByStandin (coreProviderName provider) emulatedGhc)

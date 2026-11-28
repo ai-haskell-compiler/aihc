@@ -30,6 +30,7 @@ import Control.Monad (forM, forM_, unless, when)
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Options.Applicative
@@ -129,6 +130,7 @@ runBuild options = do
           requestTestSuites = False,
           requestCheckBuildTools = True,
           requestProjectPackages = Map.empty,
+          requestWholePackages = Set.empty,
           requestWorkspaces = [],
           requestHackage = hackageSource,
           requestPlatform = (buildOS, buildArch),
