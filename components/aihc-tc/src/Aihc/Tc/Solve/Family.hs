@@ -310,10 +310,11 @@ reduceHead ty =
                   -- and no equation matches. Thus each meta variable stands
                   -- for a variable of its kind while the kinds are computed.
                   -- The equations still match the arguments as they are.
-                  argumentKinds <-
+                  viewedArguments <-
                     if any typeMentionsMeta familyArguments
-                      then kindsOfArguments <$> mapM metasAsVariables familyArguments
-                      else pure (kindsOfArguments familyArguments)
+                      then mapM metasAsVariables familyArguments
+                      else pure familyArguments
+                  let argumentKinds = kindsOfArguments viewedArguments
                   let bareKindArguments bare expectedKind = do
                         ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
@@ -337,7 +338,7 @@ reduceHead ty =
                   -- A meta variable stands for a variable of its kind here
                   -- too, but only its kind is used.
                   extraKindViews <- mapM metasAsVariables extraArguments
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments openKindPositions equations familyArguments actualKinds extraKindViews of
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments openKindPositions equations familyArguments viewedArguments actualKinds extraKindViews of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -423,20 +424,24 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 -- give. An equation that fixes one of these kind arguments can match only
 -- when the kind is known. In a closed family, such an equation blocks the
 -- equations after it.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [Int] -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf bareKindArguments openKindPositions equations arguments argumentKinds extraArguments =
+--
+-- The viewed arguments are the arguments with each meta variable replaced
+-- by a variable of its kind. They give the kinds of the types that the
+-- equation variables match.
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [Int] -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf bareKindArguments openKindPositions equations arguments viewedArguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
       case equationArguments equation of
         Just _
           | fixesOpenKind equation ->
-              if tfiiClosed equation then Nothing else firstEquation family kindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
+              if tfiiClosed equation then Nothing else firstEquation family kindOf bareKindArguments openKindPositions rest arguments viewedArguments argumentKinds extraArguments
         Just patterns
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
             Just substitution <- matchTypes patterns arguments,
-            Just variableSubstitution <- variableKinds equation substitution,
+            Just variableSubstitution <- variableKinds equation (fromMaybe substitution (matchTypes patterns viewedArguments)),
             Just resultSubstitution <- matchResultKinds equation (substitution <> kindSubstitution <> variableSubstitution) ->
               let fullSubstitution = substitution <> kindSubstitution <> variableSubstitution <> resultSubstitution
                   completeSubstitution = kindedBareConstructors equation fullSubstitution <> fullSubstitution
@@ -452,7 +457,7 @@ firstEquation family kindOf bareKindArguments openKindPositions equations argume
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf bareKindArguments openKindPositions rest arguments viewedArguments argumentKinds extraArguments
   where
     fixesOpenKind equation =
       case tfiiLeft equation of
@@ -481,8 +486,16 @@ firstEquation family kindOf bareKindArguments openKindPositions equations argume
     -- meta variable in the two kinds, makes the equation not match. In
     -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
     -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
-    -- in GHC. Only a type variable is checked. The kind of another type can
-    -- have a free variable of its signature: a bare @'[]@ or @TypeError m@.
+    -- in GHC. The kind of another type can have a free variable of its
+    -- signature: a bare @'[]@ or @TypeError m@. Thus another type is only
+    -- checked when its kind has no variable. In @MkLink (arr :> sub) _@ of
+    -- @servant@ the variable @arr@ has the kind @k1 -> k2@, and the
+    -- 'Symbol' @\"x\"@ does not match it.
+    --
+    -- A kind with a meta variable can match the kind of the variable only
+    -- after the meta variable is solved. Until then, the equation does not
+    -- match. In @simpleToLink@ of @servant@, a meta variable @t0@ of the
+    -- kind @k0@ does not match @arr@ of @MkLink (arr :> sub) _@.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
@@ -496,13 +509,25 @@ firstEquation family kindOf bareKindArguments openKindPositions equations argume
               | any rigidMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
     rigidMismatch (patternKind, actual, actualKind) =
-      isTyVar actual
-        && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
+      (isTyVar actual || closedKind actualKind || typeMentionsMeta actualKind)
+        && not (typeMentionsMeta patternKind)
         && isNothing (matchTypes [patternKind] [actualKind])
     isTyVar ty =
       case ty of
         TcTyVar _ -> True
         _ -> False
+    closedKind ty =
+      case ty of
+        TcTyVar _ -> False
+        TcMetaTv _ -> False
+        TcArrowTy -> True
+        TcTyLit _ -> True
+        TcKindedTyCon _ kindArguments -> all closedKind kindArguments
+        TcTyConApp _ kindArguments typeArguments -> all closedKind kindArguments && all closedKind typeArguments
+        TcFunTy argument result -> closedKind argument && closedKind result
+        TcAppTy function argument -> closedKind function && closedKind argument
+        TcForAllTy {} -> False
+        TcQualTy {} -> False
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
       resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)
