@@ -1,0 +1,1 @@
+#define SYSDEP_ANSWER 42

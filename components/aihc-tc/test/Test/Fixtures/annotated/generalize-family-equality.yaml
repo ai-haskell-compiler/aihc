@@ -1,0 +1,29 @@
+extensions: [TypeFamilies, KindSignatures, FlexibleContexts]
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, KindSignatures, FlexibleContexts #-}
+  module Test where
+  import GHC.Types (Bool (..), Int, Type)
+  type family IndexOf (c :: Type -> Type)
+  data M a = M Int Int
+  data N a = N Int Int
+  type instance IndexOf M = (Int, Int)
+  type instance IndexOf N = (Int, Int)
+  class Konst c where
+    konst :: e -> IndexOf c -> c e
+  instance Konst M where
+    konst _ (r, c) = M r c
+  instance Konst N where
+    konst _ (r, c) = N r c
+  make x i = konst x (i, i)
+  useTop :: Int -> M Bool
+  useTop = make True
+  useLocal :: Int -> (M Bool, N Bool)
+  useLocal i = (makeLocal True i, makeLocal False i)
+    where
+      makeLocal x j = konst x (j, j)
+status: pass
+reason: A binding without a signature waits on the equality IndexOf c ~ (t, t)
+  until c is known. GHC puts the equality in the inferred context. Each use
+  then supplies c, and the family application reduces. The rule is the same
+  for a top-level binding and for a local binding.

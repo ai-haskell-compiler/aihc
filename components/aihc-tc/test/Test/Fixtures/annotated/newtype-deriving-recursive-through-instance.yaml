@@ -1,0 +1,48 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  import GHC.Types (Bool)
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  instance C Bool where
+  └─ $fCBool ∷ () ⇒ C Bool
+    c x = x
+    │ └─ type: GHC.Types.Bool
+    └─ c ∷ Bool → Bool
+  instance C a => C [a] where
+  └─ $fCList ∷ ∀ a. (C a) ⇒ C [a]
+    c x = x
+    │ └─ type: [a]
+    └─ c ∷ [a] → [a]
+  instance (C a, C b) => C (a, b) where
+  └─ $fCTuple2ab ∷ ∀ a b. (C a, C b) ⇒ C (a, b)
+    c x = x
+    │ └─ type: (a, b)
+    └─ c ∷ (a, b) → (a, b)
+  newtype S = S (Bool, [S])
+  │       │   └─ type: (GHC.Types.Bool, [S]) → S
+  │       └─ type: Type
+  └─ deriving plans: newtype C S [context: ()] [methods: c]
+    deriving C
+             └─ $fCS ∷ () ⇒ C S
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  import GHC.Types (Bool)
+  class C a where
+    c :: a -> a
+  instance C Bool where
+    c x = x
+  instance C a => C [a] where
+    c x = x
+  instance (C a, C b) => C (a, b) where
+    c x = x
+  newtype S = S (Bool, [S])
+    deriving C
+reason: newtype deriving accepts a representation whose instance needs the derived instance through instance declarations, as in GHC
+status: pass

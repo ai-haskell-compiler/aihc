@@ -20,8 +20,8 @@ import Aihc.Resolve (Identifier (..), ResolutionNamespace (..), Resolved (..))
 import Aihc.Tc.Annotations (TcAnnotated (..), TcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeGroupAndCommitIgnoring, predMetaVars, quantifiableEquality)
 import {-# SOURCE #-} Aihc.Tc.Generate.Expr (checkRhs)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
@@ -31,6 +31,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
+import Aihc.Tc.Solve.Family (isTypeFamilyTyCon)
 import Aihc.Tc.Solve.FunDep (improveFunDeps, superClassEqualities)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Syntax
@@ -755,8 +756,10 @@ data LocalResiduals = LocalResiduals
 
 -- | Split the residual constraints of a local binding group.
 --
--- A class constraint on a type variable that a function binder generalizes
--- becomes a dictionary parameter of that binder. The monomorphism
+-- A constraint on a type variable that a function binder generalizes
+-- becomes a parameter of that binder, as in GHC. Such a constraint is a
+-- class constraint, a constraint whose head is a type family, such as
+-- @1 <= n@, or an equality that waits on a type family application. The monomorphism
 -- restriction keeps the constrained type variables of a pattern binding or
 -- a zero-argument binding monomorphic, and its other type variables still
 -- generalize. All other constraints go to the enclosing scope.
@@ -766,6 +769,7 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   envMetaVars <- environmentMetaVars binderSet
   restrictedBinders' <- restrictedBinderKeys groups
   typeBinderInfos <- traverse (binderMetaInfo placeholders) binders
+  isFamily <- isTypeFamilyTyCon
   -- Haskell 2010 rule 1 restricts a whole declaration group: when one
   -- binding of the group is a pattern binding or a binding without
   -- arguments and without a signature, no binder of the group abstracts
@@ -780,12 +784,13 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
   -- left to the enclosing scope. Its meta-variables must stay
   -- meta-variables: the enclosing scope solves the constraint by fixing
   -- them, which a quantified skolem would make impossible.
-  let monoMetaVars =
+  let abstractable = canAbstract isFamily
+      monoMetaVars =
         Set.toList
           ( Set.fromList
               [ unique
               | ct <- residualCts,
-                not (isClassPred (ctPred ct)),
+                not (abstractable (ctPred ct)),
                 unique <- predMetaVars (ctPred ct),
                 unique `notElem` envMetaVars
               ]
@@ -797,13 +802,13 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
       -- variables. In @f v = composeFilter addHeader@ with @f :: () -> m
       -- ()@, the constraint @FilterMonad c m@ connects @c@ to @m@, so @f@
       -- also abstracts over @HasHeaders c@.
-      classMetaSets = [generalizableMetas (ctPred ct) | ct <- residualCts, isClassPred (ctPred ct)]
+      classMetaSets = [generalizableMetas (ctPred ct) | ct <- residualCts, abstractable (ctPred ct)]
       growMetas metas =
         let grown = Set.unions (metas : [Set.fromList connected | connected <- classMetaSets, any (`Set.member` metas) connected])
          in if Set.size grown == Set.size metas then metas else growMetas grown
       binderInfos = [(key, Set.toList (growMetas (Set.fromList binderMetas))) | (key, binderMetas) <- typeBinderInfos]
       ownersOf metas = [key | (key, binderMetas) <- binderInfos, any (`elem` binderMetas) metas]
-      classConstraints = [(generalizable, ownersOf generalizable) | ct <- residualCts, isClassPred (ctPred ct), let generalizable = generalizableMetas (ctPred ct), not (null generalizable)]
+      classConstraints = [(generalizable, ownersOf generalizable) | ct <- residualCts, abstractable (ctPred ct), let generalizable = generalizableMetas (ctPred ct), not (null generalizable)]
       -- Haskell 2010 rule 1 keeps the constrained type variables of a
       -- restricted group monomorphic. A binder that shares such a variable
       -- belongs to the restricted group too, so its constraints also keep
@@ -820,7 +825,7 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
         let predicate = ctPred ct
             generalizable = generalizableMetas predicate
             owners = ownersOf generalizable
-         in if null generalizable || null owners || not (isClassPred predicate) || any (`Set.member` restrictedBinders) owners
+         in if null generalizable || null owners || not (abstractable predicate) || any (`Set.member` restrictedBinders) owners
               then (preds, outerCts ++ [ct], givens)
               else (foldr (MonoidMap.adjust (addPredicate predicate)) preds owners, outerCts, givens ++ [ct])
       -- Each occurrence of a predicate gets evidence from the same given.
@@ -834,7 +839,9 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
         | otherwise = known <> [predicate]
       (localPreds, outer, givenCts) = foldl step (MonoidMap.empty, [], []) residualCts
   forM_ givenCts $ \ct ->
-    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+    bindEvidence (ctEvVar ct) $ case ctPred ct of
+      predicate@EqPred {} -> EvCoercion (GivenCo predicate)
+      predicate -> EvGiven predicate
   pure
     LocalResiduals
       { localResidualPreds = localPreds,
@@ -845,8 +852,14 @@ partitionLocalResiduals binderSet placeholders groups binders solveResult = do
     zonkCtPred ct = do
       predicate <- zonkPred (ctPred ct)
       pure (ct {ctPred = predicate})
-    isClassPred ClassPred {} = True
-    isClassPred _ = False
+    -- Whether a binder can abstract over a constraint. Each other
+    -- constraint goes to the enclosing scope.
+    canAbstract isFamily predicate =
+      case predicate of
+        ClassPred {} -> True
+        IrredPred {} -> True
+        EqPred left right -> quantifiableEquality isFamily left right
+        _ -> False
     binderMetaInfo placeholderMap name = do
       key <- resolvedLocalTermKey name
       ty <- maybe (pure Nothing) (fmap Just . zonkType) (Map.lookup key placeholderMap)

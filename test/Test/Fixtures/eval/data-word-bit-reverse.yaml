@@ -1,0 +1,23 @@
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word16, Word32, Word64, Word8, bitReverse16, bitReverse32, bitReverse64, bitReverse8)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (map bitReverse8 [0, 1, 0x80, 0x0f, 0xff, 0xa5 :: Word8])
+      print (map bitReverse16 [0, 1, 0x8000, 0x00ff, 0xffff, 0x1234 :: Word16])
+      print (map bitReverse32 [0, 1, 0x80000000, 0x0000ffff, 0xffffffff, 0x12345678 :: Word32])
+      print (map bitReverse64 [0, 1, 0x8000000000000000, 0x00000000ffffffff, 0xffffffffffffffff, 0x0123456789abcdef :: Word64])
+stdout: |
+  [0,128,1,240,255,165]
+  [0,32768,1,65280,65535,11336]
+  [0,2147483648,1,4294901760,4294967295,510274632]
+  [0,9223372036854775808,1,18446744069414584320,18446744073709551615,17848844570815808640]
+output: |
+  ()
+expression: main
+status: pass
+reason: Data.Word has bitReverse8, bitReverse16, bitReverse32, and bitReverse64, as GHC base has, and each one reverses the bits of its width

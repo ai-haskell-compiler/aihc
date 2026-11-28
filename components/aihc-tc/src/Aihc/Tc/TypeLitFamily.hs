@@ -102,7 +102,9 @@ simplifyTypeLitFamily family literal build arguments =
 -- | Whether equal applications of a built-in family with one argument in
 -- common also have the other argument in common. Addition on naturals has
 -- this property: @a + b ~ a + c@ gives @b ~ c@, and @a + c ~ b + c@ gives
--- @a ~ b@. GHC uses the same rule for improvement. Multiplication does not
--- have it, because zero absorbs the other argument.
+-- @a ~ b@. Subtraction on naturals has it too, because a difference is
+-- defined only when it is a natural number: @a - b ~ a - c@ gives @b ~ c@.
+-- GHC uses the same rules for improvement. Multiplication does not have
+-- it, because zero absorbs the other argument.
 cancellableTypeLitFamily :: Text -> Bool
-cancellableTypeLitFamily family = family == "+"
+cancellableTypeLitFamily family = family == "+" || family == "-"

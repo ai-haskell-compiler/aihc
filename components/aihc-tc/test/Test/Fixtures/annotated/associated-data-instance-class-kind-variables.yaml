@@ -1,0 +1,45 @@
+modules:
+- |
+  {-# LANGUAGE DataKinds, PolyKinds, KindSignatures, TypeFamilies, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types
+  class Illuminant (i :: k)
+  class (Illuminant it, Illuminant ir) => Adapt (t :: k) (it :: kt) (ir :: kr) e where
+    data Adaptation t it ir e :: Type
+    adapt :: Adaptation t it ir e -> e -> e
+  data NoAdaptation
+  instance Illuminant i => Adapt NoAdaptation i i e where
+    data Adaptation NoAdaptation i i e = NoAdaptation
+    adapt _ x = x
+annotated:
+- |-
+  {-# LANGUAGE DataKinds, PolyKinds, KindSignatures, TypeFamilies, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables #-}
+  module Test where
+  import GHC.Types
+  class Illuminant (i :: k)
+  └─ class methods:
+  class (Illuminant it, Illuminant ir) => Adapt (t :: k) (it :: kt) (ir :: kr) e where
+  └─ class methods: adapt ∷ ∀ k kt kr t it ir e. (Adapt t it ir e) ⇒ Adaptation t it ir e → e → e
+    data Adaptation t it ir e :: Type
+         └─ type: k → kt → kr → Type → Type
+    adapt :: Adaptation t it ir e -> e -> e
+  data NoAdaptation
+       └─ type: Type
+  instance Illuminant i => Adapt NoAdaptation i i e where
+  └─ $fAdaptNoAdaptationiie ∷ ∀ k0 e i. (Illuminant i) ⇒ Adapt NoAdaptation i i e [superclasses: given Illuminant i, given Illuminant i]
+    data Adaptation NoAdaptation i i e = NoAdaptation
+                                         └─ type: ∀ k0 i e. Adaptation NoAdaptation i i e
+    adapt _ x = x
+    │     │ └─ type: e
+    │     └─ type: Adaptation NoAdaptation i i e
+    └─ adapt ∷ Adaptation NoAdaptation i i e → e → e
+status: pass
+reason: an associated data family takes the kinds of the class parameters from the class head. Its instance comes after the class, so the instance does not set these kinds to the kinds of its own arguments.
+extensions:
+- DataKinds
+- PolyKinds
+- KindSignatures
+- TypeFamilies
+- MultiParamTypeClasses
+- FlexibleInstances
+- ScopedTypeVariables

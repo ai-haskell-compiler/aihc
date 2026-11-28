@@ -14,6 +14,7 @@ module Aihc.Tc.Generalize
     environmentMetaVars,
     collectMetaVars,
     predMetaVars,
+    quantifiableEquality,
   )
 where
 
@@ -287,6 +288,19 @@ collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
 collectMetaVars (TcForAllTy _ body) = collectMetaVars body
 collectMetaVars (TcQualTy ps body) = concatMap predMetaVars ps ++ collectMetaVars body
 collectMetaVars (TcAppTy f a) = collectMetaVars f ++ collectMetaVars a
+
+-- | Whether a binding can put an equality in its inferred context. GHC
+-- puts an equality there only when one side is an application of a type
+-- family to a meta-variable. For example, @IndexOf c ~ (Int, Int)@ waits
+-- until a use of the binding gives @c@. The first argument tells which
+-- type constructors are type families.
+quantifiableEquality :: (TyCon -> Bool) -> TcType -> TcType -> Bool
+quantifiableEquality isFamily left right = any familyOfMeta [left, right]
+  where
+    familyOfMeta ty =
+      case ty of
+        TcTyCon tyCon arguments -> isFamily tyCon && not (null (concatMap collectMetaVars arguments))
+        _ -> False
 
 -- | Collect free meta-variable uniques from a predicate.
 predMetaVars :: Pred -> [Unique]

@@ -1,0 +1,56 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE TypeFamilies, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  type family N a
+  data Unit = Unit
+  data Located a = Loc a
+  data Trail = Trail
+  type instance N Trail = Unit
+  class Map a b where
+    amap :: a -> b
+  instance Map Trail Trail where
+    amap t = t
+  instance (Map a b, N a ~ N b, r ~ Located b) => Map (Located a) r where
+    amap (Loc x) = Loc (amap x)
+  moved :: Located Trail -> Located Trail
+  moved = amap
+status: pass
+reason: An equality of an instance context can need a variable that a later equality fixes. Here "N a ~ N b" is stuck until "r ~ Located b" gives b; reduced from diagrams-lib Diagrams.LinearMap
+annotated:
+- |-
+  {-# LANGUAGE TypeFamilies, MultiParamTypeClasses, FlexibleInstances, UndecidableInstances #-}
+  module Test where
+  type family N a
+              └─ type: Type → Type
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Located a = Loc a
+       │           └─ type: ∀ a. a → Located a
+       └─ type: Type → Type
+  data Trail = Trail
+       │       └─ type: Trail
+       └─ type: Type
+  type instance N Trail = Unit
+  class Map a b where
+  └─ class methods: amap ∷ ∀ a b. (Map a b) ⇒ a → b
+    amap :: a -> b
+  instance Map Trail Trail where
+  └─ $fMapTrailTrail ∷ () ⇒ Map Trail Trail
+    amap t = t
+    │    └─ type: Trail
+    └─ amap ∷ Trail → Trail
+  instance (Map a b, N a ~ N b, r ~ Located b) => Map (Located a) r where
+  └─ $fMapLocatedar ∷ ∀ a b r. (Map a b, (N a) ~ (N b), r ~ (Located b)) ⇒ Map (Located a) r
+    amap (Loc x) = Loc (amap x)
+    │     │   │    │    └─ type: a → b; type-args: a, b; evidence: given Map a b
+    │     │   │    └─ type: b → Located b; type-args: b
+    │     │   └─ type: a
+    │     └─ type: Located a
+    └─ amap ∷ Located a → r
+  moved :: Located Trail -> Located Trail
+  moved = amap
+  │       └─ type: Located Trail → Located Trail; type-args: Located Trail, Located Trail; evidence: $fMapLocatedar @Trail @Trail @Located Trail ($fMapTrailTrail, refl N Trail, refl Located Trail)
+  └─ type: Located Trail → Located Trail
