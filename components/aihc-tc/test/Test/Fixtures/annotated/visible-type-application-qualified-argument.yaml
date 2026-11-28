@@ -1,0 +1,37 @@
+annotated:
+- |-
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables, TypeApplications, ConstraintKinds, FlexibleContexts, FlexibleInstances, UndecidableInstances, UndecidableSuperClasses, MultiParamTypeClasses, PolyKinds, AllowAmbiguousTypes #-}
+  module Barbie where
+  class Empty a where
+  └─ class methods: empty ∷ ∀ a. (Empty a) ⇒ a
+    empty :: a
+  class c (f a) => ClassF c f a
+  └─ class methods:
+  instance c (f a) => ClassF c f a
+  └─ $fClassFcfa ∷ ∀ k0 k1 c f a. (c (f a)) ⇒ ClassF c f a [superclasses: given c (f a)]
+  pureC :: forall c f. c () => (forall a. c a => f a) -> f ()
+  pureC x = x
+  │     │   └─ type: f (); type-args: (); evidence: given c ()
+  │     └─ type: ∀ a. (c a) ⇒ f a
+  └─ type: ∀ c f. (c ()) ⇒ (∀ a. (c a) ⇒ f a) → f ()
+  emptyF :: forall f. Empty (f ()) => f ()
+  emptyF = pureC @(ClassF Empty f) empty
+  │        └─ type: (∀ a. (ClassF Empty f a) ⇒ f a) → f (); type-args: ClassF Empty f, f; evidence: $fClassFcfa @Type @Type @Empty @f @() (given Empty f ())
+  │        └─ type: ∀ a. (ClassF Empty f a) ⇒ f a
+  │        └─ type: f a; type-args: f a; evidence: super[0](given ClassF Empty f a)
+  └─ type: ∀ f. (Empty (f ())) ⇒ f ()
+extensions: []
+modules:
+- |
+  {-# LANGUAGE RankNTypes, ScopedTypeVariables, TypeApplications, ConstraintKinds, FlexibleContexts, FlexibleInstances, UndecidableInstances, UndecidableSuperClasses, MultiParamTypeClasses, PolyKinds, AllowAmbiguousTypes #-}
+  module Barbie where
+  class Empty a where
+    empty :: a
+  class c (f a) => ClassF c f a
+  instance c (f a) => ClassF c f a
+  pureC :: forall c f. c () => (forall a. c a => f a) -> f ()
+  pureC x = x
+  emptyF :: forall f. Empty (f ()) => f ()
+  emptyF = pureC @(ClassF Empty f) empty
+reason: The argument of pureC has the qualified type forall a. ClassF Empty f a => f a. The type checker must check empty against this type, with ClassF Empty f a as a given. The given gives Empty (f a) through the superclass, as in GHC. barbies has this form in bmempty.
+status: pass

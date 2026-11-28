@@ -1369,6 +1369,14 @@ planSpine spineExpected = go
             -- first branch fixes it at the type of that branch. Only the
             -- variables of the new instantiation count, thus the type of a
             -- local variable is not changed.
+            --
+            -- A variable does not give its variables when the parameter type
+            -- is a polytype, as @forall a. c a => f a@ of @bpureC@ in @bpureC
+            -- \@(ClassF Monoid f) mempty@. The second pass checks the
+            -- variable against that type, under its givens. GHC also does no
+            -- quick look at an argument whose type is not a rho type. If the
+            -- look bound the type of @mempty@ to the polytype, the given
+            -- would not solve @Monoid@.
             zonkedArgTy <- zonkType argTy
             zonkedExpectedArgTy <- zonkType expectedArgTy
             family <- isTypeFamilyTyCon
@@ -1378,7 +1386,7 @@ planSpine spineExpected = go
                     && not (any (mentionsFamily family) (zonkedArgTy : zonkedExpectedArgTy : concat [[left, right] | (left, right) <- sectionEqualities]))
                 sectionEqualities = [(left, right) | isSectionArgument arg, ct <- argCts, EqPred left right <- [ctPred ct]]
                 argumentVariables
-                  | mentionsPolyType zonkedArgTy || familyFree || isBareVariable arg =
+                  | mentionsPolyType zonkedArgTy || familyFree || (isBareVariable arg && not (isPolyType zonkedExpectedArgTy)) =
                       IntSet.fromList
                         [ key
                         | Unique key <- typeMetaVariables zonkedArgTy <> concat [typeMetaVariables left <> typeMetaVariables right | (left, right) <- sectionEqualities],
