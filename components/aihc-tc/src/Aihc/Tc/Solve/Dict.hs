@@ -21,7 +21,7 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Parser.Syntax (pattern SourceSpan)
-import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldSelectorName)
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..), fieldOnlyName, fieldSelectorName)
 import Aihc.Tc.Annotations (renderPred, renderTcType)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), classFieldTypes, superClassPred)
@@ -1727,7 +1727,8 @@ solveHasField ct className args =
 -- The selector has the name of the label. When DuplicateRecordFields
 -- gives the label to more than one declaration of the module, the resolver
 -- gives the selector the name from 'fieldSelectorName' and the first
--- constructor of the declaration. Only one of the two keys can exist.
+-- constructor of the declaration. With NoFieldSelectors, the name comes from
+-- 'fieldOnlyName'. Only one of the keys can exist.
 recordField :: Text -> TcType -> DataTypeInfo -> Maybe (TcType, [(Text, Text, Text)], [Entity])
 recordField label recordTy dataType = do
   let candidates =
@@ -1749,7 +1750,7 @@ recordField label recordTy dataType = do
       ],
       let (package, moduleName') = dciOrigin constructor
        in [ GlobalTerm package moduleName' name
-          | name <- label : [fieldSelectorName label (dciName first) | first <- take 1 (dtiConstructors dataType)]
+          | name <- label : concat [[fieldSelectorName label (dciName first), fieldOnlyName label (dciName first)] | first <- take 1 (dtiConstructors dataType)]
           ]
     )
   where
