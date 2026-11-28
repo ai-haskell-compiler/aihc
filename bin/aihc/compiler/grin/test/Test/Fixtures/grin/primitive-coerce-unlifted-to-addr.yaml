@@ -1,0 +1,28 @@
+expected: |-
+  scope 1 = "" Test
+
+  primitive aihcUnliftedToAddr# :: AddrRep/1
+
+  foreign 1.getThreadId# = unsafe "rts_getThreadId" :: (addr) -> int ! pure
+
+  pub global 1.threadNumber = (P1.$threadNumber$u$i/[[BoxedRep Unlifted]])
+
+  pub 1.$threadNumber$u$i (x :: BoxedRep Unlifted) -> IntRep =
+    argument :: AddrRep <-
+      primitive-call @AddrRep aihcUnliftedToAddr# (x :: BoxedRep Unlifted)
+    foreign-call 1.getThreadId# = unsafe "rts_getThreadId" :: (addr) -> int ! pure with (argument :: AddrRep)
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnliftedFFITypes
+source: |
+  module Test where
+  import GHC.Prim
+
+  -- As in TextShow.Control.Concurrent of text-show.
+  foreign import ccall unsafe "rts_getThreadId" getThreadId# :: Addr# -> Int#
+
+  threadNumber :: ThreadId# -> Int#
+  threadNumber tid = getThreadId# (unsafeCoerce# tid)
+reason: unsafeCoerce# from an unlifted box to Addr# gives the address of the heap object, as in GHC
+status: pass
