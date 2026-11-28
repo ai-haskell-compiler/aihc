@@ -160,6 +160,7 @@ spliceRequestFor package ownModule modu =
       spliceRequestBuildRoot = "",
       spliceRequestPackageRoot = "",
       spliceRequestDependencies = [],
+      spliceRequestPlanConstraints = [],
       spliceRequestExtensions = [],
       spliceRequestLanguage = Nothing,
       spliceRequestPragmas = moduleLanguagePragmas modu,
