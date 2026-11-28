@@ -26,6 +26,7 @@ module System.Posix.Internals.Syscalls
     c_mkfifo,
     c_open,
     c_safe_open,
+    c_interruptible_open,
     c_stat,
     c_umask,
     c_unlink,
@@ -103,6 +104,11 @@ foreign import capi unsafe "fcntl.h open"
 -- | @open@ as a safe call. Opening a file such as a FIFO can block.
 foreign import capi safe "fcntl.h open"
   c_safe_open :: CString -> CInt -> CMode -> IO CInt
+
+-- | @open@ as an interruptible call. Opening a file such as a FIFO can
+-- block, and an asynchronous exception can then stop the call.
+foreign import capi interruptible "fcntl.h open"
+  c_interruptible_open :: CString -> CInt -> CMode -> IO CInt
 
 foreign import capi unsafe "sys/stat.h stat"
   c_stat :: CString -> Ptr CStat -> IO CInt

@@ -34,6 +34,10 @@ module GHC.Base
     mapM,
     sequence,
     eqString,
+    inline,
+    noinline,
+    lazy,
+    runRW#,
     failIO,
     unIO,
     divInt,
@@ -50,6 +54,7 @@ import Control.Monad (ap, join, liftM, liftM2, liftM3, liftM4, liftM5, when, (=<
 import Data.Semigroup.Internal (Monoid (..), Semigroup (..))
 import Data.Void (Void, absurd, vacuous)
 import GHC.IO (unIO)
+import GHC.Magic (inline, lazy, noinline, runRW#)
 import GHC.IO.Exception (ioError, userError)
 import GHC.Internal.Base
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))

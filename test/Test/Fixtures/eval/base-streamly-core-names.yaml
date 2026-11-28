@@ -1,0 +1,34 @@
+modules:
+  - |
+    module Test where
+
+    import Foreign.C.String (withCString)
+    import GHC.Base (noinline)
+    import GHC.Exts (SpecConstrAnnotation (..))
+    import GHC.IO.Handle.Internals (addHandleFinalizer, handleFinalizer)
+    import System.IO (IOMode (..), hClose, openFile)
+    import System.Posix.Internals (c_close, c_interruptible_open, o_RDONLY)
+    import Prelude
+
+    main :: IO ()
+    main = do
+      print (noinline (+ 1) (41 :: Int))
+      print (NoSpecConstr == NoSpecConstr, NoSpecConstr == ForceSpecConstr)
+      fd <- withCString "/dev/null" (\path -> c_interruptible_open path o_RDONLY 0)
+      print (fd >= 0)
+      _ <- c_close fd
+      missing <- withCString "/aihc-no-such-file" (\path -> c_interruptible_open path o_RDONLY 0)
+      print missing
+      handle <- openFile "/dev/null" ReadMode
+      addHandleFinalizer handle handleFinalizer
+      hClose handle
+stdout: |
+  42
+  (True,False)
+  True
+  -1
+output: |
+  ()
+expression: main
+status: pass
+reason: GHC.Base exports noinline, GHC.Exts has SpecConstrAnnotation, GHC.IO.Handle.Internals has addHandleFinalizer, and System.Posix.Internals has c_interruptible_open, as GHC base has. The interruptible open opens a file and gives -1 for a missing file.
