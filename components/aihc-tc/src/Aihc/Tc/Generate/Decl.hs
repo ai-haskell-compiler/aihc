@@ -46,10 +46,10 @@ import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isCon
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars, quantifiableEquality)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -4204,7 +4204,8 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty exception context.
   let (callStackCts, residualCts) = partition (isDefaultedImplicitParam . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
+  isFamily <- isTypeFamilyTyCon
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize isFamily . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
   -- dictionary solver a second attempt before the error report. Every
@@ -4215,9 +4216,12 @@ generalizableResidualPreds inferredType solveResult = do
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
-  -- one constraint in the generalized type.
+  -- one constraint in the generalized type. The proof of an equality is
+  -- the coercion that the caller gives for it.
   forM_ polymorphicCts $ \ct ->
-    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+    bindEvidence (ctEvVar ct) $ case ctPred ct of
+      predicate@EqPred {} -> EvCoercion (GivenCo predicate)
+      predicate -> EvGiven predicate
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
   forM_ (nubBy sameCtPred concreteCts) reportUnsolvedDict
@@ -4248,14 +4252,16 @@ generalizedMetaVars inferredType = do
   envMetaVars <- environmentMetaVars Set.empty
   pure (collectMetaVars zonked <> envMetaVars)
 
-predicateCanGeneralize :: Pred -> Bool
-predicateCanGeneralize predicate =
+predicateCanGeneralize :: (TyCon -> Bool) -> Pred -> Bool
+predicateCanGeneralize isFamily predicate =
   case predicate of
     -- A caller always supplies an implicit parameter, even at a concrete type.
     IParamPred {} -> True
-    -- An equality that waits on a type family application is not a
-    -- dictionary a caller can supply.
-    EqPred {} -> False
+    -- An equality that waits on a type family application with a
+    -- meta-variable becomes a part of the context, as in GHC. Each caller
+    -- supplies a proof for its own type. Each other residual equality is
+    -- an error.
+    EqPred left right -> quantifiableEquality isFamily left right
     _ -> not (null (predMetaVars predicate))
 
 rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
