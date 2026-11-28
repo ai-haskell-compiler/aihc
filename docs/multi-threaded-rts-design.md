@@ -1846,8 +1846,8 @@ emits an acquire load, because LLVM gives no guarantee for a dependency.
 | Object header, claim | The pause of the claiming thread | Every reader, every other pause | `cas acq_rel` to the claiming state, then `store.atomic release` to the claimed state. Readers use `load.dependent`. |
 | Object header, update and abandon | The updater, the thread that abandons | Every reader | `store.atomic release`, `load.dependent`. The update of an unclaimed thunk in the nursery of the updater uses plain stores for the header and field zero: only the threads of its capability can read the thunk, and an escape promotes it first. |
 | Object header, forwarding | A collection worker | A collection worker | `cas acq_rel`, `load.atomic acquire` |
-| Field zero of a thunk, owner | The claiming thread, between its swap and its header store | Every reader that saw bits `01` | `store.atomic release`, then the release store of the header. Readers use `load.dependent` after the header load, then `load.dependent` of the kind of the record. The owner store is a release store, because a reader can see the owner under the header store of an update, which publishes nothing of the claiming thread. GHC uses a release store here too. |
-| Field zero of a thunk, queue and value | The capability of the owner, the updater | Every reader that saw bit zero, the recovery walk | `store.atomic release`, `load.dependent` |
+| Field zero of a thunk, owner | The claiming thread, between its swap and its header store | Every reader that saw bits `01` | `store.atomic release`, then the release store of the header. Readers use `fence acquire` after the header load, then `load.dependent` of field zero and of the kind of the record. The owner store is a release store, because a reader can see the owner under the header store of an update, which publishes nothing of the claiming thread. GHC uses a release store here too. |
+| Field zero of a thunk, queue and value | The capability of the owner, the updater | Every reader that saw bit zero, the recovery walk | `store.atomic release`, then `fence acquire` after the header load and `load.dependent` |
 | Capability field of a thread record | The capability of the thread | A blocking thread that routes a message | `store.atomic release`, `load.atomic acquire`. A stale value is forwarded by the handler. |
 | Fields of a new object | The allocating thread | Nobody until publication | Plain |
 | Fields of an immutable object after publication | Nobody | Every reader | Plain, after a `load.dependent` or an acquire load of the pointer |
@@ -1870,9 +1870,13 @@ allocating thread wrote the fields before the release store that published
 the pointer, and the reader loaded the pointer with a dependency or an
 acquire. The inline evaluation check loads the header of an object and then
 field zero of the same object. Then it loads the header of the record that
-field zero names. The first two loads have no address dependency of their own.
-The lowering uses `load.dependent` for the header, so the field load
-depends on it, and the third load depends on the second.
+field zero names. The first two loads have no address dependency of their own:
+the address of field zero does not come from the header word. On AArch64, a
+plain load of field zero can therefore give a value that is older than the
+header, for example the owner word of a thunk in place of its value. Thus the
+check has `fence acquire` after the header load, on the path of a claimed or
+an evaluated thunk only, and a value pays nothing. The third load depends on
+the second.
 
 The C runtime uses the C11 atomic operations with the same orders. C11 has
 `memory_order_consume`, but the compilers promote it to acquire, so the C
