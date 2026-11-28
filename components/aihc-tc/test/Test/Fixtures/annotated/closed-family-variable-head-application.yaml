@@ -1,0 +1,32 @@
+extensions: [DataKinds, FlexibleContexts, KindSignatures, MultiParamTypeClasses, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, FlexibleContexts, KindSignatures, MultiParamTypeClasses, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies, NoImplicitPrelude #-}
+    module Test where
+    import GHC.Types (Bool (..), Type)
+    data Proxy (a :: k) = Proxy
+    data Undefined (m :: Type -> Type) = Undefined
+    type family IsUndefined a :: Bool where
+      IsUndefined (Undefined m) = 'True
+      IsUndefined a = 'False
+    probe :: Proxy (IsUndefined (subs m)) -> Proxy 'False
+    probe p = p
+status: pass
+reason: An application with a variable head is not apart from a constructor application, thus a closed family stays stuck on it and the equality is reported.
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, FlexibleContexts, KindSignatures, MultiParamTypeClasses, PolyKinds, ScopedTypeVariables, TypeApplications, TypeFamilies, NoImplicitPrelude #-}
+    module Test where
+    import GHC.Types (Bool (..), Type)
+    data Proxy (a :: k) = Proxy
+         │                └─ type: ∀ k a. Proxy a
+         └─ type: k → Type
+    data Undefined (m :: Type -> Type) = Undefined
+         └─ type: (Type → Type) → Type   └─ type: ∀ m. Undefined m
+    type family IsUndefined a :: Bool where
+                └─ type: Type → GHC.Types.Bool
+      IsUndefined (Undefined m) = 'True
+      IsUndefined a = 'False
+    probe :: Proxy (IsUndefined (subs m)) -> Proxy 'False
+    probe p = p
+              └─ error: unsolved constraint Proxy (IsUndefined (subs m)) ~ Proxy 'False
