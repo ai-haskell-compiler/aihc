@@ -458,18 +458,18 @@ exportedScopeFor package exports extensions modu = \case
       where
         separateAssociatedTypes =
           Map.fromList
-            [ (className, exportedTypes)
+            [ (className, exportedAssociatedTypes)
             | (className, resolvedClass) <- Map.toList (scopeTypes scope),
               candidate <- availableScope : Map.elems (scopeQualifiedModules availableScope),
               Map.lookup className (scopeTypes candidate) == Just resolvedClass,
               Just associatedTypes <- [Map.lookup className (scopeAssociatedTypes candidate)],
-              let exportedTypes =
+              let exportedAssociatedTypes =
                     [ associatedType
                     | associatedType <- associatedTypes,
                       Just resolvedType <- [Map.lookup associatedType (scopeTypes candidate)],
                       Map.lookup associatedType (scopeTypes scope) == Just resolvedType
                     ],
-              not (null exportedTypes)
+              not (null exportedAssociatedTypes)
             ]
 
     -- A type item without members exports the type alone, but a separate
