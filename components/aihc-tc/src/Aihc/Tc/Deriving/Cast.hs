@@ -97,14 +97,20 @@ checkCoercedInstance origin solve methodScheme original info context annotation 
               right <- nominalCoercionBetween (tcInstanceAssociatedTypes annotation) targetRight sourceRight
               pure (Nothing <$ (left *> right))
             _ -> pure Nothing
+    -- Whether the evidence is the instance being derived, without a
+    -- dictionary function of a different instance between them. Such a
+    -- function builds a new dictionary from its arguments, so the instance
+    -- can be an argument of it. In @newtype S = S (Int, [S]) deriving
+    -- newtype C@, the evidence @C (Int, [S])@ applies the instances of
+    -- tuples and lists to the instance being derived, as in GHC.
     mentionsSelf term = case term of
-      EvDict dictionaryOrigin name _ arguments -> (dictionaryOrigin == origin && name == tcInstanceDictName annotation) || any mentionsSelf arguments
+      EvDict dictionaryOrigin name _ _ -> dictionaryOrigin == origin && name == tcInstanceDictName annotation
       EvSuperClass inner _ _ _ _ -> mentionsSelf inner
       EvCast inner _ -> mentionsSelf inner
       EvTypeLam _ inner -> mentionsSelf inner
       EvDictLam _ _ inner -> mentionsSelf inner
       EvTypeApp inner _ -> mentionsSelf inner
-      EvDictApp function argument -> mentionsSelf function || mentionsSelf argument
+      EvDictApp function _ -> mentionsSelf function
       EvRecursive _ _ inner -> mentionsSelf inner
       _ -> False
 

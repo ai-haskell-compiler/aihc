@@ -1,0 +1,56 @@
+extensions: []
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, FlexibleContexts, KindSignatures, TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  import GHC.Types (Type)
+  data Unit = Unit
+  data Box a = Box a
+  type family Rep a :: Type
+  type family Inner (r :: Type) :: Type
+  type instance Inner (Box a) = a
+  class Wrapped s where
+    type Unwrapped s :: Type
+    type Unwrapped s = Inner (Rep s)
+    unwrap :: s -> Unwrapped s
+    default unwrap :: (Unwrapped s ~ Inner (Rep s)) => s -> Unwrapped s
+    unwrap s = unwrap s
+  newtype Dep = Dep Unit
+    deriving anyclass Wrapped
+  type instance Rep Dep = Box Unit
+status: pass
+reason: A derived anyclass instance takes the default equation of an associated type. A default signature that constrains the family is solved with that equation when the context is inferred.
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, FlexibleContexts, KindSignatures, TypeFamilies, NoImplicitPrelude #-}
+  module Main where
+  import GHC.Types (Type)
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data Box a = Box a
+       │       └─ type: ∀ a. a → Box a
+       └─ type: Type → Type
+  type family Rep a :: Type
+              └─ type: Type → Type
+  type family Inner (r :: Type) :: Type
+              └─ type: Type → Type
+  type instance Inner (Box a) = a
+  class Wrapped s where
+  └─ class methods: unwrap ∷ ∀ s. (Wrapped s) ⇒ s → Unwrapped s
+    type Unwrapped s :: Type
+         └─ type: Type → Type
+    type Unwrapped s = Inner (Rep s)
+    unwrap :: s -> Unwrapped s
+    default unwrap :: (Unwrapped s ~ Inner (Rep s)) => s -> Unwrapped s
+    unwrap s = unwrap s
+    │      │   └─ type: s → Unwrapped s; type-args: s; evidence: given Wrapped s
+    │      └─ type: s
+    └─ unwrap ∷ ∀ s. (Wrapped s, (Unwrapped s) ~ (Inner (Rep s))) ⇒ s → Unwrapped s
+  newtype Dep = Dep Unit
+  │       │     └─ type: () → Dep
+  │       └─ type: Type
+  └─ deriving plans: anyclass Wrapped Dep [context: ()] [methods: unwrap]
+    deriving anyclass Wrapped
+                      └─ $fWrappedDep ∷ () ⇒ Wrapped Dep [associated types: Unwrapped Dep = Inner (Rep Dep)]
+  type instance Rep Dep = Box Unit

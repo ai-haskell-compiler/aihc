@@ -125,7 +125,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, gets, modify', runStateT)
 import Data.Bifunctor qualified as Bifunctor
 import Data.ByteString qualified as BS
-import Data.Char (isAlpha, isAlphaNum, isAsciiUpper, isDigit)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isUpper)
 import Data.Graph qualified as Graph
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
@@ -7104,7 +7104,7 @@ spelledSort :: Text -> Sort
 spelledSort text =
   case T.uncons text of
     Just (first, _)
-      | first == ':' || first == '[' || first == '(' || isAsciiUpper first -> SortDataConstructor
+      | first == ':' || first == '[' || first == '(' || isUpper first -> SortDataConstructor
     _ -> SortValue
 
 topName :: (PackageId, Text) -> Text -> Name

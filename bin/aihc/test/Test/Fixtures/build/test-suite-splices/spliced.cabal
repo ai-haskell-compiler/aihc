@@ -1,0 +1,15 @@
+cabal-version: 3.0
+name: spliced
+version: 0.1.0.0
+build-type: Simple
+
+-- The test suite has a splice, as a dependency of a test suite can have.
+test-suite check
+  type: exitcode-stdio-1.0
+  main-is: Check.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    template-haskell,
+
+  default-language: Haskell2010

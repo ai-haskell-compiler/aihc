@@ -39,9 +39,10 @@ annotated:
   data Missing = Missing
   │    │         └─ type: Missing
   │    └─ type: Type
-  └─ deriving plans: via App Pair Missing Semigroup Missing [context: infer] [methods: append]
+  └─ deriving plans: via App Pair Missing Semigroup Missing [context: ()] [methods: append]
     deriving Semigroup via (App Pair Missing)
-             └─ error: unsolved constraint Semigroup App Pair Missing
+             └─ $fSemigroupMissing ∷ () ⇒ Semigroup Missing
+             └─ error: deriving via cannot prove a safe coercion for method append
 extensions:
 - DerivingStrategies
 - DerivingVia
@@ -67,6 +68,8 @@ modules:
     deriving Semigroup via (App Pair Missing)
 reason: A via instance coerces the methods of the via type's instance, in both
   directions through the newtypes involved. The context asks the class of the via type and the superclasses at the
-  derived head, simplifies them through the instances in scope, and rejects a via
-  type that stands on the instance being derived
+  derived head, and simplifies them through the instances in scope. A via type
+  whose instance needs the derived instance through an instance declaration is
+  accepted, but a via type that does not have the representation of the type is
+  rejected
 status: pass
