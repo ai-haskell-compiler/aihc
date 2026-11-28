@@ -41,6 +41,7 @@ module GHC.IO.Handle.Internals
     readTextDevice,
     HandleFinalizer,
     handleFinalizer,
+    addHandleFinalizer,
     debugIO,
     traceIO,
   )
@@ -74,7 +75,7 @@ import GHC.Internal.IO.Handle.Read (fillIfEmpty, readUtf8Char)
 import GHC.Internal.IO.Types hiding (flushWriteBuffer)
 import GHC.Internal.IO.Types qualified as Buffered (emptyWriteBuffer, flushWriteBuffer, newBuffer)
 import GHC.Internal.Num (Num (..))
-import GHC.MVar (MVar, newMVar, putMVar, takeMVar)
+import GHC.MVar (MVar, addMVarFinalizer, newMVar, putMVar, takeMVar)
 import GHC.Real (fromIntegral)
 import GHC.Show (Show (..))
 import GHC.Types (Char)
@@ -309,6 +310,14 @@ handleFinalizer _ state = do
   handle_ <- takeMVar state
   (closed, _) <- hClose_help handle_
   putMVar state closed
+
+-- | Attach the finalizer to the handle. A duplex handle gets it on its
+-- write side, as in GHC.
+addHandleFinalizer :: Handle -> HandleFinalizer -> IO ()
+addHandleFinalizer handle finalizer =
+  case handle of
+    FileHandle file state -> addMVarFinalizer state (finalizer file state)
+    DuplexHandle file _ state -> addMVarFinalizer state (finalizer file state)
 
 mkHandle ::
   (RawIO dev, IODevice dev, BufferedIO dev, Typeable dev) =>

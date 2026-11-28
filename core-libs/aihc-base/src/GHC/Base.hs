@@ -34,6 +34,10 @@ module GHC.Base
     mapM,
     sequence,
     eqString,
+    inline,
+    noinline,
+    lazy,
+    runRW#,
     eqChar,
     neChar,
     failIO,
@@ -56,6 +60,7 @@ import GHC.IO (unIO)
 import GHC.IO.Exception (ioError, userError)
 import GHC.Internal.Base
 import GHC.Internal.Data.NonEmpty (NonEmpty (..))
+import GHC.Magic (inline, lazy, noinline, runRW#)
 import GHC.Prim (divInt#, quotInt#, remInt#, (*#), (-#))
 import GHC.Prim.String (eqString)
 
