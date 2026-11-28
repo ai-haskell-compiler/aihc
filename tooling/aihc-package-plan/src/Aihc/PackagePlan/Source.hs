@@ -351,19 +351,28 @@ normalizeSource :: FilePath -> Text -> Text
 normalizeSource path source =
   let withoutBom = T.dropWhile (== '\xfeff') source
    in if takeExtension path == ".lhs"
-        then T.unlines (unlitBird (T.lines withoutBom))
+        then T.unlines (unlit (T.lines withoutBom))
         else withoutBom
 
--- | Remove the bird tracks of a literate source. A line that starts with
--- @#@ stays as it is, as in GHC's unlit, because CPP reads it after this
--- step. Each other line that is not code becomes empty.
-unlitBird :: [Text] -> [Text]
-unlitBird =
-  map $ \line ->
-    case T.uncons line of
-      Just ('>', rest) -> rest
-      Just ('#', _) -> line
-      _ -> ""
+-- | Remove the literate markup of a source, as GHC's unlit does. The code
+-- of a literate source is in bird-track lines (@> code@) and in the lines
+-- between a @\\begin{code}@ line and a @\\end{code}@ line. A line that
+-- starts with @#@ stays as it is, because CPP reads it after this step.
+-- Each other line becomes empty, so the line numbers do not change.
+unlit :: [Text] -> [Text]
+unlit = go False
+  where
+    go _ [] = []
+    go inCode (line : rest)
+      | inCode && "\\end{code}" `T.isPrefixOf` line = "" : go False rest
+      | inCode = line : go True rest
+      | "\\begin{code}" `T.isPrefixOf` line = "" : go True rest
+      | otherwise = birdLine line : go False rest
+    birdLine line =
+      case T.uncons line of
+        Just ('>', code) -> code
+        Just ('#', _) -> line
+        _ -> ""
 
 -- | Change the package of each package-qualified import of a boot library
 -- to the standin of that library. A @build-depends@ entry on a boot
