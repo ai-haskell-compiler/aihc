@@ -90,7 +90,7 @@ expandUserSplices session host package modu extensions
     visible = collectModuleExportsWithDeps (sessionExports session) [unit] <> sessionExports session
     scope = builtins package visible builtinFunctionModules
     ownModule = maybe "Main" (\header -> moduleHeadName header) (moduleHead modu)
-    template = spliceRequestFor package ownModule modu
+    template = spliceRequestFor package ownModule modu extensions
     prepared = prepareSplices scope visible unit (packageId package) (splicePackageId template) (moduleImports modu)
     request =
       template
@@ -150,8 +150,8 @@ expandUserSplices session host package modu extensions
 
 -- | The request of the module of the reader. The helper has no files, no
 -- store, and no other module of the package.
-spliceRequestFor :: Package -> Text -> Module -> SpliceRequest
-spliceRequestFor package ownModule modu =
+spliceRequestFor :: Package -> Text -> Module -> [Extension] -> SpliceRequest
+spliceRequestFor package ownModule modu extensions =
   SpliceRequest
     { spliceRequestPackage = packageName package,
       spliceRequestPackageId = packageIdText (packageId package),
@@ -163,6 +163,7 @@ spliceRequestFor package ownModule modu =
       spliceRequestExtensions = [],
       spliceRequestLanguage = Nothing,
       spliceRequestPragmas = moduleLanguagePragmas modu,
+      spliceRequestEnabledExtensions = extensions,
       spliceRequestImports = moduleImports modu,
       spliceRequestPackageFiles = Map.empty,
       spliceRequestOwnModules = [],
