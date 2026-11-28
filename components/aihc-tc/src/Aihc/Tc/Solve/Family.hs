@@ -310,15 +310,21 @@ reduceHead ty =
                   -- and no equation matches. Thus each meta variable stands
                   -- for a variable of its kind while the kinds are computed.
                   -- The equations still match the arguments as they are.
-                  argumentKinds <-
+                  -- The kind check of an equation variable needs the kind of
+                  -- the type that it matched, and that type can be a meta
+                  -- variable or mention one.
+                  (argumentKinds, matchedKindOf) <-
                     if any typeMentionsMeta familyArguments
-                      then kindsOfArguments <$> mapM metasAsVariables familyArguments
-                      else pure (kindsOfArguments familyArguments)
+                      then do
+                        metaKinds <- Map.fromList <$> mapM (\unique -> (,) unique <$> readMetaTvKind unique) (concatMap typeMetaUniques familyArguments)
+                        let viewed = map (replaceMetas metaKinds) familyArguments
+                        pure (kindsOfArguments viewed, kindOf . replaceMetas metaKinds)
+                      else pure (kindsOfArguments familyArguments, kindOf)
                   let bareKindArguments bare expectedKind = do
                         ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf bareKindArguments equations familyArguments actualKinds extraArguments of
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf matchedKindOf bareKindArguments equations familyArguments actualKinds extraArguments of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -329,14 +335,27 @@ reduceHead ty =
 -- | The type with each meta variable replaced by a variable of the same
 -- unique and the kind of the meta variable. Only the kind of the result
 -- is used.
-metasAsVariables :: TcType -> TcM TcType
-metasAsVariables ty =
+replaceMetas :: Map.Map Unique TcType -> TcType -> TcType
+replaceMetas metaKinds = go
+  where
+    go ty =
+      case ty of
+        TcMetaTv unique
+          | Just kind <- Map.lookup unique metaKinds -> TcTyVar (mkTyVarId (T.pack "meta") unique kind)
+        TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
+        TcAppTy function argument -> TcAppTy (go function) (go argument)
+        TcFunTy argument result -> TcFunTy (go argument) (go result)
+        _ -> ty
+
+-- | The meta variables that 'replaceMetas' replaces.
+typeMetaUniques :: TcType -> [Unique]
+typeMetaUniques ty =
   case ty of
-    TcMetaTv unique -> TcTyVar . mkTyVarId (T.pack "meta") unique <$> readMetaTvKind unique
-    TcTyCon tyCon arguments -> TcTyCon tyCon <$> mapM metasAsVariables arguments
-    TcAppTy function argument -> TcAppTy <$> metasAsVariables function <*> metasAsVariables argument
-    TcFunTy argument result -> TcFunTy <$> metasAsVariables argument <*> metasAsVariables result
-    _ -> pure ty
+    TcMetaTv unique -> [unique]
+    TcTyCon _ arguments -> concatMap typeMetaUniques arguments
+    TcAppTy function argument -> typeMetaUniques function <> typeMetaUniques argument
+    TcFunTy argument result -> typeMetaUniques argument <> typeMetaUniques result
+    _ -> []
 
 -- | Give each equation variable that the match left without a value a
 -- fresh kind meta-variable. Such a variable is a result kind of the
@@ -399,8 +418,8 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 --
 -- The result also lists the variables of the equation that the match did
 -- not bind and that the reduced type still mentions.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf bareKindArguments equations arguments argumentKinds extraArguments =
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf matchedKindOf bareKindArguments equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
@@ -425,7 +444,7 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf bareKindArguments rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf matchedKindOf bareKindArguments rest arguments argumentKinds extraArguments
   where
     -- A poly-kinded constructor with no visible argument gets its kind
     -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
@@ -449,24 +468,28 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
     -- meta variable in the two kinds, makes the equation not match. In
     -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
     -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
-    -- in GHC. Only a type variable is checked. The kind of another type can
-    -- have a free variable of its signature: a bare @'[]@ or @TypeError m@.
+    -- in GHC. The kind of another type can have a free variable of its
+    -- signature: a bare @'[]@ or @TypeError m@. Thus, for another type, the
+    -- equation does not match only when the two kinds are apart. In
+    -- @MkLink ((arr :: a -> b) :> sub) r@ the variable @arr@ does not match
+    -- @QueryParam' mods sym v@ of the kind 'Type'.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
             | variable <- tfiiTyVars equation,
               Just actual <- [Map.lookup (tvUnique variable) substitution],
-              Just actualKind <- [kindOf actual]
+              Just actualKind <- [matchedKindOf actual]
             ]
        in case matchTypes [patternKind | (patternKind, _, _) <- pairs] [actualKind | (_, _, actualKind) <- pairs] of
             Just kinds -> Just kinds
             Nothing
-              | any rigidMismatch pairs -> Nothing
+              | any kindMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
-    rigidMismatch (patternKind, actual, actualKind) =
-      isTyVar actual
-        && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
-        && isNothing (matchTypes [patternKind] [actualKind])
+    kindMismatch (patternKind, actual, actualKind)
+      | typeMentionsMeta patternKind = False
+      | typeMentionsMeta actualKind = isNothing (matchTypes [patternKind] [actualKind])
+      | isTyVar actual = isNothing (matchTypes [patternKind] [actualKind])
+      | otherwise = not (couldUnify family patternKind actualKind)
     isTyVar ty =
       case ty of
         TcTyVar _ -> True
