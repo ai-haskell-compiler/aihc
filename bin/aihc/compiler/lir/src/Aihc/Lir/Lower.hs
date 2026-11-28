@@ -1110,8 +1110,10 @@ loadObjectHeader :: Region -> Operand -> LowerM (Typed, Typed)
 loadObjectHeader region object = loadSlot region "header_word" I64 object 0 >>= headerTable
 
 -- | The header word and the info table of an object that another capability
--- can claim or update. The load orders the loads of field zero after it, as
--- the inline evaluation check needs.
+-- can claim or update. The load does not order the load of field zero after
+-- it, because that address does not depend on the header word. The inline
+-- evaluation check therefore has an acquire fence before it reads field
+-- zero.
 loadObjectHeaderDependent :: Region -> Operand -> LowerM (Typed, Typed)
 loadObjectHeaderDependent region object = loadSlotDependent region "header_word" I64 object 0 >>= headerTable
 
@@ -2330,6 +2332,13 @@ compileIfWhnfWith ctx env value ready slow = do
       claimed <- emitValue "claimed" I1 (Compare Eq I64 (typedOperand tag) (OperandLiteral (LitInt 1)))
       terminate (Branch (typedOperand claimed) (Target ownerLabel []) (Target slowLabel []))
       beginColdBlock ownerLabel []
+      -- Another capability updates a thunk with release stores of field
+      -- zero and then the header. The address of field zero does not depend
+      -- on the header word, so the dependent load of the header does not
+      -- order the load of field zero after it, and AArch64 can then give an
+      -- older field zero. The acquire fence gives the order. Only a claimed
+      -- or an evaluated thunk takes this block.
+      emit [] (Fence Acquire)
       word <- loadSlotDependent HeapRegion "word" Ptr (OperandVar current) 8
       (_, wordInfo) <- loadObjectHeaderDependent HeapRegion (typedOperand word)
       wordKind <- loadInfoByte "word_kind" (typedOperand wordInfo) infoObjectKindByte

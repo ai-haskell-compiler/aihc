@@ -62,6 +62,7 @@ expected: |
     br %claimed_33, eval_owner_30, eval_slow_19
 
   cold eval_owner_30:
+    fence acquire
     %word_34 = load.dependent ptr [%current_20 + 8] region heap
     %header_word_35 = load.dependent i64 [%word_34] region heap
     %info_word_36 = and i64 %header_word_35, -4
