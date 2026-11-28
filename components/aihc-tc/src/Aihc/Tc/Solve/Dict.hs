@@ -860,15 +860,32 @@ solveNormalizedDict visited givens ct
               when (changed || injective) (improveRounds (rounds - 1) cts equalities)
 
     -- Solve equalities first, but retain the dictionary field order.
+    --
+    -- An equality can need a variable that a later equality of the context
+    -- fixes. In @(N a ~ N b, r ~ Located b) => C (Located a) r@, the first
+    -- equality is stuck until the second one gives @b@. Thus a stuck
+    -- equality is tried again after the other equalities make progress,
+    -- and once more after the dictionaries, as GHC solves the context in
+    -- any order.
     solveContext visited' predicates = do
-      results <- mapM solveOne (sortOn (isDictionary . snd) (zip [0 :: Int ..] predicates))
-      pure (traverse snd (sortOn fst results))
+      let (equalities, dictionaries) = partition (isEquality . snd) (zip [0 :: Int ..] predicates)
+      (solvedEqualities, stuckEqualities) <- equalityRounds [] equalities
+      dictionaryResults <- mapM solveOne dictionaries
+      lateResults <- mapM solveOne stuckEqualities
+      pure (traverse snd (sortOn fst (solvedEqualities <> dictionaryResults <> lateResults)))
       where
         solveOne (index, predicate) = do
           evidence <- solveSubPred visited' predicate
           pure (index, evidence)
-        isDictionary EqPred {} = False
-        isDictionary _ = True
+        equalityRounds solved pending = do
+          results <- mapM (\entry -> (,) entry <$> solveOne entry) pending
+          let progress = [result | (_, result@(_, Just _)) <- results]
+              stuck = [entry | (entry, (_, Nothing)) <- results]
+          if null progress || null stuck
+            then pure (solved <> progress, stuck)
+            else equalityRounds (solved <> progress) stuck
+        isEquality EqPred {} = True
+        isEquality _ = False
 
     solveSubPred visited' pred' = do
       ev <- freshEvVar
