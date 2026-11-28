@@ -45,6 +45,7 @@ module Aihc.Th.Quote
 where
 
 import Aihc.Parser.Parens (addExprParens)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Aihc.Resolve.Syntax qualified as R
 import Aihc.Resolve.Syntax.Traverse qualified as RWalk
@@ -61,6 +62,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (eqT, (:~:) (Refl))
+import Prettyprinter (layoutCompact, pretty)
+import Prettyprinter.Render.Text (renderStrict)
 
 -- | Whether a module has an expression quote or a name quote.
 moduleHasQuote :: Module -> Bool
@@ -74,6 +77,11 @@ quoteAlias = "AihcQuoteLibrary"
 -- functions of the library take an optional argument.
 quoteMaybeAlias :: Text
 quoteMaybeAlias = "AihcQuoteMaybe"
+
+-- | The alias of the import that gives the function that stops a quote
+-- outside the subset.
+quoteErrorAlias :: Text
+quoteErrorAlias = "AihcQuoteError"
 
 -- | The modules of the quote library. They are in @aihc-internal@, as the
 -- names that GHC gives to a quote are in @ghc-internal@. Thus, a package
@@ -93,7 +101,7 @@ quoteLibraryModules =
 quoteImports :: [ImportDecl]
 quoteImports =
   map (qualified quoteAlias) quoteLibraryModules
-    <> [qualified quoteMaybeAlias "Data.Maybe"]
+    <> [qualified quoteMaybeAlias "Data.Maybe", qualified quoteErrorAlias "GHC.Err"]
   where
     qualified alias name =
       ImportDecl
@@ -292,8 +300,22 @@ desugarQuotes dynamic outerBinders parsed resolved
     replace original _ =
       state $ \case
         Just expr : rest -> (expr, rest)
-        _ : rest -> (original, rest)
+        Nothing : rest -> (unsupportedQuote original, rest)
         [] -> (original, [])
+
+-- | The expression that replaces a quote outside the subset. When the
+-- program uses the quote, it stops with a message that shows the quote.
+-- The program can have such a quote and not use it, as with GHC.
+unsupportedQuote :: Expr -> Expr
+unsupportedQuote quote =
+  EApp
+    (EVar (mkName (Just quoteErrorAlias) NameVarId "errorWithoutStackTrace"))
+    (stringLiteral ("The compiler does not support a part of the quote " <> shortened))
+  where
+    source = T.unwords (T.words (renderStrict (layoutCompact (pretty quote))))
+    shortened
+      | T.length source > 200 = T.take 200 source <> " ..."
+      | otherwise = source
 
 -- | Bind each name quote in the body of a splice to its package and its
 -- module. The compiler runs a splice before it resolves the module, and
