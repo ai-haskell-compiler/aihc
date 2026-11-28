@@ -31,7 +31,7 @@ import Aihc.Tc.Wiring (TcWiring (..))
 import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get)
-import Data.List (sortOn)
+import Data.List (sortOn, unsnoc)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text qualified as T
@@ -566,6 +566,19 @@ patternBindings family = go
           (<>) <$> go argument targetArgument <*> go result targetResult
         (TcAppTy function argument, TcAppTy targetFunction targetArgument) ->
           (<>) <$> go function targetFunction <*> go argument targetArgument
+        -- An application can have a variable head, as @subs m@. It is not
+        -- apart from a constructor application, because the variable can
+        -- become the constructor applied to the other arguments. Thus
+        -- @IsUndefined (subs m)@ is not apart from @IsUndefined (Undefined
+        -- m')@.
+        (TcTyConApp tyCon kindArguments arguments, TcAppTy targetFunction targetArgument)
+          | Just (initial, final) <- unsnoc arguments ->
+              (<>) <$> go (TcTyConApp tyCon kindArguments initial) targetFunction <*> go final targetArgument
+        (TcAppTy function argument, TcTyConApp targetTyCon targetKindArguments targetArguments)
+          | Just (initial, final) <- unsnoc targetArguments ->
+              (<>) <$> go function (TcTyConApp targetTyCon targetKindArguments initial) <*> go argument final
+        (TcFunTy {}, TcAppTy {}) -> Just []
+        (TcAppTy {}, TcFunTy {}) -> Just []
         _
           | patternType == target -> Just []
           | otherwise -> Nothing
@@ -596,4 +609,12 @@ typesCouldUnify family = go
                 && and (zipWith go arguments arguments')
             (TcFunTy argument result, TcFunTy argument' result') -> go argument argument' && go result result'
             (TcAppTy function argument, TcAppTy function' argument') -> go function function' && go argument argument'
+            (TcTyConApp tyCon kindArguments arguments, TcAppTy function' argument')
+              | Just (initial, final) <- unsnoc arguments ->
+                  go (TcTyConApp tyCon kindArguments initial) function' && go final argument'
+            (TcAppTy function argument, TcTyConApp tyCon' kindArguments' arguments')
+              | Just (initial, final) <- unsnoc arguments' ->
+                  go function (TcTyConApp tyCon' kindArguments' initial) && go argument final
+            (TcFunTy {}, TcAppTy {}) -> True
+            (TcAppTy {}, TcFunTy {}) -> True
             _ -> left == right
