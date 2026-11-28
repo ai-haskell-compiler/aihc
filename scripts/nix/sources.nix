@@ -293,6 +293,47 @@ in rec {
         !(pkgs.lib.hasPrefix "site" relPath || pkgs.lib.hasPrefix "node_modules" relPath || pkgs.lib.hasPrefix "src/play/kit" relPath);
     };
 
+  # The files that a plan of the project packages reads: the project file,
+  # the cabal files, and the lock files. The Hackage sources of the aihc test
+  # suites change only when one of these changes.
+  projectPlanSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type: let
+        baseName = baseNameOf path;
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        prefixes = ["bin/" "components/" "tooling/" "core-libs/"];
+        inPackages = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
+        isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" (toString path) || pkgs.lib.hasInfix "/fixtures/" (toString path);
+      in
+        if type == "directory"
+        then !isFixture && keepsDirectory pkgs prefixes relPath
+        else
+          relPath
+          == "cabal.project"
+          || (inPackages && !isFixture && (pkgs.lib.hasSuffix ".cabal" baseName || baseName == "aihc.lock"));
+    };
+
+  # The project packages with their test suites and fixtures, for a build of
+  # the test suites with aihc. Build output and editor files stay out.
+  projectTestSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = pkgs.lib.cleanSource root;
+      filter = path: type: let
+        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
+        prefixes = ["bin/" "components/" "tooling/" "core-libs/" "test/"];
+        isBuildOutput =
+          builtins.any (part: builtins.elem part ["dist-newstyle" ".aihc-target" "node_modules"])
+          (pkgs.lib.splitString "/" relPath);
+      in
+        !isBuildOutput
+        && (
+          if type == "directory"
+          then keepsDirectory pkgs prefixes relPath
+          else relPath == "cabal.project" || builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes
+        );
+    };
+
   # Filtered source for nix linting - only nix files.
   nixSrc = pkgs:
     pkgs.lib.cleanSourceWith {

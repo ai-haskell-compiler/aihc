@@ -1314,6 +1314,19 @@
         fi
       done < <(find "$out" -path '*/link/inputs/*' -type f -print0 | sort -z)
     '';
+  # The test suites of the project packages, built by aihc and not by GHC.
+  # They are packages and not checks for now: see aihc-test-suites.nix.
+  aihcTestSuites = import ./aihc-test-suites.nix {
+    inherit pkgs;
+    inherit (hsPkgs) aihc;
+    planSource = sources.projectPlanSrc pkgs;
+    testSource = sources.projectTestSrc pkgs;
+    testSetup = ''
+      ${aihcTestSetup}
+      export AIHC_PREBUILT_STORE=${specSeedStore}
+      export AIHC_PLAY_STORE=${specSeedStore}/core
+    '';
+  };
 in {
   checks = {
     vscode-lir = mkLirExtension pkgs;
@@ -1336,11 +1349,13 @@ in {
     wasip3-example-test = wasip3ExampleTest;
     inherit manual guide;
   };
-  packages = {
-    inherit manual guide pipelineExamples;
-    hackage-checks = hackageChecks;
-    docs = manual;
-    default = manual;
-    cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
-  };
+  packages =
+    {
+      inherit manual guide pipelineExamples;
+      hackage-checks = hackageChecks;
+      docs = manual;
+      default = manual;
+      cross-examples-apple-arm64 = crossExampleBundlesFor "apple-arm64";
+    }
+    // aihcTestSuites;
 }
