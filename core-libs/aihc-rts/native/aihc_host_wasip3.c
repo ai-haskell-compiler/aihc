@@ -28,8 +28,13 @@ static AihcIoHandle aihc_standard_output = {.backend_token = 1,
 static AihcIoHandle aihc_standard_error = {.backend_token = 2,
                                            .capabilities = AIHC_IO_WRITABLE};
 
+/* The message of the last failure, or NULL. A trap has no message. Thus, a
+   host that can read the memory of the instance, such as the engine of
+   Template Haskell, reads the message from this variable after the trap. */
+const char *volatile aihc_host_failure_message = NULL;
+
 _Noreturn void aihc_host_fail(const char *message) {
-  (void)message;
+  aihc_host_failure_message = message;
   __builtin_trap();
 }
 

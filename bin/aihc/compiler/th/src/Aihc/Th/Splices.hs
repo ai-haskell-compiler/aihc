@@ -88,6 +88,10 @@ data SpliceRequest = SpliceRequest
     spliceRequestExtensions :: ![String],
     spliceRequestLanguage :: !(Maybe String),
     spliceRequestPragmas :: ![ExtensionSetting],
+    -- | Each extension that is on in the module: the extensions of the
+    -- language, the default extensions, and the pragmas, together. A
+    -- splice gets them with @extsEnabled@ and @isExtEnabled@.
+    spliceRequestEnabledExtensions :: ![Extension],
     -- | The imports of the module. An import of a module of its own
     -- package is only in the list when that module is in
     -- 'spliceRequestOwnModules'.

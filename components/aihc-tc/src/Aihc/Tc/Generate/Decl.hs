@@ -46,10 +46,10 @@ import Aihc.Tc.Deriving.Context (functorClassTyCon, inferDerivingContexts, isCon
 import Aihc.Tc.Deriving.Generate (generateDerivedInstances)
 import Aihc.Tc.Env (AssociatedTypeInfo (..), CType (..), ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), FieldRep (..), FunDep (..), InstanceEnv, InstanceInfo (..), PatSynDirection (..), PatSynInfo (..), RecordHead (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), addInstanceEnv, dataConArgTypes, dataFamilyAxiomKey, dataFamilyAxiomName, dataFamilyRepresentationName, instanceEnvSince, instanceIsForClass, typeFamilyAxiomKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..), EvVar)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc, recordSchemeKindArguments)
 import Aihc.Tc.FunDep (checkInstanceFunDeps)
-import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars)
+import Aihc.Tc.Generalize (GroupQuantification (..), collectMetaVars, environmentMetaVars, generalizeAndCommit, generalizeAndCommitIgnoring, generalizeAndCommitWithInterior, generalizeGroupAndCommitIgnoring, predMetaVars, quantifiableEquality)
 import Aihc.Tc.Generate.Bind (annotateRecursiveTermOccurrences, freeVarsDecl, freeVarsMatch, inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (checkExpr, checkRhs, inferExpr)
 import Aihc.Tc.Generate.Pattern
@@ -360,7 +360,7 @@ tcModuleScc resolvedModules' = withPolyKindOrigins polyKindOrigins $ do
         | modu <- modules,
           declaration <- moduleDecls modu
         ]
-  forM_ (structuralDeclGroups (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
+  forM_ (structuralDeclGroups associatedFamilyClasses (filter (not . isInstanceDecl . snd) structuralDeclarations)) $ \group -> do
     mapM_ (atDecl registerTypeSynonymBody . snd) group
     mapM_ (atDecl checkTypeSynonymBody . snd) group
     mapM_ (atDeclOf registerStructuralDecl) group
@@ -917,12 +917,31 @@ reservedKindMetas = do
   pure (IntSet.fromList [key | Unique key <- concatMap collectMetaVars kinds])
 
 -- | Complete each type declaration group before its users constrain its kinds.
-structuralDeclGroups :: [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
-structuralDeclGroups declarations = map flatten (stronglyConnComp nodes)
+--
+-- A hoisted associated data family depends on its class. The class and the
+-- family share the kinds of the class parameters, and the class
+-- registration settles them. Thus, an instance of the family, which
+-- depends only on the family, comes after the class, as in GHC. Without
+-- this dependency, @data instance Adaptation NoAdaptation i i e@ can set
+-- the shared kinds to the kinds of its arguments before the class reads
+-- its own annotations, as @(t :: k)@.
+structuralDeclGroups :: Map GlobalName (BinderHead UnqualifiedName) -> [((Text, Text), Decl)] -> [[((Text, Text), Decl)]]
+structuralDeclGroups associatedClasses declarations = map flatten (stronglyConnComp nodes)
   where
     numbered = zip [0 :: Int ..] declarations
     owners = Map.fromList [(key, index) | (index, (_, declaration)) <- numbered, key <- declarationTypeKeys declaration <> declarationDataConKeys declaration]
-    nodes = [(declaration, index, dependencies (snd declaration)) | (index, declaration) <- numbered]
+    nodes = [(declaration, index, dependencies (snd declaration) <> classDependencies (snd declaration)) | (index, declaration) <- numbered]
+    classDependencies declaration =
+      [ owner
+      | familyKey <- associatedFamilyKeys declaration,
+        Just classHead <- [Map.lookup familyKey associatedClasses],
+        Just classKey <- [resolvedTypeKey (binderHeadName classHead)],
+        Just owner <- [Map.lookup classKey owners]
+      ]
+    associatedFamilyKeys declaration =
+      case peelDeclAnn declaration of
+        DeclDataFamilyDecl {} -> declarationTypeKeys declaration
+        _ -> []
     signatures = collectStandaloneKindSignatures (map snd declarations)
     kindResolutions declaration =
       concat [collectResolutions resolvedOf kind | key <- declarationTypeKeys declaration, Just kind <- [Map.lookup key signatures]]
@@ -965,7 +984,7 @@ declarationTypeKeys declaration =
 generalizeDeclarationKinds :: [(Text, Text)] -> Set.Set GlobalName -> TcM ()
 generalizeDeclarationKinds polyKindOrigins keys = do
   state <- lift get
-  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
+  let constructors = Map.filter (\info -> tciFlavor info `elem` [DataTyCon, NewtypeTyCon, SynonymTyCon, ClassTyCon, TypeFamilyTyCon, DataFamilyTyCon] && (packageIdText (tyConPackageId (tciTyCon info)), tyConModuleName (tciTyCon info)) `elem` polyKindOrigins) (Map.restrictKeys (tcsGlobalTyCons state) keys)
   generalized <- traverse generalizeDataKindInfo constructors
   -- Only the classes among the generalized constructors change. A map
   -- over every class would read every imported class, and an imported
@@ -4204,7 +4223,8 @@ generalizableResidualPreds inferredType solveResult = do
   -- parameter gets the empty exception context.
   let (callStackCts, residualCts) = partition (isDefaultedImplicitParam . ctPred) allResidualCts
   mapM_ reportUnsolvedDict callStackCts
-  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize . ctPred) residualCts
+  isFamily <- isTypeFamilyTyCon
+  let (polymorphicCts, defaultedCts) = partition (predicateCanGeneralize isFamily . ctPred) residualCts
   -- Defaulting makes an ambiguous meta-variable concrete. A constraint that
   -- became concrete this way has an instance in most cases, so give the
   -- dictionary solver a second attempt before the error report. Every
@@ -4215,9 +4235,12 @@ generalizableResidualPreds inferredType solveResult = do
       then concat <$> mapM attemptDefaultedCt defaultedCts
       else pure defaultedCts
   -- Every occurrence still needs evidence, even when equal predicates share
-  -- one constraint in the generalized type.
+  -- one constraint in the generalized type. The proof of an equality is
+  -- the coercion that the caller gives for it.
   forM_ polymorphicCts $ \ct ->
-    bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+    bindEvidence (ctEvVar ct) $ case ctPred ct of
+      predicate@EqPred {} -> EvCoercion (GivenCo predicate)
+      predicate -> EvGiven predicate
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
   forM_ (nubBy sameCtPred concreteCts) reportUnsolvedDict
@@ -4248,14 +4271,16 @@ generalizedMetaVars inferredType = do
   envMetaVars <- environmentMetaVars Set.empty
   pure (collectMetaVars zonked <> envMetaVars)
 
-predicateCanGeneralize :: Pred -> Bool
-predicateCanGeneralize predicate =
+predicateCanGeneralize :: (TyCon -> Bool) -> Pred -> Bool
+predicateCanGeneralize isFamily predicate =
   case predicate of
     -- A caller always supplies an implicit parameter, even at a concrete type.
     IParamPred {} -> True
-    -- An equality that waits on a type family application is not a
-    -- dictionary a caller can supply.
-    EqPred {} -> False
+    -- An equality that waits on a type family application with a
+    -- meta-variable becomes a part of the context, as in GHC. Each caller
+    -- supplies a proof for its own type. Each other residual equality is
+    -- an error.
+    EqPred left right -> quantifiableEquality isFamily left right
     _ -> not (null (predMetaVars predicate))
 
 rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()

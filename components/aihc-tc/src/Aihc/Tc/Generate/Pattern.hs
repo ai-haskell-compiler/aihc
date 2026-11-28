@@ -62,6 +62,7 @@ import Aihc.Tc.Syntax
     UnqualifiedName (..),
     ValueDecl (..),
     addNameTc,
+    annotateFunCast,
     annotationSpan,
     mkSpanAnnotation,
     nameText,
@@ -502,10 +503,15 @@ checkPatternCore sp pat scrutTy =
           EqSolved -> pure True
           _ -> False <$ lift (put before)
       innerCheck <- checkPattern sp inner innerTy
+      -- A given equality can be what proves the equality. With the given
+      -- @M s ~ m@, the view result @Box (M s)@ gives the inner type @Box m@.
+      -- Then FC needs the cast that the proof carries. The annotation is
+      -- dropped again when the proof is reflexivity.
+      let castViewExpr = annotateFunCast (TcFunTy scrutTy innerTy) (ctEvVar eqCt) viewExpr'
       pure
         innerCheck
           { pcWantedCts = [eqCt | not solved] <> viewCts <> pcWantedCts innerCheck,
-            pcPatterns = [PView viewExpr' (checkedPattern innerCheck)]
+            pcPatterns = [PView castViewExpr (checkedPattern innerCheck)]
           }
     PTuple flavor items -> checkTuplePattern sp flavor items scrutTy
     -- A prefix tuple constructor, @(,) a b@, checks like the @(a, b)@ form.

@@ -9,6 +9,10 @@ module GHC.Word
     byteSwap16,
     byteSwap32,
     byteSwap64,
+    bitReverse8,
+    bitReverse16,
+    bitReverse32,
+    bitReverse64,
 
     -- * Shifts
     uncheckedShiftL64#,
@@ -56,6 +60,8 @@ import GHC.Prim
     Word32#,
     Word64#,
     Word8#,
+    bitReverse#,
+    bitReverse64#,
     byteSwap16#,
     byteSwap32#,
     byteSwap64#,
@@ -106,6 +112,7 @@ import GHC.Prim
     timesWord64#,
     timesWord8#,
     uncheckedShiftL64#,
+    uncheckedShiftRL#,
     uncheckedShiftRL64#,
     word16ToWord#,
     word32ToWord#,
@@ -137,6 +144,22 @@ byteSwap32 (W32# value) = W32# (wordToWord32# (byteSwap32# (word32ToWord# value)
 -- | Reverse the byte order of a 64-bit word.
 byteSwap64 :: Word64 -> Word64
 byteSwap64 (W64# value) = W64# (byteSwap64# value)
+
+-- | Reverse the bit order of an 8-bit word.
+bitReverse8 :: Word8 -> Word8
+bitReverse8 (W8# value) = W8# (wordToWord8# (uncheckedShiftRL# (bitReverse# (word8ToWord# value)) 56#))
+
+-- | Reverse the bit order of a 16-bit word.
+bitReverse16 :: Word16 -> Word16
+bitReverse16 (W16# value) = W16# (wordToWord16# (uncheckedShiftRL# (bitReverse# (word16ToWord# value)) 48#))
+
+-- | Reverse the bit order of a 32-bit word.
+bitReverse32 :: Word32 -> Word32
+bitReverse32 (W32# value) = W32# (wordToWord32# (uncheckedShiftRL# (bitReverse# (word32ToWord# value)) 32#))
+
+-- | Reverse the bit order of a 64-bit word.
+bitReverse64 :: Word64 -> Word64
+bitReverse64 (W64# value) = W64# (bitReverse64# value)
 
 -- | Two's complement negation of a machine word.
 wordNegate :: Word# -> Word#

@@ -324,7 +324,26 @@ reduceHead ty =
                         ForAll quantified _ bareKind <- kindEnv (tyConKey bare)
                         found <- matchTypes [bareKind] [expectedKind]
                         traverse (\variable -> Map.lookup (tvUnique variable) found) quantified
-                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf matchedKindOf bareKindArguments equations familyArguments actualKinds extraArguments of
+                  -- A family with an invisible binder, as @type family Sing
+                  -- \@k :: k -> Type@, takes the kind argument of an
+                  -- application from the kinds of its arguments. When no
+                  -- argument gives the kind, as for a bare @Sing@, the kind
+                  -- is not known, and only an equation that does not fix
+                  -- the kind can match.
+                  let openKindPositions = case (ty, kindEnv (tyConKey tyCon)) of
+                        (TcTyConApp _ [] _, Just (ForAll quantified _ body)) ->
+                          let arrowArguments kind = case kind of
+                                TcFunTy argument result -> argument : arrowArguments result
+                                _ -> []
+                              given = take (length arguments) (arrowArguments body)
+                           in [position | (position, variable) <- zip [0 ..] quantified, not (any (typeMentionsTyVar variable) given)]
+                        _ -> []
+                  -- The kinds of the extra arguments give the result kind,
+                  -- and thus a kind argument such as the @k@ of @Sing f@.
+                  -- A meta variable stands for a variable of its kind here
+                  -- too, but only its kind is used.
+                  extraKindViews <- mapM metasAsVariables extraArguments
+                  case argumentKinds >>= \actualKinds -> firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions equations familyArguments actualKinds extraKindViews of
                     Just (reduced, unmatched) -> do
                       instantiated <- instantiateUnmatched unmatched reduced
                       reduceTypeFamilies (foldl mkAppTy instantiated extraArguments)
@@ -346,6 +365,13 @@ replaceMetas metaKinds = go
         TcAppTy function argument -> TcAppTy (go function) (go argument)
         TcFunTy argument result -> TcFunTy (go argument) (go result)
         _ -> ty
+
+-- | 'replaceMetas' for the meta variables of one type, with their kinds
+-- from the solver.
+metasAsVariables :: TcType -> TcM TcType
+metasAsVariables ty = do
+  metaKinds <- Map.fromList <$> mapM (\unique -> (,) unique <$> readMetaTvKind unique) (typeMetaUniques ty)
+  pure (replaceMetas metaKinds ty)
 
 -- | The meta variables that 'replaceMetas' replaces.
 typeMetaUniques :: TcType -> [Unique]
@@ -418,12 +444,20 @@ familyEquations tyCon = sortOn (typeFamilyAxiomIndex . tfiiAxiomName) . Map.elem
 --
 -- The result also lists the variables of the equation that the match did
 -- not bind and that the reduced type still mentions.
-firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
-firstEquation family kindOf matchedKindOf bareKindArguments equations arguments argumentKinds extraArguments =
+--
+-- The positions are the kind arguments that the application does not
+-- give. An equation that fixes one of these kind arguments can match only
+-- when the kind is known. In a closed family, such an equation blocks the
+-- equations after it.
+firstEquation :: (TyCon -> Bool) -> (TcType -> Maybe TcType) -> (TcType -> Maybe TcType) -> (TyCon -> TcType -> Maybe [TcType]) -> [Int] -> [TypeFamilyInstanceInfo] -> [TcType] -> [TcType] -> [TcType] -> Maybe (TcType, [TyVarId])
+firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions equations arguments argumentKinds extraArguments =
   case equations of
     [] -> Nothing
     equation : rest ->
       case equationArguments equation of
+        Just _
+          | fixesOpenKind equation ->
+              if tfiiClosed equation then Nothing else firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
         Just patterns
           | Just patternKinds <- traverse kindOf patterns,
             Just kindSubstitution <- matchTypes patternKinds argumentKinds,
@@ -444,8 +478,13 @@ firstEquation family kindOf matchedKindOf bareKindArguments equations arguments 
             couldUnifyAll family patterns arguments,
             maybe True (and . zipWith (couldUnify family) argumentKinds) (traverse kindOf patterns) ->
               Nothing
-        _ -> firstEquation family kindOf matchedKindOf bareKindArguments rest arguments argumentKinds extraArguments
+        _ -> firstEquation family kindOf matchedKindOf bareKindArguments openKindPositions rest arguments argumentKinds extraArguments
   where
+    fixesOpenKind equation =
+      case tfiiLeft equation of
+        TcTyConApp _ kindPatterns _ ->
+          not (all isTyVar [kindPattern | (position, kindPattern) <- zip [0 :: Int ..] kindPatterns, position `elem` openKindPositions])
+        _ -> False
     -- A poly-kinded constructor with no visible argument gets its kind
     -- from the place where it is used. In @ApSingleR (f ': fs) x@ matched
     -- against @'[h]@, @fs@ binds the @'[]@ that @':@ gave the kind

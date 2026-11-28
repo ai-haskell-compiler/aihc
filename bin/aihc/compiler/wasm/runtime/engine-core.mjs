@@ -771,7 +771,23 @@ export function createEngine({ imageBytes, transport, readModule, files = null, 
   let closureRun = null;
 
   function failure(error) {
-    return "error " + (error?.message ?? error);
+    const message = runtimeFailure();
+    return "error " + (error?.message ?? error) + (message === null ? "" : ": " + message);
+  }
+
+  // The message of a failure of the run-time system, or null. The run-time
+  // system keeps the address of the message in the variable
+  // aihc_host_failure_message before a trap. The image exports the address
+  // of that variable.
+  function runtimeFailure() {
+    const variable = image?.aihc_host_failure_message;
+    if (!(variable instanceof WebAssembly.Global)) return null;
+    const view = memoryView();
+    const address = view.getUint32(Number(variable.value), true);
+    if (address === 0) return null;
+    const bytes = new Uint8Array(image.memory.buffer, address);
+    const end = bytes.indexOf(0);
+    return new TextDecoder().decode(bytes.subarray(0, end < 0 ? 0 : end));
   }
 
   // Keep the reply line of a request. The result is the number of bytes of

@@ -133,12 +133,16 @@ signatureScheme floatResult ty = do
       -- type application skips it.
       inferredTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBInferred]
       specifiedTvs = [tyVar | (binder, tyVar) <- zip explicitBinders explicitTvs, tyVarBinderSpecificity binder == TyVarBSpecified]
+      -- An explicit binder shadows a scoped type variable of the same
+      -- name: in @inner :: forall r. r -> Box r@ under an enclosing
+      -- @forall r.@, the @r@ of @inner@ is a new variable. 'Map.union'
+      -- prefers its left argument.
       tvEnv =
-        implicitEnv
-          <> Map.fromList
-            [ (paramName param, (paramTyVar param, paramKind param))
-            | param <- explicitParams
-            ]
+        Map.fromList
+          [ (paramName param, (paramTyVar param, paramKind param))
+          | param <- explicitParams
+          ]
+          <> implicitEnv
   checkedBody <- checkRuntimeType tvEnv body
   preds <- surfaceContextToPreds tvEnv context
   let (floatedTvs, floatedPreds, tcTy)
