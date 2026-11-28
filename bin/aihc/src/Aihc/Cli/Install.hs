@@ -1515,16 +1515,20 @@ packageModuleBuild shared slot installed build =
     package = Package (installedName installed) (PackageId (buildUnitIdentity build))
     dependencies = buildDependencies build
 
--- | The version and the flags of each package of a closure, as plan
--- constraints. A splice of a module builds packages in a nested build. With
--- these constraints, the nested build uses the same packages as the build
--- of the module, and does not solve the plan again with newer releases.
+-- | The version and the flags of each Hackage release of a closure, as
+-- plan constraints. A splice of a module builds packages in a nested build.
+-- With these constraints, the nested build uses the same releases as the
+-- build of the module, and does not solve the plan again with newer
+-- releases. A core library has one version for each compiler. A local
+-- package is not available to the nested build, so a constraint on it
+-- would make the nested build look for it on Hackage.
 planConstraintsOf :: [PackageSlot] -> [String]
 planConstraintsOf slots =
   concat
     [ (name <> " ==" <> showVersion (Cabal.packageVersion (planDescription plan)))
         : [name <> (if value then " +" else " -") <> unFlagName flag | (flag, value) <- unFlagAssignment (planFlags plan)]
     | plan <- map slotPlan slots,
+      planOrigin plan == PlanHackage,
       let name = unPackageName (planName plan)
     ]
 
