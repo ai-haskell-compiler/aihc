@@ -1,0 +1,30 @@
+extensions: [DataKinds, PolyKinds, TypeApplications]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, PolyKinds, TypeApplications #-}
+    module Test where
+    import GHC.Types (Type)
+    data Proxy (a :: k) = Proxy
+    type KindOf (x :: k) = Proxy k
+    data D = D
+    use :: KindOf @Type D -> Proxy Type
+    use p = p
+status: pass
+reason: A visible kind argument of a synonym gives the kind variable of the synonym, not its first parameter.
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, PolyKinds, TypeApplications #-}
+    module Test where
+    import GHC.Types (Type)
+    data Proxy (a :: k) = Proxy
+         │                └─ type: ∀ k a. Proxy a
+         └─ type: k → Type
+    type KindOf (x :: k) = Proxy k
+         └─ type: k → Type
+    data D = D
+         │   └─ type: D
+         └─ type: Type
+    use :: KindOf @Type D -> Proxy Type
+    use p = p
+    │   └─ type: Proxy Type
+    └─ type: Proxy Type → Proxy Type

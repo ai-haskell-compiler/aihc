@@ -749,7 +749,7 @@ isWildcardArgument argument =
 expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 expandTypeSynonym tvEnv ty =
   case synonymApplicationSpine ty of
-    Just (name, arguments) -> do
+    Just (name, kindArguments, arguments) -> do
       maybeInfo <- lookupResolvedTyCon name
       case maybeInfo of
         Just info
@@ -762,6 +762,7 @@ expandTypeSynonym tvEnv ty =
               -- kind metas of the enclosing declaration, which then
               -- defaults or quantifies them.
               mapM_ trackKindMeta [meta | TcMetaTv meta <- instTypeArgs instantiation]
+              applySynonymKindArguments tvEnv name (instTypeArgs instantiation) kindArguments
               let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
                   specialize variable = do
                     kind <- zonkKind (tvKind variable)
@@ -811,16 +812,32 @@ zonkTyVarKinds ty =
             <*> mapM zonkPredicate antecedents
             <*> zonkPredicate consequent
 
--- | The head name and the arguments of a type constructor application,
--- whether it is spelled prefix (@Assert b c@) or infix (@x <= y@). A
--- synonym applied infix expands exactly as one applied prefix does. A
--- promoted infix constructor names a data constructor, never a synonym.
-synonymApplicationSpine :: Type -> Maybe (Name, [Type])
+-- | The head name, the visible kind arguments, and the arguments of a type
+-- constructor application, whether it is spelled prefix (@Assert b c@) or
+-- infix (@x <= y@). A synonym applied infix expands exactly as one applied
+-- prefix does. A promoted infix constructor names a data constructor, never
+-- a synonym.
+--
+-- The visible kind arguments directly follow the head, as @\@(Type ->
+-- Constraint)@ in @PartialApplication \@(Type -> Constraint) HasLink arr@ of
+-- @servant@. They give the kind variables of the synonym, not its
+-- parameters.
+synonymApplicationSpine :: Type -> Maybe (Name, [Type], [Type])
 synonymApplicationSpine ty =
   case typeApplicationSpine ty of
-    (TCon name _, arguments) -> Just (name, arguments)
-    (TInfix lhs name Unpromoted rhs, arguments) -> Just (name, lhs : rhs : arguments)
+    (TCon name _, arguments) ->
+      let (kindArguments, rest) = span fst arguments
+       in Just (name, map snd kindArguments, map snd rest)
+    (TInfix lhs name Unpromoted rhs, arguments) -> Just (name, [], lhs : rhs : map snd arguments)
     _ -> Nothing
+
+-- | Give the visible kind arguments of a synonym use to the kind variables
+-- of the synonym, in order.
+applySynonymKindArguments :: TvKindEnv -> Name -> [TcType] -> [Type] -> TcM ()
+applySynonymKindArguments tvEnv name instantiated kindArguments =
+  case drop (length instantiated) kindArguments of
+    [] -> zipWithM_ (applyKindArgument tvEnv) instantiated kindArguments
+    extra : _ -> emitError (surfaceTypeSpan extra) (OtherError ("too many kind arguments for " <> T.unpack (nameText name)))
 
 instantiateTypeSynonym :: TvKindEnv -> Text -> TypeSynonymInfo -> [Type] -> TcM (TcType, TcType)
 instantiateTypeSynonym tvEnv synonymName synonym arguments = do
@@ -884,7 +901,7 @@ instantiateTypeSynonym tvEnv synonymName synonym arguments = do
 unsaturatedSynonymArgument :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 unsaturatedSynonymArgument tvEnv argument =
   case synonymApplicationSpine argument of
-    Just (name, arguments) -> do
+    Just (name, kindArguments, arguments) -> do
       maybeInfo <- lookupResolvedTyCon name
       case maybeInfo of
         Just info
@@ -894,6 +911,7 @@ unsaturatedSynonymArgument tvEnv argument =
               let ForAll variables _ _ = tciKindScheme info
               instantiation <- instantiateWithArgs (tciKindScheme info)
               mapM_ trackKindMeta [meta | TcMetaTv meta <- instTypeArgs instantiation]
+              applySynonymKindArguments tvEnv name (instTypeArgs instantiation) kindArguments
               let substitution = Map.fromList (zip (map tvUnique variables) (instTypeArgs instantiation))
               parameterKinds <- mapM (fmap (applySubst substitution) . zonkKind . tvKind) (tsiParams synonym)
               checked <- zipWithM (checkSurfaceType tvEnv) arguments parameterKinds
@@ -1004,12 +1022,14 @@ typeVariableUniques ty =
         QuantifiedPred variables antecedents consequent ->
           map tvUnique variables <> concatMap predicateUniques (consequent : antecedents)
 
-typeApplicationSpine :: Type -> (Type, [Type])
+-- | The head of a type application and its arguments. Each argument says
+-- whether it is a visible kind argument (@\@k@).
+typeApplicationSpine :: Type -> (Type, [(Bool, Type)])
 typeApplicationSpine = go []
   where
     go arguments (TAnn _ inner) = go arguments inner
-    go arguments (TApp function argument) = go (argument : arguments) function
-    go arguments (TTypeApp function argument) = go (argument : arguments) function
+    go arguments (TApp function argument) = go ((False, argument) : arguments) function
+    go arguments (TTypeApp function argument) = go ((True, argument) : arguments) function
     go arguments headType = (headType, arguments)
 
 expandTcTypeSynonyms :: Set GlobalName -> TcType -> TcM TcType
