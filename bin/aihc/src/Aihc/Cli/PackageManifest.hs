@@ -41,6 +41,10 @@ data PackageManifest = PackageManifest
     -- @ld-options@. An executable that links the package gives them to
     -- the linker.
     packageManifestLinkArguments :: ![Text],
+    -- | The include directories outside the package that its library
+    -- names, from its Cabal file, its configure script, and pkg-config.
+    -- A dependent package searches them for headers, as in Cabal.
+    packageManifestIncludeDirs :: ![Text],
     -- | The cabal flags the dependency plan decided for the package. Every
     -- other flag is at its default.
     packageManifestCabalFlags :: !(Map Text Bool)
@@ -51,8 +55,8 @@ instance NFData PackageManifest
 
 instance Cbor PackageManifest where
   toCbor value =
-    cborArray 13
-      <> cborText "aihc-packagemanifest-2"
+    cborArray 14
+      <> cborText "aihc-packagemanifest-3"
       <> toCbor (packageManifestName value)
       <> toCbor (packageManifestVersion value)
       <> toCbor (packageManifestIdentity value)
@@ -64,12 +68,14 @@ instance Cbor PackageManifest where
       <> toCbor (packageManifestFlags value)
       <> toCbor (packageManifestCxxStdLib value)
       <> toCbor (packageManifestLinkArguments value)
+      <> toCbor (packageManifestIncludeDirs value)
       <> toCbor (packageManifestCabalFlags value)
   fromCbor = do
-    expectArray 13
-    "aihc-packagemanifest-2" <- getText
+    expectArray 14
+    "aihc-packagemanifest-3" <- getText
     PackageManifest
       <$!> fromCbor
+        <*!> fromCbor
         <*!> fromCbor
         <*!> fromCbor
         <*!> fromCbor

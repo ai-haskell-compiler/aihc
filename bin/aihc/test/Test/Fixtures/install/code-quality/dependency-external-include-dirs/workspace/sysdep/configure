@@ -1,0 +1,7 @@
+#!/bin/sh
+# A stand-in for a configure script that finds a system library. It names
+# the include directory of the library in the buildinfo, as an absolute path
+# outside the package.
+set -e
+directory=$(cd "$(dirname "$0")/../../system/include" && pwd)
+printf 'include-dirs: %s\n' "$directory" > sysdep.buildinfo

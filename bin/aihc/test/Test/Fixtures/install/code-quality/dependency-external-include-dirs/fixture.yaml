@@ -1,0 +1,7 @@
+status: pass
+reason: The configure script of a dependency names an include directory
+  outside the dependency. A dependent package must search it for headers,
+  as in Cabal. postgresql-libpq needs the libpq-fe.h header that the
+  configure script of postgresql-libpq-configure finds.
+input: demo
+workspace: workspace
