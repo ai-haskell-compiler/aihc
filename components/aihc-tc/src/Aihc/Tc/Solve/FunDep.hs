@@ -252,10 +252,17 @@ improveFromInstances givens siblings depth info dependency constraint = do
       -- wanted @RecElem Rec r r' (s ': rs) t0 (RIndex r (s ': rs))@ selects
       -- the instance through @'S i@. Its context then gives @t0 := s ':
       -- rs'@, thus the context sees the rewritten parameters too.
+      --
+      -- A given equality can also name a rigid variable of a determining
+      -- parameter. The instance head then matches the other side too, as
+      -- in GHC. With the given @Ctx val ~ ctx@, the wanted @Use ctx t0@
+      -- selects @instance Use (Ctx val) val@, and the improvement gives
+      -- @t0 := val@. The match only reads the rewritten determiners, so the
+      -- rewrite of a rigid variable binds no meta variable to a new name.
       rewrites <- givenRewrites givens
       familyRewrites <- filterM (isTypeFamilyApplication . fst) rewrites
       let determiners = atPositions determinerPositions
-          rewrittenDeterminers = map (applyGivenSubst familyRewrites) (determiners arguments')
+          rewrittenDeterminers = map (applyGivenSubst rewrites) (determiners arguments')
       candidates <- fmap catMaybes . forM instances $ \instanceInfo -> do
         instanceHead <- classDependencyArguments info (iiHead instanceInfo)
         pure $ do

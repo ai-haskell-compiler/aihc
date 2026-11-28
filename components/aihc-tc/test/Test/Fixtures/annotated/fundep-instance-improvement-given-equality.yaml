@@ -1,0 +1,51 @@
+extensions: [FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, MultiParamTypeClasses, UndecidableInstances]
+modules:
+  - |
+    {-# LANGUAGE FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, MultiParamTypeClasses, UndecidableInstances, NoImplicitPrelude #-}
+    module Test where
+    data Unit = Unit
+    data Ctx val = Ctx val
+    class Use ctx con | ctx -> con where
+      use :: ctx -> con
+    instance Use (Ctx val) val where
+      use (Ctx v) = v
+    class Decode con f where
+      decode :: con -> f
+    class Rep ctx f where
+      rep :: ctx -> f
+    instance (Ctx val ~ ctx, Decode val f) => Rep ctx f where
+      rep ctx = decode (use ctx)
+status: pass
+reason: A given equality that names a rigid determining parameter lets an instance head improve the dependent parameter.
+annotated:
+  - |-
+    {-# LANGUAGE FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, MultiParamTypeClasses, UndecidableInstances, NoImplicitPrelude #-}
+    module Test where
+    data Unit = Unit
+         │      └─ type: ()
+         └─ type: Type
+    data Ctx val = Ctx val
+         │         └─ type: ∀ val. val → Ctx val
+         └─ type: Type → Type
+    class Use ctx con | ctx -> con where
+    └─ class methods: use ∷ ∀ ctx con. (Use ctx con) ⇒ ctx → con; fundeps: ctx → con
+      use :: ctx -> con
+    instance Use (Ctx val) val where
+    └─ $fUseCtxvalval ∷ ∀ val. () ⇒ Use (Ctx val) val
+      use (Ctx v) = v
+      │    │   └─ type: val
+      │    └─ type: Ctx val
+      └─ use ∷ Ctx val → val
+    class Decode con f where
+    └─ class methods: decode ∷ ∀ con f. (Decode con f) ⇒ con → f
+      decode :: con -> f
+    class Rep ctx f where
+    └─ class methods: rep ∷ ∀ ctx f. (Rep ctx f) ⇒ ctx → f
+      rep :: ctx -> f
+    instance (Ctx val ~ ctx, Decode val f) => Rep ctx f where
+    └─ $fRepctxf ∷ ∀ val ctx f. ((Ctx val) ~ ctx, Decode val f) ⇒ Rep ctx f
+      rep ctx = decode (use ctx)
+      │   │     │       └─ type: ctx → val; type-args: ctx, val; evidence: cast($fUseCtxvalval @val, sym (Use sym (given Ctx val ~ ctx) refl val))
+      │   │     └─ type: val → f; type-args: val, f; evidence: given Decode val f
+      │   └─ type: ctx
+      └─ rep ∷ ctx → f
