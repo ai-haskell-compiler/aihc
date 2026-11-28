@@ -87,8 +87,13 @@ finalizeSyntax =
               -- The checker writes the facts of a family instance, a class,
               -- and a deriving plan as final information. They keep their
               -- value, but they must not have a meta variable.
-              factTypeFamilyInstance = \info ->
-                info <$ rejectMeta "finalized type-family instance annotation" (firstMetaTypeFamilyInstance info),
+              factTypeFamilyInstance = \info -> do
+                kinds <- getKinds
+                let render = renderTcType . tidyType kinds
+                info
+                  <$ rejectMeta
+                    ("finalized type-family instance annotation " <> render (tfiiLeft info) <> " = " <> render (tfiiRight info))
+                    (firstMetaTypeFamilyInstance info),
               factDataFamilyInstance = \info ->
                 info <$ rejectMeta "finalized data-family instance annotation" (firstMetaDataFamilyInstance info),
               factClass = \annotation ->

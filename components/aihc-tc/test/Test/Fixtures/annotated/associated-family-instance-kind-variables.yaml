@@ -1,0 +1,37 @@
+extensions:
+  - TypeFamilies
+  - PolyKinds
+  - KindSignatures
+modules:
+  - |
+    {-# LANGUAGE TypeFamilies, PolyKinds, KindSignatures #-}
+    module Test where
+    import GHC.Types
+    type family Arity' (ty :: k) :: Type
+    type Arity (ty :: k) = Arity' k
+    data P (t :: k) = P
+    class C t where
+      type F t
+    instance C (P (arr :: a -> b)) where
+      type F (P arr) = Arity arr
+annotated:
+  - |-
+    {-# LANGUAGE TypeFamilies, PolyKinds, KindSignatures #-}
+    module Test where
+    import GHC.Types
+    type family Arity' (ty :: k) :: Type
+                └─ type: k → Type
+    type Arity (ty :: k) = Arity' k
+         └─ type: k → Type
+    data P (t :: k) = P
+         │            └─ type: ∀ k t. P t
+         └─ type: k → Type
+    class C t where
+    └─ class methods:
+      type F t
+           └─ type: k0 → Type
+    instance C (P (arr :: a -> b)) where
+    └─ $fCParr ∷ ∀ a b arr. () ⇒ C (P arr) [associated types: F (P arr) = Arity' (a → b)]
+      type F (P arr) = Arity arr
+status: pass
+reason: an associated equation variable gets the instance head kind with its kind variables, so the synonym gives Arity' (a -> b)

@@ -5537,10 +5537,16 @@ checkTypeFamilyEquation = checkTypeFamilyEquationIn []
 -- | Check an equation whose variables can be variables of an enclosing
 -- scope, as the variables of an associated equation are the variables of
 -- its instance head. A variable of the equation gets the kind of the
--- scope variable of the same name when that kind names no variable and
--- the equation leaves its own kind open. A kind with a kind variable
--- stays open, because the kind variables of the instance are not
--- variables of the equation.
+-- scope variable of the same name when the equation leaves its own kind
+-- open. In @instance HasLink ((arr :: a -> b) :> sub)@, the variable
+-- @arr@ of the equation @MkLink (arr :> sub) r@ has the kind @a -> b@, as
+-- in GHC. Without that kind, the equation also matches @sym :> sub@ with
+-- @sym :: Symbol@.
+--
+-- A kind variable of the scope kind is the variable of the equation with
+-- the same name, when the equation names it, as @k@ in @type Result (p ::
+-- k -> Constraint)@. Otherwise, the equation binds the kind variable of
+-- the instance (see 'closeKindVariables').
 checkTypeFamilyEquationIn :: [TyVarId] -> (Text, Text) -> Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM (Maybe TypeFamilyInstanceInfo)
 checkTypeFamilyEquationIn scopeTyVars (packageName, moduleName') isClosed extraBinders equation = do
   paramInfos <- typeFamilyEquationParams extraBinders equation
@@ -5551,8 +5557,14 @@ checkTypeFamilyEquationIn scopeTyVars (packageName, moduleName') isClosed extraB
       let open = case ownKind of
             TcMetaTv {} -> True
             _ -> False
-      when (open && null (typeTyVars scopeKind) && null (collectMetaVars scopeKind)) $
-        unifyKinds scopeKind ownKind
+          renaming =
+            Map.fromList
+              [ (tvUnique kindVariable, TcTyVar (paramTyVar own))
+              | kindVariable <- typeTyVars scopeKind,
+                own <- take 1 [other | other <- paramInfos, paramName other == tvName kindVariable]
+              ]
+      when (open && null (collectMetaVars scopeKind)) $
+        unifyKinds (applySubst renaming scopeKind) ownKind
   let tvEnv =
         Map.fromList
           [ (paramName param, (paramTyVar param, paramKind param))
