@@ -1,6 +1,6 @@
 format = 2
 compiler = "ghc-9.12.4"
-index-state = "2026-11-28T06:37:14Z"
+index-state = "2026-11-28T14:51:15Z"
 
 [platforms]
 linux-x86_64 = [
@@ -10,7 +10,7 @@ linux-x86_64 = [
   {name = "aeson", version = "2.2.5.1", source = "hackage", revision = 0},
   {name = "aihc-base", version = "4.21.2.0", source = "core"},
   {name = "aihc-cabal-syntax", version = "2.0.0.0", source = "hackage", revision = 0},
-  {name = "aihc-cpp", version = "2.0.0.1", source = "hackage", revision = 0},
+  {name = "aihc-cpp", version = "2.0.0.2", source = "hackage", revision = 0},
   {name = "aihc-hackage", version = "0.1.0.0", source = "local"},
   {name = "aihc-hackage-fetch", version = "0.1.0.0", source = "local"},
   {name = "aihc-http", version = "0.1.0.0", source = "local"},
@@ -167,7 +167,7 @@ osx-aarch64 = [
   {name = "aeson", version = "2.2.5.1", source = "hackage", revision = 0},
   {name = "aihc-base", version = "4.21.2.0", source = "core"},
   {name = "aihc-cabal-syntax", version = "2.0.0.0", source = "hackage", revision = 0},
-  {name = "aihc-cpp", version = "2.0.0.1", source = "hackage", revision = 0},
+  {name = "aihc-cpp", version = "2.0.0.2", source = "hackage", revision = 0},
   {name = "aihc-hackage", version = "0.1.0.0", source = "local"},
   {name = "aihc-hackage-fetch", version = "0.1.0.0", source = "local"},
   {name = "aihc-http", version = "0.1.0.0", source = "local"},

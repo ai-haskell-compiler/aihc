@@ -36,8 +36,8 @@
 
   # The hash of the Hackage sources of the plans of each system.
   sourcesHashes = {
-    aarch64-darwin = "sha256-mWdeEswiwvY1Jj8JEUs9yj6JuSdXIFoEgdPxNeuKU+I=";
-    x86_64-linux = "sha256-91uDnKQRA91hcNvLMZTPLxuBHBjIyJfJxbfy/ycJWg8=";
+    aarch64-darwin = "sha256-MJJRG2wyxe91MTFmCfl06JGRwyCli9CdEZURdU06jLw=";
+    x86_64-linux = "sha256-d4vM5hwgiZ09bl/xB+m7oB8MWSkgS62TkQJlpIySdRM=";
   };
 
   # The project packages that have a test suite and a plan with Hackage
