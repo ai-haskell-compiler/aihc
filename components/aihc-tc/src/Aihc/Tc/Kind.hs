@@ -392,6 +392,37 @@ requireRuntimeKind ty (tcTy, actual) = do
     KMeta unique -> bindKindMetaAt (surfaceTypeSpan ty) unique (typeKind kinds) >> pure tcTy
     _ -> emitError (surfaceTypeSpan ty) (KindMismatch (typeKind kinds) actual') >> pure tcTy
 
+-- | Keep the kind arguments of an annotated type family application when
+-- its visible arguments do not give them. In servant's
+-- @Break (NoGeneric routes :: Type) a@, the family @NoGeneric ::
+-- forall k. (Type -> Type) -> k@ gets @k@ only from the annotation. The
+-- application does not keep its kind arguments (see 'kindedTyConUse'),
+-- and the place of the type gives no kind: the parameter of @Break@ is
+-- poly-kinded. Thus the annotation is the last place that knows the kind.
+--
+-- The kind arguments are kept only when the annotation gives each of them
+-- without a meta variable. Otherwise the application stays as it is.
+annotatedFamilyKinds :: TyCon -> [TcType] -> TcType -> TcType -> TcM TcType
+annotatedFamilyKinds tyCon arguments annotated application = do
+  found <- lookupTyConByIdentity tyCon
+  case found of
+    Just info
+      | tciFlavor info == TypeFamilyTyCon,
+        hasResultOnlyKindVariable (tciKindScheme info) (length arguments),
+        not (typeMentionsMeta annotated) -> do
+          kinds <- getKinds
+          lookupKind <- getKindLookup
+          zonkedArguments <- mapM zonkKind arguments
+          let ForAll variables _ _ = tciKindScheme info
+              kindArguments = do
+                checked <- either (const Nothing) Just (typeApplicationKindsWith kinds lookupKind tyCon zonkedArguments (Just annotated))
+                mapM (\variable -> Map.lookup (tvUnique variable) (tcInvisibleKindSubstitution checked)) variables
+          pure $ case kindArguments of
+            Just kindArguments'
+              | not (any typeMentionsMeta kindArguments') -> TcTyConApp tyCon kindArguments' arguments
+            _ -> application
+    _ -> pure application
+
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty = do
   expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
@@ -496,10 +527,11 @@ convertNonSynonymTypeWithKinds tvEnv ty = do
       nil <- wiredTyConIdentity tcWiringNilDataCon
       list <- wiredTyConIdentity tcWiringListTyCon
       expected' <- zonkKind expected >>= refineGivenKind
-      let kept = case (innerTy, expected') of
-            (TcTyCon tyCon [], TcTyCon listTyCon [element])
-              | tyCon == nil, listTyCon == list -> kindedTyCon tyCon [element]
-            _ -> innerTy
+      kept <- case (innerTy, expected') of
+        (TcTyCon tyCon [], TcTyCon listTyCon [element])
+          | tyCon == nil, listTyCon == list -> pure (kindedTyCon tyCon [element])
+        (TcTyConApp tyCon [] arguments@(_ : _), _) -> annotatedFamilyKinds tyCon arguments expected' innerTy
+        _ -> pure innerTy
       pure (kept, expected)
     TContext preds inner -> do
       predicates <- surfaceContextToPreds tvEnv preds
