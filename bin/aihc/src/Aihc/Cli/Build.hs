@@ -149,8 +149,8 @@ buildWithConfig reporter options adjust = do
 -- each with the directory it runs in. The options select the test suites
 -- as they select executables. A package without a buildable test suite
 -- builds nothing.
-buildTestSuites :: ProgressReporter -> BuildOptions -> IO [BuiltProgram]
-buildTestSuites reporter options = linkPrograms reporter options id (packageTargets ProgramTestSuite)
+buildTestSuites :: ProgressReporter -> BuildOptions -> (ModuleCompileConfig -> ModuleCompileConfig) -> IO [BuiltProgram]
+buildTestSuites reporter options adjust = linkPrograms reporter options adjust (packageTargets ProgramTestSuite)
 
 -- | Compile the programs that the targets name in one install graph, and
 -- link each of them.
