@@ -480,6 +480,10 @@ quotedType dynamic binders = go
             Just (EntityGlobal global)
               | globalNameNamespace global == ResolutionNamespaceTerm -> pure (call "promotedT" [call "mkNameG_d" (globalNameParts global)])
               | globalNameNamespace global == ResolutionNamespaceType -> pure (call "conT" [call "mkNameG_tc" (globalNameParts global)])
+            -- A type that a declaration of the quote binds becomes a name
+            -- with no module, as the binder of the declaration.
+            Just entity@(EntityLocal _)
+              | entity `Set.member` binders -> pure (call "conT" [dynamicName (R.nameText name)])
             _ -> lift Nothing
         R.TVar name -> pure (call "varT" [dynamicName (R.unqualifiedNameText name)])
         R.TApp function argument -> applied <$> go function <*> go argument
@@ -675,8 +679,10 @@ quoted dynamic binders = go
         Just (EntityGlobal global)
           | isDynamicResolvedName dynamic name -> Just (call "varE" [dynamicName (R.nameText name)])
           | otherwise -> Just (call (builder (R.nameType name)) [resolvedGlobalName name global])
+        -- A constructor that a declaration of the quote binds is a
+        -- constructor of the syntax tree too.
         Just entity@(EntityLocal _)
-          | entity `Set.member` binders -> Just (call "varE" [dynamicName (R.nameText name)])
+          | entity `Set.member` binders -> Just (call (builder (R.nameType name)) [dynamicName (R.nameText name)])
           | otherwise -> Just (call "lift" [EVar (mkName (R.nameQualifier name) (R.nameType name) (R.nameText name))])
         -- The resolver accepts a variable or a constructor that is not in
         -- scope in a quote. As in GHC, the name becomes an unbound variable
@@ -701,6 +707,10 @@ quotedPattern pattern' =
     R.PCon name [] arguments
       | Just (EntityGlobal global) <- R.resolvedNameEntity name ->
           (\arguments' -> call "conP" [resolvedGlobalName name global, EList [], EList arguments']) <$> mapM quotedPattern arguments
+      -- A local constructor is a constructor that a declaration of the
+      -- quote binds.
+      | Just (EntityLocal _) <- R.resolvedNameEntity name ->
+          (\arguments' -> call "conP" [dynamicName (R.nameText name), EList [], EList arguments']) <$> mapM quotedPattern arguments
     _ -> Nothing
 
 -- | The expression that builds the syntax trees of a resolved declaration
@@ -741,7 +751,69 @@ quotedDeclarationList dynamic binders = fmap concat . mapM declaration
               context <- mapM (quotedType dynamic binders) (R.standaloneDerivingContext derivingDecl)
               instanceHead <- quotedType dynamic binders (R.standaloneDerivingHead derivingDecl)
               pure [call "standaloneDerivWithStrategyD" [maybeExpression strategy, call "cxt" [EList context], instanceHead]]
+        R.DeclData dataDecl
+          | isNothing (R.dataDeclCTypePragma dataDecl),
+            isNothing (R.dataDeclKind dataDecl) -> do
+              (name, parameters) <- lift (typeHead (R.dataDeclHead dataDecl))
+              context <- mapM (quotedType dynamic binders) (R.dataDeclContext dataDecl)
+              constructors <- mapM constructor (R.dataDeclConstructors dataDecl)
+              clauses <- mapM derivingClause (R.dataDeclDeriving dataDecl)
+              pure [call "dataD" [call "cxt" [EList context], name, EList parameters, maybeConstructor "Nothing", EList constructors, EList clauses]]
+        R.DeclNewtype newtypeDecl
+          | isNothing (R.newtypeDeclCTypePragma newtypeDecl),
+            isNothing (R.newtypeDeclKind newtypeDecl),
+            Just constructor' <- R.newtypeDeclConstructor newtypeDecl -> do
+              (name, parameters) <- lift (typeHead (R.newtypeDeclHead newtypeDecl))
+              context <- mapM (quotedType dynamic binders) (R.newtypeDeclContext newtypeDecl)
+              constructor'' <- constructor constructor'
+              clauses <- mapM derivingClause (R.newtypeDeclDeriving newtypeDecl)
+              pure [call "newtypeD" [call "cxt" [EList context], name, EList parameters, maybeConstructor "Nothing", constructor'', EList clauses]]
         _ -> lift Nothing
+    -- The name and the parameters of a data type or a newtype. A parameter
+    -- with a kind or an invisible parameter is outside the subset.
+    typeHead binderHead =
+      case binderHead of
+        R.PrefixBinderHead name parameters -> (,) (binderName name) <$> mapM parameter parameters
+        R.InfixBinderHead left name right [] -> (\left' right' -> (binderName name, [left', right'])) <$> parameter left <*> parameter right
+        _ -> Nothing
+    parameter tyVarBinder
+      | isNothing (R.tyVarBinderKind tyVarBinder),
+        R.tyVarBinderVisibility tyVarBinder == TyVarBVisible =
+          Just (call "plainBndrTV" [dynamicName (R.tyVarBinderName tyVarBinder), library "bndrReq"])
+      | otherwise = Nothing
+    -- A constructor with no forall and no context. A GADT constructor is
+    -- outside the subset.
+    constructor dataCon =
+      case dataCon of
+        R.DataConAnn _ inner -> constructor inner
+        R.PrefixCon [] [] name fields -> (\fields' -> call "normalC" [binderName name, EList fields']) <$> mapM field fields
+        R.InfixCon [] [] left name right -> (\left' right' -> call "infixC" [left', binderName name, right']) <$> field left <*> field right
+        R.RecordCon [] [] name fields -> (\fields' -> call "recC" [binderName name, EList (concat fields')]) <$> mapM recordField fields
+        _ -> lift Nothing
+    -- One field for each name of a record field declaration, with the same
+    -- type. A field with a multiplicity is outside the subset.
+    recordField fieldDecl
+      | isNothing (R.fieldMultiplicity fieldDecl) = do
+          field' <- field (R.fieldType fieldDecl)
+          pure [call "varBangType" [binderName name, field'] | name <- R.fieldNames fieldDecl]
+      | otherwise = lift Nothing
+    -- A field type with its strictness. A field with an unpack pragma is
+    -- outside the subset.
+    field bangType'
+      | null (R.bangPragmas bangType') = do
+          ty <- quotedType dynamic binders (R.bangType bangType')
+          let strictness
+                | R.bangStrict bangType' = "sourceStrict"
+                | R.bangLazy bangType' = "sourceLazy"
+                | otherwise = "noSourceStrictness"
+          pure (call "bangType" [call "bang" [library "noSourceUnpackedness", library strictness], ty])
+      | otherwise = lift Nothing
+    derivingClause clause' = do
+      strategy <- traverse derivingStrategy (R.derivingStrategy clause')
+      classes <- case R.derivingClasses clause' of
+        Left name -> (: []) <$> quotedType dynamic binders (R.TCon name Unpromoted)
+        Right classes -> mapM (quotedType dynamic binders) classes
+      pure (call "derivClause" [maybeExpression strategy, EList classes])
     derivingStrategy strategy =
       case strategy of
         R.DerivingStock -> pure (library "stockStrategy")

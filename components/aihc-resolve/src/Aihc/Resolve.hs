@@ -1222,8 +1222,8 @@ resolveExpr expr =
     ETHTypedQuote inner ->
       R.ETHTypedQuote <$> withExpressionQuote True (resolveExpr inner)
     -- The names of a declaration quote with only value bindings, type
-    -- signatures, instances, and standalone deriving declarations have the
-    -- scope of the quote, as the names of an expression quote. The binders
+    -- signatures, instances, standalone deriving declarations, data
+    -- declarations, and newtype declarations have the scope of the quote, as the names of an expression quote. The binders
     -- of the quote are local to the quote, as the binders of a let. The
     -- change of the quote reads the resolutions. The body of a different
     -- declaration quote stays unresolved. But each splice in the body is an expression at the
@@ -1231,7 +1231,8 @@ resolveExpr expr =
     ETHDeclQuote decls
       | all resolvedQuoteDecl decls -> do
           (binderAnnotations, localScope) <- allocateLocalDeclBinders decls
-          R.ETHDeclQuote <$> withExpressionQuote True (extendScope localScope (resolveBoundDecls binderAnnotations Map.empty decls))
+          typeScope <- allocateQuoteTypeBinders decls
+          R.ETHDeclQuote <$> withExpressionQuote True (extendScope (unionScope typeScope localScope) (resolveBoundDecls binderAnnotations Map.empty decls))
       | otherwise ->
           R.ETHDeclQuote <$> mapM (convertDecl quoteSpliceHooks) decls
     -- The names of a type quote have the scope of the quote, as the names
@@ -1269,7 +1270,32 @@ resolvedQuoteDecl decl =
     DeclTypeSig {} -> True
     DeclInstance {} -> True
     DeclStandaloneDeriving {} -> True
+    DeclData {} -> True
+    DeclNewtype {} -> True
     _ -> False
+
+-- | The local binders of the data declarations and the newtype
+-- declarations of a declaration quote: each type, each constructor, and
+-- each record field. The declarations of the quote can use them.
+allocateQuoteTypeBinders :: [Decl] -> ResolveM Scope
+allocateQuoteTypeBinders decls = do
+  fieldScope <- currentScope
+  foldM (add fieldScope) emptyScope decls
+  where
+    add fieldScope scope decl =
+      case snd (peelDeclSpan decl) of
+        inner@DeclData {} -> binders fieldScope scope inner
+        inner@DeclNewtype {} -> binders fieldScope scope inner
+        _ -> pure scope
+    binders fieldScope scope decl = do
+      let DeclExports termNames typeNames constructors recordFields _ _ _ = declExportedNames fieldScope decl
+      scope' <- foldM (\acc name -> (\entity -> insertTerm (renderUnqualifiedName name) entity acc) <$> freshLocal) scope termNames
+      scope'' <- foldM (\acc name -> (\entity -> insertType (renderUnqualifiedName name) entity acc) <$> freshLocal) scope' typeNames
+      pure
+        scope''
+          { scopeConstructors = constructors `Map.union` scopeConstructors scope'',
+            scopeRecordFields = recordFields `Map.union` scopeRecordFields scope''
+          }
 
 -- | Resolve the splices in the unresolved body of a quote.
 --
