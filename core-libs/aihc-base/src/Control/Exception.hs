@@ -3,6 +3,7 @@
 module Control.Exception
   ( module Control.Exception.Base,
     ExceptionWithContext (..),
+    NoBacktrace (..),
     someExceptionContext,
     catchNoPropagate,
     rethrowIO,
@@ -16,7 +17,7 @@ where
 import Control.Exception.Base hiding (FixIOException (..))
 import GHC.IO (catchException)
 import GHC.Internal.Base (Applicative (..), Functor (..), (.))
-import GHC.Internal.Exception.Type (ExceptionWithContext (..), someExceptionContext)
+import GHC.Internal.Exception.Type (ExceptionWithContext (..), NoBacktrace (..), someExceptionContext)
 import GHC.Prim.IO (IO)
 import Prelude (Either (..), foldr, maybe)
 
