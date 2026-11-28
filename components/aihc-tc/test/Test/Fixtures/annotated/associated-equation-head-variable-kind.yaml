@@ -1,0 +1,53 @@
+extensions: [DataKinds, FlexibleInstances, KindSignatures, PolyKinds, TypeFamilies, TypeOperators]
+modules:
+  - |
+    {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, PolyKinds, TypeFamilies, TypeOperators #-}
+    module Test where
+    import GHC.Types (Type, Symbol)
+    data (path :: k) :> (a :: Type)
+    data E
+    data Bad
+    data Unit = Unit
+    class HasLink endpoint where
+      type MkLink endpoint (a :: Type)
+    instance HasLink ((arr :: a -> b) :> sub) where
+      type MkLink (arr :> sub) _ = Bad
+    instance HasLink ((sym :: Symbol) :> sub) where
+      type MkLink (sym :> sub) a = MkLink sub a
+    instance HasLink E where
+      type MkLink E a = a
+    use :: MkLink ("x" :> E) Unit -> Unit
+    use x = x
+status: pass
+reason: An associated equation keeps the kind that the instance head gives a variable, thus it does not match a type of another kind.
+annotated:
+  - |-
+    {-# LANGUAGE DataKinds, FlexibleInstances, KindSignatures, PolyKinds, TypeFamilies, TypeOperators #-}
+    module Test where
+    import GHC.Types (Type, Symbol)
+    data (path :: k) :> (a :: Type)
+                     └─ type: k → Type → Type
+    data E
+         └─ type: Type
+    data Bad
+         └─ type: Type
+    data Unit = Unit
+         │      └─ type: ()
+         └─ type: Type
+    class HasLink endpoint where
+    └─ class methods:
+      type MkLink endpoint (a :: Type)
+           └─ type: k0 → Type → Type
+    instance HasLink ((arr :: a -> b) :> sub) where
+    └─ $fHasLink:>arrsub ∷ ∀ a b sub arr. () ⇒ HasLink (:> arr sub) [associated types: MkLink (:> arr sub) _ = Bad]
+      type MkLink (arr :> sub) _ = Bad
+    instance HasLink ((sym :: Symbol) :> sub) where
+    └─ $fHasLink:>symsub ∷ ∀ sym sub. () ⇒ HasLink (:> sym sub) [associated types: MkLink (:> sym sub) a = MkLink sub a]
+      type MkLink (sym :> sub) a = MkLink sub a
+    instance HasLink E where
+    └─ $fHasLinkE ∷ () ⇒ HasLink E [associated types: MkLink E a = a]
+      type MkLink E a = a
+    use :: MkLink ("x" :> E) Unit -> Unit
+    use x = x
+    │   └─ type: MkLink (:> "x" E) ()
+    └─ type: MkLink (:> "x" E) () → ()

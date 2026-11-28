@@ -449,8 +449,11 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
     -- meta variable in the two kinds, makes the equation not match. In
     -- @Reduced (Switcher c r xs) = r@ the variable @r@ has the kind
     -- 'Type'. A type variable @r@ of a rigid kind @k@ does not match it, as
-    -- in GHC. Only a type variable is checked. The kind of another type can
-    -- have a free variable of its signature: a bare @'[]@ or @TypeError m@.
+    -- in GHC. The kind of another type can have a free variable of its
+    -- signature: a bare @'[]@ or @TypeError m@. Thus another type is only
+    -- checked when its kind has no variable. In @MkLink (arr :> sub) _@ of
+    -- @servant@ the variable @arr@ has the kind @k1 -> k2@, and the
+    -- 'Symbol' @\"x\"@ does not match it.
     variableKinds equation substitution =
       let pairs =
             [ (tvKind variable, actual, actualKind)
@@ -464,13 +467,25 @@ firstEquation family kindOf bareKindArguments equations arguments argumentKinds 
               | any rigidMismatch pairs -> Nothing
               | otherwise -> Just Map.empty
     rigidMismatch (patternKind, actual, actualKind) =
-      isTyVar actual
+      (isTyVar actual || closedKind actualKind)
         && not (typeMentionsMeta patternKind || typeMentionsMeta actualKind)
         && isNothing (matchTypes [patternKind] [actualKind])
     isTyVar ty =
       case ty of
         TcTyVar _ -> True
         _ -> False
+    closedKind ty =
+      case ty of
+        TcTyVar _ -> False
+        TcMetaTv _ -> False
+        TcArrowTy -> True
+        TcTyLit _ -> True
+        TcKindedTyCon _ kindArguments -> all closedKind kindArguments
+        TcTyConApp _ kindArguments arguments -> all closedKind kindArguments && all closedKind arguments
+        TcFunTy argument result -> closedKind argument && closedKind result
+        TcAppTy function argument -> closedKind function && closedKind argument
+        TcForAllTy {} -> False
+        TcQualTy {} -> False
     matchResultKinds _ _ | null extraArguments = Just Map.empty
     matchResultKinds equation substitution = do
       resultKind <- applySubst substitution <$> kindOf (tfiiLeft equation)
